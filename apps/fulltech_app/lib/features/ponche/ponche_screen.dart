@@ -196,6 +196,9 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
     final statusLabel = _statusLabelFrom(lastPunch);
     final statusColor = _statusColorFrom(lastPunch);
     final statusIcon = _statusIconFrom(lastPunch);
+    final chipForeground = statusColor.computeLuminance() > 0.75
+      ? Colors.black87
+      : statusColor;
     final lastStamp = lastPunch != null
         ? DateFormat('dd/MM/yyyy · HH:mm').format(lastPunch.timestamp)
         : null;
@@ -241,11 +244,11 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
               const SizedBox(height: 8),
               Chip(
                 backgroundColor: statusColor.withAlpha((0.15 * 255).round()),
-                avatar: Icon(statusIcon, color: statusColor),
+                avatar: Icon(statusIcon, color: chipForeground),
                 label: Text(
                   statusLabel,
                   style: TextStyle(
-                    color: statusColor,
+                    color: chipForeground,
                     fontWeight: FontWeight.bold,
                   ),
                 ),

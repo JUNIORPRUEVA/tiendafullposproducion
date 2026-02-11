@@ -1,17 +1,28 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client';
+import { diskStorage } from 'multer';
+import { extname, join } from 'node:path';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductCostInterceptor } from './product-cost.interceptor';
 import { ProductsService } from './products.service';
+import { FileInterceptor } from '@nestjs/platform-express';
+import * as fs from 'node:fs';
 
 @UseInterceptors(ProductCostInterceptor)
 @Controller('products')
 export class ProductsController {
-  constructor(private readonly products: ProductsService) {}
+  private readonly uploadDir: string;
+
+  constructor(private readonly products: ProductsService, config: ConfigService) {
+    const dir = config.get<string>('UPLOAD_DIR') ?? join(process.cwd(), 'uploads');
+    this.uploadDir = dir.trim();
+    fs.mkdirSync(this.uploadDir, { recursive: true });
+  }
 
   @UseGuards(AuthGuard('jwt'))
   @Get()
@@ -30,6 +41,32 @@ export class ProductsController {
   @Post()
   create(@Body() dto: CreateProductDto) {
     return this.products.create(dto);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(Role.ADMIN, Role.ASISTENTE)
+  @Post('upload')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: (_req, _file, cb) => cb(null, process.env.UPLOAD_DIR?.trim() || join(process.cwd(), 'uploads')),
+        filename: (_req, file, cb) => {
+          const unique = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+          cb(null, `${unique}${extname(file.originalname)}`);
+        }
+      }),
+      fileFilter: (_req, file, cb) => {
+        const isImage = /^image\/(png|jpe?g|webp)$/.test(file.mimetype);
+        if (!isImage) return cb(new BadRequestException('Solo se permiten imágenes PNG/JPG/WEBP'), false);
+        cb(null, true);
+      },
+      limits: { fileSize: 5 * 1024 * 1024 }
+    })
+  )
+  upload(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No se subió ningún archivo');
+    const relativePath = `/uploads/${file.filename}`;
+    return { filename: file.filename, path: relativePath, url: relativePath };
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)

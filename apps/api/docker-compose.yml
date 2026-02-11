@@ -1,0 +1,33 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fulltech
+      POSTGRES_USER: fulltech
+      POSTGRES_PASSWORD: fulltech
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.docker
+    depends_on:
+      - db
+    ports:
+      - "4000:4000"
+    volumes:
+      - uploads_data:/app/uploads
+    restart: unless-stopped
+    command: sh -c "npx prisma migrate deploy && node dist/main.js"
+
+volumes:
+  db_data:
+  uploads_data:

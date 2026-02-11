@@ -1,3 +1,6 @@
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -51,13 +54,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
       drawer: AppDrawer(currentUser: user),
       floatingActionButton: canManage
           ? FloatingActionButton(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Crear producto (en desarrollo)'),
-                  ),
-                );
-              },
+              onPressed: () => _openProductForm(),
               child: const Icon(Icons.add),
             )
           : null,
@@ -69,6 +66,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
               children: [
                 Expanded(
                   child: TextField(
+                    controller: _searchCtrl,
                     decoration: InputDecoration(
                       hintText: 'Buscar producto…',
                       prefixIcon: const Icon(Icons.search),
@@ -182,24 +180,8 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
                               showCost: isAdmin,
                               canManage: canManage,
                               imageHeight: imageHeight,
-                              onEdit: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Editar producto (en desarrollo)',
-                                    ),
-                                  ),
-                                );
-                              },
-                              onDelete: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Eliminar producto (en desarrollo)',
-                                    ),
-                                  ),
-                                );
-                              },
+                              onEdit: () => _openProductForm(product: p),
+                              onDelete: () => _confirmDelete(p),
                             );
                           },
                         ),
@@ -212,6 +194,61 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _confirmDelete(ProductModel product) async {
+    final controller = ref.read(catalogControllerProvider.notifier);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Eliminar producto'),
+          content: Text('¿Eliminar "${product.nombre}"?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+              child: const Text('Eliminar'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true) return;
+
+    try {
+      await controller.remove(product.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Producto eliminado')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo eliminar: $e')),
+      );
+    }
+  }
+
+  void _openProductForm({ProductModel? product}) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+            top: 16,
+          ),
+          child: _ProductForm(
+            product: product,
+            onSaved: () => Navigator.pop(context),
+          ),
+        );
+      },
     );
   }
 }
@@ -341,6 +378,178 @@ class _ProductCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ProductForm extends ConsumerStatefulWidget {
+  final ProductModel? product;
+  final VoidCallback onSaved;
+
+  const _ProductForm({required this.product, required this.onSaved});
+
+  @override
+  ConsumerState<_ProductForm> createState() => _ProductFormState();
+}
+
+class _ProductFormState extends ConsumerState<_ProductForm> {
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _priceCtrl;
+  late final TextEditingController _costCtrl;
+  Uint8List? _imageBytes;
+  String? _imageName;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: widget.product?.nombre ?? '');
+    _priceCtrl = TextEditingController(text: widget.product?.precio.toStringAsFixed(2) ?? '');
+    _costCtrl = TextEditingController(text: widget.product?.costo.toStringAsFixed(2) ?? '');
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _priceCtrl.dispose();
+    _costCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickImage() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: false, withData: true);
+    if (result != null && result.files.single.bytes != null) {
+      setState(() {
+        _imageBytes = result.files.single.bytes;
+        _imageName = result.files.single.name;
+      });
+    }
+  }
+
+  Future<void> _submit() async {
+    final name = _nameCtrl.text.trim();
+    final price = double.tryParse(_priceCtrl.text.trim());
+    final cost = double.tryParse(_costCtrl.text.trim());
+
+    if (name.isEmpty || price == null || cost == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Completa nombre, precio y costo con valores válidos')),
+      );
+      return;
+    }
+
+    if (widget.product == null && _imageBytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona una imagen para el producto')),
+      );
+      return;
+    }
+
+    setState(() => _saving = true);
+    final controller = ref.read(catalogControllerProvider.notifier);
+
+    try {
+      if (widget.product == null) {
+        await controller.create(
+          nombre: name,
+          precio: price,
+          costo: cost,
+          imageBytes: _imageBytes!,
+          filename: _imageName ?? 'producto.png',
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Producto creado')));
+      } else {
+        await controller.update(
+          id: widget.product!.id,
+          nombre: name,
+          precio: price,
+          costo: cost,
+          newImageBytes: _imageBytes,
+          newFilename: _imageName,
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Producto actualizado')));
+      }
+
+      widget.onSaved();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEdit = widget.product != null;
+    final theme = Theme.of(context);
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(isEdit ? 'Editar producto' : 'Crear producto', style: theme.textTheme.titleMedium),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: _saving ? null : () => Navigator.pop(context),
+              )
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _nameCtrl,
+            decoration: const InputDecoration(labelText: 'Nombre'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _priceCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Precio'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _costCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Costo'),
+          ),
+          const SizedBox(height: 16),
+          Text('Imagen', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              ElevatedButton.icon(
+                onPressed: _saving ? null : _pickImage,
+                icon: const Icon(Icons.file_upload),
+                label: Text(_imageName ?? 'Seleccionar archivo'),
+              ),
+              const SizedBox(width: 12),
+              if (_imageBytes != null)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.memory(_imageBytes!, height: 64, width: 64, fit: BoxFit.cover),
+                )
+              else if (isEdit && widget.product?.fotoUrl != null)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(widget.product!.fotoUrl!, height: 64, width: 64, fit: BoxFit.cover),
+                )
+            ],
+          ),
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: _saving ? null : _submit,
+            child: _saving
+                ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : Text(isEdit ? 'Guardar cambios' : 'Crear producto'),
+          ),
+        ],
       ),
     );
   }

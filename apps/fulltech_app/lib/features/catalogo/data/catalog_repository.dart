@@ -5,6 +5,7 @@ import '../../../core/api/api_routes.dart';
 import '../../../core/auth/auth_repository.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/models/product_model.dart';
+import '../../../core/utils/file_utils.dart';
 
 final catalogRepositoryProvider = Provider<CatalogRepository>((ref) {
   return CatalogRepository(ref.watch(dioProvider));
@@ -32,13 +33,109 @@ class CatalogRepository {
       final data = res.data;
       if (data is List) {
         return data
-            .map((e) => ProductModel.fromJson((e as Map).cast<String, dynamic>()))
+            .map(
+              (e) => ProductModel.fromJson((e as Map).cast<String, dynamic>()),
+            )
             .toList();
       }
       return [];
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudieron cargar los productos'),
+        _extractMessage(
+          e.response?.data,
+          'No se pudieron cargar los productos',
+        ),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<String> uploadImage({
+    required List<int> bytes,
+    required String filename,
+  }) async {
+    try {
+      final formData = FormData.fromMap({
+        'file': MultipartFile.fromBytes(
+          bytes,
+          filename: filename,
+          contentType: detectImageMime(filename),
+        ),
+      });
+      final res = await _dio.post(ApiRoutes.productsUpload, data: formData);
+      final data = res.data;
+      if (data is Map && data['path'] is String) {
+        return data['path'] as String;
+      }
+      if (data is Map && data['url'] is String) {
+        return data['url'] as String;
+      }
+      throw ApiException('No se recibió la ruta de la imagen');
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo subir la imagen'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<ProductModel> createProduct({
+    required String nombre,
+    required double precio,
+    required double costo,
+    required String fotoUrl,
+  }) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.products,
+        data: {
+          'nombre': nombre,
+          'precio': precio,
+          'costo': costo,
+          'fotoUrl': fotoUrl,
+        },
+      );
+      return ProductModel.fromJson((res.data as Map).cast<String, dynamic>());
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo crear el producto'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<ProductModel> updateProduct({
+    required String id,
+    required String nombre,
+    required double precio,
+    required double costo,
+    String? fotoUrl,
+  }) async {
+    try {
+      final res = await _dio.patch(
+        ApiRoutes.updateProduct(id),
+        data: {
+          'nombre': nombre,
+          'precio': precio,
+          'costo': costo,
+          'fotoUrl': fotoUrl,
+        },
+      );
+      return ProductModel.fromJson((res.data as Map).cast<String, dynamic>());
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo actualizar el producto'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<void> deleteProduct(String id) async {
+    try {
+      await _dio.delete(ApiRoutes.deleteProduct(id));
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo eliminar el producto'),
         e.response?.statusCode,
       );
     }
