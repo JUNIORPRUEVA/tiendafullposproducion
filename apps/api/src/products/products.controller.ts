@@ -4,6 +4,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client';
 import { diskStorage } from 'multer';
 import { extname, join } from 'node:path';
+import type { Express } from 'express';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -49,13 +50,14 @@ export class ProductsController {
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
-        destination: (_req, _file, cb) => cb(null, process.env.UPLOAD_DIR?.trim() || join(process.cwd(), 'uploads')),
-        filename: (_req, file, cb) => {
+        destination: (_req: Express.Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) =>
+          cb(null, process.env.UPLOAD_DIR?.trim() || join(process.cwd(), 'uploads')),
+        filename: (_req: Express.Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
           const unique = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
           cb(null, `${unique}${extname(file.originalname)}`);
         }
       }),
-      fileFilter: (_req, file, cb) => {
+      fileFilter: (_req: Express.Request, file: Express.Multer.File, cb: (error: Error | null, acceptFile: boolean) => void) => {
         const isImage = /^image\/(png|jpe?g|webp)$/.test(file.mimetype);
         if (!isImage) return cb(new BadRequestException('Solo se permiten imágenes PNG/JPG/WEBP'), false);
         cb(null, true);

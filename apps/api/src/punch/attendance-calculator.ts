@@ -49,6 +49,13 @@ type PairResult = {
 };
 
 export class AttendanceCalculator {
+  // Dominican Republic time: UTC-4 year-round (America/Santo_Domingo). No DST.
+  private static readonly RD_OFFSET_MS = 4 * 60 * 60 * 1000;
+
+  private static toDominicanLocal(date: Date): Date {
+    return new Date(date.getTime() - this.RD_OFFSET_MS);
+  }
+
   static computeDayMetrics(
     dateKey: string,
     punches: Punch[],
@@ -118,12 +125,12 @@ export class AttendanceCalculator {
   }
 
   static toDayKey(date: Date): string {
-    return date.toISOString().substring(0, 10);
+    return this.toDominicanLocal(date).toISOString().substring(0, 10);
   }
 
   private static isWeekend(dateKey: string, config: AttendanceConfig): boolean {
-    const date = new Date(`${dateKey}T00:00:00`);
-    return config.weekendDays.includes(date.getDay());
+    const localMidnight = new Date(`${dateKey}T00:00:00-04:00`);
+    return config.weekendDays.includes(localMidnight.getUTCDay());
   }
 
   private static findFirst(punches: Punch[], type: PunchType): Punch | undefined {
@@ -159,7 +166,8 @@ export class AttendanceCalculator {
   }
 
   private static minutesSinceMidnight(date: Date) {
-    return date.getHours() * 60 + date.getMinutes();
+    const local = this.toDominicanLocal(date);
+    return local.getUTCHours() * 60 + local.getUTCMinutes();
   }
 
   private static calculateNotWorked(

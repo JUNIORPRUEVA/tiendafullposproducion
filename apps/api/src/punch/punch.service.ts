@@ -1,5 +1,5 @@
 ﻿import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, Punch, PunchType } from '@prisma/client';
+import { Prisma, Punch, PunchType, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AttendanceAggregateMetrics,
@@ -14,6 +14,8 @@ import { AttendanceUserQueryDto } from './dto/attendance-user-query.dto';
 @Injectable()
 export class PunchService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private static readonly RD_OFFSET = '-04:00';
 
   async create(userId: string, type: PunchType) {
     const now = new Date();
@@ -87,7 +89,9 @@ export class PunchService {
     const perDay: AttendanceDayMetrics[] = [];
 
     for (const [, userPunches] of grouped) {
-      const userInfo = userPunches[0].user;
+      const userInfo = (userPunches[0] as any).user as
+        | { id: string; email: string; nombreCompleto: string; role: Role }
+        | undefined;
       if (!userInfo) continue;
 
       const days = this.computeDayMetricsList(userPunches);
@@ -210,16 +214,31 @@ export class PunchService {
   private parseRange(from?: string, to?: string) {
     const range: Prisma.DateTimeFilter = {};
     if (from) {
-      const d = new Date(from);
+      const d = this.parseDateInput(from, true);
       if (Number.isNaN(d.getTime())) throw new BadRequestException('Invalid from');
       range.gte = d;
     }
     if (to) {
-      const d = new Date(to);
+      const d = this.parseDateInput(to, false);
       if (Number.isNaN(d.getTime())) throw new BadRequestException('Invalid to');
-      d.setDate(d.getDate() + 1);
       range.lt = d;
     }
     return Object.keys(range).length ? range : undefined;
+  }
+
+  private parseDateInput(value: string, isStart: boolean): Date {
+    const v = value.trim();
+    const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(v);
+    if (isDateOnly) {
+      const start = new Date(`${v}T00:00:00${PunchService.RD_OFFSET}`);
+      if (Number.isNaN(start.getTime())) {
+        return new Date('invalid');
+      }
+      if (isStart) {
+        return start;
+      }
+      return new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    }
+    return new Date(v);
   }
 }

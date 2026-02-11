@@ -47,12 +47,20 @@ export class UsersController {
 
   @Get('me')
   me(@Req() req: Request) {
-    return this.users.findById(req.user['id']);
+    const user = req.user as { id?: string } | undefined;
+    if (!user?.id) {
+      throw new Error('Usuario no autenticado');
+    }
+    return this.users.findById(user.id);
   }
 
   @Patch('me')
   updateSelf(@Req() req: Request, @Body() dto: SelfUpdateUserDto) {
-    return this.users.updateSelf(req.user['id'], dto);
+    const user = req.user as { id?: string } | undefined;
+    if (!user?.id) {
+      throw new Error('Usuario no autenticado');
+    }
+    return this.users.updateSelf(user.id, dto);
   }
 }
 

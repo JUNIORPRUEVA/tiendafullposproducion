@@ -103,8 +103,8 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
                       itemBuilder: (context, index) {
                         final punch = state.items[index];
                         final time = DateFormat(
-                          'dd/MM/yyyy · HH:mm',
-                        ).format(punch.timestamp);
+                          'dd/MM/yyyy · hh:mm a',
+                        ).format(punch.timestamp.toLocal());
                         return ListTile(
                           leading: Icon(
                             _iconFor(punch.type),
@@ -131,7 +131,7 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
           .read(punchControllerProvider.notifier)
           .register(type);
       if (!mounted) return;
-      final time = DateFormat('HH:mm:ss').format(punch.timestamp);
+      final time = DateFormat('hh:mm a').format(punch.timestamp.toLocal());
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Ponche "${type.label}" registrado a las $time'),
@@ -200,7 +200,7 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
       ? Colors.black87
       : statusColor;
     final lastStamp = lastPunch != null
-        ? DateFormat('dd/MM/yyyy · HH:mm').format(lastPunch.timestamp)
+      ? DateFormat('dd/MM/yyyy · hh:mm a').format(lastPunch.timestamp.toLocal())
         : null;
     final lastLabel = lastPunch != null
         ? '${lastPunch.type.label} · $lastStamp'
@@ -550,8 +550,8 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
                         const SizedBox(height: 8),
                         ...detail.punches.map((punch) {
                           final timestamp = DateFormat(
-                            'dd/MM/yyyy HH:mm',
-                          ).format(punch.timestamp);
+                            'dd/MM/yyyy hh:mm a',
+                          ).format(punch.timestamp.toLocal());
                           return ListTile(
                             leading: Icon(
                               _iconFor(punch.type),
@@ -665,7 +665,9 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
   String _incidentSubtitle(_IncidentItem incident) {
     final sign = incident.type == 'EARLY' ? '-' : '+';
     final timeLabel = incident.timestamp != null
-        ? DateFormat('dd/MM/yyyy · HH:mm').format(incident.timestamp!)
+        ? DateFormat('dd/MM/yyyy · hh:mm a').format(
+            incident.timestamp!.toLocal(),
+          )
         : incident.dayLabel;
     return '$sign${incident.minutes} min · $timeLabel';
   }
@@ -723,7 +725,7 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
 
   String _formatTime(DateTime? time) {
     if (time == null) return '--:--';
-    return DateFormat('HH:mm').format(time);
+    return DateFormat('hh:mm a').format(time.toLocal());
   }
 }
 
