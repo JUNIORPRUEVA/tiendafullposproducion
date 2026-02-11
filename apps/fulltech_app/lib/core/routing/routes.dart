@@ -9,6 +9,7 @@ class Routes {
   static const userDetail = '/users/:id';
   static const ponche = '/ponche';
   static const operaciones = '/operaciones';
+  static const catalogo = '/catalogo';
   static const ventas = '/ventas';
   static const contabilidad = '/contabilidad';
 }

@@ -5,19 +5,22 @@ import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/splash/splash_screen.dart';
 import '../../features/home/home_shell.dart';
-import '../../features/user/user_screen.dart';
 import '../../features/user/profile_screen.dart';
 import '../../features/user/users_screen.dart';
 import '../../features/ponche/ponche_screen.dart';
 import '../../features/operaciones/operaciones_screen.dart';
 import '../../features/ventas/ventas_screen.dart';
 import '../../features/contabilidad/contabilidad_screen.dart';
+import '../../features/catalogo/catalogo_screen.dart';
 import '../auth/auth_provider.dart';
 import 'routes.dart';
 
 final _routerRefreshProvider = Provider<_RouterRefreshNotifier>((ref) {
   final notifier = _RouterRefreshNotifier();
-  ref.listen<AuthState>(authStateProvider, (_, __) => notifier.refresh());
+  ref.listen<AuthState>(
+    authStateProvider,
+    (previous, next) => notifier.refresh(),
+  );
   ref.onDispose(notifier.dispose);
   return notifier;
 });
@@ -38,14 +41,20 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: Routes.login,
         builder: (context, state) => const LoginScreen(),
       ),
-      GoRoute(path: Routes.register, redirect: (_, __) => Routes.login),
-      GoRoute(path: Routes.home, redirect: (_, __) => Routes.user),
+      GoRoute(
+        path: Routes.register,
+        redirect: (context, state) => Routes.login,
+      ),
+      GoRoute(
+        path: Routes.home,
+        redirect: (context, state) => Routes.operaciones,
+      ),
       ShellRoute(
         builder: (context, state, child) => HomeShell(child: child),
         routes: [
           GoRoute(
             path: Routes.user,
-            builder: (context, state) => const UserScreen(),
+            builder: (context, state) => const UsersScreen(),
           ),
           GoRoute(
             path: Routes.profile,
@@ -62,6 +71,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.operaciones,
             builder: (context, state) => const OperacionesScreen(),
+          ),
+          GoRoute(
+            path: Routes.catalogo,
+            builder: (context, state) => const CatalogoScreen(),
           ),
           GoRoute(
             path: Routes.ventas,
@@ -90,7 +103,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       }
 
       if (isAuth && (isAuthRoute || isSplash)) {
-        return Routes.user;
+        return Routes.operaciones;
       }
 
       return null;

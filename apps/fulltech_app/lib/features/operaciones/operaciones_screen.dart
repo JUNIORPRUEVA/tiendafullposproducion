@@ -1,14 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class OperacionesScreen extends StatelessWidget {
+import '../../core/auth/auth_provider.dart';
+import '../../core/widgets/app_drawer.dart';
+
+class OperacionesScreen extends ConsumerWidget {
   const OperacionesScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final modules = ['Servicios', 'Instalaciones', 'Garantías', 'Mantenimientos'];
+  Widget build(BuildContext context, WidgetRef ref) {
+    final modules = [
+      'Servicios',
+      'Instalaciones',
+      'Garantías',
+      'Mantenimientos',
+    ];
     final tasks = List.generate(5, (i) => 'Tarea reciente #$i');
+    final user = ref.watch(authStateProvider).user;
     return Scaffold(
       appBar: AppBar(title: const Text('Operaciones')),
+      drawer: AppDrawer(currentUser: user),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -18,30 +29,41 @@ class OperacionesScreen extends StatelessWidget {
               spacing: 12,
               runSpacing: 12,
               children: modules
-                  .map((m) => SizedBox(
-                        width: 150,
-                        child: Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(m, style: Theme.of(context).textTheme.titleMedium),
-                                const SizedBox(height: 8),
-                                const Text('Placeholder de módulo'),
-                              ],
-                            ),
+                  .map(
+                    (m) => SizedBox(
+                      width: 150,
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                m,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              const Text('Placeholder de módulo'),
+                            ],
                           ),
                         ),
-                      ))
+                      ),
+                    ),
+                  )
                   .toList(),
             ),
             const SizedBox(height: 16),
-            Text('Tareas recientes', style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              'Tareas recientes',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
             Expanded(
               child: ListView.builder(
                 itemCount: tasks.length,
-                itemBuilder: (context, i) => ListTile(title: Text(tasks[i]), subtitle: const Text('Pendiente')), 
+                itemBuilder: (context, i) => ListTile(
+                  title: Text(tasks[i]),
+                  subtitle: const Text('Pendiente'),
+                ),
               ),
             ),
           ],

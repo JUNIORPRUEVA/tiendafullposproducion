@@ -7,6 +7,7 @@ class UserModel {
   final String? experienciaLaboral;
   final String? role;
   final bool blocked;
+  final int? edad;
   final DateTime? createdAt;
 
   UserModel({
@@ -18,6 +19,7 @@ class UserModel {
     this.experienciaLaboral,
     this.role,
     this.blocked = false,
+    this.edad,
     this.createdAt,
   });
 
@@ -31,6 +33,7 @@ class UserModel {
       experienciaLaboral: json['experienciaLaboral'],
       role: json['role'] ?? json['rol'] ?? 'ASISTENTE',
       blocked: json['blocked'] ?? false,
+      edad: json['edad'],
       createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt']) : null,
     );
   }
@@ -45,6 +48,7 @@ class UserModel {
       'experienciaLaboral': experienciaLaboral,
       'role': role,
       'blocked': blocked,
+      'edad': edad,
       'createdAt': createdAt?.toIso8601String(),
     };
   }

@@ -5,6 +5,8 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/utils/string_utils.dart';
+import '../../core/models/user_model.dart';
+import '../user/data/users_repository.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -57,6 +59,14 @@ class ProfileScreen extends ConsumerWidget {
                       ),
                     ),
                     backgroundColor: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.edit),
+                    label: const Text('Editar mi información'),
+                    onPressed: user == null
+                      ? null
+                      : () => _showEditDialog(context, ref, user),
                   ),
                 ],
               ),
@@ -152,6 +162,86 @@ class ProfileScreen extends ConsumerWidget {
             const SizedBox(height: 32),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showEditDialog(BuildContext context, WidgetRef ref, UserModel user) {
+    final nameCtrl = TextEditingController(text: user.nombreCompleto);
+    final emailCtrl = TextEditingController(text: user.email);
+    final passwordCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController(text: user.telefono);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Editar mis datos'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(labelText: 'Nombre completo'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: emailCtrl,
+                decoration: const InputDecoration(labelText: 'Correo'),
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: phoneCtrl,
+                decoration: const InputDecoration(labelText: 'Teléfono'),
+                keyboardType: TextInputType.phone,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: passwordCtrl,
+                decoration: const InputDecoration(labelText: 'Nueva contraseña (opcional)'),
+                obscureText: true,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final payload = <String, dynamic>{
+                'nombreCompleto': nameCtrl.text.trim(),
+                'email': emailCtrl.text.trim(),
+                'telefono': phoneCtrl.text.trim(),
+                'password': passwordCtrl.text.isEmpty ? null : passwordCtrl.text,
+              };
+              payload.removeWhere((key, value) => value == null || (value is String && value.isEmpty));
+
+              try {
+                final repo = ref.read(usersRepositoryProvider);
+                final updated = await repo.updateMe(
+                  email: payload['email'] as String?,
+                  nombreCompleto: payload['nombreCompleto'] as String?,
+                  telefono: payload['telefono'] as String?,
+                  password: payload['password'] as String?,
+                );
+                ref.read(authStateProvider.notifier).setUser(updated);
+                if (!context.mounted) return;
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(const SnackBar(content: Text('Perfil actualizado')));
+              } catch (e) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text('No se pudo actualizar: $e')));
+              }
+            },
+            child: const Text('Guardar cambios'),
+          ),
+        ],
       ),
     );
   }

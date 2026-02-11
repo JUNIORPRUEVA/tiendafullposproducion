@@ -63,4 +63,8 @@ class AuthController extends StateNotifier<AuthState> {
     await storage.clearTokens();
     state = AuthState(isAuthenticated: false, user: null, loading: false);
   }
+
+  void setUser(UserModel user) {
+    state = state.copyWith(user: user, isAuthenticated: true);
+  }
 }

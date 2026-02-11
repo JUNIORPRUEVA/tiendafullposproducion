@@ -3,10 +3,36 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcryptjs';
+import { SelfUpdateUserDto } from './dto/self-update-user.dto';
 
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async findById(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        nombreCompleto: true,
+        telefono: true,
+        edad: true,
+        tieneHijos: true,
+        estaCasado: true,
+        casaPropia: true,
+        vehiculo: true,
+        licenciaConducir: true,
+        role: true,
+        blocked: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
+    if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
 
   async create(dto: CreateUserDto) {
     const exists = await this.prisma.user.findUnique({ where: { email: dto.email } });
@@ -73,10 +99,16 @@ export class UsersService {
     const existing = await this.prisma.user.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('User not found');
 
+    if (dto.email && dto.email !== existing.email) {
+      const emailTaken = await this.prisma.user.findUnique({ where: { email: dto.email } });
+      if (emailTaken) throw new BadRequestException('Email already in use');
+    }
+
     const passwordHash = dto.password ? await bcrypt.hash(dto.password, 10) : undefined;
     return this.prisma.user.update({
       where: { id },
       data: {
+        email: dto.email,
         passwordHash,
         nombreCompleto: dto.nombreCompleto,
         telefono: dto.telefono,
@@ -88,6 +120,43 @@ export class UsersService {
         licenciaConducir: dto.licenciaConducir,
         role: dto.role,
         blocked: dto.blocked
+      },
+      select: {
+        id: true,
+        email: true,
+        nombreCompleto: true,
+        telefono: true,
+        edad: true,
+        tieneHijos: true,
+        estaCasado: true,
+        casaPropia: true,
+        vehiculo: true,
+        licenciaConducir: true,
+        role: true,
+        blocked: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+  }
+
+  async updateSelf(id: string, dto: SelfUpdateUserDto) {
+    const existing = await this.prisma.user.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('User not found');
+
+    if (dto.email && dto.email !== existing.email) {
+      const emailTaken = await this.prisma.user.findUnique({ where: { email: dto.email } });
+      if (emailTaken) throw new BadRequestException('Email already in use');
+    }
+
+    const passwordHash = dto.password ? await bcrypt.hash(dto.password, 10) : undefined;
+    return this.prisma.user.update({
+      where: { id },
+      data: {
+        email: dto.email,
+        nombreCompleto: dto.nombreCompleto,
+        telefono: dto.telefono,
+        passwordHash
       },
       select: {
         id: true,

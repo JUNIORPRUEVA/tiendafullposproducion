@@ -13,7 +13,7 @@ String _getInitials(String name) {
       .map((e) => e.isNotEmpty ? e[0].toUpperCase() : '')
       .join('')
       .replaceAll(' ', '');
-  
+
   if (initials.isEmpty) return 'U';
   if (initials.length >= 2) return initials.substring(0, 2);
   return initials.padRight(2, initials[0]);
@@ -28,10 +28,7 @@ class UserScreen extends ConsumerWidget {
     final user = state.user;
 
     return Scaffold(
-      appBar: CustomAppBar(
-        title: 'FullTech',
-        showLogo: true,
-      ),
+      appBar: CustomAppBar(title: 'FullTech', showLogo: true),
       drawer: AppDrawer(currentUser: user),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -89,7 +86,10 @@ class UserScreen extends ConsumerWidget {
                     _InfoRow('Email', user?.email ?? '—'),
                     _InfoRow('Teléfono', user?.telefono ?? '—'),
                     _InfoRow('Cédula', user?.cedula ?? '—'),
-                    _InfoRow('Experiencia Laboral', user?.experienciaLaboral ?? '—'),
+                    _InfoRow(
+                      'Experiencia Laboral',
+                      user?.experienciaLaboral ?? '—',
+                    ),
                   ],
                 ),
               ),
@@ -111,7 +111,7 @@ class UserScreen extends ConsumerWidget {
                     _InfoRow(
                       'Estado',
                       user?.blocked == true ? 'Bloqueado' : 'Activo',
-                      statusColor: user?.blocked == true 
+                      statusColor: user?.blocked == true
                           ? Theme.of(context).colorScheme.error
                           : Colors.green,
                     ),
@@ -135,7 +135,9 @@ class UserScreen extends ConsumerWidget {
                 onPressed: () {
                   // Implementar edición de perfil
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Edición de perfil en desarrollo')),
+                    const SnackBar(
+                      content: Text('Edición de perfil en desarrollo'),
+                    ),
                   );
                 },
               ),
@@ -167,11 +169,7 @@ class _InfoRow extends StatelessWidget {
   final String value;
   final Color? statusColor;
 
-  const _InfoRow(
-    this.label,
-    this.value, {
-    this.statusColor,
-  });
+  const _InfoRow(this.label, this.value, {this.statusColor});
 
   @override
   Widget build(BuildContext context) {
@@ -202,26 +200,14 @@ class _InfoRow extends StatelessWidget {
                 ),
               Text(
                 value,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
             ],
           ),
         ],
       ),
     );
-  }
-
-  static String _getInitials(String name) {
-    final initials = name
-        .split(' ')
-        .map((e) => e.isNotEmpty ? e[0].toUpperCase() : '')
-        .join('')
-        .replaceAll(' ', '');
-    
-    if (initials.isEmpty) return 'U';
-    if (initials.length >= 2) return initials.substring(0, 2);
-    return initials.padRight(2, initials[0]);
   }
 }

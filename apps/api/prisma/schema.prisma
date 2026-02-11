@@ -12,6 +12,16 @@ enum Role {
   ASISTENTE
   MARKETING
   VENDEDOR
+  TECNICO
+}
+
+enum PunchType {
+  ENTRADA_LABOR
+  SALIDA_LABOR
+  SALIDA_PERMISO
+  ENTRADA_PERMISO
+  SALIDA_ALMUERZO
+  ENTRADA_ALMUERZO
 }
 
 model User {
@@ -32,6 +42,20 @@ model User {
   updatedAt        DateTime @updatedAt
 
   sales Sale[]
+  punches Punch[]
+}
+
+model Punch {
+  id        String     @id @default(uuid()) @db.Uuid
+  userId    String     @db.Uuid
+  type      PunchType
+  timestamp DateTime   @default(now())
+  createdAt DateTime   @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([timestamp])
 }
 
 model Product {
