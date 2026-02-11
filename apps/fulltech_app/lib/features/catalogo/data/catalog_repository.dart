@@ -84,6 +84,7 @@ class CatalogRepository {
     required double precio,
     required double costo,
     required String fotoUrl,
+    required String categoria,
   }) async {
     try {
       final res = await _dio.post(
@@ -93,6 +94,7 @@ class CatalogRepository {
           'precio': precio,
           'costo': costo,
           'fotoUrl': fotoUrl,
+          'categoria': categoria,
         },
       );
       return ProductModel.fromJson((res.data as Map).cast<String, dynamic>());
@@ -110,6 +112,7 @@ class CatalogRepository {
     required double precio,
     required double costo,
     String? fotoUrl,
+    String? categoria,
   }) async {
     try {
       final res = await _dio.patch(
@@ -119,6 +122,7 @@ class CatalogRepository {
           'precio': precio,
           'costo': costo,
           'fotoUrl': fotoUrl,
+          'categoria': categoria,
         },
       );
       return ProductModel.fromJson((res.data as Map).cast<String, dynamic>());

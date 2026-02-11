@@ -65,12 +65,13 @@ class CatalogController extends StateNotifier<CatalogState> {
     required double costo,
     required List<int> imageBytes,
     required String filename,
+    required String categoria,
   }) async {
     state = state.copyWith(saving: true, actionError: null);
     try {
       final repo = ref.read(catalogRepositoryProvider);
       final path = await repo.uploadImage(bytes: imageBytes, filename: filename);
-      final created = await repo.createProduct(nombre: nombre, precio: precio, costo: costo, fotoUrl: path);
+      final created = await repo.createProduct(nombre: nombre, precio: precio, costo: costo, fotoUrl: path, categoria: categoria);
       final updated = [created, ...state.items];
       state = state.copyWith(items: updated, saving: false);
     } catch (e) {
@@ -85,6 +86,7 @@ class CatalogController extends StateNotifier<CatalogState> {
     required String nombre,
     required double precio,
     required double costo,
+    required String categoria,
     List<int>? newImageBytes,
     String? newFilename,
   }) async {
@@ -95,7 +97,14 @@ class CatalogController extends StateNotifier<CatalogState> {
       if (newImageBytes != null && newFilename != null) {
         fotoUrl = await repo.uploadImage(bytes: newImageBytes, filename: newFilename);
       }
-      final updated = await repo.updateProduct(id: id, nombre: nombre, precio: precio, costo: costo, fotoUrl: fotoUrl);
+      final updated = await repo.updateProduct(
+        id: id,
+        nombre: nombre,
+        precio: precio,
+        costo: costo,
+        fotoUrl: fotoUrl,
+        categoria: categoria,
+      );
       final list = state.items.map((p) => p.id == id ? updated : p).toList();
       state = state.copyWith(items: list, saving: false);
     } catch (e) {

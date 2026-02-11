@@ -51,8 +51,9 @@ class AuthRepository {
         data: {'email': email.trim(), 'password': password},
       );
       final access = res.data['accessToken'] as String?;
+      final refresh = res.data['refreshToken'] as String?;
       if (access != null && access.isNotEmpty) {
-        await _storage.saveTokens(access);
+        await _storage.saveTokens(access, refresh);
       }
       final me = await _dio.get(ApiRoutes.me);
       return UserModel.fromJson((me.data as Map).cast<String, dynamic>());
@@ -68,10 +69,38 @@ class AuthRepository {
     try {
       final token = await _storage.getAccessToken();
       if (token == null) return null;
-      final res = await _dio.get(ApiRoutes.me);
-      return UserModel.fromJson(res.data);
+      try {
+        final res = await _dio.get(ApiRoutes.me);
+        return UserModel.fromJson(res.data);
+      } on DioException catch (e) {
+        // Si expira, intenta refresh y reintenta
+        if (e.response?.statusCode == 401) {
+          final refreshed = await _refreshAndSave();
+          if (refreshed) {
+            final res = await _dio.get(ApiRoutes.me);
+            return UserModel.fromJson(res.data);
+          }
+        }
+        return null;
+      }
     } catch (_) {
       return null;
     }
+  }
+
+  Future<bool> _refreshAndSave() async {
+    final refresh = await _storage.getRefreshToken();
+    if (refresh == null || refresh.isEmpty) return false;
+    try {
+      final res = await _dio.post(ApiRoutes.refresh, data: {'refreshToken': refresh});
+      final access = res.data['accessToken'] as String?;
+      if (access != null && access.isNotEmpty) {
+        await _storage.saveTokens(access, refresh);
+        return true;
+      }
+    } catch (_) {
+      return false;
+    }
+    return false;
   }
 }

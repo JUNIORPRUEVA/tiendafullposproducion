@@ -42,6 +42,13 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
     }.toList()
       ..sort();
 
+    final categoryOptions = catalog.items
+        .map((p) => p.categoriaLabel)
+        .where((c) => c.isNotEmpty && c != 'Sin categoría')
+        .toSet()
+        .toList()
+      ..sort();
+
     final query = _searchCtrl.text.trim().toLowerCase();
     final filtered = catalog.items.where((p) {
       final matchCategory = _category == 'Todas' || p.categoriaLabel == _category;
@@ -54,7 +61,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
       drawer: AppDrawer(currentUser: user),
       floatingActionButton: canManage
           ? FloatingActionButton(
-              onPressed: () => _openProductForm(),
+              onPressed: () => _openProductForm(categories: categoryOptions),
               child: const Icon(Icons.add),
             )
           : null,
@@ -180,7 +187,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
                               showCost: isAdmin,
                               canManage: canManage,
                               imageHeight: imageHeight,
-                              onEdit: () => _openProductForm(product: p),
+                              onEdit: () => _openProductForm(product: p, categories: categoryOptions),
                               onDelete: () => _confirmDelete(p),
                             );
                           },
@@ -230,7 +237,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
     }
   }
 
-  void _openProductForm({ProductModel? product}) {
+  void _openProductForm({ProductModel? product, required List<String> categories}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -245,6 +252,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
           ),
           child: _ProductForm(
             product: product,
+            categories: categories,
             onSaved: () => Navigator.pop(context),
           ),
         );
@@ -386,8 +394,9 @@ class _ProductCard extends StatelessWidget {
 class _ProductForm extends ConsumerStatefulWidget {
   final ProductModel? product;
   final VoidCallback onSaved;
+  final List<String> categories;
 
-  const _ProductForm({required this.product, required this.onSaved});
+  const _ProductForm({required this.product, required this.onSaved, required this.categories});
 
   @override
   ConsumerState<_ProductForm> createState() => _ProductFormState();
@@ -397,6 +406,7 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _priceCtrl;
   late final TextEditingController _costCtrl;
+  late final TextEditingController _categoryCtrl;
   Uint8List? _imageBytes;
   String? _imageName;
   bool _saving = false;
@@ -407,6 +417,8 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
     _nameCtrl = TextEditingController(text: widget.product?.nombre ?? '');
     _priceCtrl = TextEditingController(text: widget.product?.precio.toStringAsFixed(2) ?? '');
     _costCtrl = TextEditingController(text: widget.product?.costo.toStringAsFixed(2) ?? '');
+    final initialCategory = widget.product?.categoriaLabel;
+    _categoryCtrl = TextEditingController(text: initialCategory == 'Sin categoría' ? '' : (initialCategory ?? ''));
   }
 
   @override
@@ -414,6 +426,7 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
     _nameCtrl.dispose();
     _priceCtrl.dispose();
     _costCtrl.dispose();
+    _categoryCtrl.dispose();
     super.dispose();
   }
 
@@ -431,10 +444,18 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
     final name = _nameCtrl.text.trim();
     final price = double.tryParse(_priceCtrl.text.trim());
     final cost = double.tryParse(_costCtrl.text.trim());
+    final category = _categoryCtrl.text.trim();
 
     if (name.isEmpty || price == null || cost == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Completa nombre, precio y costo con valores válidos')),
+      );
+      return;
+    }
+
+    if (category.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Agrega una categoría')), 
       );
       return;
     }
@@ -457,6 +478,7 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
           costo: cost,
           imageBytes: _imageBytes!,
           filename: _imageName ?? 'producto.png',
+          categoria: category,
         );
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Producto creado')));
@@ -468,6 +490,7 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
           costo: cost,
           newImageBytes: _imageBytes,
           newFilename: _imageName,
+          categoria: category,
         );
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Producto actualizado')));
@@ -519,6 +542,25 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(labelText: 'Costo'),
           ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _categoryCtrl,
+            decoration: const InputDecoration(labelText: 'Categoría (elige o crea)'),
+          ),
+          if (widget.categories.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: widget.categories
+                  .map((c) => ChoiceChip(
+                        label: Text(c),
+                        selected: _categoryCtrl.text.trim() == c,
+                        onSelected: (_) => _categoryCtrl.text = c,
+                      ))
+                  .toList(),
+            ),
+          ],
           const SizedBox(height: 16),
           Text('Imagen', style: theme.textTheme.titleSmall),
           const SizedBox(height: 8),

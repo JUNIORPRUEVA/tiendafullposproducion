@@ -15,5 +15,8 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   fotoUrl?: string;
+
+  @IsString()
+  categoria!: string;
 }
 
