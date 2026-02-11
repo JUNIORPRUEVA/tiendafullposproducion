@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# env files (keep local only)
+.env
+apps/api/.env
+

@@ -1,0 +1,16 @@
+{
+  "name": "fulltech",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "api:dev": "npm --workspace apps/api run start:dev",
+    "api:build": "npm --workspace apps/api run build",
+    "api:smoke": "npm --workspace apps/api run test:smoke",
+    "api:migrate:dev": "npm --workspace apps/api run prisma:migrate:dev",
+    "api:migrate:deploy": "npm --workspace apps/api run prisma:migrate:deploy",
+    "api:seed": "npm --workspace apps/api run prisma:seed"
+  }
+}
+
