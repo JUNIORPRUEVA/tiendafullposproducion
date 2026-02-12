@@ -35,11 +35,12 @@ class PunchState {
   }
 }
 
-final punchControllerProvider = StateNotifierProvider.autoDispose<PunchController, PunchState>((ref) {
-  // Recreate/clear state when el usuario cambia para no mostrar ponches de otra sesión.
-  ref.watch(authStateProvider);
-  return PunchController(ref);
-});
+final punchControllerProvider =
+    StateNotifierProvider.autoDispose<PunchController, PunchState>((ref) {
+      // Recreate/clear state when el usuario cambia para no mostrar ponches de otra sesión.
+      ref.watch(authStateProvider);
+      return PunchController(ref);
+    });
 
 class PunchController extends StateNotifier<PunchState> {
   final Ref ref;
@@ -49,30 +50,41 @@ class PunchController extends StateNotifier<PunchState> {
   }
 
   Future<void> load({DateTime? from, DateTime? to}) async {
+    if (!mounted) return;
     state = state.copyWith(loading: true, clearError: true);
     try {
       final repo = ref.read(punchRepositoryProvider);
       final items = await repo.listMine(from: from, to: to);
+      if (!mounted) return;
       state = state.copyWith(items: items, loading: false);
     } catch (e) {
-      final message = e is ApiException ? e.message : 'No se pudo cargar el historial';
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudo cargar el historial';
+      if (!mounted) return;
       state = state.copyWith(loading: false, error: message);
     }
   }
 
   Future<PunchModel> register(PunchType type) async {
+    if (!mounted) {
+      throw ApiException('Operación cancelada');
+    }
     state = state.copyWith(creating: true, clearError: true);
     try {
       final repo = ref.read(punchRepositoryProvider);
       final punch = await repo.createPunch(type);
-      state = state.copyWith(
-        creating: false,
-        items: [punch, ...state.items],
-      );
+      if (mounted) {
+        state = state.copyWith(creating: false, items: [punch, ...state.items]);
+      }
       return punch;
     } catch (e) {
-      final message = e is ApiException ? e.message : 'No se pudo registrar el ponche';
-      state = state.copyWith(creating: false, error: message);
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudo registrar el ponche';
+      if (mounted) {
+        state = state.copyWith(creating: false, error: message);
+      }
       throw ApiException(message);
     }
   }
@@ -143,19 +155,26 @@ class AttendanceDashboardState {
     );
   }
 
-  factory AttendanceDashboardState.initial() => const AttendanceDashboardState();
+  factory AttendanceDashboardState.initial() =>
+      const AttendanceDashboardState();
 }
 
-final attendanceDashboardControllerProvider = StateNotifierProvider.autoDispose<AttendanceDashboardController, AttendanceDashboardState>((ref) {
-  // Recalcular datos administrativos al cambiar de usuario/sesión.
-  ref.watch(authStateProvider);
-  return AttendanceDashboardController(ref);
-});
+final attendanceDashboardControllerProvider =
+    StateNotifierProvider.autoDispose<
+      AttendanceDashboardController,
+      AttendanceDashboardState
+    >((ref) {
+      // Recalcular datos administrativos al cambiar de usuario/sesión.
+      ref.watch(authStateProvider);
+      return AttendanceDashboardController(ref);
+    });
 
-class AttendanceDashboardController extends StateNotifier<AttendanceDashboardState> {
+class AttendanceDashboardController
+    extends StateNotifier<AttendanceDashboardState> {
   final Ref ref;
 
-  AttendanceDashboardController(this.ref) : super(AttendanceDashboardState.initial()) {
+  AttendanceDashboardController(this.ref)
+    : super(AttendanceDashboardState.initial()) {
     _loadSummary();
   }
 
@@ -167,9 +186,15 @@ class AttendanceDashboardController extends StateNotifier<AttendanceDashboardSta
     bool? incidentsOnly,
   }) async {
     final nextFilter = filterOption ?? state.filterOption;
-    final normalizedUser = _normalizeUser(selectedUserId ?? state.selectedUserId);
-    final nextFrom = nextFilter == AttendanceFilterOption.range ? customFrom ?? state.customFrom : null;
-    final nextTo = nextFilter == AttendanceFilterOption.range ? customTo ?? state.customTo : null;
+    final normalizedUser = _normalizeUser(
+      selectedUserId ?? state.selectedUserId,
+    );
+    final nextFrom = nextFilter == AttendanceFilterOption.range
+        ? customFrom ?? state.customFrom
+        : null;
+    final nextTo = nextFilter == AttendanceFilterOption.range
+        ? customTo ?? state.customTo
+        : null;
 
     state = state.copyWith(
       filterOption: nextFilter,
@@ -190,6 +215,7 @@ class AttendanceDashboardController extends StateNotifier<AttendanceDashboardSta
   Future<void> refresh() async => _loadSummary();
 
   Future<void> loadDetail(String userId) async {
+    if (!mounted) return;
     state = state.copyWith(
       detailLoading: true,
       detailError: null,
@@ -198,20 +224,34 @@ class AttendanceDashboardController extends StateNotifier<AttendanceDashboardSta
     );
 
     try {
-      final detail = await ref.read(punchRepositoryProvider).fetchAttendanceDetail(
-            userId,
-            from: _resolvedFrom,
-            to: _resolvedTo,
-          );
-      state = state.copyWith(detailLoading: false, detail: detail, clearDetailError: true);
+      final detail = await ref
+          .read(punchRepositoryProvider)
+          .fetchAttendanceDetail(userId, from: _resolvedFrom, to: _resolvedTo);
+      if (!mounted) return;
+      state = state.copyWith(
+        detailLoading: false,
+        detail: detail,
+        clearDetailError: true,
+      );
     } catch (e) {
-      final message = e is ApiException ? e.message : 'No se pudo cargar el detalle';
-      state = state.copyWith(detailLoading: false, detailError: message, clearDetail: true);
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudo cargar el detalle';
+      if (!mounted) return;
+      state = state.copyWith(
+        detailLoading: false,
+        detailError: message,
+        clearDetail: true,
+      );
     }
   }
 
   void clearDetail() {
-    state = state.copyWith(clearDetail: true, clearDetailError: true, detailUserId: null);
+    state = state.copyWith(
+      clearDetail: true,
+      clearDetailError: true,
+      detailUserId: null,
+    );
   }
 
   DateTime? get _resolvedFrom {
@@ -220,7 +260,11 @@ class AttendanceDashboardController extends StateNotifier<AttendanceDashboardSta
       case AttendanceFilterOption.today:
         return DateTime(now.year, now.month, now.day);
       case AttendanceFilterOption.yesterday:
-        final yesterday = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 1));
+        final yesterday = DateTime(
+          now.year,
+          now.month,
+          now.day,
+        ).subtract(const Duration(days: 1));
         return yesterday;
       case AttendanceFilterOption.range:
         return state.customFrom;
@@ -238,17 +282,24 @@ class AttendanceDashboardController extends StateNotifier<AttendanceDashboardSta
   }
 
   Future<void> _loadSummary() async {
+    if (!mounted) return;
     state = state.copyWith(loading: true, clearError: true);
     try {
-      final summary = await ref.read(punchRepositoryProvider).fetchAttendanceSummary(
+      final summary = await ref
+          .read(punchRepositoryProvider)
+          .fetchAttendanceSummary(
             from: _resolvedFrom,
             to: _resolvedTo,
             userId: state.selectedUserId,
             incidentsOnly: state.incidentsOnly,
           );
+      if (!mounted) return;
       state = state.copyWith(loading: false, summary: summary);
     } catch (e) {
-      final message = e is ApiException ? e.message : 'No se pudo cargar el dashboard de asistencia';
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudo cargar el dashboard de asistencia';
+      if (!mounted) return;
       state = state.copyWith(loading: false, error: message);
     }
   }
@@ -297,11 +348,14 @@ class AdminPunchState {
   }
 }
 
-final adminPunchControllerProvider = StateNotifierProvider.autoDispose<AdminPunchController, AdminPunchState>((ref) {
-  // Evita que datos de otra sesión persistan en el panel admin.
-  ref.watch(authStateProvider);
-  return AdminPunchController(ref);
-});
+final adminPunchControllerProvider =
+    StateNotifierProvider.autoDispose<AdminPunchController, AdminPunchState>((
+      ref,
+    ) {
+      // Evita que datos de otra sesión persistan en el panel admin.
+      ref.watch(authStateProvider);
+      return AdminPunchController(ref);
+    });
 
 class AdminPunchController extends StateNotifier<AdminPunchState> {
   final Ref ref;
@@ -311,18 +365,31 @@ class AdminPunchController extends StateNotifier<AdminPunchState> {
   }
 
   Future<void> refresh() async {
+    if (!mounted) return;
     state = state.copyWith(loading: true, clearError: true);
     try {
       final repo = ref.read(punchRepositoryProvider);
-      final items = await repo.listAdmin(userId: state.userId, from: state.from, to: state.to);
+      final items = await repo.listAdmin(
+        userId: state.userId,
+        from: state.from,
+        to: state.to,
+      );
+      if (!mounted) return;
       state = state.copyWith(items: items, loading: false);
     } catch (e) {
-      final message = e is ApiException ? e.message : 'No se pudieron cargar los ponches';
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudieron cargar los ponches';
+      if (!mounted) return;
       state = state.copyWith(loading: false, error: message);
     }
   }
 
-  Future<void> applyFilters({String? userId, DateTime? from, DateTime? to}) async {
+  Future<void> applyFilters({
+    String? userId,
+    DateTime? from,
+    DateTime? to,
+  }) async {
     state = state.copyWith(userId: userId, from: from, to: to);
     await refresh();
   }

@@ -76,7 +76,7 @@ export class ProductsService {
   }
 
   private mapProduct(product: Product & { category?: Category | null }) {
-    const fotoUrl = this.resolveUrl(product.fotoUrl);
+    const fotoUrl = this.resolveUrl(product.fotoUrl ?? null);
     return {
       ...product,
       fotoUrl,
@@ -84,8 +84,8 @@ export class ProductsService {
     };
   }
 
-  private resolveUrl(url?: string | null) {
-    if (!url) return url;
+  private resolveUrl(url: string | null): string | null {
+    if (!url) return null;
     if (/^https?:\/\//i.test(url)) return url;
     if (!this.publicBaseUrl) return url;
     const normalized = url.startsWith('/') ? url : `/${url}`;

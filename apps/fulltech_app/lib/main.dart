@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'features/contabilidad/contabilidad_init.dart';
 import 'core/routing/app_router.dart';
 import 'core/theme/app_theme.dart';
+
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await _ensureEnvLoaded();
+  await ensureContabilidadLocale();
   runApp(const ProviderScope(child: MyApp()));
 }
 

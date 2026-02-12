@@ -1,4 +1,7 @@
-import { IsInt, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { SaleStatus } from '@prisma/client';
+import { Type } from 'class-transformer';
+import { IsArray, IsEnum, IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator';
+import { CreateSaleItemDto } from './create-sale-item.dto';
 
 export class CreateSaleDto {
   @IsOptional()
@@ -6,26 +9,17 @@ export class CreateSaleDto {
   clientId?: string;
 
   @IsOptional()
-  @IsUUID()
-  productId?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  cantidad?: number;
-
-  @IsNumber()
-  @Min(0)
-  totalVenta!: number;
-
-  @IsOptional()
-  @IsNumber()
-  puntosUtilidad?: number;
-
-  // Intentionally ignored: userId always comes from JWT token.
-  // Kept here only to avoid request rejection when clients send it.
-  @IsOptional()
   @IsString()
-  userId?: string;
+  note?: string;
+
+  @IsOptional()
+  @IsEnum(SaleStatus)
+  status?: SaleStatus;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateSaleItemDto)
+  items?: CreateSaleItemDto[];
 }
 

@@ -21,10 +21,20 @@ class ApiRoutes {
 
   // Ventas
   static const sales = '/sales';
-  static const saleItems = '/sale_items';
+  static const salesMe = '/sales/me';
+  static String saleDetail(String id) => '/sales/$id';
+  static String saleItems(String saleId) => '/sales/$saleId/items';
+  static String saleItemDetail(String saleId, String itemId) => '/sales/$saleId/items/$itemId';
+  static const adminSales = '/admin/sales';
+  static const adminSalesSummary = '/admin/sales/summary';
+  static String adminSaleDetail(String id) => '/admin/sales/$id';
 
   // Contabilidad
   static const ledger = '/ledger';
+
+  // Clientes
+  static const clients = '/clients';
+  static String clientDetail(String id) => '/clients/$id';
 
   // Productos
   static const products = '/products';

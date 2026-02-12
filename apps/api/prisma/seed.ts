@@ -1,26 +1,132 @@
-import { PrismaClient, Role } from '@prisma/client';
+import { Prisma, PrismaClient, Role, SaleStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
+async function upsertUser({ email, password, nombreCompleto, telefono, role }: { email: string; password: string; nombreCompleto: string; telefono: string; role: Role }) {
+  const passwordHash = await bcrypt.hash(password, 10);
+  return prisma.user.upsert({
+    where: { email },
+    update: { nombreCompleto, telefono, role, passwordHash, blocked: false },
+    create: { email, passwordHash, nombreCompleto, telefono, edad: 0, role, blocked: false, tieneHijos: false, estaCasado: false, casaPropia: false, vehiculo: false, licenciaConducir: false }
+  });
+}
+
 async function main() {
-  const email = 'admin@fulltech.local';
-  const plainPassword = 'Admin12345!';
+  const admin = await upsertUser({
+    email: 'admin@fulltech.local',
+    password: 'Admin12345!',
+    nombreCompleto: 'Administrador',
+    telefono: '0000000000',
+    role: Role.ADMIN
+  });
 
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) return;
+  const seller1 = await upsertUser({
+    email: 'vendedor1@fulltech.local',
+    password: 'Seller12345!',
+    nombreCompleto: 'Vendedor Uno',
+    telefono: '8090000001',
+    role: Role.VENDEDOR
+  });
 
-  const passwordHash = await bcrypt.hash(plainPassword, 10);
-  await prisma.user.create({
-    data: {
-      email,
-      passwordHash,
-      nombreCompleto: 'Administrador',
-      telefono: '0000000000',
-      edad: 0,
-      role: Role.ADMIN,
-      blocked: false
+  const seller2 = await upsertUser({
+    email: 'vendedor2@fulltech.local',
+    password: 'Seller12345!',
+    nombreCompleto: 'Vendedor Dos',
+    telefono: '8090000002',
+    role: Role.VENDEDOR
+  });
+
+  const ensureProduct = async (nombre: string, precio: number, costo: number) => {
+    const existing = await prisma.product.findFirst({ where: { nombre } });
+    if (existing) {
+      return prisma.product.update({ where: { id: existing.id }, data: { precio: new Prisma.Decimal(precio), costo: new Prisma.Decimal(costo) } });
     }
+    return prisma.product.create({ data: { nombre, precio: new Prisma.Decimal(precio), costo: new Prisma.Decimal(costo) } });
+  };
+
+  const products = await Promise.all([
+    ensureProduct('Laptop Pro 14"', 1450, 1100),
+    ensureProduct('Monitor 27" 4K', 520, 360),
+    ensureProduct('Mouse Inalámbrico', 35, 18)
+  ]);
+
+  const ensureClient = async (nombre: string, data: { telefono?: string; email?: string; direccion?: string; notas?: string }) => {
+    const existing = await prisma.client.findFirst({ where: { nombre } });
+    if (existing) {
+      return prisma.client.update({ where: { id: existing.id }, data });
+    }
+    return prisma.client.create({ data: { nombre, ...data } });
+  };
+
+  const clients = await Promise.all([
+    ensureClient('Cliente Corporativo', {
+      telefono: '8095550001',
+      email: 'compras@corp.do',
+      direccion: 'Av. Principal 123',
+      notas: 'Prefiere facturas electrónicas'
+    }),
+    ensureClient('Juan Pérez', {
+      telefono: '8095550002',
+      email: 'juanperez@mail.com'
+    })
+  ]);
+
+  // Seed a confirmed sale for seller1 with 2 items
+  const sale = await prisma.sale.create({
+    data: {
+      sellerId: seller1.id,
+      clientId: clients[0].id,
+      status: SaleStatus.CONFIRMED,
+      note: 'Venta de ejemplo seed',
+      subtotal: new Prisma.Decimal(0),
+      totalCost: new Prisma.Decimal(0),
+      profit: new Prisma.Decimal(0),
+      commission: new Prisma.Decimal(0)
+    }
+  });
+
+  const seedItems = [
+    { product: products[0], qty: 1, unitPrice: products[0].precio },
+    { product: products[1], qty: 2, unitPrice: products[1].precio }
+  ];
+
+  let subtotal = new Prisma.Decimal(0);
+  let totalCost = new Prisma.Decimal(0);
+  let profit = new Prisma.Decimal(0);
+
+  for (const item of seedItems) {
+    const qtyDec = new Prisma.Decimal(item.qty);
+    const lineTotal = item.unitPrice.mul(qtyDec);
+    const lineCost = item.product.costo.mul(qtyDec);
+    const lineProfit = lineTotal.sub(lineCost);
+
+    await prisma.saleItem.create({
+      data: {
+        saleId: sale.id,
+        productId: item.product.id,
+        qty: item.qty,
+        unitPriceSold: item.unitPrice,
+        unitCostSnapshot: item.product.costo,
+        lineTotal,
+        lineCost,
+        lineProfit
+      }
+    });
+
+    subtotal = subtotal.add(lineTotal);
+    totalCost = totalCost.add(lineCost);
+    profit = profit.add(lineProfit);
+  }
+
+  const commission = profit.greaterThan(0) ? profit.mul(0.1) : new Prisma.Decimal(0);
+  await prisma.sale.update({ where: { id: sale.id }, data: { subtotal, totalCost, profit, commission } });
+
+  console.log('Seed completed:', {
+    admin: admin.email,
+    sellers: [seller1.email, seller2.email],
+    products: products.map((p) => p.nombre),
+    clients: clients.map((c) => c.nombre)
   });
 }
 
