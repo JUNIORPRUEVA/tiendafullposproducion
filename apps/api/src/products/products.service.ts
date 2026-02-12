@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Category, Prisma, Product } from '@prisma/client';
 import type { Prisma as PrismaNS } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -7,7 +8,15 @@ import { UpdateProductDto } from './dto/update-product.dto';
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly publicBaseUrl: string;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    config: ConfigService
+  ) {
+    const base = config.get<string>('PUBLIC_BASE_URL') ?? config.get<string>('API_BASE_URL') ?? '';
+    this.publicBaseUrl = base.trim().replace(/\/$/, '');
+  }
 
   create(dto: CreateProductDto): Promise<Product> {
     return this.prisma.$transaction(async (tx) => {
@@ -67,10 +76,20 @@ export class ProductsService {
   }
 
   private mapProduct(product: Product & { category?: Category | null }) {
+    const fotoUrl = this.resolveUrl(product.fotoUrl);
     return {
       ...product,
+      fotoUrl,
       categoriaNombre: product.category?.nombre,
     };
+  }
+
+  private resolveUrl(url?: string | null) {
+    if (!url) return url;
+    if (/^https?:\/\//i.test(url)) return url;
+    if (!this.publicBaseUrl) return url;
+    const normalized = url.startsWith('/') ? url : `/${url}`;
+    return `${this.publicBaseUrl}${normalized}`;
   }
 
   private async findOrCreateCategory(tx: PrismaNS.TransactionClient, nombre: string) {

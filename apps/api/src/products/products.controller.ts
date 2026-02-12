@@ -18,10 +18,13 @@ import * as fs from 'node:fs';
 @Controller('products')
 export class ProductsController {
   private readonly uploadDir: string;
+  private readonly publicBaseUrl: string;
 
   constructor(private readonly products: ProductsService, config: ConfigService) {
     const dir = config.get<string>('UPLOAD_DIR') ?? join(process.cwd(), 'uploads');
     this.uploadDir = dir.trim();
+    const base = config.get<string>('PUBLIC_BASE_URL') ?? config.get<string>('API_BASE_URL') ?? '';
+    this.publicBaseUrl = base.trim().replace(/\/$/, '');
     fs.mkdirSync(this.uploadDir, { recursive: true });
   }
 
@@ -68,7 +71,8 @@ export class ProductsController {
   upload(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('No se subió ningún archivo');
     const relativePath = `/uploads/${file.filename}`;
-    return { filename: file.filename, path: relativePath, url: relativePath };
+    const url = this.publicBaseUrl ? `${this.publicBaseUrl}${relativePath}` : relativePath;
+    return { filename: file.filename, path: relativePath, url };
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)

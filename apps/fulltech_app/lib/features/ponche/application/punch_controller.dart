@@ -1,5 +1,6 @@
 ﻿import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_provider.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/models/punch_model.dart';
 import '../data/punch_repository.dart';
@@ -34,7 +35,9 @@ class PunchState {
   }
 }
 
-final punchControllerProvider = StateNotifierProvider<PunchController, PunchState>((ref) {
+final punchControllerProvider = StateNotifierProvider.autoDispose<PunchController, PunchState>((ref) {
+  // Recreate/clear state when el usuario cambia para no mostrar ponches de otra sesión.
+  ref.watch(authStateProvider);
   return PunchController(ref);
 });
 
@@ -143,7 +146,9 @@ class AttendanceDashboardState {
   factory AttendanceDashboardState.initial() => const AttendanceDashboardState();
 }
 
-final attendanceDashboardControllerProvider = StateNotifierProvider<AttendanceDashboardController, AttendanceDashboardState>((ref) {
+final attendanceDashboardControllerProvider = StateNotifierProvider.autoDispose<AttendanceDashboardController, AttendanceDashboardState>((ref) {
+  // Recalcular datos administrativos al cambiar de usuario/sesión.
+  ref.watch(authStateProvider);
   return AttendanceDashboardController(ref);
 });
 
@@ -292,7 +297,9 @@ class AdminPunchState {
   }
 }
 
-final adminPunchControllerProvider = StateNotifierProvider<AdminPunchController, AdminPunchState>((ref) {
+final adminPunchControllerProvider = StateNotifierProvider.autoDispose<AdminPunchController, AdminPunchState>((ref) {
+  // Evita que datos de otra sesión persistan en el panel admin.
+  ref.watch(authStateProvider);
   return AdminPunchController(ref);
 });
 

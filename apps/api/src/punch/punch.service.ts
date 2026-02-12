@@ -29,7 +29,14 @@ export class PunchService {
   }
 
   async listMine(userId: string, from?: string, to?: string) {
-    const where = this.buildWhere(userId, from, to);
+    if (!userId) {
+      throw new BadRequestException('Missing user');
+    }
+
+    const where: Prisma.PunchWhereInput = {
+      userId,
+      ...this.buildRange(from, to),
+    };
     return this.prisma.punch.findMany({
       where,
       orderBy: { timestamp: 'desc' },
@@ -200,18 +207,18 @@ export class PunchService {
   }
 
   private buildWhere(userId?: string, from?: string, to?: string): Prisma.PunchWhereInput {
-    const timestamp = this.parseRange(from, to);
     const where: Prisma.PunchWhereInput = {};
     if (userId) {
       where.userId = userId;
     }
+    const timestamp = this.buildRange(from, to);
     if (timestamp) {
       where.timestamp = timestamp;
     }
     return where;
   }
 
-  private parseRange(from?: string, to?: string) {
+  private buildRange(from?: string, to?: string) {
     const range: Prisma.DateTimeFilter = {};
     if (from) {
       const d = this.parseDateInput(from, true);

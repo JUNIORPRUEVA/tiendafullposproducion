@@ -38,21 +38,23 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
 
     final categories = <String>{
       'Todas',
-      ...catalog.items.map((p) => p.categoriaLabel)
-    }.toList()
-      ..sort();
+      ...catalog.items.map((p) => p.categoriaLabel),
+    }.toList()..sort();
 
-    final categoryOptions = catalog.items
-        .map((p) => p.categoriaLabel)
-        .where((c) => c.isNotEmpty && c != 'Sin categoría')
-        .toSet()
-        .toList()
-      ..sort();
+    final categoryOptions =
+        catalog.items
+            .map((p) => p.categoriaLabel)
+            .where((c) => c.isNotEmpty && c != 'Sin categoría')
+            .toSet()
+            .toList()
+          ..sort();
 
     final query = _searchCtrl.text.trim().toLowerCase();
     final filtered = catalog.items.where((p) {
-      final matchCategory = _category == 'Todas' || p.categoriaLabel == _category;
-      final matchQuery = query.isEmpty || p.nombre.toLowerCase().contains(query);
+      final matchCategory =
+          _category == 'Todas' || p.categoriaLabel == _category;
+      final matchQuery =
+          query.isEmpty || p.nombre.toLowerCase().contains(query);
       return matchCategory && matchQuery;
     }).toList();
 
@@ -69,46 +71,61 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchCtrl,
-                    decoration: InputDecoration(
-                      hintText: 'Buscar producto…',
-                      prefixIcon: const Icon(Icons.search),
-                      filled: true,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    onChanged: (_) => setState(() {}),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  width: 160,
-                  child: DropdownButtonFormField<String>(
-                    initialValue: categories.contains(_category) ? _category : 'Todas',
-                    decoration: InputDecoration(
-                      labelText: 'Categoría',
-                      filled: true,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    items: categories
-                        .map(
-                          (c) => DropdownMenuItem(
-                            value: c,
-                            child: Text(c, overflow: TextOverflow.ellipsis),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isCompact = constraints.maxWidth < 460;
+                final filterWidth = isCompact ? constraints.maxWidth : 170.0;
+                final searchWidth = isCompact
+                    ? constraints.maxWidth
+                    : (constraints.maxWidth - filterWidth - 12).clamp(220.0, constraints.maxWidth);
+
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: searchWidth,
+                      child: TextField(
+                        controller: _searchCtrl,
+                        decoration: InputDecoration(
+                          hintText: 'Buscar producto…',
+                          prefixIcon: const Icon(Icons.search),
+                          filled: true,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
                           ),
-                        )
-                        .toList(),
-                    onChanged: (v) => setState(() => _category = v ?? 'Todas'),
-                  ),
-                ),
-              ],
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                    SizedBox(
+                      width: filterWidth,
+                      child: DropdownButtonFormField<String>(
+                        initialValue: categories.contains(_category)
+                            ? _category
+                            : 'Todas',
+                        decoration: InputDecoration(
+                          labelText: 'Categoría',
+                          filled: true,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        items: categories
+                            .map(
+                              (c) => DropdownMenuItem(
+                                value: c,
+                                child: Text(c, overflow: TextOverflow.ellipsis),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (v) => setState(() => _category = v ?? 'Todas'),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 16),
             Expanded(
@@ -128,10 +145,12 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
                           Text(catalog.error ?? 'Error cargando productos'),
                           const SizedBox(height: 12),
                           ElevatedButton.icon(
-                            onPressed: () => ref.read(catalogControllerProvider.notifier).load(),
+                            onPressed: () => ref
+                                .read(catalogControllerProvider.notifier)
+                                .load(),
                             icon: const Icon(Icons.refresh),
                             label: const Text('Reintentar'),
-                          )
+                          ),
                         ],
                       ),
                     );
@@ -160,26 +179,30 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
                       final columns = width >= 1200
                           ? 4
                           : width >= 900
-                              ? 3
-                              : width >= 600
-                                  ? 2
-                                  : 1;
+                          ? 3
+                          : 2;
 
                       const spacing = 16.0;
-                      final cardWidth = (width - spacing * (columns - 1)) / columns;
-                      final tileHeight = (cardWidth * 1.1).clamp(220.0, 380.0);
-                      final imageHeight = tileHeight * 0.45;
+                      final cardWidth =
+                          (width - spacing * (columns - 1)) / columns;
+                      final tileHeight = (cardWidth * 1.55).clamp(240.0, 420.0);
+                      final imageHeight = (tileHeight * 0.50).clamp(
+                        110.0,
+                        220.0,
+                      );
 
                       return RefreshIndicator(
-                        onRefresh: () => ref.read(catalogControllerProvider.notifier).load(),
+                        onRefresh: () =>
+                            ref.read(catalogControllerProvider.notifier).load(),
                         child: GridView.builder(
                           itemCount: filtered.length,
-                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: columns,
-                            mainAxisSpacing: spacing,
-                            crossAxisSpacing: spacing,
-                            mainAxisExtent: tileHeight,
-                          ),
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: columns,
+                                mainAxisSpacing: spacing,
+                                crossAxisSpacing: spacing,
+                                mainAxisExtent: tileHeight,
+                              ),
                           itemBuilder: (context, i) {
                             final p = filtered[i];
                             return _ProductCard(
@@ -187,7 +210,10 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
                               showCost: isAdmin,
                               canManage: canManage,
                               imageHeight: imageHeight,
-                              onEdit: () => _openProductForm(product: p, categories: categoryOptions),
+                              onEdit: () => _openProductForm(
+                                product: p,
+                                categories: categoryOptions,
+                              ),
                               onDelete: () => _confirmDelete(p),
                             );
                           },
@@ -213,10 +239,15 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
           title: const Text('Eliminar producto'),
           content: Text('¿Eliminar "${product.nombre}"?'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar'),
+            ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+              ),
               child: const Text('Eliminar'),
             ),
           ],
@@ -228,20 +259,27 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
     try {
       await controller.remove(product.id);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Producto eliminado')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Producto eliminado')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo eliminar: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo eliminar: $e')));
     }
   }
 
-  void _openProductForm({ProductModel? product, required List<String> categories}) {
+  void _openProductForm({
+    ProductModel? product,
+    required List<String> categories,
+  }) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
       builder: (context) {
         return Padding(
           padding: EdgeInsets.only(
@@ -396,7 +434,11 @@ class _ProductForm extends ConsumerStatefulWidget {
   final VoidCallback onSaved;
   final List<String> categories;
 
-  const _ProductForm({required this.product, required this.onSaved, required this.categories});
+  const _ProductForm({
+    required this.product,
+    required this.onSaved,
+    required this.categories,
+  });
 
   @override
   ConsumerState<_ProductForm> createState() => _ProductFormState();
@@ -415,10 +457,16 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController(text: widget.product?.nombre ?? '');
-    _priceCtrl = TextEditingController(text: widget.product?.precio.toStringAsFixed(2) ?? '');
-    _costCtrl = TextEditingController(text: widget.product?.costo.toStringAsFixed(2) ?? '');
+    _priceCtrl = TextEditingController(
+      text: widget.product?.precio.toStringAsFixed(2) ?? '',
+    );
+    _costCtrl = TextEditingController(
+      text: widget.product?.costo.toStringAsFixed(2) ?? '',
+    );
     final initialCategory = widget.product?.categoriaLabel;
-    _categoryCtrl = TextEditingController(text: initialCategory == 'Sin categoría' ? '' : (initialCategory ?? ''));
+    _categoryCtrl = TextEditingController(
+      text: initialCategory == 'Sin categoría' ? '' : (initialCategory ?? ''),
+    );
   }
 
   @override
@@ -431,7 +479,11 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
   }
 
   Future<void> _pickImage() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: false, withData: true);
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+      withData: true,
+    );
     if (result != null && result.files.single.bytes != null) {
       setState(() {
         _imageBytes = result.files.single.bytes;
@@ -448,15 +500,17 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
 
     if (name.isEmpty || price == null || cost == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Completa nombre, precio y costo con valores válidos')),
+        const SnackBar(
+          content: Text('Completa nombre, precio y costo con valores válidos'),
+        ),
       );
       return;
     }
 
     if (category.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Agrega una categoría')), 
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Agrega una categoría')));
       return;
     }
 
@@ -481,7 +535,9 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
           categoria: category,
         );
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Producto creado')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Producto creado')));
       } else {
         await controller.update(
           id: widget.product!.id,
@@ -493,13 +549,17 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
           categoria: category,
         );
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Producto actualizado')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Producto actualizado')));
       }
 
       widget.onSaved();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -518,11 +578,14 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(isEdit ? 'Editar producto' : 'Crear producto', style: theme.textTheme.titleMedium),
+              Text(
+                isEdit ? 'Editar producto' : 'Crear producto',
+                style: theme.textTheme.titleMedium,
+              ),
               IconButton(
                 icon: const Icon(Icons.close),
                 onPressed: _saving ? null : () => Navigator.pop(context),
-              )
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -545,7 +608,9 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
           const SizedBox(height: 12),
           TextField(
             controller: _categoryCtrl,
-            decoration: const InputDecoration(labelText: 'Categoría (elige o crea)'),
+            decoration: const InputDecoration(
+              labelText: 'Categoría (elige o crea)',
+            ),
           ),
           if (widget.categories.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -553,11 +618,13 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
               spacing: 8,
               runSpacing: 6,
               children: widget.categories
-                  .map((c) => ChoiceChip(
-                        label: Text(c),
-                        selected: _categoryCtrl.text.trim() == c,
-                        onSelected: (_) => _categoryCtrl.text = c,
-                      ))
+                  .map(
+                    (c) => ChoiceChip(
+                      label: Text(c),
+                      selected: _categoryCtrl.text.trim() == c,
+                      onSelected: (_) => _categoryCtrl.text = c,
+                    ),
+                  )
                   .toList(),
             ),
           ],
@@ -575,20 +642,37 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
               if (_imageBytes != null)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: Image.memory(_imageBytes!, height: 64, width: 64, fit: BoxFit.cover),
+                  child: Image.memory(
+                    _imageBytes!,
+                    height: 64,
+                    width: 64,
+                    fit: BoxFit.cover,
+                  ),
                 )
               else if (isEdit && widget.product?.fotoUrl != null)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: Image.network(widget.product!.fotoUrl!, height: 64, width: 64, fit: BoxFit.cover),
-                )
+                  child: Image.network(
+                    widget.product!.fotoUrl!,
+                    height: 64,
+                    width: 64,
+                    fit: BoxFit.cover,
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 20),
           FilledButton(
             onPressed: _saving ? null : _submit,
             child: _saving
-                ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
                 : Text(isEdit ? 'Guardar cambios' : 'Crear producto'),
           ),
         ],
