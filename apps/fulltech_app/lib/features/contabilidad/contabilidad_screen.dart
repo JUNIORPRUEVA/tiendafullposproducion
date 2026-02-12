@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../ventas/presentation/cierres_view.dart';
 import 'models/close_models.dart';
 import 'widgets/app_card.dart';
 import 'widgets/kpi_chip.dart';
@@ -76,6 +77,12 @@ class _ContabilidadScreenState extends ConsumerState<ContabilidadScreen> {
         title: const Text('Cierres del día'),
         backgroundColor: AppTheme.primaryColor,
         foregroundColor: Colors.white,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CierresView())),
+            child: const Text('Ver todos', style: TextStyle(color: Colors.white)),
+          ),
+        ],
       ),
       drawer: AppDrawer(currentUser: user),
       body: CustomScrollView(

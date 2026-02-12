@@ -30,7 +30,8 @@ class ApiRoutes {
   static String adminSaleDetail(String id) => '/admin/sales/$id';
 
   // Contabilidad
-  static const ledger = '/ledger';
+  static const contabilidadCloses = '/contabilidad/closes';
+  static String contabilidadCloseDetail(String id) => '/contabilidad/closes/$id';
 
   // Clientes
   static const clients = '/clients';

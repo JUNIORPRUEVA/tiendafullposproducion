@@ -1,12 +1,12 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { ContabilidadService } from './contabilidad.service';
 import { CreateCloseDto, UpdateCloseDto } from './close.dto';
 
 @Controller('contabilidad')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(AuthGuard('jwt'), RolesGuard)
 export class ContabilidadController {
   constructor(private readonly contabilidadService: ContabilidadService) {}
 

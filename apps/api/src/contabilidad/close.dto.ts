@@ -8,29 +8,29 @@ export enum CloseType {
 
 export class CreateCloseDto {
   @IsEnum(CloseType)
-  type: CloseType;
+  type!: CloseType;
 
   @IsDateString()
   @IsOptional()
   date?: string;
 
   @IsString()
-  status: string;
+  status!: string;
 
   @IsNumber()
-  cash: number;
+  cash!: number;
 
   @IsNumber()
-  transfer: number;
+  transfer!: number;
 
   @IsNumber()
-  card: number;
+  card!: number;
 
   @IsNumber()
-  expenses: number;
+  expenses!: number;
 
   @IsNumber()
-  cashDelivered: number;
+  cashDelivered!: number;
 }
 
 export class UpdateCloseDto {
