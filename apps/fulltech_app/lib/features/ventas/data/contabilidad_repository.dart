@@ -1,8 +1,8 @@
 import 'package:dio/dio.dart';
 
-import '../../core/errors/api_exception.dart';
-import '../../core/network/api_routes.dart';
-import '../models/close_model.dart';
+import '../../../core/api/api_routes.dart';
+import '../../../core/errors/api_exception.dart';
+import '../../../core/models/close_model.dart';
 
 class ContabilidadRepository {
   final Dio _dio;
@@ -11,7 +11,7 @@ class ContabilidadRepository {
 
   Future<List<CloseModel>> getCloses({String? date}) async {
     try {
-      final query = date != null ? {'date': date} : {};
+      final Map<String, dynamic> query = date != null ? {'date': date} : {};
       final res = await _dio.get(ApiRoutes.contabilidadCloses, queryParameters: query);
       final list = res.data as List;
       return list.map((e) => CloseModel.fromJson(e)).toList();

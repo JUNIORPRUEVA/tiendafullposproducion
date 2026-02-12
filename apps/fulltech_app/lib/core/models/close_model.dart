@@ -66,7 +66,7 @@ class CloseModel {
   factory CloseModel.fromJson(Map<String, dynamic> json) {
     return CloseModel(
       id: json['id'],
-      type: CloseType.fromKey(json['type']),
+      type: CloseTypeX.fromKey(json['type']),
       date: DateTime.parse(json['date']),
       status: json['status'],
       cash: (json['cash'] as num).toDouble(),

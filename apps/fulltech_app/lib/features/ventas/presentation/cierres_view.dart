@@ -16,6 +16,8 @@ class CierresView extends ConsumerStatefulWidget {
 class _CierresViewState extends ConsumerState<CierresView> {
   DateTimeRange? _selectedRange;
 
+  String _formatDate(DateTime d) => DateFormat('dd/MM/yyyy').format(d);
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(contabilidadProvider);
@@ -272,13 +274,13 @@ class _UpdateCloseDialogState extends State<_UpdateCloseDialog> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<CloseType>(
-                value: _type,
+                initialValue: _type,
                 items: CloseType.values.map((t) => DropdownMenuItem(value: t, child: Text(t.label))).toList(),
                 onChanged: (v) => setState(() => _type = v!),
                 decoration: const InputDecoration(labelText: 'Tipo'),
               ),
               DropdownButtonFormField<String>(
-                value: _status,
+                initialValue: _status,
                 items: const [
                   DropdownMenuItem(value: 'draft', child: Text('Borrador')),
                   DropdownMenuItem(value: 'pending', child: Text('Pendiente')),
@@ -358,13 +360,13 @@ class _CreateCloseDialogState extends State<_CreateCloseDialog> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<CloseType>(
-                value: _type,
+                initialValue: _type,
                 items: CloseType.values.map((t) => DropdownMenuItem(value: t, child: Text(t.label))).toList(),
                 onChanged: (v) => setState(() => _type = v!),
                 decoration: const InputDecoration(labelText: 'Tipo'),
               ),
               DropdownButtonFormField<String>(
-                value: _status,
+                initialValue: _status,
                 items: const [
                   DropdownMenuItem(value: 'draft', child: Text('Borrador')),
                   DropdownMenuItem(value: 'pending', child: Text('Pendiente')),

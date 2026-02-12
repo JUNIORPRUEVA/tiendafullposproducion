@@ -2,7 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/errors/api_exception.dart';
 import '../../../core/models/close_model.dart';
-import '../data/contabilidad_repository.dart';
 import '../data/sales_repository.dart';
 
 class ContabilidadState {
