@@ -15,7 +15,8 @@ class VentasScreen extends ConsumerStatefulWidget {
   ConsumerState<VentasScreen> createState() => _VentasScreenState();
 }
 
-class _VentasScreenState extends ConsumerState<VentasScreen> with SingleTickerProviderStateMixin {
+class _VentasScreenState extends ConsumerState<VentasScreen>
+    with TickerProviderStateMixin {
   late TabController _controller;
 
   @override
@@ -56,7 +57,11 @@ class _VentasScreenState extends ConsumerState<VentasScreen> with SingleTickerPr
     if (_controller.length != tabs.length) {
       final previousIndex = _controller.index.clamp(0, tabs.length - 1);
       _controller.dispose();
-      _controller = TabController(length: tabs.length, vsync: this, initialIndex: previousIndex);
+      _controller = TabController(
+        length: tabs.length,
+        vsync: this,
+        initialIndex: previousIndex,
+      );
     }
 
     return Scaffold(
@@ -126,10 +131,7 @@ class _VentasScreenState extends ConsumerState<VentasScreen> with SingleTickerPr
         ),
       ),
       drawer: AppDrawer(currentUser: user),
-      body: TabBarView(
-        controller: _controller,
-        children: views,
-      ),
+      body: TabBarView(controller: _controller, children: views),
     );
   }
 }
