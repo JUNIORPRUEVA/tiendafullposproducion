@@ -15,6 +15,23 @@ export class CreateUserDto {
   @IsString()
   telefono!: string;
 
+  @IsString()
+  telefonoFamiliar!: string;
+
+  @IsString()
+  cedula!: string;
+
+  @IsString()
+  fotoCedulaUrl!: string;
+
+  @IsOptional()
+  @IsString()
+  fotoLicenciaUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  fotoPersonalUrl?: string;
+
   @IsInt()
   edad!: number;
 

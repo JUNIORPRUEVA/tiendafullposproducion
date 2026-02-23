@@ -20,6 +20,26 @@ export class UpdateUserDto {
   telefono?: string;
 
   @IsOptional()
+  @IsString()
+  telefonoFamiliar?: string;
+
+  @IsOptional()
+  @IsString()
+  cedula?: string;
+
+  @IsOptional()
+  @IsString()
+  fotoCedulaUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  fotoLicenciaUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  fotoPersonalUrl?: string;
+
+  @IsOptional()
   @IsInt()
   edad?: number;
 

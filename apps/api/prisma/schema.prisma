@@ -36,6 +36,11 @@ model User {
   passwordHash     String
   nombreCompleto   String
   telefono         String
+  telefonoFamiliar String?
+  cedula           String?  @unique
+  fotoCedulaUrl    String?
+  fotoLicenciaUrl  String?
+  fotoPersonalUrl  String?
   edad             Int
   tieneHijos       Boolean  @default(false)
   estaCasado       Boolean  @default(false)

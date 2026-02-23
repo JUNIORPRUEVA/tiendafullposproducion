@@ -30,22 +30,22 @@ export class ClientsController {
 
   @Get()
   findAll(@Req() req: Request, @Query() query: ClientsQueryDto) {
-    return this.clients.findAll(this.ownerIdOrThrow(req), query);
+    return this.clients.findAll(query);
   }
 
   @Get(':id')
   findOne(@Req() req: Request, @Param('id') id: string) {
-    return this.clients.findOne(this.ownerIdOrThrow(req), id);
+    return this.clients.findOne(id);
   }
 
   @Patch(':id')
   update(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateClientDto) {
-    return this.clients.update(this.ownerIdOrThrow(req), id, dto);
+    return this.clients.update(id, dto);
   }
 
   @Delete(':id')
   remove(@Req() req: Request, @Param('id') id: string) {
-    return this.clients.remove(this.ownerIdOrThrow(req), id);
+    return this.clients.remove(id);
   }
 }
 

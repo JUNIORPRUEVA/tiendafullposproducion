@@ -17,6 +17,11 @@ export class UsersService {
         email: true,
         nombreCompleto: true,
         telefono: true,
+        telefonoFamiliar: true,
+        cedula: true,
+        fotoCedulaUrl: true,
+        fotoLicenciaUrl: true,
+        fotoPersonalUrl: true,
         edad: true,
         tieneHijos: true,
         estaCasado: true,
@@ -38,6 +43,11 @@ export class UsersService {
     const exists = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (exists) throw new BadRequestException('Email already in use');
 
+    if (dto.cedula) {
+      const cedulaTaken = await this.prisma.user.findUnique({ where: { cedula: dto.cedula } });
+      if (cedulaTaken) throw new BadRequestException('La cédula ya está registrada');
+    }
+
     const passwordHash = await bcrypt.hash(dto.password, 10);
     return this.prisma.user.create({
       data: {
@@ -45,6 +55,11 @@ export class UsersService {
         passwordHash,
         nombreCompleto: dto.nombreCompleto,
         telefono: dto.telefono,
+        telefonoFamiliar: dto.telefonoFamiliar,
+        cedula: dto.cedula,
+        fotoCedulaUrl: dto.fotoCedulaUrl,
+        fotoLicenciaUrl: dto.fotoLicenciaUrl,
+        fotoPersonalUrl: dto.fotoPersonalUrl,
         edad: dto.edad,
         tieneHijos: dto.tieneHijos ?? false,
         estaCasado: dto.estaCasado ?? false,
@@ -59,6 +74,11 @@ export class UsersService {
         email: true,
         nombreCompleto: true,
         telefono: true,
+        telefonoFamiliar: true,
+        cedula: true,
+        fotoCedulaUrl: true,
+        fotoLicenciaUrl: true,
+        fotoPersonalUrl: true,
         edad: true,
         tieneHijos: true,
         estaCasado: true,
@@ -81,6 +101,11 @@ export class UsersService {
         email: true,
         nombreCompleto: true,
         telefono: true,
+        telefonoFamiliar: true,
+        cedula: true,
+        fotoCedulaUrl: true,
+        fotoLicenciaUrl: true,
+        fotoPersonalUrl: true,
         edad: true,
         tieneHijos: true,
         estaCasado: true,
@@ -104,6 +129,11 @@ export class UsersService {
       if (emailTaken) throw new BadRequestException('Email already in use');
     }
 
+    if (dto.cedula && dto.cedula !== existing.cedula) {
+      const cedulaTaken = await this.prisma.user.findUnique({ where: { cedula: dto.cedula } });
+      if (cedulaTaken) throw new BadRequestException('La cédula ya está registrada');
+    }
+
     const passwordHash = dto.password ? await bcrypt.hash(dto.password, 10) : undefined;
     return this.prisma.user.update({
       where: { id },
@@ -112,6 +142,11 @@ export class UsersService {
         passwordHash,
         nombreCompleto: dto.nombreCompleto,
         telefono: dto.telefono,
+        telefonoFamiliar: dto.telefonoFamiliar,
+        cedula: dto.cedula,
+        fotoCedulaUrl: dto.fotoCedulaUrl,
+        fotoLicenciaUrl: dto.fotoLicenciaUrl,
+        fotoPersonalUrl: dto.fotoPersonalUrl,
         edad: dto.edad,
         tieneHijos: dto.tieneHijos,
         estaCasado: dto.estaCasado,
@@ -126,6 +161,11 @@ export class UsersService {
         email: true,
         nombreCompleto: true,
         telefono: true,
+        telefonoFamiliar: true,
+        cedula: true,
+        fotoCedulaUrl: true,
+        fotoLicenciaUrl: true,
+        fotoPersonalUrl: true,
         edad: true,
         tieneHijos: true,
         estaCasado: true,
@@ -163,6 +203,11 @@ export class UsersService {
         email: true,
         nombreCompleto: true,
         telefono: true,
+        telefonoFamiliar: true,
+        cedula: true,
+        fotoCedulaUrl: true,
+        fotoLicenciaUrl: true,
+        fotoPersonalUrl: true,
         edad: true,
         tieneHijos: true,
         estaCasado: true,

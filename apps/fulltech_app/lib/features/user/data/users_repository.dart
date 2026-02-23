@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http_parser/http_parser.dart';
 
 import '../../../core/api/api_routes.dart';
 import '../../../core/auth/auth_repository.dart';
@@ -17,7 +18,9 @@ class UsersRepository {
   Future<List<UserModel>> fetchUsers() async {
     final res = await _dio.get(ApiRoutes.users);
     final data = res.data as List<dynamic>;
-    return data.map((e) => UserModel.fromJson(e as Map<String, dynamic>)).toList();
+    return data
+        .map((e) => UserModel.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   Future<UserModel> createUser(Map<String, dynamic> payload) async {
@@ -35,7 +38,10 @@ class UsersRepository {
   }
 
   Future<UserModel> setBlocked(String id, bool blocked) async {
-    final res = await _dio.patch(ApiRoutes.blockUser(id), data: {'blocked': blocked});
+    final res = await _dio.patch(
+      ApiRoutes.blockUser(id),
+      data: {'blocked': blocked},
+    );
     return UserModel.fromJson(res.data as Map<String, dynamic>);
   }
 
@@ -44,13 +50,45 @@ class UsersRepository {
     return UserModel.fromJson(res.data as Map<String, dynamic>);
   }
 
-  Future<UserModel> updateMe({String? email, String? nombreCompleto, String? telefono, String? password}) async {
-    final res = await _dio.patch('${ApiRoutes.users}/me', data: {
-      'email': email,
-      'nombreCompleto': nombreCompleto,
-      'telefono': telefono,
-      'password': password,
-    });
+  Future<UserModel> updateMe({
+    String? email,
+    String? nombreCompleto,
+    String? telefono,
+    String? password,
+  }) async {
+    final res = await _dio.patch(
+      '${ApiRoutes.users}/me',
+      data: {
+        'email': email,
+        'nombreCompleto': nombreCompleto,
+        'telefono': telefono,
+        'password': password,
+      },
+    );
     return UserModel.fromJson(res.data as Map<String, dynamic>);
+  }
+
+  Future<String> uploadUserDocument({
+    required List<int> bytes,
+    required String fileName,
+  }) async {
+    final lower = fileName.toLowerCase();
+    final mediaType = lower.endsWith('.png')
+        ? MediaType('image', 'png')
+        : lower.endsWith('.webp')
+        ? MediaType('image', 'webp')
+        : MediaType('image', 'jpeg');
+
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(
+        bytes,
+        filename: fileName,
+        contentType: mediaType,
+      ),
+    });
+
+    final res = await _dio.post(ApiRoutes.usersUpload, data: formData);
+    final data = res.data as Map<String, dynamic>;
+    return (data['url'] ?? data['path'] ?? '') as String;
   }
 }

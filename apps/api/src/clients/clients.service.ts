@@ -13,14 +13,13 @@ export class ClientsService {
     return this.prisma.client.create({ data: { ...dto, ownerId } });
   }
 
-  async findAll(ownerId: string, query: ClientsQueryDto) {
+  async findAll(query: ClientsQueryDto) {
     const page = query.page && query.page > 0 ? query.page : 1;
     const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : 20;
     const skip = (page - 1) * pageSize;
 
     const search = query.search?.trim();
     const where: Prisma.ClientWhereInput = {
-      ownerId,
       ...(query.onlyDeleted === true
         ? { isDeleted: true }
         : query.includeDeleted === true
@@ -45,19 +44,19 @@ export class ClientsService {
     return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
   }
 
-  async findOne(ownerId: string, id: string) {
-    const client = await this.prisma.client.findFirst({ where: { id, ownerId } });
+  async findOne(id: string) {
+    const client = await this.prisma.client.findFirst({ where: { id } });
     if (!client) throw new NotFoundException('Client not found');
     return client;
   }
 
-  async update(ownerId: string, id: string, dto: UpdateClientDto) {
-    await this.findOne(ownerId, id);
+  async update(id: string, dto: UpdateClientDto) {
+    await this.findOne(id);
     return this.prisma.client.update({ where: { id }, data: dto });
   }
 
-  async remove(ownerId: string, id: string) {
-    await this.findOne(ownerId, id);
+  async remove(id: string) {
+    await this.findOne(id);
     await this.prisma.client.update({ where: { id }, data: { isDeleted: true } });
     return { ok: true };
   }

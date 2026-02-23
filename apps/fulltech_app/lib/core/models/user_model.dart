@@ -4,6 +4,10 @@ class UserModel {
   final String nombreCompleto;
   final String telefono;
   final String? cedula;
+  final String? telefonoFamiliar;
+  final String? fotoCedulaUrl;
+  final String? fotoLicenciaUrl;
+  final String? fotoPersonalUrl;
   final String? experienciaLaboral;
   final String? role;
   final bool blocked;
@@ -16,6 +20,10 @@ class UserModel {
     required this.nombreCompleto,
     required this.telefono,
     this.cedula,
+    this.telefonoFamiliar,
+    this.fotoCedulaUrl,
+    this.fotoLicenciaUrl,
+    this.fotoPersonalUrl,
     this.experienciaLaboral,
     this.role,
     this.blocked = false,
@@ -30,11 +38,17 @@ class UserModel {
       nombreCompleto: json['nombreCompleto'] ?? json['nombre'] ?? '',
       telefono: json['telefono'] ?? '',
       cedula: json['cedula'],
+      telefonoFamiliar: json['telefonoFamiliar'],
+      fotoCedulaUrl: json['fotoCedulaUrl'],
+      fotoLicenciaUrl: json['fotoLicenciaUrl'],
+      fotoPersonalUrl: json['fotoPersonalUrl'],
       experienciaLaboral: json['experienciaLaboral'],
       role: json['role'] ?? json['rol'] ?? 'ASISTENTE',
       blocked: json['blocked'] ?? false,
       edad: json['edad'],
-      createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt']) : null,
+      createdAt: json['createdAt'] != null
+          ? DateTime.tryParse(json['createdAt'])
+          : null,
     );
   }
 
@@ -45,6 +59,10 @@ class UserModel {
       'nombreCompleto': nombreCompleto,
       'telefono': telefono,
       'cedula': cedula,
+      'telefonoFamiliar': telefonoFamiliar,
+      'fotoCedulaUrl': fotoCedulaUrl,
+      'fotoLicenciaUrl': fotoLicenciaUrl,
+      'fotoPersonalUrl': fotoPersonalUrl,
       'experienciaLaboral': experienciaLaboral,
       'role': role,
       'blocked': blocked,

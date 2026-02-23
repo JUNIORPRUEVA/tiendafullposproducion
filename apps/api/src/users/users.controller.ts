@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../auth/roles.decorator';
@@ -9,11 +9,53 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { BlockUserDto } from './dto/block-user.dto';
 import { SelfUpdateUserDto } from './dto/self-update-user.dto';
 import { Request } from 'express';
+import { ConfigService } from '@nestjs/config';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'node:path';
+import * as fs from 'node:fs';
+import type { Express } from 'express';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller('users')
 export class UsersController {
-  constructor(private readonly users: UsersService) {}
+  private readonly uploadDir: string;
+  private readonly publicBaseUrl: string;
+
+  constructor(private readonly users: UsersService, config: ConfigService) {
+    const dir = config.get<string>('UPLOAD_DIR') ?? join(process.cwd(), 'uploads');
+    this.uploadDir = dir.trim();
+    const base = config.get<string>('PUBLIC_BASE_URL') ?? config.get<string>('API_BASE_URL') ?? '';
+    this.publicBaseUrl = base.trim().replace(/\/$/, '');
+    fs.mkdirSync(this.uploadDir, { recursive: true });
+  }
+
+  @Post('upload')
+  @Roles(Role.ADMIN)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: (_req: Express.Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) =>
+          cb(null, process.env.UPLOAD_DIR?.trim() || join(process.cwd(), 'uploads')),
+        filename: (_req: Express.Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
+          const unique = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+          cb(null, `${unique}${extname(file.originalname)}`);
+        }
+      }),
+      fileFilter: (_req: Express.Request, file: Express.Multer.File, cb: (error: Error | null, acceptFile: boolean) => void) => {
+        const isImage = /^image\/(png|jpe?g|webp)$/.test(file.mimetype);
+        if (!isImage) return cb(new BadRequestException('Solo se permiten imágenes PNG/JPG/WEBP'), false);
+        cb(null, true);
+      },
+      limits: { fileSize: 5 * 1024 * 1024 }
+    })
+  )
+  upload(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No se subió ningún archivo');
+    const relativePath = `/uploads/${file.filename}`;
+    const url = this.publicBaseUrl ? `${this.publicBaseUrl}${relativePath}` : relativePath;
+    return { filename: file.filename, path: relativePath, url };
+  }
 
   @Post()
   @Roles(Role.ADMIN)

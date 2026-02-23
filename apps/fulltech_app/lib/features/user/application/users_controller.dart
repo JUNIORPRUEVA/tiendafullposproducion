@@ -5,12 +5,13 @@ import '../data/users_repository.dart';
 
 final usersControllerProvider =
     StateNotifierProvider<UsersController, AsyncValue<List<UserModel>>>(
-  (ref) => UsersController(ref: ref, repo: ref.watch(usersRepositoryProvider)),
-);
+      (ref) =>
+          UsersController(ref: ref, repo: ref.watch(usersRepositoryProvider)),
+    );
 
 class UsersController extends StateNotifier<AsyncValue<List<UserModel>>> {
   UsersController({required this.ref, required this.repo})
-      : super(const AsyncLoading()) {
+    : super(const AsyncLoading()) {
     load();
   }
 
@@ -74,5 +75,12 @@ class UsersController extends StateNotifier<AsyncValue<List<UserModel>>> {
       state = previous;
       rethrow;
     }
+  }
+
+  Future<String> uploadDocument({
+    required List<int> bytes,
+    required String fileName,
+  }) {
+    return repo.uploadUserDocument(bytes: bytes, fileName: fileName);
   }
 }
