@@ -4,6 +4,7 @@ set -eu
 RUN_MIGRATIONS="${RUN_MIGRATIONS:-true}"
 MIGRATION_MAX_RETRIES="${MIGRATION_MAX_RETRIES:-10}"
 MIGRATION_RETRY_DELAY_SECONDS="${MIGRATION_RETRY_DELAY_SECONDS:-5}"
+MIGRATION_STRICT="${MIGRATION_STRICT:-false}"
 
 if [ "$RUN_MIGRATIONS" = "true" ] || [ "$RUN_MIGRATIONS" = "1" ]; then
   echo "[startup] prisma migrate deploy (retries: ${MIGRATION_MAX_RETRIES})"
@@ -16,7 +17,12 @@ if [ "$RUN_MIGRATIONS" = "true" ] || [ "$RUN_MIGRATIONS" = "1" ]; then
 
     if [ "$attempt" -eq "$MIGRATION_MAX_RETRIES" ]; then
       echo "[startup] migrations failed after ${MIGRATION_MAX_RETRIES} attempts"
-      exit 1
+      if [ "$MIGRATION_STRICT" = "true" ] || [ "$MIGRATION_STRICT" = "1" ]; then
+        echo "[startup] MIGRATION_STRICT enabled -> exiting"
+        exit 1
+      fi
+      echo "[startup] MIGRATION_STRICT disabled -> continuing startup without successful migrations"
+      break
     fi
 
     echo "[startup] migrate failed (attempt ${attempt}/${MIGRATION_MAX_RETRIES}), retrying in ${MIGRATION_RETRY_DELAY_SECONDS}s..."
@@ -35,4 +41,4 @@ else
 fi
 
 echo "[startup] starting api"
-node dist/main.js
+exec node dist/main.js
