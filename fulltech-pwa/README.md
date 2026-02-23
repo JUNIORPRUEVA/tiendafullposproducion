@@ -55,10 +55,10 @@ npm run prisma:migrate
 npm run seed
 ```
 
-Credenciales seed (dev):
+Seed (ADMIN):
 
-- Email: `admin@fulltech.local`
-- Password: `Admin12345!`
+- Define `ADMIN_PASSWORD` en `fulltech-pwa/apps/api/.env` y corre `npm run seed` para crear/actualizar el usuario ADMIN.
+- `ADMIN_EMAIL` es opcional (si no lo defines, usa `admin@fulltech.local`).
 
 ### 3) Levantar API + Web
 

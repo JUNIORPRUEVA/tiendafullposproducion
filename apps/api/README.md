@@ -23,11 +23,11 @@
 - Instalar: `npm install`
 - Migraciones (crea/aplica): `npm run api:migrate:dev`
 - Migraciones (aplica en prod): `npm run api:migrate:deploy`
-- Seed (crea admin si no existe): `npm run api:seed`
+- Seed (upsert; crea/resetea ADMIN): `npm run api:seed`
 - Dev server: `npm run api:dev`
 - Smoke test: `npm run api:smoke`
 
-## Credenciales seed
-- email: `admin@fulltech.local`
-- password: `Admin12345!`
+## Seed (credenciales)
+- `ADMIN_EMAIL` (si no se define, usa `admin@fulltech.local`)
+- `ADMIN_PASSWORD` (requerido; define/actualiza la contraseña del ADMIN)
 

@@ -13,8 +13,7 @@ class SaleBuilderView extends ConsumerStatefulWidget {
   ConsumerState<SaleBuilderView> createState() => _SaleBuilderViewState();
 }
 
-class _SaleBuilderViewState extends ConsumerState<SaleBuilderView>
-    with AutomaticKeepAliveClientMixin {
+class _SaleBuilderViewState extends ConsumerState<SaleBuilderView> with AutomaticKeepAliveClientMixin {
   final TextEditingController _noteCtrl = TextEditingController();
   String _productSearch = '';
 
@@ -31,10 +30,7 @@ class _SaleBuilderViewState extends ConsumerState<SaleBuilderView>
     final builderCtrl = ref.watch(salesBuilderProvider.notifier);
     final clientsCtrl = ref.watch(clientsControllerProvider.notifier);
 
-    _noteCtrl.value = _noteCtrl.value.copyWith(
-      text: builder.note,
-      selection: TextSelection.collapsed(offset: builder.note.length),
-    );
+    _noteCtrl.value = _noteCtrl.value.copyWith(text: builder.note, selection: TextSelection.collapsed(offset: builder.note.length));
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -42,14 +38,9 @@ class _SaleBuilderViewState extends ConsumerState<SaleBuilderView>
           await builderCtrl.refresh();
           await ref.read(clientsControllerProvider.notifier).load();
         } catch (e) {
-          if (!context.mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Error al refrescar: ${e is Exception ? e.toString() : 'Error desconocido'}',
-              ),
-            ),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al refrescar: ${e is Exception ? e.toString() : 'Error desconocido'}')));
+          }
         }
       },
       child: ListView(
@@ -70,7 +61,6 @@ class _SaleBuilderViewState extends ConsumerState<SaleBuilderView>
                       direccion: c.direccion,
                       notas: c.notas,
                     );
-                    builderCtrl.addClient(created);
                     builderCtrl.selectClient(created);
                   },
                 ),
@@ -78,14 +68,8 @@ class _SaleBuilderViewState extends ConsumerState<SaleBuilderView>
               const SizedBox(width: 12),
               SegmentedButton<String>(
                 segments: const [
-                  ButtonSegment(
-                    value: saleStatusDraft,
-                    label: Text('Borrador'),
-                  ),
-                  ButtonSegment(
-                    value: saleStatusConfirmed,
-                    label: Text('Confirmar'),
-                  ),
+                  ButtonSegment(value: saleStatusDraft, label: Text('Borrador')),
+                  ButtonSegment(value: saleStatusConfirmed, label: Text('Confirmar')),
                 ],
                 selected: {builder.status},
                 onSelectionChanged: (v) => builderCtrl.setStatus(v.first),
@@ -96,28 +80,16 @@ class _SaleBuilderViewState extends ConsumerState<SaleBuilderView>
           TextField(
             controller: _noteCtrl,
             maxLines: 2,
-            decoration: const InputDecoration(
-              labelText: 'Nota (opcional)',
-              border: OutlineInputBorder(),
-            ),
+            decoration: const InputDecoration(labelText: 'Nota (opcional)', border: OutlineInputBorder()),
             onChanged: builderCtrl.updateNote,
           ),
           const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Items (${builder.items.length})',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
+              Text('Items (${builder.items.length})', style: Theme.of(context).textTheme.titleMedium),
               FilledButton.icon(
-                onPressed: builder.products.isEmpty
-                    ? null
-                    : () => _openProductPicker(
-                        context,
-                        builder.products,
-                        builderCtrl.addItem,
-                      ),
+                onPressed: builder.products.isEmpty ? null : () => _openProductPicker(context, builder.products, builderCtrl.addItem),
                 icon: const Icon(Icons.add_circle_outline),
                 label: const Text('Agregar producto'),
               ),
@@ -130,50 +102,30 @@ class _SaleBuilderViewState extends ConsumerState<SaleBuilderView>
                 padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
-                    Icon(
-                      Icons.info_outline,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
+                    Icon(Icons.info_outline, color: Theme.of(context).colorScheme.primary),
                     const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        'Añade productos con precio y cantidad para crear el ticket.',
-                      ),
-                    ),
+                    const Expanded(child: Text('Añade productos con precio y cantidad para crear el ticket.')),
                   ],
                 ),
               ),
             )
           else
-            ...builder.items.map(
-              (i) => Card(
-                child: ListTile(
-                  leading: _ProductThumb(url: i.product.fotoUrl),
-                  title: Text(i.product.nombre),
-                  subtitle: Text(
-                    'Cant: ${i.qty} · Precio: ${i.price.toStringAsFixed(2)}',
+            ...builder.items.map((i) => Card(
+                  child: ListTile(
+                    title: Text(i.product.nombre),
+                    subtitle: Text('Cant: ${i.qty} · Precio: ${i.price.toStringAsFixed(2)}'),
+                    trailing: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text('Total ${i.lineTotal.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        Text('Utilidad ${i.lineProfit.toStringAsFixed(2)}', style: TextStyle(color: Theme.of(context).colorScheme.primary)),
+                      ],
+                    ),
+                    onTap: () => _editItem(context, i, builderCtrl.updateItem),
+                    onLongPress: () => builderCtrl.removeItem(i.id),
                   ),
-                  trailing: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        'Total ${i.lineTotal.toStringAsFixed(2)}',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      Text(
-                        'Utilidad ${i.lineProfit.toStringAsFixed(2)}',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  onTap: () => _editItem(context, i, builderCtrl.updateItem),
-                  onLongPress: () => builderCtrl.removeItem(i.id),
-                ),
-              ),
-            ),
+                )),
           const SizedBox(height: 16),
           _TotalsCard(
             subtotal: builder.subtotal,
@@ -183,76 +135,40 @@ class _SaleBuilderViewState extends ConsumerState<SaleBuilderView>
           ),
           if (builder.error != null) ...[
             const SizedBox(height: 8),
-            Text(
-              builder.error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
+            Text(builder.error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ],
           const SizedBox(height: 16),
           Row(
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: builder.saving
-                      ? null
-                      : () async {
-                          try {
-                            await builderCtrl.save(confirm: false);
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Borrador guardado'),
-                              ),
-                            );
-                          } catch (e) {
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Error al guardar borrador: ${e is Exception ? e.toString() : 'Error desconocido'}')),
-                            );
-                          }
-                        },
-                  child: builder.saving
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Guardar borrador'),
+                  onPressed: builder.saving ? null : () async {
+                    try {
+                      await builderCtrl.save(confirm: false);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Borrador guardado')));
+                      }
+                    } catch (_) {}
+                  },
+                  child: builder.saving ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Guardar borrador'),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: FilledButton(
-                  onPressed: builder.saving
-                      ? null
-                      : () async {
-                          try {
-                            await builderCtrl.save(confirm: true);
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Venta confirmada')),
-                            );
-                          } catch (e) {
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Error al confirmar venta: ${e is Exception ? e.toString() : 'Error desconocido'}')),
-                            );
-                          }
-                        },
-                  child: builder.saving
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Text('Confirmar venta'),
+                  onPressed: builder.saving ? null : () async {
+                    try {
+                      await builderCtrl.save(confirm: true);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Venta confirmada')));
+                      }
+                    } catch (_) {}
+                  },
+                  child: builder.saving ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Text('Confirmar venta'),
                 ),
               ),
             ],
-          ),
+          )
         ],
       ),
     );
@@ -261,84 +177,58 @@ class _SaleBuilderViewState extends ConsumerState<SaleBuilderView>
   @override
   bool get wantKeepAlive => true;
 
-  Future<void> _openProductPicker(
-    BuildContext context,
-    List<ProductModel> products,
-    void Function(ProductModel, {int qty, double? price}) onAdd,
-  ) async {
+  Future<void> _openProductPicker(BuildContext context, List<ProductModel> products, void Function(ProductModel, {int qty, double? price}) onAdd) async {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (ctx) {
         final controller = TextEditingController(text: _productSearch);
-        return StatefulBuilder(
-          builder: (context, setState) {
-            final filtered = products
-                .where(
-                  (p) => p.nombre.toLowerCase().contains(
-                    _productSearch.toLowerCase(),
+        return StatefulBuilder(builder: (context, setState) {
+          final filtered = products.where((p) => p.nombre.toLowerCase().contains(_productSearch.toLowerCase())).toList();
+          return Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: TextField(
+                    controller: controller,
+                    decoration: const InputDecoration(labelText: 'Buscar producto', prefixIcon: Icon(Icons.search)),
+                    onChanged: (v) => setState(() => _productSearch = v),
                   ),
-                )
-                .toList();
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: TextField(
-                      controller: controller,
-                      decoration: const InputDecoration(
-                        labelText: 'Buscar producto',
-                        prefixIcon: Icon(Icons.search),
-                      ),
-                      onChanged: (v) => setState(() => _productSearch = v),
-                    ),
+                ),
+                SizedBox(
+                  height: 320,
+                  child: ListView.builder(
+                    itemCount: filtered.length,
+                    itemBuilder: (context, i) {
+                      final p = filtered[i];
+                      return ListTile(
+                        title: Text(p.nombre),
+                        subtitle: Text('Precio ${p.precio.toStringAsFixed(2)} · Costo ${p.costo.toStringAsFixed(2)}'),
+                        onTap: () async {
+                          final result = await _askQtyPrice(context, p);
+                          if (result != null) {
+                            onAdd(p, qty: result.$1, price: result.$2);
+                            if (mounted) Navigator.pop(context);
+                          }
+                        },
+                      );
+                    },
                   ),
-                  SizedBox(
-                    height: 320,
-                    child: ListView.builder(
-                      itemCount: filtered.length,
-                      itemBuilder: (context, i) {
-                        final p = filtered[i];
-                        return ListTile(
-                          leading: _ProductThumb(url: p.fotoUrl),
-                          title: Text(p.nombre),
-                          subtitle: Text(
-                            'Precio ${p.precio.toStringAsFixed(2)} · Costo ${p.costo.toStringAsFixed(2)}',
-                          ),
-                          onTap: () async {
-                            final result = await _askQtyPrice(context, p);
-                            if (result != null) {
-                              onAdd(p, qty: result.$1, price: result.$2);
-                              if (!context.mounted) return;
-                              Navigator.pop(context);
-                            }
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
+                ),
+              ],
+            ),
+          );
+        });
       },
     );
   }
 
-  Future<(int, double)?> _askQtyPrice(
-    BuildContext context,
-    ProductModel product,
-  ) async {
+  Future<(int, double)?> _askQtyPrice(BuildContext context, ProductModel product) async {
     final qtyCtrl = TextEditingController(text: '1');
-    final priceCtrl = TextEditingController(
-      text: product.precio.toStringAsFixed(2),
-    );
+    final priceCtrl = TextEditingController(text: product.precio.toStringAsFixed(2));
     final result = await showDialog<(int, double)>(
       context: context,
       builder: (context) {
@@ -355,17 +245,12 @@ class _SaleBuilderViewState extends ConsumerState<SaleBuilderView>
               TextField(
                 controller: priceCtrl,
                 decoration: const InputDecoration(labelText: 'Precio vendido'),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
               ),
             ],
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
             FilledButton(
               onPressed: () {
                 final qty = int.tryParse(qtyCtrl.text.trim());
@@ -382,15 +267,9 @@ class _SaleBuilderViewState extends ConsumerState<SaleBuilderView>
     return result;
   }
 
-  Future<void> _editItem(
-    BuildContext context,
-    SaleItemInput item,
-    void Function(String, {int? qty, double? price}) onUpdate,
-  ) async {
+  Future<void> _editItem(BuildContext context, SaleItemInput item, void Function(String, {int? qty, double? price}) onUpdate) async {
     final qtyCtrl = TextEditingController(text: item.qty.toString());
-    final priceCtrl = TextEditingController(
-      text: item.price.toStringAsFixed(2),
-    );
+    final priceCtrl = TextEditingController(text: item.price.toStringAsFixed(2));
     final result = await showDialog<(int, double)?>(
       context: context,
       builder: (context) => AlertDialog(
@@ -406,17 +285,12 @@ class _SaleBuilderViewState extends ConsumerState<SaleBuilderView>
             TextField(
               controller: priceCtrl,
               decoration: const InputDecoration(labelText: 'Precio vendido'),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
             ),
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
           FilledButton(
             onPressed: () {
               final qty = int.tryParse(qtyCtrl.text.trim());
@@ -436,52 +310,13 @@ class _SaleBuilderViewState extends ConsumerState<SaleBuilderView>
   }
 }
 
-class _ProductThumb extends StatelessWidget {
-  final String? url;
-  const _ProductThumb({required this.url});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final resolved = (url == null || url!.trim().isEmpty) ? null : url!.trim();
-
-    Widget child;
-    if (resolved == null) {
-      child = Icon(Icons.image_outlined, color: theme.colorScheme.outline);
-    } else {
-      child = Image.network(
-        resolved,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) =>
-            Icon(Icons.broken_image_outlined, color: theme.colorScheme.outline),
-      );
-    }
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        width: 44,
-        height: 44,
-        color: theme.colorScheme.surfaceContainerHighest,
-        alignment: Alignment.center,
-        child: child,
-      ),
-    );
-  }
-}
-
 class _TotalsCard extends StatelessWidget {
   final double subtotal;
   final double totalCost;
   final double profit;
   final double commission;
 
-  const _TotalsCard({
-    required this.subtotal,
-    required this.totalCost,
-    required this.profit,
-    required this.commission,
-  });
+  const _TotalsCard({required this.subtotal, required this.totalCost, required this.profit, required this.commission});
 
   @override
   Widget build(BuildContext context) {
@@ -495,10 +330,7 @@ class _TotalsCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('Subtotal'),
-                Text(
-                  subtotal.toStringAsFixed(2),
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
+                Text(subtotal.toStringAsFixed(2), style: const TextStyle(fontWeight: FontWeight.bold)),
               ],
             ),
             Row(
@@ -512,22 +344,14 @@ class _TotalsCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('Utilidad'),
-                Text(
-                  profit.toStringAsFixed(2),
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
+                Text(profit.toStringAsFixed(2), style: TextStyle(color: Theme.of(context).colorScheme.primary)),
               ],
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('Comisión (10%)'),
-                Text(
-                  commission.toStringAsFixed(2),
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
+                Text(commission.toStringAsFixed(2), style: const TextStyle(fontWeight: FontWeight.w600)),
               ],
             ),
           ],
@@ -543,12 +367,7 @@ class _ClientSelector extends StatelessWidget {
   final void Function(ClientModel?) onSelect;
   final Future<void> Function(ClientModel) onCreate;
 
-  const _ClientSelector({
-    required this.clients,
-    required this.selected,
-    required this.onSelect,
-    required this.onCreate,
-  });
+  const _ClientSelector({required this.clients, required this.selected, required this.onSelect, required this.onCreate});
 
   @override
   Widget build(BuildContext context) {
@@ -561,21 +380,20 @@ class _ClientSelector extends StatelessWidget {
           children: [
             Expanded(
               child: DropdownButtonFormField<String>(
-                initialValue: selected?.id,
+                value: selected?.id,
                 isExpanded: true,
                 hint: const Text('Seleccionar (opcional)'),
                 items: clients
                     .map(
-                      (c) =>
-                          DropdownMenuItem(value: c.id, child: Text(c.nombre)),
+                      (c) => DropdownMenuItem(
+                        value: c.id,
+                        child: Text(c.nombre),
+                      ),
                     )
                     .toList(),
                 onChanged: (id) {
                   if (id == null) return;
-                  final matching = clients.where((c) => c.id == id);
-                  if (matching.isNotEmpty) {
-                    onSelect(matching.first);
-                  }
+                  onSelect(clients.firstWhere((c) => c.id == id));
                 },
               ),
             ),
@@ -606,53 +424,26 @@ class _ClientSelector extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: nombreCtrl,
-                decoration: const InputDecoration(labelText: 'Nombre'),
-              ),
-              TextField(
-                controller: telefonoCtrl,
-                decoration: const InputDecoration(labelText: 'Teléfono'),
-              ),
-              TextField(
-                controller: emailCtrl,
-                decoration: const InputDecoration(labelText: 'Email'),
-              ),
-              TextField(
-                controller: direccionCtrl,
-                decoration: const InputDecoration(labelText: 'Dirección'),
-              ),
-              TextField(
-                controller: notasCtrl,
-                decoration: const InputDecoration(labelText: 'Notas'),
-              ),
+              TextField(controller: nombreCtrl, decoration: const InputDecoration(labelText: 'Nombre')),
+              TextField(controller: telefonoCtrl, decoration: const InputDecoration(labelText: 'Teléfono')),
+              TextField(controller: emailCtrl, decoration: const InputDecoration(labelText: 'Email')),
+              TextField(controller: direccionCtrl, decoration: const InputDecoration(labelText: 'Dirección')),
+              TextField(controller: notasCtrl, decoration: const InputDecoration(labelText: 'Notas')),
             ],
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
           FilledButton(
             onPressed: () {
-              if (nombreCtrl.text.trim().isEmpty ||
-                  telefonoCtrl.text.trim().isEmpty) {
-                return;
-              }
+              if (nombreCtrl.text.trim().isEmpty || telefonoCtrl.text.trim().isEmpty) return;
               final client = ClientModel(
                 id: '',
                 nombre: nombreCtrl.text.trim(),
                 telefono: telefonoCtrl.text.trim(),
-                email: emailCtrl.text.trim().isEmpty
-                    ? null
-                    : emailCtrl.text.trim(),
-                direccion: direccionCtrl.text.trim().isEmpty
-                    ? null
-                    : direccionCtrl.text.trim(),
-                notas: notasCtrl.text.trim().isEmpty
-                    ? null
-                    : notasCtrl.text.trim(),
+                email: emailCtrl.text.trim().isEmpty ? null : emailCtrl.text.trim(),
+                direccion: direccionCtrl.text.trim().isEmpty ? null : direccionCtrl.text.trim(),
+                notas: notasCtrl.text.trim().isEmpty ? null : notasCtrl.text.trim(),
               );
               Navigator.pop(context, client);
             },
@@ -666,14 +457,9 @@ class _ClientSelector extends StatelessWidget {
       try {
         await onCreate(result);
       } catch (e) {
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Error al crear cliente: ${e is Exception ? e.toString() : 'Error desconocido'}',
-            ),
-          ),
-        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al crear cliente: ${e is Exception ? e.toString() : 'Error desconocido'}')));
+        }
       }
     }
   }

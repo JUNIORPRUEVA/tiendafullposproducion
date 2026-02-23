@@ -29,12 +29,11 @@ final authStateProvider = StateNotifierProvider<AuthController, AuthState>((
 class AuthController extends StateNotifier<AuthState> {
   final Ref ref;
 
-  AuthController(this.ref) : super(AuthState(isAuthenticated: false)) {
+  AuthController(this.ref) : super(AuthState(isAuthenticated: false, loading: true)) {
     _init();
   }
 
   Future<void> _init() async {
-    state = state.copyWith(loading: true);
     final repo = ref.read(authRepositoryProvider);
     final user = await repo.getMeOrNull();
     if (user != null) {

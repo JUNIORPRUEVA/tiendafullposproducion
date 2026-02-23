@@ -13,25 +13,33 @@ async function upsertUser({ email, password, nombreCompleto, telefono, role }: {
 }
 
 async function main() {
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@fulltech.local';
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (!adminPassword) throw new Error('ADMIN_PASSWORD is required to run seed');
+
+  const sellerPassword = process.env.SELLER_PASSWORD || adminPassword;
+  const seller1Email = process.env.SELLER1_EMAIL || 'vendedor1@fulltech.local';
+  const seller2Email = process.env.SELLER2_EMAIL || 'vendedor2@fulltech.local';
+
   const admin = await upsertUser({
-    email: 'admin@fulltech.local',
-    password: 'Admin12345!',
+    email: adminEmail,
+    password: adminPassword,
     nombreCompleto: 'Administrador',
     telefono: '0000000000',
     role: Role.ADMIN
   });
 
   const seller1 = await upsertUser({
-    email: 'vendedor1@fulltech.local',
-    password: 'Seller12345!',
+    email: seller1Email,
+    password: sellerPassword,
     nombreCompleto: 'Vendedor Uno',
     telefono: '8090000001',
     role: Role.VENDEDOR
   });
 
   const seller2 = await upsertUser({
-    email: 'vendedor2@fulltech.local',
-    password: 'Seller12345!',
+    email: seller2Email,
+    password: sellerPassword,
     nombreCompleto: 'Vendedor Dos',
     telefono: '8090000002',
     role: Role.VENDEDOR
