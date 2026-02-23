@@ -61,6 +61,7 @@ class _SaleBuilderViewState extends ConsumerState<SaleBuilderView> with Automati
                       direccion: c.direccion,
                       notas: c.notas,
                     );
+                    builderCtrl.addClient(created);
                     builderCtrl.selectClient(created);
                   },
                 ),
@@ -371,6 +372,9 @@ class _ClientSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final selectedId = selected?.id;
+    final hasSelected = selectedId != null && clients.any((c) => c.id == selectedId);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -380,7 +384,7 @@ class _ClientSelector extends StatelessWidget {
           children: [
             Expanded(
               child: DropdownButtonFormField<String>(
-                value: selected?.id,
+                value: hasSelected ? selectedId : null,
                 isExpanded: true,
                 hint: const Text('Seleccionar (opcional)'),
                 items: clients

@@ -41,6 +41,13 @@ class AuthController extends StateNotifier<AuthState> {
       return;
     }
 
+    final storage = ref.read(tokenStorageProvider);
+    final token = await storage.getAccessToken();
+    if (token != null && token.isNotEmpty) {
+      state = state.copyWith(isAuthenticated: true, user: null, loading: false);
+      return;
+    }
+
     state = state.copyWith(isAuthenticated: false, user: null, loading: false);
   }
 

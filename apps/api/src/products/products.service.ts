@@ -37,7 +37,7 @@ export class ProductsService {
 
   async findAll(): Promise<any[]> {
     const products = await this.prisma.product.findMany({ orderBy: { createdAt: 'desc' }, include: { category: true } });
-    return products.map(this.mapProduct);
+    return products.map((p) => this.mapProduct(p));
   }
 
   async findOne(id: string): Promise<any> {

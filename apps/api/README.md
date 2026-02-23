@@ -13,6 +13,7 @@
 2) Construye y levanta: `docker compose up --build -d`.
 3) La API expone el puerto 4000 y monta un volumen `uploads_data` en `/app/uploads` para imágenes (ajusta `UPLOAD_DIR`/nombre de volumen si lo cambias).
 4) El contenedor corre `npx prisma migrate deploy` antes de iniciar `node dist/main.js`.
+5) Opcional: para crear/resetear el usuario ADMIN al desplegar, define `RUN_SEED=true` y `ADMIN_PASSWORD` en el entorno (EasyPanel / .env.docker). Esto ejecuta `npx prisma db seed` en el arranque.
 
 ## Subida de imágenes de productos
 - Endpoint: `POST /products/upload` (roles ADMIN/ASISTENTE, header Authorization Bearer).

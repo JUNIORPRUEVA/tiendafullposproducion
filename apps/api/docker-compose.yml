@@ -26,7 +26,7 @@ services:
     volumes:
       - uploads_data:/app/uploads
     restart: unless-stopped
-    command: sh -c "npx prisma migrate deploy && node dist/main.js"
+    command: sh scripts/start-prod.sh
 
 volumes:
   db_data:

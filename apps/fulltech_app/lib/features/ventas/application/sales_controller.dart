@@ -106,8 +106,37 @@ class SalesBuilderController extends StateNotifier<SalesBuilderState> {
     state = state.copyWith(loading: true, clearError: true);
     try {
       final products = await ref.read(catalogRepositoryProvider).fetchProducts();
-      final clients = await ref.read(salesRepositoryProvider).fetchClients(pageSize: 50);
-      state = state.copyWith(products: products, clients: clients, loading: false);
+      final fetchedClients = await ref.read(salesRepositoryProvider).fetchClients(pageSize: 500);
+
+      final mergedById = <String, ClientModel>{};
+      for (final client in fetchedClients) {
+        mergedById[client.id] = client;
+      }
+      for (final client in state.clients) {
+        if (client.id.isNotEmpty) {
+          mergedById.putIfAbsent(client.id, () => client);
+        }
+      }
+
+      final mergedClients = mergedById.values.toList();
+      ClientModel? selectedClient;
+      final selectedId = state.selectedClient?.id;
+      if (selectedId != null && selectedId.isNotEmpty) {
+        for (final client in mergedClients) {
+          if (client.id == selectedId) {
+            selectedClient = client;
+            break;
+          }
+        }
+      }
+
+      state = state.copyWith(
+        products: products,
+        clients: mergedClients,
+        selectedClient: selectedClient,
+        clearClient: selectedClient == null,
+        loading: false,
+      );
     } catch (e) {
       final msg = e is ApiException ? e.message : 'No se pudo cargar catálogo/clientes';
       state = state.copyWith(loading: false, error: msg);

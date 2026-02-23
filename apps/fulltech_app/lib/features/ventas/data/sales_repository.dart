@@ -35,7 +35,7 @@ class SalesRepository {
   Future<List<ClientModel>> fetchClients({
     String? search,
     int page = 1,
-    int pageSize = 20,
+    int pageSize = 500, // ensure newly creados se incluyan y evitar que se pierdan por paginado corto
   }) async {
     try {
       final res = await _dio.get(
