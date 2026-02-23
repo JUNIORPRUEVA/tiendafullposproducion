@@ -1,6 +1,7 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client';
+import { Request } from 'express';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { ClientsService } from './clients.service';
@@ -14,29 +15,37 @@ import { UpdateClientDto } from './dto/update-client.dto';
 export class ClientsController {
   constructor(private readonly clients: ClientsService) {}
 
+  private ownerIdOrThrow(req: Request) {
+    const user = req.user as { id?: string } | undefined;
+    if (!user?.id) {
+      throw new Error('Usuario no autenticado');
+    }
+    return user.id;
+  }
+
   @Post()
-  create(@Body() dto: CreateClientDto) {
-    return this.clients.create(dto);
+  create(@Req() req: Request, @Body() dto: CreateClientDto) {
+    return this.clients.create(this.ownerIdOrThrow(req), dto);
   }
 
   @Get()
-  findAll(@Query() query: ClientsQueryDto) {
-    return this.clients.findAll(query);
+  findAll(@Req() req: Request, @Query() query: ClientsQueryDto) {
+    return this.clients.findAll(this.ownerIdOrThrow(req), query);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.clients.findOne(id);
+  findOne(@Req() req: Request, @Param('id') id: string) {
+    return this.clients.findOne(this.ownerIdOrThrow(req), id);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateClientDto) {
-    return this.clients.update(id, dto);
+  update(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateClientDto) {
+    return this.clients.update(this.ownerIdOrThrow(req), id, dto);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.clients.remove(id);
+  remove(@Req() req: Request, @Param('id') id: string) {
+    return this.clients.remove(this.ownerIdOrThrow(req), id);
   }
 }
 

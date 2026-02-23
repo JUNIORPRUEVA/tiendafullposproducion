@@ -66,35 +66,6 @@ async function main() {
   );
   console.log('client created', client.id);
 
-  await http(
-    'POST',
-    '/sales',
-    {
-      userId: 'SHOULD_BE_IGNORED',
-      productId: product.id,
-      clientId: client.id,
-      cantidad: 2,
-      totalVenta: 200
-    },
-    token
-  );
-  console.log('sale created');
-
-  const today = new Date();
-  const from = new Date(today);
-  from.setDate(today.getDate() - 2);
-  const to = new Date(today);
-  to.setDate(today.getDate() + 1);
-
-  const sales = await http(
-    'GET',
-    `/sales?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
-    undefined,
-    token
-  );
-  if (!sales?.summary?.totalVendido) throw new Error('Missing sales summary');
-  console.log('sales list ok', sales.summary);
-
   console.log('SMOKE TEST OK');
 }
 

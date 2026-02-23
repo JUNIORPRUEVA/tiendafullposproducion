@@ -10,6 +10,12 @@ class Routes {
   static const ponche = '/ponche';
   static const operaciones = '/operaciones';
   static const catalogo = '/catalogo';
-  static const ventas = '/ventas';
   static const contabilidad = '/contabilidad';
+  static const clientes = '/clientes';
+  static const clienteNuevo = '/clientes/nuevo';
+  static const clienteDetalle = '/clientes/:id';
+  static const clienteEditar = '/clientes/:id/editar';
+
+  static String clienteDetail(String id) => '/clientes/$id';
+  static String clienteEdit(String id) => '/clientes/$id/editar';
 }

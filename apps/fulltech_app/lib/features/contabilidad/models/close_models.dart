@@ -6,7 +6,7 @@ extension CloseTypeX on CloseType {
       case CloseType.capsulas:
         return 'Cápsulas';
       case CloseType.pos:
-        return 'Punto de Ventas';
+        return 'POS';
       case CloseType.tienda:
         return 'Tienda';
     }

@@ -16,57 +16,46 @@ class AppDrawer extends ConsumerWidget {
       child: SafeArea(
         child: Column(
           children: [
-            DrawerHeader(
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  CircleAvatar(
-                    radius: 32,
-                    backgroundColor: Colors.white24,
-                    child: Text(
-                      (() {
-                        final name = (currentUser?.nombreCompleto ?? 'U')
-                            .trim();
-                        final letters = name
-                            .split(RegExp(r'\s+'))
-                            .map((e) => e.isNotEmpty ? e[0].toUpperCase() : '')
-                            .join('');
-                        if (letters.isEmpty) return 'U';
-                        if (letters.length == 1) return letters;
-                        return letters.substring(0, 2);
-                      })(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primary.withValues(alpha: 0.18),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.business_rounded,
+                      color: Theme.of(context).colorScheme.primary,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'FULLTECH, SRL',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.4,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    currentUser?.nombreCompleto ?? 'Usuario',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    currentUser?.email ?? 'Sin email',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.8),
-                      fontSize: 12,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             Expanded(
@@ -74,21 +63,21 @@ class AppDrawer extends ConsumerWidget {
                 padding: EdgeInsets.zero,
                 children: [
                   _DrawerMenuItem(
+                    icon: Icons.group_outlined,
+                    title: 'Clientes',
+                    subtitle: 'Contactos y datos',
+                    onTap: () {
+                      Navigator.pop(context);
+                      context.go(Routes.clientes);
+                    },
+                  ),
+                  _DrawerMenuItem(
                     icon: Icons.account_balance,
                     title: 'Contabilidad',
                     subtitle: 'Estado y finanzas',
                     onTap: () {
                       Navigator.pop(context);
                       context.go(Routes.contabilidad);
-                    },
-                  ),
-                  _DrawerMenuItem(
-                    icon: Icons.point_of_sale,
-                    title: 'Ventas',
-                    subtitle: 'Gestión comercial',
-                    onTap: () {
-                      Navigator.pop(context);
-                      context.go(Routes.ventas);
                     },
                   ),
                   _DrawerMenuItem(
@@ -104,41 +93,46 @@ class AppDrawer extends ConsumerWidget {
               ),
             ),
             const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.badge_outlined),
-              title: const Text(
-                'Perfil',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              subtitle: const Text(
-                'Datos y preferencias',
-                style: TextStyle(fontSize: 12),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                context.go(Routes.profile);
-              },
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 24,
-                vertical: 4,
-              ),
-            ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.error,
-                  foregroundColor: Colors.white,
-                ),
-                icon: const Icon(Icons.logout),
-                label: const Text('Cerrar sesión'),
-                onPressed: () async {
-                  Navigator.pop(context);
-                  await ref.read(authStateProvider.notifier).logout();
-                  if (context.mounted) {
-                    context.go(Routes.login);
-                  }
-                },
+              padding: const EdgeInsets.fromLTRB(8, 2, 12, 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ListTile(
+                      leading: const Icon(Icons.badge_outlined),
+                      title: const Text(
+                        'Perfil',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: const Text(
+                        'Datos y preferencias',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      onTap: () {
+                        Navigator.pop(context);
+                        context.go(Routes.profile);
+                      },
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Cerrar sesión',
+                    onPressed: () async {
+                      Navigator.pop(context);
+                      await ref.read(authStateProvider.notifier).logout();
+                      if (context.mounted) {
+                        context.go(Routes.login);
+                      }
+                    },
+                    icon: Icon(
+                      Icons.logout_rounded,
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],

@@ -19,16 +19,6 @@ class ApiRoutes {
   static const punchAttendanceSummary = '/admin/attendance/summary';
   static String punchAttendanceUser(String id) => '/admin/attendance/user/$id';
 
-  // Ventas
-  static const sales = '/sales';
-  static const salesMe = '/sales/me';
-  static String saleDetail(String id) => '/sales/$id';
-  static String saleItems(String saleId) => '/sales/$saleId/items';
-  static String saleItemDetail(String saleId, String itemId) => '/sales/$saleId/items/$itemId';
-  static const adminSales = '/admin/sales';
-  static const adminSalesSummary = '/admin/sales/summary';
-  static String adminSaleDetail(String id) => '/admin/sales/$id';
-
   // Contabilidad
   static const contabilidadCloses = '/contabilidad/closes';
   static String contabilidadCloseDetail(String id) => '/contabilidad/closes/$id';

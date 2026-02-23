@@ -1,11 +1,20 @@
 import { Transform } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 const toSafePositiveIntOrUndefined = (value: unknown) => {
   if (value === undefined || value === null) return undefined;
   const num = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(num)) return undefined;
   return Math.max(1, Math.trunc(num));
+};
+
+const toBooleanOrUndefined = (value: unknown) => {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'boolean') return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true;
+  if (normalized === 'false' || normalized === '0' || normalized === 'no') return false;
+  return undefined;
 };
 
 export class ClientsQueryDto {
@@ -24,4 +33,14 @@ export class ClientsQueryDto {
   @IsInt()
   @Min(1)
   pageSize?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => toBooleanOrUndefined(value))
+  @IsBoolean()
+  includeDeleted?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => toBooleanOrUndefined(value))
+  @IsBoolean()
+  onlyDeleted?: boolean;
 }

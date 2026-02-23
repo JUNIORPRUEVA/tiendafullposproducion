@@ -9,9 +9,11 @@ import '../../features/user/profile_screen.dart';
 import '../../features/user/users_screen.dart';
 import '../../features/ponche/ponche_screen.dart';
 import '../../features/operaciones/operaciones_screen.dart';
-import '../../features/ventas/ventas_screen.dart';
 import '../../features/contabilidad/contabilidad_screen.dart';
 import '../../features/catalogo/catalogo_screen.dart';
+import '../../modules/clientes/cliente_detail_screen.dart';
+import '../../modules/clientes/clientes_screen.dart';
+import '../../modules/clientes/cliente_form_screen.dart';
 import '../auth/auth_provider.dart';
 import 'routes.dart';
 
@@ -77,12 +79,30 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const CatalogoScreen(),
           ),
           GoRoute(
-            path: Routes.ventas,
-            builder: (context, state) => const VentasScreen(),
-          ),
-          GoRoute(
             path: Routes.contabilidad,
             builder: (context, state) => const ContabilidadScreen(),
+          ),
+          GoRoute(
+            path: Routes.clientes,
+            builder: (context, state) => const ClientesScreen(),
+          ),
+          GoRoute(
+            path: Routes.clienteNuevo,
+            builder: (context, state) => const ClienteFormScreen(),
+          ),
+          GoRoute(
+            path: Routes.clienteDetalle,
+            builder: (context, state) {
+              final id = state.pathParameters['id'] ?? '';
+              return ClienteDetailScreen(clienteId: id);
+            },
+          ),
+          GoRoute(
+            path: Routes.clienteEditar,
+            builder: (context, state) {
+              final id = state.pathParameters['id'] ?? '';
+              return ClienteFormScreen(clienteId: id);
+            },
           ),
         ],
       ),

@@ -6,7 +6,6 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { ProductsModule } from './products/products.module';
 import { ClientsModule } from './clients/clients.module';
-import { SalesModule } from './sales/sales.module';
 import { PunchModule } from './punch/punch.module';
 import { ContabilidadModule } from './contabilidad/contabilidad.module';
 
@@ -22,7 +21,6 @@ import { ContabilidadModule } from './contabilidad/contabilidad.module';
     UsersModule,
     ProductsModule,
     ClientsModule,
-    SalesModule,
     PunchModule,
     ContabilidadModule
   ]

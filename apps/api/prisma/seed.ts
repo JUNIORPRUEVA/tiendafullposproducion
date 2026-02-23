@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient, Role, SaleStatus } from '@prisma/client';
+import { Prisma, PrismaClient, Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -59,76 +59,30 @@ async function main() {
     ensureProduct('Mouse Inalámbrico', 35, 18)
   ]);
 
-  const ensureClient = async (nombre: string, data: { telefono?: string; email?: string; direccion?: string; notas?: string }) => {
-    const existing = await prisma.client.findFirst({ where: { nombre } });
+  const ensureClient = async (
+    ownerId: string,
+    nombre: string,
+    data: { telefono?: string; email?: string; direccion?: string; notas?: string }
+  ) => {
+    const existing = await prisma.client.findFirst({ where: { ownerId, nombre } });
     if (existing) {
       return prisma.client.update({ where: { id: existing.id }, data });
     }
-    return prisma.client.create({ data: { nombre, ...data } });
+    return prisma.client.create({ data: { ownerId, nombre, ...data } });
   };
 
   const clients = await Promise.all([
-    ensureClient('Cliente Corporativo', {
+    ensureClient(admin.id, 'Cliente Corporativo', {
       telefono: '8095550001',
       email: 'compras@corp.do',
       direccion: 'Av. Principal 123',
       notas: 'Prefiere facturas electrónicas'
     }),
-    ensureClient('Juan Pérez', {
+    ensureClient(admin.id, 'Juan Pérez', {
       telefono: '8095550002',
       email: 'juanperez@mail.com'
     })
   ]);
-
-  // Seed a confirmed sale for seller1 with 2 items
-  const sale = await prisma.sale.create({
-    data: {
-      sellerId: seller1.id,
-      clientId: clients[0].id,
-      status: SaleStatus.CONFIRMED,
-      note: 'Venta de ejemplo seed',
-      subtotal: new Prisma.Decimal(0),
-      totalCost: new Prisma.Decimal(0),
-      profit: new Prisma.Decimal(0),
-      commission: new Prisma.Decimal(0)
-    }
-  });
-
-  const seedItems = [
-    { product: products[0], qty: 1, unitPrice: products[0].precio },
-    { product: products[1], qty: 2, unitPrice: products[1].precio }
-  ];
-
-  let subtotal = new Prisma.Decimal(0);
-  let totalCost = new Prisma.Decimal(0);
-  let profit = new Prisma.Decimal(0);
-
-  for (const item of seedItems) {
-    const qtyDec = new Prisma.Decimal(item.qty);
-    const lineTotal = item.unitPrice.mul(qtyDec);
-    const lineCost = item.product.costo.mul(qtyDec);
-    const lineProfit = lineTotal.sub(lineCost);
-
-    await prisma.saleItem.create({
-      data: {
-        saleId: sale.id,
-        productId: item.product.id,
-        qty: item.qty,
-        unitPriceSold: item.unitPrice,
-        unitCostSnapshot: item.product.costo,
-        lineTotal,
-        lineCost,
-        lineProfit
-      }
-    });
-
-    subtotal = subtotal.add(lineTotal);
-    totalCost = totalCost.add(lineCost);
-    profit = profit.add(lineProfit);
-  }
-
-  const commission = profit.greaterThan(0) ? profit.mul(0.1) : new Prisma.Decimal(0);
-  await prisma.sale.update({ where: { id: sale.id }, data: { subtotal, totalCost, profit, commission } });
 
   console.log('Seed completed:', {
     admin: admin.email,

@@ -24,12 +24,6 @@ enum PunchType {
   ENTRADA_ALMUERZO
 }
 
-enum SaleStatus {
-  DRAFT
-  CONFIRMED
-  CANCELLED
-}
-
 enum CloseType {
   CAPSULAS
   POS
@@ -53,7 +47,7 @@ model User {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  sales  Sale[]  @relation("SaleSeller")
+  clients Client[]
   punches Punch[]
 }
 
@@ -80,7 +74,6 @@ model Product {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  saleItems SaleItem[]
   category  Category?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 }
 
@@ -93,56 +86,21 @@ model Category {
 
 model Client {
   id        String   @id @default(uuid()) @db.Uuid
+  ownerId   String   @db.Uuid
   nombre    String
   telefono  String
   email     String?
   direccion String?
   notas     String?
+  isDeleted Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sales Sale[]
-}
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
-model Sale {
-  id         String      @id @default(uuid()) @db.Uuid
-  sellerId   String      @db.Uuid
-  clientId   String?     @db.Uuid
-  status     SaleStatus  @default(DRAFT)
-  note       String?
-  soldAt     DateTime    @default(now())
-  subtotal   Decimal     @db.Decimal(12, 2)
-  totalCost  Decimal     @db.Decimal(12, 2)
-  profit     Decimal     @db.Decimal(12, 2)
-  commission Decimal     @db.Decimal(12, 2)
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
-
-  seller User    @relation("SaleSeller", fields: [sellerId], references: [id], onDelete: Cascade)
-  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  items  SaleItem[]
-
-  @@index([sellerId])
-  @@index([soldAt])
-  @@index([status])
-}
-
-model SaleItem {
-  id               String  @id @default(uuid()) @db.Uuid
-  saleId           String  @db.Uuid
-  productId        String  @db.Uuid
-  qty              Int
-  unitPriceSold    Decimal @db.Decimal(12, 2)
-  unitCostSnapshot Decimal @db.Decimal(12, 2)
-  lineTotal        Decimal @db.Decimal(12, 2)
-  lineCost         Decimal @db.Decimal(12, 2)
-  lineProfit       Decimal @db.Decimal(12, 2)
-
-  sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@index([saleId])
-  @@index([productId])
+  @@index([ownerId])
+  @@index([ownerId, nombre])
+  @@index([ownerId, telefono])
 }
 
 model Close {
