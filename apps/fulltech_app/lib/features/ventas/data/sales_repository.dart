@@ -35,15 +35,18 @@ class SalesRepository {
   Future<List<ClientModel>> fetchClients({
     String? search,
     int page = 1,
-    int pageSize = 500, // ensure newly creados se incluyan y evitar que se pierdan por paginado corto
+    int pageSize =
+        500, // ensure newly creados se incluyan y evitar que se pierdan por paginado corto
   }) async {
     try {
+      final safePage = page < 1 ? 1 : page;
+      final safePageSize = pageSize < 1 ? 20 : pageSize;
       final res = await _dio.get(
         ApiRoutes.clients,
         queryParameters: _compactQuery({
           'search': search,
-          'page': page,
-          'pageSize': pageSize,
+          'page': safePage,
+          'pageSize': safePageSize,
         }),
       );
       final data = res.data;
@@ -78,17 +81,11 @@ class SalesRepository {
     String? notas,
   }) async {
     try {
-      final data = {
-        'nombre': nombre,
-        'telefono': telefono,
-      };
+      final data = {'nombre': nombre, 'telefono': telefono};
       if (email != null) data['email'] = email;
       if (direccion != null) data['direccion'] = direccion;
       if (notas != null) data['notas'] = notas;
-      final res = await _dio.post(
-        ApiRoutes.clients,
-        data: data,
-      );
+      final res = await _dio.post(ApiRoutes.clients, data: data);
       return ClientModel.fromJson((res.data as Map).cast<String, dynamic>());
     } on DioException catch (e) {
       throw ApiException(
@@ -107,17 +104,12 @@ class SalesRepository {
     String? notas,
   }) async {
     try {
-      final data = {
-        'nombre': nombre,
-      };
+      final data = {'nombre': nombre};
       if (telefono != null) data['telefono'] = telefono;
       if (email != null) data['email'] = email;
       if (direccion != null) data['direccion'] = direccion;
       if (notas != null) data['notas'] = notas;
-      final res = await _dio.patch(
-        '${ApiRoutes.clients}/$id',
-        data: data,
-      );
+      final res = await _dio.patch('${ApiRoutes.clients}/$id', data: data);
       return ClientModel.fromJson((res.data as Map).cast<String, dynamic>());
     } on DioException catch (e) {
       throw ApiException(
@@ -413,7 +405,8 @@ class SalesRepository {
     }
   }
 
-  Future<CloseModel> updateClose(String id, {
+  Future<CloseModel> updateClose(
+    String id, {
     String? status,
     double? cash,
     double? transfer,
@@ -429,7 +422,10 @@ class SalesRepository {
       if (card != null) data['card'] = card;
       if (expenses != null) data['expenses'] = expenses;
       if (cashDelivered != null) data['cashDelivered'] = cashDelivered;
-      final res = await _dio.patch('${ApiRoutes.contabilidadCloses}/$id', data: data);
+      final res = await _dio.patch(
+        '${ApiRoutes.contabilidadCloses}/$id',
+        data: data,
+      );
       return CloseModel.fromJson(res.data);
     } on DioException catch (e) {
       throw ApiException(
