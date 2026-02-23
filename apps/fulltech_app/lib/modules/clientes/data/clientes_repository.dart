@@ -41,6 +41,8 @@ class ClientesRepository {
     int pageSize = 100,
   }) async {
     try {
+      final safePage = page < 1 ? 1 : page;
+      final safePageSize = pageSize < 1 ? 20 : pageSize;
       final includeDeleted = estadoFilter == EstadoFilter.todos ? true : null;
       final onlyDeleted = estadoFilter == EstadoFilter.eliminados ? true : null;
 
@@ -48,8 +50,8 @@ class ClientesRepository {
         ApiRoutes.clients,
         queryParameters: {
           if (search.trim().isNotEmpty) 'search': search.trim(),
-          'page': page,
-          'pageSize': pageSize,
+          'page': safePage,
+          'pageSize': safePageSize,
           if (includeDeleted != null) 'includeDeleted': includeDeleted,
           if (onlyDeleted != null) 'onlyDeleted': onlyDeleted,
         },
