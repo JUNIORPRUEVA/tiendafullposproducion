@@ -89,6 +89,15 @@ class AppDrawer extends ConsumerWidget {
                       context.go(Routes.user);
                     },
                   ),
+                  _DrawerMenuItem(
+                    icon: Icons.payments_outlined,
+                    title: 'Nómina',
+                    subtitle: 'Gestión de nómina',
+                    onTap: () {
+                      Navigator.pop(context);
+                      context.go(Routes.nomina);
+                    },
+                  ),
                 ],
               ),
             ),

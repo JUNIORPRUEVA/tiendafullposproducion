@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/api/env.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/models/user_model.dart';
 import '../../core/utils/string_utils.dart';
@@ -11,11 +12,50 @@ import '../../core/widgets/custom_app_bar.dart';
 import '../user/application/users_controller.dart';
 import './profile_screen.dart';
 
+String? _resolveUserDocUrl(String? url) {
+  if (url == null || url.isEmpty) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  final base = Env.apiBaseUrl;
+  if (base.isEmpty) return url;
+  final trimmedBase = base.endsWith('/')
+      ? base.substring(0, base.length - 1)
+      : base;
+  final normalizedPath = url.startsWith('/') ? url : '/$url';
+  return '$trimmedBase$normalizedPath';
+}
+
 class UsersScreen extends ConsumerWidget {
   const UsersScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    return const _UsersScreenBody();
+  }
+}
+
+enum _UserStatusFilter { todos, activos, bloqueados }
+
+class _UsersScreenBody extends ConsumerStatefulWidget {
+  const _UsersScreenBody();
+
+  @override
+  ConsumerState<_UsersScreenBody> createState() => _UsersScreenState();
+}
+
+class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
+  final TextEditingController _searchCtrl = TextEditingController();
+  bool _searching = false;
+  String _searchQuery = '';
+  _UserStatusFilter _statusFilter = _UserStatusFilter.todos;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final auth = ref.watch(authStateProvider);
     final currentUser = auth.user;
 
@@ -54,7 +94,60 @@ class UsersScreen extends ConsumerWidget {
     final usersState = ref.watch(usersControllerProvider);
 
     return Scaffold(
-      appBar: CustomAppBar(title: 'Gestión de Usuarios', showLogo: false),
+      appBar: CustomAppBar(
+        title: 'Gestión de Usuarios',
+        showLogo: false,
+        titleWidget: _searching
+            ? TextField(
+                controller: _searchCtrl,
+                autofocus: true,
+                onChanged: (value) => setState(() => _searchQuery = value),
+                style: const TextStyle(color: Colors.white, fontSize: 15),
+                decoration: InputDecoration(
+                  hintText: 'Buscar usuario...',
+                  hintStyle: const TextStyle(color: Colors.white70),
+                  border: InputBorder.none,
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () {
+                      setState(() {
+                        _searching = false;
+                        _searchQuery = '';
+                        _searchCtrl.clear();
+                      });
+                    },
+                  ),
+                ),
+              )
+            : null,
+        actions: [
+          IconButton(
+            tooltip: 'Buscar',
+            onPressed: () => setState(() => _searching = true),
+            icon: const Icon(Icons.search),
+          ),
+          PopupMenuButton<_UserStatusFilter>(
+            tooltip: 'Filtrar',
+            initialValue: _statusFilter,
+            onSelected: (value) => setState(() => _statusFilter = value),
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: _UserStatusFilter.todos,
+                child: Text('Todos'),
+              ),
+              PopupMenuItem(
+                value: _UserStatusFilter.activos,
+                child: Text('Solo activos'),
+              ),
+              PopupMenuItem(
+                value: _UserStatusFilter.bloqueados,
+                child: Text('Solo bloqueados'),
+              ),
+            ],
+            icon: const Icon(Icons.filter_list),
+          ),
+        ],
+      ),
       drawer: AppDrawer(currentUser: currentUser),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showUserDialog(context, ref),
@@ -77,21 +170,45 @@ class UsersScreen extends ConsumerWidget {
             ],
           ),
           data: (users) {
-            if (users.isEmpty) {
+            final filteredUsers = users.where((user) {
+              final matchesStatus = switch (_statusFilter) {
+                _UserStatusFilter.todos => true,
+                _UserStatusFilter.activos => !user.blocked,
+                _UserStatusFilter.bloqueados => user.blocked,
+              };
+
+              final q = _searchQuery.trim().toLowerCase();
+              final matchesSearch = q.isEmpty
+                  ? true
+                  : ('${user.nombreCompleto} ${user.email} ${user.telefono} ${user.cedula ?? ''}'
+                        .toLowerCase()
+                        .contains(q));
+
+              return matchesStatus && matchesSearch;
+            }).toList();
+
+            if (filteredUsers.isEmpty) {
               return ListView(
                 padding: const EdgeInsets.all(24),
-                children: const [
-                  Center(child: Text('No hay usuarios registrados')),
+                children: [
+                  Center(
+                    child: Text(
+                      users.isEmpty
+                          ? 'No hay usuarios registrados'
+                          : 'No hay resultados con ese filtro',
+                    ),
+                  ),
                 ],
               );
             }
             return ListView.builder(
               padding: const EdgeInsets.all(16),
-              itemCount: users.length,
+              itemCount: filteredUsers.length,
               itemBuilder: (context, index) {
-                final user = users[index];
+                final user = filteredUsers[index];
                 return _UserCard(
                   user: user,
+                  onView: () => _showUserDetailsSheet(context, user),
                   onEdit: () => _showUserDialog(context, ref, user),
                   onDelete: () => _showDeleteDialog(context, ref, user),
                   onToggleBlock: () => _toggleBlock(context, ref, user),
@@ -456,123 +573,187 @@ class UsersScreen extends ConsumerWidget {
       ),
     );
   }
+
+  void _showUserDetailsSheet(BuildContext context, UserModel user) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Detalle de usuario', style: theme.textTheme.titleLarge),
+                  const SizedBox(height: 12),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        children: [
+                          _DetailRow('Nombre', user.nombreCompleto),
+                          _DetailRow('Email', user.email),
+                          _DetailRow('Rol', user.role ?? '—'),
+                          _DetailRow(
+                            'Estado',
+                            user.blocked ? 'Bloqueado' : 'Activo',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        children: [
+                          _DetailRow('Teléfono', user.telefono),
+                          _DetailRow(
+                            'Teléfono familiar',
+                            user.telefonoFamiliar ?? '—',
+                          ),
+                          _DetailRow('Cédula', user.cedula ?? '—'),
+                          _DetailRow('Edad', user.edad?.toString() ?? '—'),
+                          _DetailRow(
+                            'Creado',
+                            user.createdAt != null
+                                ? DateFormat(
+                                    'dd/MM/yyyy',
+                                  ).format(user.createdAt!)
+                                : '—',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.photo_library_outlined,
+                                color: theme.colorScheme.primary,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Documentos subidos',
+                                style: theme.textTheme.titleMedium,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          _UserDocumentPreviewCard(
+                            title: 'Foto de cédula',
+                            imageUrl: _resolveUserDocUrl(user.fotoCedulaUrl),
+                          ),
+                          const SizedBox(height: 10),
+                          _UserDocumentPreviewCard(
+                            title: 'Foto de licencia',
+                            imageUrl: _resolveUserDocUrl(user.fotoLicenciaUrl),
+                          ),
+                          const SizedBox(height: 10),
+                          _UserDocumentPreviewCard(
+                            title: 'Foto personal',
+                            imageUrl: _resolveUserDocUrl(user.fotoPersonalUrl),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
+
+enum _UserMenuAction { editar, bloquear, eliminar }
 
 class _UserCard extends StatelessWidget {
   const _UserCard({
     required this.user,
+    required this.onView,
     required this.onEdit,
     required this.onDelete,
     required this.onToggleBlock,
   });
 
   final UserModel user;
+  final VoidCallback onView;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onToggleBlock;
 
   @override
   Widget build(BuildContext context) {
-    final roleColor = _getRoleColor(user.role);
+    final statusText = user.blocked ? 'Bloqueado' : 'Activo';
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: roleColor,
-                  child: Text(
-                    getInitials(user.nombreCompleto),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        user.nombreCompleto,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      Text(
-                        user.email,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Chip(
-                  label: Text(
-                    user.role ?? 'Sin rol',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  backgroundColor: roleColor,
-                ),
-              ],
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        onTap: onView,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        leading: CircleAvatar(
+          backgroundColor: _getRoleColor(user.role),
+          child: Text(
+            getInitials(user.nombreCompleto),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
             ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Teléfono: ${user.telefono}'),
-                      Text('Tel. familiar: ${user.telefonoFamiliar ?? '—'}'),
-                      Text('Cédula: ${user.cedula ?? '—'}'),
-                      if (user.createdAt != null)
-                        Text(
-                          'Desde: ${DateFormat('dd/MM/yyyy').format(user.createdAt!)}',
-                        ),
-                      Text('Estado: ${user.blocked ? 'Bloqueado' : 'Activo'}'),
-                    ],
-                  ),
-                ),
-              ],
+          ),
+        ),
+        title: Text(
+          '${user.nombreCompleto} • ${user.role ?? 'Sin rol'} • $statusText',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+        ),
+        subtitle: Text(
+          user.telefono,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: Theme.of(context).colorScheme.outline),
+        ),
+        trailing: PopupMenuButton<_UserMenuAction>(
+          icon: const Icon(Icons.more_vert),
+          onSelected: (action) {
+            switch (action) {
+              case _UserMenuAction.editar:
+                onEdit();
+                break;
+              case _UserMenuAction.bloquear:
+                onToggleBlock();
+                break;
+              case _UserMenuAction.eliminar:
+                onDelete();
+                break;
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: _UserMenuAction.editar,
+              child: Text('Editar'),
             ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.edit, size: 16),
-                  label: const Text('Editar'),
-                  onPressed: onEdit,
-                ),
-                ElevatedButton.icon(
-                  icon: Icon(
-                    user.blocked ? Icons.lock_open : Icons.lock,
-                    size: 16,
-                  ),
-                  label: Text(user.blocked ? 'Desbloquear' : 'Bloquear'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: user.blocked ? Colors.orange : Colors.red,
-                  ),
-                  onPressed: onToggleBlock,
-                ),
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.delete, size: 16),
-                  label: const Text('Eliminar'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.error,
-                  ),
-                  onPressed: onDelete,
-                ),
-              ],
+            PopupMenuItem(
+              value: _UserMenuAction.bloquear,
+              child: Text(user.blocked ? 'Desbloquear' : 'Bloquear'),
+            ),
+            const PopupMenuItem(
+              value: _UserMenuAction.eliminar,
+              child: Text('Eliminar'),
             ),
           ],
         ),
@@ -595,6 +776,35 @@ class _UserCard extends StatelessWidget {
       default:
         return Colors.grey;
     }
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow(this.label, this.value);
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 130,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.outline,
+              ),
+            ),
+          ),
+          Expanded(child: Text(value)),
+        ],
+      ),
+    );
   }
 }
 
@@ -641,6 +851,84 @@ class _UploadTile extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _UserDocumentPreviewCard extends StatelessWidget {
+  const _UserDocumentPreviewCard({required this.title, required this.imageUrl});
+
+  final String title;
+  final String? imageUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasImage = imageUrl != null && imageUrl!.isNotEmpty;
+    final outline = Theme.of(context).colorScheme.outlineVariant;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: outline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              height: 150,
+              width: double.infinity,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: hasImage
+                  ? Image.network(
+                      imageUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _DocumentImageFallback(
+                        text: 'No se pudo cargar la imagen',
+                      ),
+                    )
+                  : const _DocumentImageFallback(text: 'Sin imagen'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DocumentImageFallback extends StatelessWidget {
+  const _DocumentImageFallback({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.image_not_supported_outlined,
+            color: Theme.of(context).colorScheme.outline,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            text,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.outline,
+              fontSize: 12,
+            ),
+          ),
+        ],
       ),
     );
   }

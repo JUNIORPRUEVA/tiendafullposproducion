@@ -30,6 +30,21 @@ enum CloseType {
   TIENDA
 }
 
+enum PayrollPeriodStatus {
+  OPEN
+  CLOSED
+}
+
+enum PayrollEntryType {
+  FALTA_DIA
+  TARDE
+  BONO
+  COMISION
+  ADELANTO
+  DESCUENTO
+  OTRO
+}
+
 model User {
   id               String   @id @default(uuid()) @db.Uuid
   email            String   @unique
@@ -53,6 +68,10 @@ model User {
   updatedAt        DateTime @updatedAt
 
   clients Client[]
+  payrollEmployees PayrollEmployee[]
+  payrollPeriods PayrollPeriod[]
+  payrollEmployeeConfigs PayrollEmployeeConfig[]
+  payrollEntries PayrollEntry[]
   punches Punch[]
 }
 
@@ -123,4 +142,82 @@ model Close {
 
   @@index([date])
   @@index([type])
+}
+
+model PayrollEmployee {
+  id        String   @id @default(uuid()) @db.Uuid
+  ownerId   String   @db.Uuid
+  nombre    String
+  telefono  String?
+  puesto    String?
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  configs PayrollEmployeeConfig[]
+  entries PayrollEntry[]
+
+  @@index([ownerId])
+  @@index([ownerId, nombre])
+}
+
+model PayrollPeriod {
+  id        String              @id @default(uuid()) @db.Uuid
+  ownerId   String              @db.Uuid
+  title     String
+  startDate DateTime
+  endDate   DateTime
+  status    PayrollPeriodStatus @default(OPEN)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  configs PayrollEmployeeConfig[]
+  entries PayrollEntry[]
+
+  @@index([ownerId])
+  @@index([ownerId, status])
+  @@index([startDate, endDate])
+}
+
+model PayrollEmployeeConfig {
+  id                 String   @id @default(uuid()) @db.Uuid
+  ownerId            String   @db.Uuid
+  periodId           String   @db.Uuid
+  employeeId         String   @db.Uuid
+  baseSalary         Decimal  @db.Decimal(12, 2)
+  includeCommissions Boolean  @default(false)
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  period PayrollPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  employee PayrollEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, periodId, employeeId])
+  @@index([ownerId])
+  @@index([periodId, employeeId])
+}
+
+model PayrollEntry {
+  id         String           @id @default(uuid()) @db.Uuid
+  ownerId    String           @db.Uuid
+  periodId   String           @db.Uuid
+  employeeId String           @db.Uuid
+  date       DateTime
+  type       PayrollEntryType
+  concept    String
+  amount     Decimal          @db.Decimal(12, 2)
+  cantidad   Decimal?         @db.Decimal(12, 2)
+  createdAt  DateTime         @default(now())
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  period PayrollPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  employee PayrollEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId])
+  @@index([periodId, employeeId])
+  @@index([date])
 }

@@ -15,6 +15,7 @@ class Routes {
   static const clienteNuevo = '/clientes/nuevo';
   static const clienteDetalle = '/clientes/:id';
   static const clienteEditar = '/clientes/:id/editar';
+    static const nomina = '/nomina';
 
   static String clienteDetail(String id) => '/clientes/$id';
   static String clienteEdit(String id) => '/clientes/$id/editar';
