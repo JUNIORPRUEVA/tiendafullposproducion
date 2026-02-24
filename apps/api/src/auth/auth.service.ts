@@ -34,10 +34,18 @@ export class AuthService {
   }
 
   private isMissingUserTable(error: unknown) {
-    return (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === 'P2021'
-    );
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return error.code === 'P2021';
+    }
+
+    if (typeof error === 'object' && error !== null) {
+      const value = error as { code?: unknown; message?: unknown };
+      const code = typeof value.code === 'string' ? value.code : '';
+      const message = typeof value.message === 'string' ? value.message : '';
+      return code === 'P2021' || message.includes('does not exist in the current database');
+    }
+
+    return false;
   }
 
   private async findUserForLogin(email: string) {
