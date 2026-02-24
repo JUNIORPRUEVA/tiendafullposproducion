@@ -32,7 +32,6 @@ final _routerRefreshProvider = Provider<_RouterRefreshNotifier>((ref) {
 });
 
 final routerProvider = Provider<GoRouter>((ref) {
-  final auth = ref.watch(authStateProvider);
   final refresh = ref.watch(_routerRefreshProvider);
 
   return GoRouter(
@@ -128,21 +127,21 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
     ],
     redirect: (context, state) {
+      final auth = ref.read(authStateProvider);
       final isAuth = auth.isAuthenticated;
-      final isLoading = auth.loading;
       final loc = state.uri.toString();
       final isAuthRoute = loc == Routes.login;
       final isSplash = loc == Routes.splash;
 
-      if (isLoading) {
-        return isSplash ? null : Routes.splash;
+      if (isSplash) {
+        return isAuth ? Routes.operaciones : Routes.login;
       }
 
       if (!isAuth) {
         return isAuthRoute ? null : Routes.login;
       }
 
-      if (isAuth && (isAuthRoute || isSplash)) {
+      if (isAuth && isAuthRoute) {
         return Routes.operaciones;
       }
 

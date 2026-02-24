@@ -7,6 +7,12 @@ class TokenStorage {
   static const _refreshTokenKey = 'refreshToken';
   final _secureStorage = const FlutterSecureStorage();
 
+  bool get _useSecureStorage {
+    if (kIsWeb) return false;
+    return defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+  }
+
   Future<SharedPreferences> _prefs() => SharedPreferences.getInstance();
 
   Future<void> saveTokens(String accessToken, [String? refreshToken]) async {
@@ -47,7 +53,7 @@ class TokenStorage {
   }
 
   Future<void> _saveInSecure(String accessToken, [String? refreshToken]) async {
-    if (kIsWeb) return; // Secure storage is not available on web
+    if (!_useSecureStorage) return;
     try {
       await _secureStorage.write(key: _accessTokenKey, value: accessToken);
       if (refreshToken != null && refreshToken.isNotEmpty) {
@@ -59,7 +65,7 @@ class TokenStorage {
   }
 
   Future<String?> _readSecure(String key) async {
-    if (kIsWeb) return null;
+    if (!_useSecureStorage) return null;
     try {
       return await _secureStorage.read(key: key);
     } catch (_) {
@@ -68,7 +74,7 @@ class TokenStorage {
   }
 
   Future<void> _deleteSecure(String key) async {
-    if (kIsWeb) return;
+    if (!_useSecureStorage) return;
     try {
       await _secureStorage.delete(key: key);
     } catch (_) {

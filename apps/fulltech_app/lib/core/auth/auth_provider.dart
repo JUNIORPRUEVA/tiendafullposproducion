@@ -28,27 +28,55 @@ final authStateProvider = StateNotifierProvider<AuthController, AuthState>((
 
 class AuthController extends StateNotifier<AuthState> {
   final Ref ref;
+  static const Duration _bootstrapTimeout = Duration(seconds: 12);
+  static const Duration _storageTimeout = Duration(seconds: 3);
+  static const Duration _watchdogTimeout = Duration(seconds: 8);
+  Timer? _bootstrapWatchdog;
 
   AuthController(this.ref)
     : super(AuthState(isAuthenticated: false, loading: true)) {
+    _bootstrapWatchdog = Timer(_watchdogTimeout, () {
+      if (!mounted) return;
+      if (state.loading) {
+        state = AuthState(isAuthenticated: false, user: null, loading: false);
+      }
+    });
     _init();
   }
 
   Future<void> _init() async {
-    final repo = ref.read(authRepositoryProvider);
-    final user = await repo.getMeOrNull();
-    if (user != null) {
-      state = state.copyWith(isAuthenticated: true, user: user, loading: false);
-      return;
+    bool isAuthenticated = false;
+    UserModel? resolvedUser;
+
+    try {
+      final repo = ref.read(authRepositoryProvider);
+      final user = await repo.getMeOrNull().timeout(_bootstrapTimeout);
+      if (user != null) {
+        isAuthenticated = true;
+        resolvedUser = user;
+      } else {
+        final storage = ref.read(tokenStorageProvider);
+        final token = await storage.getAccessToken().timeout(_storageTimeout);
+        if (token != null && token.isNotEmpty) {
+          try {
+            await storage.clearTokens().timeout(_storageTimeout);
+          } catch (_) {}
+        }
+      }
+    } catch (_) {
+      final storage = ref.read(tokenStorageProvider);
+      try {
+        await storage.clearTokens().timeout(_storageTimeout);
+      } catch (_) {}
     }
 
-    final storage = ref.read(tokenStorageProvider);
-    final token = await storage.getAccessToken();
-    if (token != null && token.isNotEmpty) {
-      await storage.clearTokens();
-    }
-
-    state = state.copyWith(isAuthenticated: false, user: null, loading: false);
+    if (!mounted) return;
+    _bootstrapWatchdog?.cancel();
+    state = AuthState(
+      isAuthenticated: isAuthenticated,
+      user: resolvedUser,
+      loading: false,
+    );
   }
 
   Future<bool> login(String email, String password) async {
@@ -72,5 +100,11 @@ class AuthController extends StateNotifier<AuthState> {
 
   void setUser(UserModel user) {
     state = state.copyWith(user: user, isAuthenticated: true);
+  }
+
+  @override
+  void dispose() {
+    _bootstrapWatchdog?.cancel();
+    super.dispose();
   }
 }

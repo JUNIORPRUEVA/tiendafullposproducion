@@ -1,4 +1,4 @@
-import 'dart:convert';
+import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,6 +29,8 @@ final authRepositoryProvider = Provider<AuthRepository>((ref) {
 class AuthRepository {
   final Dio _dio;
   final TokenStorage _storage;
+  static const Duration _loginTimeout = Duration(seconds: 25);
+  static const Duration _bootstrapTimeout = Duration(seconds: 12);
 
   AuthRepository({required Dio dio, required TokenStorage storage})
     : _dio = dio,
@@ -65,6 +67,19 @@ class AuthRepository {
     return '[HTTP $status] $rawMessage\nEndpoint: $endpoint';
   }
 
+  UserModel? _userFromLoginResponse(dynamic data) {
+    if (data is! Map) return null;
+    final user = data['user'];
+    if (user is! Map) return null;
+
+    final normalized = user.cast<String, dynamic>();
+    final id = (normalized['id'] ?? '').toString().trim();
+    final email = (normalized['email'] ?? '').toString().trim();
+    if (id.isEmpty || email.isEmpty) return null;
+
+    return UserModel.fromJson(normalized);
+  }
+
   Future<UserModel> login(String email, String password) async {
     await _storage.clearTokens();
     try {
@@ -72,10 +87,12 @@ class AuthRepository {
       Response<dynamic> res;
 
       try {
-        res = await _dio.post(
-          ApiRoutes.login,
-          data: {'email': normalizedEmail, 'password': password},
-        );
+        res = await _dio
+            .post(
+              ApiRoutes.login,
+              data: {'email': normalizedEmail, 'password': password},
+            )
+            .timeout(_loginTimeout);
       } on DioException catch (firstError) {
         final status = firstError.response?.statusCode;
         final message = _extractMessage(firstError.response?.data, '');
@@ -87,10 +104,12 @@ class AuthRepository {
 
         if (!shouldRetryWithIdentifier) rethrow;
 
-        res = await _dio.post(
-          ApiRoutes.login,
-          data: {'identifier': normalizedEmail, 'password': password},
-        );
+        res = await _dio
+            .post(
+              ApiRoutes.login,
+              data: {'identifier': normalizedEmail, 'password': password},
+            )
+            .timeout(_loginTimeout);
       }
 
       final access = res.data['accessToken'] as String?;
@@ -98,8 +117,24 @@ class AuthRepository {
       if (access != null && access.isNotEmpty) {
         await _storage.saveTokens(access, refresh);
       }
-      final me = await _dio.get(ApiRoutes.me);
-      return UserModel.fromJson((me.data as Map).cast<String, dynamic>());
+      try {
+        final me = await _dio.get(ApiRoutes.me).timeout(_loginTimeout);
+        return UserModel.fromJson((me.data as Map).cast<String, dynamic>());
+      } on DioException {
+        final fallbackUser = _userFromLoginResponse(res.data);
+        if (fallbackUser != null) return fallbackUser;
+        rethrow;
+      } on TimeoutException {
+        final fallbackUser = _userFromLoginResponse(res.data);
+        if (fallbackUser != null) return fallbackUser;
+        rethrow;
+      }
+    } on TimeoutException {
+      await _storage.clearTokens();
+      throw ApiException(
+        '[TIMEOUT] El servidor tardó demasiado en responder. Inténtalo de nuevo.',
+        null,
+      );
     } on DioException catch (e) {
       await _storage.clearTokens();
       throw ApiException(
@@ -117,54 +152,24 @@ class AuthRepository {
       final token = await _storage.getAccessToken();
       if (token == null) return null;
       try {
-        final res = await _dio.get(ApiRoutes.me);
+        final res = await _dio.get(ApiRoutes.me).timeout(_bootstrapTimeout);
         return UserModel.fromJson(res.data);
       } on DioException catch (e) {
         // Si expira, intenta refresh y reintenta
         if (e.response?.statusCode == 401) {
           final refreshed = await _refreshAndSave();
           if (refreshed) {
-            final res = await _dio.get(ApiRoutes.me);
+            final res = await _dio.get(ApiRoutes.me).timeout(_bootstrapTimeout);
             return UserModel.fromJson(res.data);
           }
-
-          final decoded = _decodeJwtUserOrNull(token);
-          if (decoded != null) return decoded;
-        } else {
-          // Fallback offline/servidor caído: decodifica el JWT para mantener la sesión visible.
-          final decoded = _decodeJwtUserOrNull(token);
-          if (decoded != null) return decoded;
         }
+
+        await _storage.clearTokens();
+        return null;
+      } on TimeoutException {
+        await _storage.clearTokens();
         return null;
       }
-    } catch (_) {
-      return null;
-    }
-  }
-
-  UserModel? _decodeJwtUserOrNull(String token) {
-    try {
-      final parts = token.split('.');
-      if (parts.length != 3) return null;
-
-      final payload = parts[1];
-      final normalized = base64Url.normalize(payload);
-      final decoded = utf8.decode(base64Url.decode(normalized));
-      final json = jsonDecode(decoded);
-      if (json is! Map) return null;
-
-      final sub = json['sub'] as String?;
-      final email = json['email'] as String?;
-      final role = json['role'] as String?;
-      if (sub == null || sub.isEmpty) return null;
-
-      return UserModel(
-        id: sub,
-        email: email ?? '',
-        nombreCompleto: '',
-        telefono: '',
-        role: role,
-      );
     } catch (_) {
       return null;
     }
