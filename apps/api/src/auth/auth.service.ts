@@ -90,8 +90,6 @@ export class AuthService {
           id: true,
           email: true,
           role: true,
-          createdAt: true,
-          updatedAt: true,
         },
       });
     } catch (error) {
@@ -102,11 +100,9 @@ export class AuthService {
           id: string;
           email: string;
           role: string;
-          createdAt: Date;
-          updatedAt: Date;
         }>
       >(Prisma.sql`
-        SELECT id, email, role, "createdAt", "updatedAt"
+        SELECT id, email, role
         FROM users
         WHERE id = ${userId}
         LIMIT 1
@@ -118,8 +114,6 @@ export class AuthService {
         id: row.id,
         email: row.email,
         role: row.role,
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt,
       };
     }
   }
