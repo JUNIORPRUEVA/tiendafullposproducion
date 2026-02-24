@@ -33,15 +33,34 @@ class AuthRepository {
       _storage = storage;
 
   String _extractMessage(dynamic data, String fallback) {
+    if (data is String && data.trim().isNotEmpty) return data;
     if (data is Map) {
       final message = data['message'];
       if (message is String && message.trim().isNotEmpty) return message;
       if (message is List && message.isNotEmpty) {
-        final first = message.first;
-        if (first is String && first.trim().isNotEmpty) return first;
+        final normalized = message
+            .whereType<String>()
+            .map((item) => item.trim())
+            .where((item) => item.isNotEmpty)
+            .toList();
+        if (normalized.isNotEmpty) return normalized.join(' | ');
       }
+      final error = data['error'];
+      if (error is String && error.trim().isNotEmpty) return error;
     }
     return fallback;
+  }
+
+  String _formatDioError(DioException e, String fallback) {
+    final status = e.response?.statusCode;
+    final endpoint = e.requestOptions.path;
+    final rawMessage = _extractMessage(e.response?.data, fallback);
+
+    if (status == null) {
+      return '[NETWORK] $rawMessage\nEndpoint: $endpoint\nDetalle: ${e.message ?? 'Sin respuesta del servidor'}';
+    }
+
+    return '[HTTP $status] $rawMessage\nEndpoint: $endpoint';
   }
 
   Future<UserModel> login(String email, String password) async {
@@ -80,7 +99,7 @@ class AuthRepository {
       return UserModel.fromJson((me.data as Map).cast<String, dynamic>());
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'Login fallido'),
+        _formatDioError(e, 'Login fallido'),
         e.response?.statusCode,
       );
     }

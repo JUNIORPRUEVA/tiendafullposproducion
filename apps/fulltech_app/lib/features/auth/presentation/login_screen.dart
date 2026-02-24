@@ -83,11 +83,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       }
     } on ApiException catch (e) {
       if (mounted) {
-        setState(() => _error = e.message);
+        setState(() => _error = e.message.trim());
       }
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
-        setState(() => _error = 'Error al iniciar sesión');
+        setState(() => _error = 'Error inesperado al iniciar sesión: $e');
       }
     }
   }
