@@ -3,13 +3,40 @@ import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
-async function upsertUser({ email, password, nombreCompleto, telefono, role }: { email: string; password: string; nombreCompleto: string; telefono: string; role: Role }) {
+function isMissingUserTable(error: unknown) {
+  if (typeof error === 'object' && error !== null) {
+    const value = error as { code?: unknown; message?: unknown };
+    const code = typeof value.code === 'string' ? value.code : '';
+    const message = typeof value.message === 'string' ? value.message : '';
+    return code === 'P2021' || message.includes('table `public.User` does not exist');
+  }
+  return false;
+}
+
+async function upsertUser({ email, password, nombreCompleto, telefono, role }: { email: string; password: string; nombreCompleto: string; telefono: string; role: Role }): Promise<{ id: string; email: string; fallback: boolean }> {
   const passwordHash = await bcrypt.hash(password, 10);
-  return prisma.user.upsert({
-    where: { email },
-    update: { nombreCompleto, telefono, role, passwordHash, blocked: false },
-    create: { email, passwordHash, nombreCompleto, telefono, edad: 0, role, blocked: false, tieneHijos: false, estaCasado: false, casaPropia: false, vehiculo: false, licenciaConducir: false }
-  });
+  try {
+    const user = await prisma.user.upsert({
+      where: { email },
+      update: { nombreCompleto, telefono, role, passwordHash, blocked: false },
+      create: { email, passwordHash, nombreCompleto, telefono, edad: 0, role, blocked: false, tieneHijos: false, estaCasado: false, casaPropia: false, vehiculo: false, licenciaConducir: false }
+    });
+    return { id: user.id, email: user.email, fallback: false };
+  } catch (error) {
+    if (!isMissingUserTable(error)) throw error;
+
+    const rows = await prisma.$queryRaw<Array<{ id: string; email: string }>>(Prisma.sql`
+      INSERT INTO users (email, "passwordHash", role)
+      VALUES (${email}, ${passwordHash}, ${role})
+      ON CONFLICT (email)
+      DO UPDATE SET "passwordHash" = EXCLUDED."passwordHash", role = EXCLUDED.role
+      RETURNING id, email
+    `);
+
+    const row = rows[0];
+    if (!row) throw new Error('No se pudo upsert el usuario admin en tabla users');
+    return { id: row.id, email: row.email, fallback: true };
+  }
 }
 
 async function main() {
@@ -28,6 +55,14 @@ async function main() {
     telefono: '0000000000',
     role: Role.ADMIN
   });
+
+  if (admin.fallback) {
+    console.log('Seed completed in fallback mode (users table):', {
+      admin: admin.email,
+      note: 'Solo se aseguró/reset el admin por compatibilidad de esquema.'
+    });
+    return;
+  }
 
   const seller1 = await upsertUser({
     email: seller1Email,
