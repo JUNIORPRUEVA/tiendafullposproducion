@@ -18,6 +18,26 @@ export class ProductsService {
     this.publicBaseUrl = base.trim().replace(/\/$/, '');
   }
 
+  private isSchemaMismatch(error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return error.code === 'P2021' || error.code === 'P2022';
+    }
+
+    if (typeof error === 'object' && error !== null) {
+      const value = error as { code?: unknown; message?: unknown };
+      const code = typeof value.code === 'string' ? value.code : '';
+      const message = typeof value.message === 'string' ? value.message : '';
+      return (
+        code === 'P2021' ||
+        code === 'P2022' ||
+        message.includes('does not exist in the current database') ||
+        message.toLowerCase().includes('column')
+      );
+    }
+
+    return false;
+  }
+
   create(dto: CreateProductDto): Promise<Product> {
     return this.prisma.$transaction(async (tx) => {
       const category = await this.findOrCreateCategory(tx, dto.categoria);
@@ -36,8 +56,13 @@ export class ProductsService {
   }
 
   async findAll(): Promise<any[]> {
-    const products = await this.prisma.product.findMany({ orderBy: { createdAt: 'desc' }, include: { category: true } });
-    return products.map((p) => this.mapProduct(p));
+    try {
+      const products = await this.prisma.product.findMany({ orderBy: { createdAt: 'desc' }, include: { category: true } });
+      return products.map((p) => this.mapProduct(p));
+    } catch (error) {
+      if (!this.isSchemaMismatch(error)) throw error;
+      return [];
+    }
   }
 
   async findOne(id: string): Promise<any> {

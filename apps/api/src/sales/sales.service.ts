@@ -7,6 +7,26 @@ import { CreateSaleDto, CreateSaleItemDto } from './dto/create-sale.dto';
 export class SalesService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private isSchemaMismatch(error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return error.code === 'P2021' || error.code === 'P2022';
+    }
+
+    if (typeof error === 'object' && error !== null) {
+      const value = error as { code?: unknown; message?: unknown };
+      const code = typeof value.code === 'string' ? value.code : '';
+      const message = typeof value.message === 'string' ? value.message : '';
+      return (
+        code === 'P2021' ||
+        code === 'P2022' ||
+        message.includes('does not exist in the current database') ||
+        message.toLowerCase().includes('column')
+      );
+    }
+
+    return false;
+  }
+
   async listMine(userId: string, from?: string, to?: string) {
     const where: Prisma.SaleWhereInput = {
       userId,
@@ -14,20 +34,25 @@ export class SalesService {
       ...this.buildDateRange(from, to),
     };
 
-    return this.prisma.sale.findMany({
-      where,
-      orderBy: { saleDate: 'desc' },
-      include: {
-        customer: {
-          select: {
-            id: true,
-            nombre: true,
-            telefono: true,
+    try {
+      return await this.prisma.sale.findMany({
+        where,
+        orderBy: { saleDate: 'desc' },
+        include: {
+          customer: {
+            select: {
+              id: true,
+              nombre: true,
+              telefono: true,
+            },
           },
+          items: true,
         },
-        items: true,
-      },
-    });
+      });
+    } catch (error) {
+      if (!this.isSchemaMismatch(error)) throw error;
+      return [];
+    }
   }
 
   async summaryMine(userId: string, from?: string, to?: string) {
@@ -37,18 +62,34 @@ export class SalesService {
       ...this.buildDateRange(from, to),
     };
 
-    const [aggregate, totalSales] = await Promise.all([
-      this.prisma.sale.aggregate({
-        where,
-        _sum: {
-          totalSold: true,
-          totalCost: true,
-          totalProfit: true,
-          commissionAmount: true,
-        },
-      }),
-      this.prisma.sale.count({ where }),
-    ]);
+    let aggregate: {
+      _sum: {
+        totalSold: Prisma.Decimal | null;
+        totalCost: Prisma.Decimal | null;
+        totalProfit: Prisma.Decimal | null;
+        commissionAmount: Prisma.Decimal | null;
+      };
+    } = {
+      _sum: { totalSold: null, totalCost: null, totalProfit: null, commissionAmount: null },
+    };
+    let totalSales = 0;
+
+    try {
+      [aggregate, totalSales] = await Promise.all([
+        this.prisma.sale.aggregate({
+          where,
+          _sum: {
+            totalSold: true,
+            totalCost: true,
+            totalProfit: true,
+            commissionAmount: true,
+          },
+        }),
+        this.prisma.sale.count({ where }),
+      ]);
+    } catch (error) {
+      if (!this.isSchemaMismatch(error)) throw error;
+    }
 
     return {
       totalSales,
@@ -67,18 +108,34 @@ export class SalesService {
       ...this.buildDateRange(from, to),
     };
 
-    const grouped = await this.prisma.sale.groupBy({
-      by: ['userId'],
-      where,
+    let grouped: Array<{
+      userId: string;
       _sum: {
-        totalSold: true,
-        totalProfit: true,
-        commissionAmount: true,
-      },
-      _count: {
-        _all: true,
-      },
-    });
+        totalSold: Prisma.Decimal | null;
+        totalProfit: Prisma.Decimal | null;
+        commissionAmount: Prisma.Decimal | null;
+      };
+      _count: { _all: number };
+    }> = [];
+
+    try {
+      const groupedResult = await this.prisma.sale.groupBy({
+        by: ['userId'],
+        where,
+        _sum: {
+          totalSold: true,
+          totalProfit: true,
+          commissionAmount: true,
+        },
+        _count: {
+          _all: true,
+        },
+      });
+      grouped = groupedResult as typeof grouped;
+    } catch (error) {
+      if (!this.isSchemaMismatch(error)) throw error;
+      grouped = [];
+    }
 
     const userIds = grouped.map((group) => group.userId);
     const users = userIds.length

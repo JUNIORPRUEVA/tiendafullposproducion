@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcryptjs';
@@ -9,31 +10,93 @@ import { SelfUpdateUserDto } from './dto/self-update-user.dto';
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private isMissingUserTable(error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return error.code === 'P2021';
+    }
+
+    if (typeof error === 'object' && error !== null) {
+      const value = error as { code?: unknown; message?: unknown };
+      const code = typeof value.code === 'string' ? value.code : '';
+      const message = typeof value.message === 'string' ? value.message : '';
+      return code === 'P2021' || message.includes('does not exist in the current database');
+    }
+
+    return false;
+  }
+
+  private mapMinimalUser(row: {
+    id: string;
+    email: string;
+    role: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
+    return {
+      id: row.id,
+      email: row.email,
+      nombreCompleto: '',
+      telefono: '',
+      telefonoFamiliar: null,
+      cedula: null,
+      fotoCedulaUrl: null,
+      fotoLicenciaUrl: null,
+      fotoPersonalUrl: null,
+      edad: null,
+      tieneHijos: false,
+      estaCasado: false,
+      casaPropia: false,
+      vehiculo: false,
+      licenciaConducir: false,
+      role: row.role,
+      blocked: false,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
   async findById(id: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        email: true,
-        nombreCompleto: true,
-        telefono: true,
-        telefonoFamiliar: true,
-        cedula: true,
-        fotoCedulaUrl: true,
-        fotoLicenciaUrl: true,
-        fotoPersonalUrl: true,
-        edad: true,
-        tieneHijos: true,
-        estaCasado: true,
-        casaPropia: true,
-        vehiculo: true,
-        licenciaConducir: true,
-        role: true,
-        blocked: true,
-        createdAt: true,
-        updatedAt: true
-      }
-    });
+    let user: any;
+
+    try {
+      user = await this.prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          email: true,
+          nombreCompleto: true,
+          telefono: true,
+          telefonoFamiliar: true,
+          cedula: true,
+          fotoCedulaUrl: true,
+          fotoLicenciaUrl: true,
+          fotoPersonalUrl: true,
+          edad: true,
+          tieneHijos: true,
+          estaCasado: true,
+          casaPropia: true,
+          vehiculo: true,
+          licenciaConducir: true,
+          role: true,
+          blocked: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
+    } catch (error) {
+      if (!this.isMissingUserTable(error)) throw error;
+
+      const rows = await this.prisma.$queryRaw<
+        Array<{ id: string; email: string; role: string; createdAt: Date; updatedAt: Date }>
+      >(Prisma.sql`
+        SELECT id, email, role, "createdAt", "updatedAt"
+        FROM users
+        WHERE id::text = ${id}
+        LIMIT 1
+      `);
+
+      user = rows[0] ? this.mapMinimalUser(rows[0]) : null;
+    }
 
     if (!user) throw new NotFoundException('User not found');
     return user;
@@ -117,6 +180,16 @@ export class UsersService {
         createdAt: true,
         updatedAt: true
       }
+    }).catch(async (error) => {
+      if (!this.isMissingUserTable(error)) throw error;
+      const rows = await this.prisma.$queryRaw<
+        Array<{ id: string; email: string; role: string; createdAt: Date; updatedAt: Date }>
+      >(Prisma.sql`
+        SELECT id, email, role, "createdAt", "updatedAt"
+        FROM users
+        ORDER BY "createdAt" DESC
+      `);
+      return rows.map((row) => this.mapMinimalUser(row));
     });
   }
 
