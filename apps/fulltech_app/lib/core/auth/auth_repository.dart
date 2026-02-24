@@ -46,10 +46,31 @@ class AuthRepository {
 
   Future<UserModel> login(String email, String password) async {
     try {
-      final res = await _dio.post(
-        ApiRoutes.login,
-        data: {'email': email.trim(), 'password': password},
-      );
+      final normalizedEmail = email.trim();
+      Response<dynamic> res;
+
+      try {
+        res = await _dio.post(
+          ApiRoutes.login,
+          data: {'email': normalizedEmail, 'password': password},
+        );
+      } on DioException catch (firstError) {
+        final status = firstError.response?.statusCode;
+        final message = _extractMessage(firstError.response?.data, '');
+        final shouldRetryWithIdentifier =
+            status == 400 ||
+            status == 422 ||
+            message.toLowerCase().contains('identifier') ||
+            message.toLowerCase().contains('internal server error');
+
+        if (!shouldRetryWithIdentifier) rethrow;
+
+        res = await _dio.post(
+          ApiRoutes.login,
+          data: {'identifier': normalizedEmail, 'password': password},
+        );
+      }
+
       final access = res.data['accessToken'] as String?;
       final refresh = res.data['refreshToken'] as String?;
       if (access != null && access.isNotEmpty) {

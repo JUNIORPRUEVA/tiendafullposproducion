@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
@@ -11,9 +11,16 @@ export class AuthService {
   ) {}
 
   async login(email: string, password: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        passwordHash: true,
+        role: true,
+      },
+    });
     if (!user) throw new UnauthorizedException('Invalid credentials');
-    if (user.blocked) throw new ForbiddenException('User blocked');
 
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
@@ -33,23 +40,9 @@ export class AuthService {
       select: {
         id: true,
         email: true,
-        nombreCompleto: true,
-        telefono: true,
-        telefonoFamiliar: true,
-        cedula: true,
-        fotoCedulaUrl: true,
-        fotoLicenciaUrl: true,
-        fotoPersonalUrl: true,
-        edad: true,
-        tieneHijos: true,
-        estaCasado: true,
-        casaPropia: true,
-        vehiculo: true,
-        licenciaConducir: true,
         role: true,
-        blocked: true,
         createdAt: true,
-        updatedAt: true
+        updatedAt: true,
       }
     });
   }
