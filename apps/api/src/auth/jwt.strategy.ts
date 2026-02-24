@@ -87,7 +87,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       >(Prisma.sql`
         SELECT id, email, role
         FROM users
-        WHERE id = ${userId}
+        WHERE id::text = ${userId}
         LIMIT 1
       `);
 

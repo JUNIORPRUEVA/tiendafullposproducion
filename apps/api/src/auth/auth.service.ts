@@ -178,7 +178,7 @@ export class AuthService {
       >(Prisma.sql`
         SELECT id, email, role
         FROM users
-        WHERE id = ${userId}
+        WHERE id::text = ${userId}
         LIMIT 1
       `);
 
@@ -224,7 +224,7 @@ export class AuthService {
       >(Prisma.sql`
         SELECT id, email, role
         FROM users
-        WHERE id = ${userId}
+        WHERE id::text = ${userId}
         LIMIT 1
       `);
 
