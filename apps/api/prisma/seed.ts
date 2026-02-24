@@ -25,13 +25,24 @@ async function upsertUser({ email, password, nombreCompleto, telefono, role }: {
   } catch (error) {
     if (!isMissingUserTable(error)) throw error;
 
-    const rows = await prisma.$queryRaw<Array<{ id: string; email: string }>>(Prisma.sql`
-      INSERT INTO users (email, "passwordHash", role)
-      VALUES (${email}, ${passwordHash}, ${role})
-      ON CONFLICT (email)
-      DO UPDATE SET "passwordHash" = EXCLUDED."passwordHash", role = EXCLUDED.role
-      RETURNING id, email
-    `);
+    let rows: Array<{ id: string; email: string }>;
+    try {
+      rows = await prisma.$queryRaw<Array<{ id: string; email: string }>>(Prisma.sql`
+        INSERT INTO users (email, "passwordHash", role)
+        VALUES (${email}, ${passwordHash}, CAST(${role} AS "Role"))
+        ON CONFLICT (email)
+        DO UPDATE SET "passwordHash" = EXCLUDED."passwordHash", role = EXCLUDED.role
+        RETURNING id, email
+      `);
+    } catch {
+      rows = await prisma.$queryRaw<Array<{ id: string; email: string }>>(Prisma.sql`
+        INSERT INTO users (email, "passwordHash", role)
+        VALUES (${email}, ${passwordHash}, ${role})
+        ON CONFLICT (email)
+        DO UPDATE SET "passwordHash" = EXCLUDED."passwordHash", role = EXCLUDED.role
+        RETURNING id, email
+      `);
+    }
 
     const row = rows[0];
     if (!row) throw new Error('No se pudo upsert el usuario admin en tabla users');
@@ -97,13 +108,20 @@ async function main() {
   const ensureClient = async (
     ownerId: string,
     nombre: string,
-    data: { telefono?: string; email?: string; direccion?: string; notas?: string }
+    data: { telefono: string; email?: string; direccion?: string; notas?: string }
   ) => {
+    const payload = {
+      telefono: data.telefono,
+      email: data.email,
+      direccion: data.direccion,
+      notas: data.notas,
+    };
+
     const existing = await prisma.client.findFirst({ where: { ownerId, nombre } });
     if (existing) {
-      return prisma.client.update({ where: { id: existing.id }, data });
+      return prisma.client.update({ where: { id: existing.id }, data: payload });
     }
-    return prisma.client.create({ data: { ownerId, nombre, ...data } });
+    return prisma.client.create({ data: { ownerId, nombre, ...payload } });
   };
 
   const clients = await Promise.all([
