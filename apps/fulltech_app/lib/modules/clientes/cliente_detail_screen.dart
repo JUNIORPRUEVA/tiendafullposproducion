@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/routing/routes.dart';
+import '../../features/operaciones/application/operations_controller.dart';
+import '../../features/operaciones/operations_models.dart';
 import 'application/clientes_controller.dart';
 import 'cliente_model.dart';
 
@@ -20,6 +22,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
   bool _loading = true;
   String? _error;
   ClienteModel? _cliente;
+  List<ServiceModel> _services = const [];
 
   @override
   void initState() {
@@ -35,9 +38,13 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
 
     try {
       final item = await ref.read(clientesControllerProvider.notifier).getById(widget.clienteId);
+      final services = await ref
+          .read(operationsControllerProvider.notifier)
+          .customerServices(widget.clienteId);
       if (!mounted) return;
       setState(() {
         _cliente = item;
+        _services = services;
       });
     } catch (e) {
       if (!mounted) return;
@@ -193,9 +200,10 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                             trailing: IconButton(
                               tooltip: 'Copiar teléfono',
                               onPressed: () async {
+                                final messenger = ScaffoldMessenger.of(context);
                                 await Clipboard.setData(ClipboardData(text: _cliente!.telefono));
                                 if (!mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
+                                messenger.showSnackBar(
                                   const SnackBar(content: Text('Teléfono copiado')),
                                 );
                               },
@@ -219,6 +227,49 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                                 : _cliente!.direccion!,
                           ),
                           const SizedBox(height: 18),
+                          Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Expanded(
+                                        child: Text(
+                                          'Historial de servicios',
+                                          style: TextStyle(fontWeight: FontWeight.w700),
+                                        ),
+                                      ),
+                                      TextButton.icon(
+                                        onPressed: () => context.go(Routes.operaciones),
+                                        icon: const Icon(Icons.add),
+                                        label: const Text('Nuevo servicio'),
+                                      ),
+                                    ],
+                                  ),
+                                  if (_services.isEmpty)
+                                    const Padding(
+                                      padding: EdgeInsets.only(top: 6),
+                                      child: Text('Este cliente no tiene servicios registrados'),
+                                    )
+                                  else
+                                    ..._services.take(8).map(
+                                          (service) => ListTile(
+                                            dense: true,
+                                            contentPadding: EdgeInsets.zero,
+                                            title: Text(service.title),
+                                            subtitle: Text(
+                                              '${service.serviceType} · ${service.status} · ${service.scheduledStart?.toIso8601String().substring(0, 10) ?? 'Sin fecha'}',
+                                            ),
+                                            trailing: Text('P${service.priority}'),
+                                          ),
+                                        ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
                           Row(
                             children: [
                               Expanded(

@@ -108,7 +108,9 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
 
     final overlaps = await _repo.hasOverlappingOpenPeriod(start, end);
     if (overlaps) {
-      throw Exception('Ya existe una quincena abierta que se solapa con esas fechas.');
+      throw Exception(
+        'Ya existe una quincena abierta que se solapa con esas fechas.',
+      );
     }
 
     final period = await _repo.createPeriod(start, end, title);
@@ -126,11 +128,16 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
     required String nombre,
     String? telefono,
     String? puesto,
+    double cuotaMinima = 0,
     bool activo = true,
   }) async {
     final trimmedName = nombre.trim();
     if (trimmedName.isEmpty) {
       throw Exception('El nombre del empleado es obligatorio');
+    }
+
+    if (cuotaMinima < 0) {
+      throw Exception('La cuota mínima no puede ser negativa');
     }
 
     final existing = id == null ? null : await _repo.getEmployeeById(id);
@@ -141,6 +148,7 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
       nombre: trimmedName,
       telefono: (telefono ?? '').trim().isEmpty ? null : telefono!.trim(),
       puesto: (puesto ?? '').trim().isEmpty ? null : puesto!.trim(),
+      cuotaMinima: cuotaMinima,
       activo: activo,
       createdAt: existing?.createdAt,
       updatedAt: DateTime.now(),

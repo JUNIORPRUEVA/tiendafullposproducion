@@ -11,7 +11,7 @@ class NominaDatabaseHelper {
   static final NominaDatabaseHelper instance = NominaDatabaseHelper._();
 
   static const String _dbName = 'fulltech_nomina.db';
-  static const int _dbVersion = 1;
+  static const int _dbVersion = 2;
 
   Database? _database;
 
@@ -45,6 +45,7 @@ class NominaDatabaseHelper {
         nombre TEXT NOT NULL,
         telefono TEXT,
         puesto TEXT,
+        cuota_minima REAL NOT NULL DEFAULT 0,
         activo INTEGER NOT NULL DEFAULT 1,
         created_at TEXT,
         updated_at TEXT
@@ -97,6 +98,11 @@ class NominaDatabaseHelper {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute(
+        'ALTER TABLE employees_payroll ADD COLUMN cuota_minima REAL NOT NULL DEFAULT 0',
+      );
+    }
     await _createIndexes(db);
   }
 
@@ -243,6 +249,41 @@ class NominaDatabaseHelper {
     );
     if (rows.isEmpty) return null;
     return PayrollEmployee.fromMap(rows.first);
+  }
+
+  Future<double> getEmployeeCuotaMinimaForUser({
+    required String ownerId,
+    required String userId,
+    required String userName,
+  }) async {
+    final db = await database;
+
+    final byId = await db.query(
+      'employees_payroll',
+      columns: const ['cuota_minima'],
+      where: 'owner_id = ? AND id = ? AND activo = 1',
+      whereArgs: [ownerId, userId],
+      limit: 1,
+    );
+    if (byId.isNotEmpty) {
+      return (byId.first['cuota_minima'] as num?)?.toDouble() ?? 0;
+    }
+
+    final trimmedName = userName.trim();
+    if (trimmedName.isNotEmpty) {
+      final byName = await db.query(
+        'employees_payroll',
+        columns: const ['cuota_minima'],
+        where: 'owner_id = ? AND nombre = ? AND activo = 1',
+        whereArgs: [ownerId, trimmedName],
+        limit: 1,
+      );
+      if (byName.isNotEmpty) {
+        return (byName.first['cuota_minima'] as num?)?.toDouble() ?? 0;
+      }
+    }
+
+    return 0;
   }
 
   Future<PayrollEmployee> upsertEmployee(
@@ -437,33 +478,76 @@ class NominaDatabaseHelper {
     String ownerId,
     String employeeId,
   ) async {
-    final db = await database;
-    final rows = await db.rawQuery(
-      '''
-      SELECT
-        e.id AS entry_id,
-        p.id AS period_id,
-        p.title AS period_title,
-        p.start_date AS period_start,
-        p.end_date AS period_end,
-        p.status AS period_status,
-        COALESCE(e.base_salary, 0) AS base_salary,
-        COALESCE(e.commission_from_sales, 0) AS commission_from_sales,
-        COALESCE(e.overtime_amount, 0) AS overtime_amount,
-        COALESCE(e.bonuses_amount, 0) AS bonuses_amount,
-        COALESCE(e.deductions_amount, 0) AS deductions_amount,
-        COALESCE(e.benefits_amount, 0) AS benefits_amount,
-        COALESCE(e.gross_total, 0) AS gross_total,
-        COALESCE(e.net_total, 0) AS net_total
-      FROM payroll_entries e
-      INNER JOIN payroll_periods p
-        ON p.id = e.period_id AND p.owner_id = e.owner_id
-      WHERE e.owner_id = ?
-        AND e.employee_id = ?
-      ORDER BY p.start_date DESC
-      ''',
-      [ownerId, employeeId],
-    );
-    return rows.map(PayrollHistoryItem.fromMap).toList();
+    final periods = await listPeriods(ownerId);
+    final history = <PayrollHistoryItem>[];
+
+    for (final period in periods) {
+      final entries = await listEntries(ownerId, period.id, employeeId);
+      final config = await getEmployeeConfig(ownerId, period.id, employeeId);
+
+      final hasData = config != null || entries.isNotEmpty;
+      if (!hasData) continue;
+
+      final baseSalary = config?.baseSalary ?? 0;
+
+      double commissionFromSales = 0;
+      double overtimeAmount = 0;
+      double bonusesAmount = 0;
+      double deductionsAmount = 0;
+      double benefitsAmount = 0;
+
+      for (final entry in entries) {
+        final amount = entry.amount;
+        switch (entry.type) {
+          case PayrollEntryType.comision:
+            commissionFromSales += amount;
+            break;
+          case PayrollEntryType.bono:
+            bonusesAmount += amount;
+            break;
+          case PayrollEntryType.faltaDia:
+          case PayrollEntryType.tarde:
+          case PayrollEntryType.adelanto:
+          case PayrollEntryType.descuento:
+            deductionsAmount += amount.abs();
+            break;
+          case PayrollEntryType.otro:
+            if (amount >= 0) {
+              benefitsAmount += amount;
+            } else {
+              deductionsAmount += amount.abs();
+            }
+            break;
+        }
+      }
+
+      final additions =
+          commissionFromSales + overtimeAmount + bonusesAmount + benefitsAmount;
+      final grossTotal = baseSalary + additions;
+      final netTotal = grossTotal - deductionsAmount;
+
+      history.add(
+        PayrollHistoryItem(
+          entryId: entries.isNotEmpty
+              ? entries.first.id
+              : 'period_${period.id}',
+          periodId: period.id,
+          periodTitle: period.title,
+          periodStart: period.startDate,
+          periodEnd: period.endDate,
+          periodStatus: period.status.dbValue,
+          baseSalary: baseSalary,
+          commissionFromSales: commissionFromSales,
+          overtimeAmount: overtimeAmount,
+          bonusesAmount: bonusesAmount,
+          deductionsAmount: deductionsAmount,
+          benefitsAmount: benefitsAmount,
+          grossTotal: grossTotal,
+          netTotal: netTotal,
+        ),
+      );
+    }
+
+    return history;
   }
 }

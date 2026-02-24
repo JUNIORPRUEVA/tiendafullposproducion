@@ -15,6 +15,18 @@ class CatalogRepository {
   final Dio _dio;
   CatalogRepository(this._dio);
 
+  List<dynamic> _extractRows(dynamic data) {
+    if (data is List) return data;
+    if (data is Map) {
+      const keys = ['items', 'data', 'products', 'rows'];
+      for (final key in keys) {
+        final candidate = data[key];
+        if (candidate is List) return candidate;
+      }
+    }
+    return const [];
+  }
+
   String _extractMessage(dynamic data, String fallback) {
     if (data is Map) {
       final message = data['message'];
@@ -30,15 +42,11 @@ class CatalogRepository {
   Future<List<ProductModel>> fetchProducts() async {
     try {
       final res = await _dio.get(ApiRoutes.products);
-      final data = res.data;
-      if (data is List) {
-        return data
-            .map(
-              (e) => ProductModel.fromJson((e as Map).cast<String, dynamic>()),
-            )
-            .toList();
-      }
-      return [];
+      final rows = _extractRows(res.data);
+      return rows
+          .whereType<Map>()
+          .map((row) => ProductModel.fromJson(Map<String, dynamic>.from(row)))
+          .toList();
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(
@@ -47,6 +55,8 @@ class CatalogRepository {
         ),
         e.response?.statusCode,
       );
+    } catch (_) {
+      throw ApiException('No se pudieron cargar los productos');
     }
   }
 

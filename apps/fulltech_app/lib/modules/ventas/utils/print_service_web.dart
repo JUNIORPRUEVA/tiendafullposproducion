@@ -1,4 +1,5 @@
 import 'dart:html' as html;
+import 'dart:convert';
 
 import 'package:intl/intl.dart';
 
@@ -16,7 +17,8 @@ Future<void> printSalesSummary({
 
   final rows = sales
       .map(
-        (sale) => '''
+        (sale) =>
+            '''
 <tr>
   <td>${dateFmt.format(sale.saleDate ?? DateTime.now())}</td>
   <td>${sale.customerName ?? 'Sin cliente'}</td>
@@ -28,7 +30,8 @@ Future<void> printSalesSummary({
       )
       .join();
 
-  final htmlContent = '''
+  final htmlContent =
+      '''
 <!doctype html>
 <html>
 <head>
@@ -83,7 +86,12 @@ Future<void> printSalesSummary({
 ''';
 
   final win = html.window.open('', '_blank');
-  if (win == null) return;
-  win.document.write(htmlContent);
-  win.document.close();
+  if (win is html.Window) {
+    final dataUrl = Uri.dataFromString(
+      htmlContent,
+      mimeType: 'text/html',
+      encoding: utf8,
+    ).toString();
+    win.location.href = dataUrl;
+  }
 }

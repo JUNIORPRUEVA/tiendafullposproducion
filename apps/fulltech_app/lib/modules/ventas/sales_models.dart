@@ -16,12 +16,12 @@ class SalesSummaryModel {
   });
 
   factory SalesSummaryModel.empty() => const SalesSummaryModel(
-        totalSales: 0,
-        totalSold: 0,
-        totalCost: 0,
-        totalProfit: 0,
-        totalCommission: 0,
-      );
+    totalSales: 0,
+    totalSold: 0,
+    totalCost: 0,
+    totalProfit: 0,
+    totalCommission: 0,
+  );
 
   factory SalesSummaryModel.fromJson(Map<String, dynamic> json) {
     return SalesSummaryModel(
@@ -117,7 +117,9 @@ class SaleModel {
       userId: (json['userId'] ?? '').toString(),
       customerId: json['customerId']?.toString() ?? customerId,
       customerName: customerName,
-      saleDate: json['saleDate'] != null ? DateTime.tryParse(json['saleDate'].toString()) : null,
+      saleDate: json['saleDate'] != null
+          ? DateTime.tryParse(json['saleDate'].toString())
+          : null,
       note: json['note']?.toString(),
       totalSold: _toDouble(json['totalSold']),
       totalCost: _toDouble(json['totalCost']),

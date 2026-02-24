@@ -1,4 +1,4 @@
-enum PayrollPeriodStatus { open, closed }
+ enum PayrollPeriodStatus { open, closed }
 
 enum PayrollEntryType {
   faltaDia,
@@ -95,6 +95,7 @@ class PayrollEmployee {
   final String nombre;
   final String? telefono;
   final String? puesto;
+  final double cuotaMinima;
   final bool activo;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -105,6 +106,7 @@ class PayrollEmployee {
     required this.nombre,
     this.telefono,
     this.puesto,
+    this.cuotaMinima = 0,
     this.activo = true,
     this.createdAt,
     this.updatedAt,
@@ -116,6 +118,7 @@ class PayrollEmployee {
     String? nombre,
     String? telefono,
     String? puesto,
+    double? cuotaMinima,
     bool? activo,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -128,6 +131,7 @@ class PayrollEmployee {
       nombre: nombre ?? this.nombre,
       telefono: clearTelefono ? null : (telefono ?? this.telefono),
       puesto: clearPuesto ? null : (puesto ?? this.puesto),
+      cuotaMinima: cuotaMinima ?? this.cuotaMinima,
       activo: activo ?? this.activo,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -141,6 +145,7 @@ class PayrollEmployee {
       nombre: (map['nombre'] ?? '').toString(),
       telefono: map['telefono'] as String?,
       puesto: map['puesto'] as String?,
+      cuotaMinima: (map['cuota_minima'] as num?)?.toDouble() ?? 0,
       activo: (map['activo'] ?? 1) == 1,
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'].toString())
@@ -158,6 +163,7 @@ class PayrollEmployee {
       'nombre': nombre,
       'telefono': telefono,
       'puesto': puesto,
+      'cuota_minima': cuotaMinima,
       'activo': activo ? 1 : 0,
       'created_at': createdAt?.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),

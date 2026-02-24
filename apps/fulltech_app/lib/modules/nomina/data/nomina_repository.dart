@@ -81,5 +81,14 @@ class NominaRepository {
   Future<List<PayrollHistoryItem>> listMyPayrollHistory() =>
       db.listPayrollHistoryByEmployee(_ownerId, _ownerId);
 
+  Future<double> getCuotaMinimaForUser({
+    required String userId,
+    required String userName,
+  }) => db.getEmployeeCuotaMinimaForUser(
+    ownerId: _ownerId,
+    userId: userId,
+    userName: userName,
+  );
+
   String get ownerId => _ownerId;
 }

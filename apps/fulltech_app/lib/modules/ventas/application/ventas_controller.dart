@@ -61,8 +61,8 @@ class VentasState {
 
 final ventasControllerProvider =
     StateNotifierProvider<VentasController, VentasState>((ref) {
-  return VentasController(ref);
-});
+      return VentasController(ref);
+    });
 
 class VentasController extends StateNotifier<VentasState> {
   final Ref ref;
@@ -86,7 +86,9 @@ class VentasController extends StateNotifier<VentasState> {
         summary: results[1] as SalesSummaryModel,
       );
     } catch (e) {
-      final message = e is ApiException ? e.message : 'No se pudieron cargar las ventas';
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudieron cargar las ventas';
       state = state.copyWith(loading: false, error: message);
     }
   }
@@ -95,7 +97,9 @@ class VentasController extends StateNotifier<VentasState> {
 
   Future<void> deleteSale(String id) async {
     final previous = state.sales;
-    state = state.copyWith(sales: state.sales.where((sale) => sale.id != id).toList());
+    state = state.copyWith(
+      sales: state.sales.where((sale) => sale.id != id).toList(),
+    );
 
     try {
       await ref.read(ventasRepositoryProvider).deleteSale(id);
@@ -117,7 +121,11 @@ class VentasController extends StateNotifier<VentasState> {
         break;
       case SalesRangePreset.week:
         final weekday = now.weekday;
-        final from = DateTime(now.year, now.month, now.day).subtract(Duration(days: weekday - 1));
+        final from = DateTime(
+          now.year,
+          now.month,
+          now.day,
+        ).subtract(Duration(days: weekday - 1));
         final to = from.add(const Duration(days: 6));
         nextRange = SalesDateRange(from: from, to: to);
         break;
@@ -155,8 +163,13 @@ class VentasController extends StateNotifier<VentasState> {
 SalesDateRange _currentQuincena(DateTime now) {
   final day = now.day;
   if (day <= 15) {
+    final prevMonthLastDay = DateTime(now.year, now.month, 0);
     return SalesDateRange(
-      from: DateTime(now.year, now.month, 1),
+      from: DateTime(
+        prevMonthLastDay.year,
+        prevMonthLastDay.month,
+        prevMonthLastDay.day,
+      ),
       to: DateTime(now.year, now.month, 15),
     );
   }

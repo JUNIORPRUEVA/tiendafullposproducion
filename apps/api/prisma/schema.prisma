@@ -45,6 +45,41 @@ enum PayrollEntryType {
   OTRO
 }
 
+enum ServiceType {
+  INSTALLATION
+  MAINTENANCE
+  WARRANTY
+  POS_SUPPORT
+  OTHER
+}
+
+enum ServiceStatus {
+  RESERVED
+  SURVEY
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  WARRANTY
+  CLOSED
+  CANCELLED
+}
+
+enum ServiceAssignmentRole {
+  LEAD
+  ASSISTANT
+}
+
+enum ServiceUpdateType {
+  STATUS_CHANGE
+  NOTE
+  SCHEDULE_CHANGE
+  ASSIGNMENT_CHANGE
+  PAYMENT_UPDATE
+  STEP_UPDATE
+  FILE_UPLOAD
+  WARRANTY_CREATED
+}
+
 model User {
   id               String   @id @default(uuid()) @db.Uuid
   email            String   @unique
@@ -75,6 +110,11 @@ model User {
   punches Punch[]
   sales Sale[]
   deletedSales Sale[] @relation("SaleDeletedBy")
+  createdServices Service[] @relation("ServiceCreatedBy")
+  assignedServices ServiceAssignment[]
+  serviceStepsDone ServiceStep[] @relation("ServiceStepDoneBy")
+  serviceUpdates ServiceUpdate[]
+  uploadedServiceFiles ServiceFile[]
 }
 
 model Punch {
@@ -125,6 +165,7 @@ model Client {
 
   owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   sales Sale[]
+  services Service[]
 
   @@index([ownerId])
   @@index([ownerId, nombre])
@@ -203,6 +244,7 @@ model PayrollEmployee {
   nombre    String
   telefono  String?
   puesto    String?
+  cuotaMinima Decimal @default(0) @db.Decimal(12, 2)
   activo    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -273,4 +315,108 @@ model PayrollEntry {
   @@index([ownerId])
   @@index([periodId, employeeId])
   @@index([date])
+}
+
+model Service {
+  id                      String        @id @default(uuid()) @db.Uuid
+  customerId              String        @db.Uuid
+  createdByUserId         String        @db.Uuid
+  serviceType             ServiceType
+  category                String
+  status                  ServiceStatus @default(RESERVED)
+  priority                Int           @default(2)
+  title                   String
+  description             String
+  quotedAmount            Decimal?      @db.Decimal(12, 2)
+  depositAmount           Decimal?      @db.Decimal(12, 2)
+  paymentStatus           String        @default("pending")
+  addressSnapshot         String?
+  scheduledStart          DateTime?
+  scheduledEnd            DateTime?
+  completedAt             DateTime?
+  warrantyParentServiceId String?       @db.Uuid
+  tags                    String[]
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
+  isDeleted               Boolean       @default(false)
+
+  customer Client   @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  createdBy User    @relation("ServiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  warrantyParent Service?  @relation("WarrantyParent", fields: [warrantyParentServiceId], references: [id], onDelete: SetNull)
+  warrantyChildren Service[] @relation("WarrantyParent")
+  assignments ServiceAssignment[]
+  steps ServiceStep[]
+  updates ServiceUpdate[]
+  files ServiceFile[]
+
+  @@index([customerId])
+  @@index([createdByUserId])
+  @@index([serviceType])
+  @@index([status])
+  @@index([priority])
+  @@index([scheduledStart])
+  @@index([isDeleted])
+}
+
+model ServiceAssignment {
+  id         String                @id @default(uuid()) @db.Uuid
+  serviceId  String                @db.Uuid
+  userId     String                @db.Uuid
+  role       ServiceAssignmentRole @default(ASSISTANT)
+  assignedAt DateTime              @default(now())
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([serviceId, userId])
+  @@index([serviceId])
+  @@index([userId])
+}
+
+model ServiceStep {
+  id           String   @id @default(uuid()) @db.Uuid
+  serviceId    String   @db.Uuid
+  stepKey      String
+  stepLabel    String
+  isDone       Boolean  @default(false)
+  doneAt       DateTime?
+  doneByUserId String?  @db.Uuid
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  doneBy  User?   @relation("ServiceStepDoneBy", fields: [doneByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([serviceId, stepKey])
+  @@index([serviceId])
+}
+
+model ServiceUpdate {
+  id              String            @id @default(uuid()) @db.Uuid
+  serviceId       String            @db.Uuid
+  changedByUserId String            @db.Uuid
+  type            ServiceUpdateType
+  oldValue        Json?
+  newValue        Json?
+  message         String?
+  createdAt       DateTime          @default(now())
+
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  changedBy User    @relation(fields: [changedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([serviceId, createdAt])
+  @@index([changedByUserId])
+}
+
+model ServiceFile {
+  id               String   @id @default(uuid()) @db.Uuid
+  serviceId        String   @db.Uuid
+  uploadedByUserId String   @db.Uuid
+  fileUrl          String
+  fileType         String
+  createdAt        DateTime @default(now())
+
+  service    Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  uploadedBy User    @relation(fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([serviceId])
+  @@index([uploadedByUserId])
 }

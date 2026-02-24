@@ -62,6 +62,11 @@ class NominaScreen extends ConsumerWidget {
         showLogo: false,
         actions: [
           IconButton(
+            tooltip: 'Agregar empleado',
+            onPressed: () => _showEmployeeDialog(context, ref),
+            icon: const Icon(Icons.person_add_alt_1),
+          ),
+          IconButton(
             tooltip: 'Recargar',
             onPressed: state.loading ? null : controller.load,
             icon: const Icon(Icons.refresh),
@@ -145,8 +150,144 @@ class NominaScreen extends ConsumerWidget {
                       ),
                     ),
                   ],
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Equipo de ventas (nómina)',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => _showEmployeeDialog(context, ref),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Agregar'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (state.employees.isEmpty)
+                    const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(14),
+                        child: Text('No hay empleados de nómina registrados.'),
+                      ),
+                    )
+                  else
+                    ...state.employees.map(
+                      (employee) => _EmployeeCard(
+                        employee: employee,
+                        onEdit: () => _showEmployeeDialog(
+                          context,
+                          ref,
+                          employee: employee,
+                        ),
+                      ),
+                    ),
                 ],
               ),
+      ),
+    );
+  }
+
+  Future<void> _showEmployeeDialog(
+    BuildContext context,
+    WidgetRef ref, {
+    PayrollEmployee? employee,
+  }) async {
+    final nameCtrl = TextEditingController(text: employee?.nombre ?? '');
+    final phoneCtrl = TextEditingController(text: employee?.telefono ?? '');
+    final roleCtrl = TextEditingController(text: employee?.puesto ?? '');
+    final cuotaCtrl = TextEditingController(
+      text: (employee?.cuotaMinima ?? 0).toStringAsFixed(2),
+    );
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(employee == null ? 'Agregar empleado' : 'Editar empleado'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(labelText: 'Nombre completo'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: phoneCtrl,
+                decoration: const InputDecoration(labelText: 'Teléfono'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: roleCtrl,
+                decoration: const InputDecoration(labelText: 'Puesto'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: cuotaCtrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Cuota mínima (meta quincenal)',
+                  helperText: 'Meta de ventas quincenal del empleado',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final cuota = double.tryParse(cuotaCtrl.text.trim()) ?? -1;
+              if (cuota < 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('La cuota mínima debe ser un número >= 0'),
+                  ),
+                );
+                return;
+              }
+
+              try {
+                await ref
+                    .read(nominaHomeControllerProvider.notifier)
+                    .saveEmployee(
+                      id: employee?.id,
+                      nombre: nameCtrl.text,
+                      telefono: phoneCtrl.text,
+                      puesto: roleCtrl.text,
+                      cuotaMinima: cuota,
+                      activo: employee?.activo ?? true,
+                    );
+                if (!context.mounted) return;
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      employee == null
+                          ? 'Empleado agregado'
+                          : 'Empleado actualizado',
+                    ),
+                  ),
+                );
+              } catch (e) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('No se pudo guardar: $e')),
+                );
+              }
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
       ),
     );
   }
@@ -361,6 +502,37 @@ class _PeriodCard extends StatelessWidget {
                 child: const Text('Cerrar'),
               )
             : const Chip(label: Text('Cerrada')),
+      ),
+    );
+  }
+}
+
+class _EmployeeCard extends StatelessWidget {
+  const _EmployeeCard({required this.employee, required this.onEdit});
+
+  final PayrollEmployee employee;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        title: Text(
+          employee.nombre,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(
+          'Puesto: ${employee.puesto ?? 'N/A'}\n'
+          'Cuota mínima (quincenal): ${money.format(employee.cuotaMinima)}',
+        ),
+        isThreeLine: true,
+        trailing: IconButton(
+          tooltip: 'Editar',
+          onPressed: onEdit,
+          icon: const Icon(Icons.edit_outlined),
+        ),
       ),
     );
   }

@@ -36,10 +36,7 @@ class VentasRepository {
     try {
       final res = await _dio.get(
         ApiRoutes.sales,
-        queryParameters: {
-          'from': _dateOnly(from),
-          'to': _dateOnly(to),
-        },
+        queryParameters: {'from': _dateOnly(from), 'to': _dateOnly(to)},
       );
 
       final rows = res.data is List ? (res.data as List) : const [];
@@ -62,12 +59,11 @@ class VentasRepository {
     try {
       final res = await _dio.get(
         ApiRoutes.salesSummary,
-        queryParameters: {
-          'from': _dateOnly(from),
-          'to': _dateOnly(to),
-        },
+        queryParameters: {'from': _dateOnly(from), 'to': _dateOnly(to)},
       );
-      return SalesSummaryModel.fromJson((res.data as Map).cast<String, dynamic>());
+      return SalesSummaryModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo cargar el resumen'),
@@ -100,7 +96,8 @@ class VentasRepository {
       await _dio.post(
         ApiRoutes.sales,
         data: {
-          if (customerId != null && customerId.isNotEmpty) 'customerId': customerId,
+          if (customerId != null && customerId.isNotEmpty)
+            'customerId': customerId,
           if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
           'items': items.map((item) => item.toPayload()).toList(),
         },
@@ -124,7 +121,10 @@ class VentasRepository {
           .toList();
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudieron cargar los productos'),
+        _extractMessage(
+          e.response?.data,
+          'No se pudieron cargar los productos',
+        ),
         e.response?.statusCode,
       );
     }
@@ -170,10 +170,7 @@ class VentasRepository {
     try {
       final res = await _dio.post(
         ApiRoutes.clients,
-        data: {
-          'nombre': nombre.trim(),
-          'telefono': telefono.trim(),
-        },
+        data: {'nombre': nombre.trim(), 'telefono': telefono.trim()},
       );
       return ClienteModel.fromJson((res.data as Map).cast<String, dynamic>());
     } on DioException catch (e) {

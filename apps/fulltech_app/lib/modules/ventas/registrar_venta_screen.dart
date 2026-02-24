@@ -13,7 +13,8 @@ class RegistrarVentaScreen extends ConsumerStatefulWidget {
   const RegistrarVentaScreen({super.key});
 
   @override
-  ConsumerState<RegistrarVentaScreen> createState() => _RegistrarVentaScreenState();
+  ConsumerState<RegistrarVentaScreen> createState() =>
+      _RegistrarVentaScreenState();
 }
 
 class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
@@ -30,7 +31,8 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
   ClienteModel? _selectedClient;
   List<ClienteModel> _clientOptions = const [];
 
-  String _money(double value) => NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(value);
+  String _money(double value) =>
+      NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(value);
 
   List<ProductModel> get _filteredProducts {
     final q = _searchCtrl.text.trim().toLowerCase();
@@ -38,8 +40,10 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
     return _products.where((p) => p.nombre.toLowerCase().contains(q)).toList();
   }
 
-  double get _totalSold => _cart.fold(0, (sum, item) => sum + item.subtotalSold);
-  double get _totalCost => _cart.fold(0, (sum, item) => sum + item.subtotalCost);
+  double get _totalSold =>
+      _cart.fold(0, (sum, item) => sum + item.subtotalSold);
+  double get _totalCost =>
+      _cart.fold(0, (sum, item) => sum + item.subtotalCost);
   double get _totalProfit => _totalSold - _totalCost;
   double get _commission => _totalProfit > 0 ? _totalProfit * 0.1 : 0;
 
@@ -102,7 +106,10 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                           },
                           icon: const Icon(Icons.close),
                         ),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
                   filled: true,
                 ),
               ),
@@ -175,14 +182,21 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                       Expanded(
                         child: p.fotoUrl == null || p.fotoUrl!.isEmpty
                             ? Container(
-                                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                                child: const Center(child: Icon(Icons.inventory_2_outlined)),
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
+                                child: const Center(
+                                  child: Icon(Icons.inventory_2_outlined),
+                                ),
                               )
                             : Image.network(
                                 p.fotoUrl!,
                                 width: double.infinity,
                                 fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image_outlined)),
+                                errorBuilder: (context, error, stackTrace) =>
+                                    const Center(
+                                      child: Icon(Icons.broken_image_outlined),
+                                    ),
                               ),
                       ),
                       Padding(
@@ -190,10 +204,24 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(p.nombre, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
+                            Text(
+                              p.nombre,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                             const SizedBox(height: 4),
                             Text('Precio: ${_money(p.precio)}'),
-                            Text('Costo: ${_money(p.costo)}', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                            Text(
+                              'Costo: ${_money(p.costo)}',
+                              style: TextStyle(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -223,14 +251,18 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Detalle de venta', style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            'Detalle de venta',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           const SizedBox(height: 10),
           Expanded(
             child: _cart.isEmpty
                 ? const Center(child: Text('Agrega productos para iniciar'))
                 : ListView.separated(
                     itemCount: _cart.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 8),
                     itemBuilder: (context, index) {
                       final item = _cart[index];
                       return Card(
@@ -242,11 +274,17 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                               Row(
                                 children: [
                                   Expanded(
-                                    child: Text(item.name, style: const TextStyle(fontWeight: FontWeight.w700)),
+                                    child: Text(
+                                      item.name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
                                   ),
                                   IconButton(
                                     tooltip: 'Quitar item',
-                                    onPressed: () => setState(() => _cart.removeAt(index)),
+                                    onPressed: () =>
+                                        setState(() => _cart.removeAt(index)),
                                     icon: const Icon(Icons.delete_outline),
                                   ),
                                 ],
@@ -258,7 +296,10 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                                       label: 'Cantidad',
                                       initialValue: item.qty,
                                       min: 0.001,
-                                      onChanged: (v) => _updateItem(index, item.copyWith(qty: v)),
+                                      onChanged: (v) => _updateItem(
+                                        index,
+                                        item.copyWith(qty: v),
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(width: 8),
@@ -267,13 +308,18 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                                       label: 'Precio vendido',
                                       initialValue: item.priceSoldUnit,
                                       min: 0,
-                                      onChanged: (v) => _updateItem(index, item.copyWith(priceSoldUnit: v)),
+                                      onChanged: (v) => _updateItem(
+                                        index,
+                                        item.copyWith(priceSoldUnit: v),
+                                      ),
                                     ),
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 6),
-                              Text('Costo unitario: ${_money(item.costUnitSnapshot)}'),
+                              Text(
+                                'Costo unitario: ${_money(item.costUnitSnapshot)}',
+                              ),
                               Text('Subtotal: ${_money(item.subtotalSold)}'),
                             ],
                           ),
@@ -306,8 +352,15 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 child: _saving
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('GUARDAR VENTA', style: TextStyle(fontWeight: FontWeight.w800)),
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text(
+                        'GUARDAR VENTA',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
               ),
             ),
           ),
@@ -327,7 +380,9 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                 controller: _clientSearchCtrl,
                 onSubmitted: (_) => _searchClients(),
                 decoration: InputDecoration(
-                  labelText: _selectedClient == null ? 'Buscar cliente' : 'Cliente seleccionado: ${_selectedClient!.nombre}',
+                  labelText: _selectedClient == null
+                      ? 'Buscar cliente'
+                      : 'Cliente seleccionado: ${_selectedClient!.nombre}',
                   border: const OutlineInputBorder(),
                   suffixIcon: IconButton(
                     onPressed: _searchClients,
@@ -344,7 +399,9 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
             ),
             IconButton(
               tooltip: 'Quitar cliente',
-              onPressed: _selectedClient == null ? null : () => setState(() => _selectedClient = null),
+              onPressed: _selectedClient == null
+                  ? null
+                  : () => setState(() => _selectedClient = null),
               icon: const Icon(Icons.clear),
             ),
           ],
@@ -385,12 +442,16 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
           Expanded(
             child: Text(
               label,
-              style: TextStyle(fontWeight: highlight ? FontWeight.w700 : FontWeight.w500),
+              style: TextStyle(
+                fontWeight: highlight ? FontWeight.w700 : FontWeight.w500,
+              ),
             ),
           ),
           Text(
             value,
-            style: TextStyle(fontWeight: highlight ? FontWeight.w800 : FontWeight.w600),
+            style: TextStyle(
+              fontWeight: highlight ? FontWeight.w800 : FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -432,12 +493,16 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
 
   Future<void> _searchClients() async {
     try {
-      final rows = await ref.read(ventasRepositoryProvider).searchClients(_clientSearchCtrl.text);
+      final rows = await ref
+          .read(ventasRepositoryProvider)
+          .searchClients(_clientSearchCtrl.text);
       if (!mounted) return;
       setState(() => _clientOptions = rows);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error buscando clientes: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error buscando clientes: $e')));
     }
   }
 
@@ -452,14 +517,26 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Nombre')),
+            TextField(
+              controller: nameCtrl,
+              decoration: const InputDecoration(labelText: 'Nombre'),
+            ),
             const SizedBox(height: 8),
-            TextField(controller: phoneCtrl, decoration: const InputDecoration(labelText: 'Teléfono')),
+            TextField(
+              controller: phoneCtrl,
+              decoration: const InputDecoration(labelText: 'Teléfono'),
+            ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Crear')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Crear'),
+          ),
         ],
       ),
     );
@@ -467,20 +544,23 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
     if (ok != true) return;
 
     try {
-      final created = await ref.read(ventasRepositoryProvider).createQuickClient(
-            nombre: nameCtrl.text,
-            telefono: phoneCtrl.text,
-          );
+      final created = await ref
+          .read(ventasRepositoryProvider)
+          .createQuickClient(nombre: nameCtrl.text, telefono: phoneCtrl.text);
       if (!mounted) return;
       setState(() {
         _selectedClient = created;
         _clientSearchCtrl.text = created.nombre;
         _clientOptions = const [];
       });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cliente creado')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Cliente creado')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo crear cliente: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo crear cliente: $e')));
     }
   }
 
@@ -498,19 +578,48 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Nombre producto/servicio')),
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Nombre producto/servicio',
+                ),
+              ),
               const SizedBox(height: 8),
-              TextField(controller: qtyCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Cantidad')),
+              TextField(
+                controller: qtyCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Cantidad'),
+              ),
               const SizedBox(height: 8),
-              TextField(controller: costCtrl, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Costo unitario')),
+              TextField(
+                controller: costCtrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(labelText: 'Costo unitario'),
+              ),
               const SizedBox(height: 8),
-              TextField(controller: priceCtrl, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Precio vendido unitario')),
+              TextField(
+                controller: priceCtrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Precio vendido unitario',
+                ),
+              ),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Agregar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Agregar'),
+          ),
         ],
       ),
     );
@@ -525,7 +634,11 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
     if (name.isEmpty || qty <= 0 || cost < 0 || price < 0) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Completa datos válidos: nombre, qty > 0, costo >= 0, precio >= 0')),
+        const SnackBar(
+          content: Text(
+            'Completa datos válidos: nombre, qty > 0, costo >= 0, precio >= 0',
+          ),
+        ),
       );
       return;
     }
@@ -548,11 +661,16 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
 
   Future<void> _saveSale() async {
     if (_cart.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Agrega al menos un item')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Agrega al menos un item')));
       return;
     }
 
-    if (_cart.any((item) => item.qty <= 0 || item.priceSoldUnit < 0 || item.costUnitSnapshot < 0)) {
+    if (_cart.any(
+      (item) =>
+          item.qty <= 0 || item.priceSoldUnit < 0 || item.costUnitSnapshot < 0,
+    )) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Revisa: qty > 0 y montos no negativos')),
       );
@@ -561,7 +679,9 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
 
     setState(() => _saving = true);
     try {
-      await ref.read(ventasRepositoryProvider).createSale(
+      await ref
+          .read(ventasRepositoryProvider)
+          .createSale(
             customerId: _selectedClient?.id,
             note: _noteCtrl.text,
             items: _cart,
@@ -582,7 +702,9 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo guardar: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo guardar: $e')));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -612,7 +734,9 @@ class _NumberFieldState extends State<_NumberField> {
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: widget.initialValue.toStringAsFixed(2));
+    _controller = TextEditingController(
+      text: widget.initialValue.toStringAsFixed(2),
+    );
   }
 
   @override
