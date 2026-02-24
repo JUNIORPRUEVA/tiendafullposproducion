@@ -138,12 +138,18 @@ export class SalesService {
     }
 
     const userIds = grouped.map((group) => group.userId);
-    const users = userIds.length
-      ? await this.prisma.user.findMany({
+    let users: Array<{ id: string; email: string; nombreCompleto: string }> = [];
+    if (userIds.length) {
+      try {
+        users = await this.prisma.user.findMany({
           where: { id: { in: userIds } },
           select: { id: true, email: true, nombreCompleto: true },
-        })
-      : [];
+        });
+      } catch (error) {
+        if (!this.isSchemaMismatch(error)) throw error;
+        users = [];
+      }
+    }
 
     const userMap = new Map(users.map((user) => [user.id, user]));
 
@@ -180,9 +186,13 @@ export class SalesService {
     }
 
     if (dto.customerId) {
-      const customer = await this.prisma.client.findUnique({ where: { id: dto.customerId } });
-      if (!customer) {
-        throw new BadRequestException('Cliente inválido');
+      try {
+        const customer = await this.prisma.client.findUnique({ where: { id: dto.customerId } });
+        if (!customer) {
+          throw new BadRequestException('Cliente inválido');
+        }
+      } catch (error) {
+        if (!this.isSchemaMismatch(error)) throw error;
       }
     }
 
@@ -190,8 +200,10 @@ export class SalesService {
       new Set(dto.items.map((item) => item.productId).filter((id): id is string => Boolean(id))),
     );
 
-    const products = productIds.length
-      ? await this.prisma.product.findMany({
+    let products: Array<{ id: string; nombre: string; fotoUrl: string | null; costo: Prisma.Decimal }> = [];
+    if (productIds.length) {
+      try {
+        products = await this.prisma.product.findMany({
           where: { id: { in: productIds } },
           select: {
             id: true,
@@ -199,8 +211,12 @@ export class SalesService {
             fotoUrl: true,
             costo: true,
           },
-        })
-      : [];
+        });
+      } catch (error) {
+        if (!this.isSchemaMismatch(error)) throw error;
+        products = [];
+      }
+    }
 
     const productMap = new Map(products.map((product) => [product.id, product]));
 
@@ -223,50 +239,61 @@ export class SalesService {
       ? totalProfit.mul(commissionRate)
       : new Prisma.Decimal(0);
 
-    return this.prisma.$transaction(async (tx) => {
-      const sale = await tx.sale.create({
-        data: {
-          userId,
-          customerId: dto.customerId,
-          saleDate: new Date(),
-          note: dto.note,
-          totalSold,
-          totalCost,
-          totalProfit,
-          commissionRate,
-          commissionAmount,
-          items: {
-            create: normalizedItems.map((item) => ({
-              productId: item.productId,
-              productNameSnapshot: item.productNameSnapshot,
-              productImageSnapshot: item.productImageSnapshot,
-              qty: item.qty,
-              priceSoldUnit: item.priceSoldUnit,
-              costUnitSnapshot: item.costUnitSnapshot,
-              subtotalSold: item.subtotalSold,
-              subtotalCost: item.subtotalCost,
-              profit: item.profit,
-            })),
-          },
-        },
-        include: {
-          customer: {
-            select: {
-              id: true,
-              nombre: true,
-              telefono: true,
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const sale = await tx.sale.create({
+          data: {
+            userId,
+            customerId: dto.customerId,
+            saleDate: new Date(),
+            note: dto.note,
+            totalSold,
+            totalCost,
+            totalProfit,
+            commissionRate,
+            commissionAmount,
+            items: {
+              create: normalizedItems.map((item) => ({
+                productId: item.productId,
+                productNameSnapshot: item.productNameSnapshot,
+                productImageSnapshot: item.productImageSnapshot,
+                qty: item.qty,
+                priceSoldUnit: item.priceSoldUnit,
+                costUnitSnapshot: item.costUnitSnapshot,
+                subtotalSold: item.subtotalSold,
+                subtotalCost: item.subtotalCost,
+                profit: item.profit,
+              })),
             },
           },
-          items: true,
-        },
-      });
+          include: {
+            customer: {
+              select: {
+                id: true,
+                nombre: true,
+                telefono: true,
+              },
+            },
+            items: true,
+          },
+        });
 
-      return sale;
-    });
+        return sale;
+      });
+    } catch (error) {
+      if (!this.isSchemaMismatch(error)) throw error;
+      throw new BadRequestException('El módulo de ventas no está sincronizado con la base de datos.');
+    }
   }
 
   async remove(requestUserId: string, requestRole: string, saleId: string) {
-    const sale = await this.prisma.sale.findUnique({ where: { id: saleId } });
+    let sale: { id: string; isDeleted: boolean; userId: string } | null = null;
+    try {
+      sale = await this.prisma.sale.findUnique({ where: { id: saleId } });
+    } catch (error) {
+      if (!this.isSchemaMismatch(error)) throw error;
+      throw new NotFoundException('Venta no encontrada');
+    }
     if (!sale || sale.isDeleted) {
       throw new NotFoundException('Venta no encontrada');
     }
@@ -276,14 +303,19 @@ export class SalesService {
       throw new ForbiddenException('No puedes eliminar esta venta');
     }
 
-    await this.prisma.sale.update({
-      where: { id: saleId },
-      data: {
-        isDeleted: true,
-        deletedAt: new Date(),
-        deletedById: requestUserId,
-      },
-    });
+    try {
+      await this.prisma.sale.update({
+        where: { id: saleId },
+        data: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedById: requestUserId,
+        },
+      });
+    } catch (error) {
+      if (!this.isSchemaMismatch(error)) throw error;
+      throw new NotFoundException('Venta no encontrada');
+    }
 
     return { ok: true };
   }
