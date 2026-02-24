@@ -50,6 +50,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     final state = ref.watch(operationsControllerProvider);
     final notifier = ref.read(operationsControllerProvider.notifier);
     final user = ref.watch(authStateProvider).user;
+    final isSmallMobile = MediaQuery.sizeOf(context).width < 420;
 
     return Scaffold(
       drawer: AppDrawer(currentUser: user),
@@ -57,6 +58,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
         title: const Text('Operaciones'),
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: isSmallMobile,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
           indicatorColor: Colors.white,
@@ -99,7 +101,9 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
               padding: const EdgeInsets.all(10),
               child: Text(
                 state.error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onErrorContainer,
+                ),
               ),
             ),
           Expanded(
@@ -128,17 +132,24 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     final selected = _selectedServiceId == null
         ? null
         : state.services
-            .where((item) => item.id == _selectedServiceId)
-            .cast<ServiceModel?>()
-            .firstWhere((_) => true, orElse: () => null);
+              .where((item) => item.id == _selectedServiceId)
+              .cast<ServiceModel?>()
+              .firstWhere((_) => true, orElse: () => null);
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final tinyMobile = constraints.maxWidth < 400;
         final mobile = constraints.maxWidth < 900;
         final wide = constraints.maxWidth >= 1100;
 
-        Widget buildStatusColumn(String status, {double? width, double height = 300}) {
-          final items = state.services.where((service) => service.status == status).toList();
+        Widget buildStatusColumn(
+          String status, {
+          double? width,
+          double height = 300,
+        }) {
+          final items = state.services
+              .where((service) => service.status == status)
+              .toList();
           return SizedBox(
             width: width,
             height: height,
@@ -159,11 +170,17 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
         final board = RefreshIndicator(
           onRefresh: notifier.refresh,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
+            padding: EdgeInsets.fromLTRB(
+              tinyMobile ? 8 : 12,
+              tinyMobile ? 8 : 10,
+              tinyMobile ? 8 : 12,
+              tinyMobile ? 12 : 18,
+            ),
             children: [
               _FiltersBar(
                 searchCtrl: _searchCtrl,
                 state: state,
+                compact: mobile,
                 onSearch: notifier.setSearch,
                 onStatus: notifier.setStatus,
                 onType: notifier.setType,
@@ -173,8 +190,11 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
               if (mobile)
                 ..._statuses.map(
                   (status) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: buildStatusColumn(status, height: 250),
+                    padding: EdgeInsets.only(bottom: tinyMobile ? 8 : 10),
+                    child: buildStatusColumn(
+                      status,
+                      height: tinyMobile ? 230 : 250,
+                    ),
                   ),
                 )
               else
@@ -186,7 +206,11 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
                     separatorBuilder: (_, __) => const SizedBox(width: 8),
                     itemBuilder: (context, index) {
                       final status = _statuses[index];
-                      return buildStatusColumn(status, width: 290, height: wide ? constraints.maxHeight - 110 : 500);
+                      return buildStatusColumn(
+                        status,
+                        width: 290,
+                        height: wide ? constraints.maxHeight - 110 : 500,
+                      );
                     },
                   ),
                 ),
@@ -203,14 +227,18 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
             Expanded(
               flex: 4,
               child: selected == null
-                  ? const Center(child: Text('Selecciona un servicio para ver detalle'))
+                  ? const Center(
+                      child: Text('Selecciona un servicio para ver detalle'),
+                    )
                   : _ServiceDetailPanel(
                       service: selected,
-                      onChangeStatus: (status) => _changeStatus(selected.id, status),
+                      onChangeStatus: (status) =>
+                          _changeStatus(selected.id, status),
                       onSchedule: (start, end) =>
                           _scheduleService(selected.id, start, end),
                       onCreateWarranty: () => _createWarranty(selected.id),
-                      onAssign: (assignments) => _assignTechs(selected.id, assignments),
+                      onAssign: (assignments) =>
+                          _assignTechs(selected.id, assignments),
                       onToggleStep: (stepId, done) =>
                           _toggleStep(selected.id, stepId, done),
                       onAddNote: (message) => _addNote(selected.id, message),
@@ -239,10 +267,12 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
             child: _ServiceDetailPanel(
               service: service,
               onChangeStatus: (status) => _changeStatus(service.id, status),
-              onSchedule: (start, end) => _scheduleService(service.id, start, end),
+              onSchedule: (start, end) =>
+                  _scheduleService(service.id, start, end),
               onCreateWarranty: () => _createWarranty(service.id),
               onAssign: (assignments) => _assignTechs(service.id, assignments),
-              onToggleStep: (stepId, done) => _toggleStep(service.id, stepId, done),
+              onToggleStep: (stepId, done) =>
+                  _toggleStep(service.id, stepId, done),
               onAddNote: (message) => _addNote(service.id, message),
               onUploadEvidence: () => _uploadEvidence(service.id),
             ),
@@ -254,7 +284,9 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
 
   Future<void> _handleCreateService(_CreateServiceDraft draft) async {
     try {
-      await ref.read(operationsControllerProvider.notifier).createReservation(
+      await ref
+          .read(operationsControllerProvider.notifier)
+          .createReservation(
             customerId: draft.customerId,
             serviceType: draft.serviceType,
             category: draft.category,
@@ -285,7 +317,9 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
 
   Future<void> _changeStatus(String serviceId, String status) async {
     try {
-      await ref.read(operationsControllerProvider.notifier).changeStatus(serviceId, status);
+      await ref
+          .read(operationsControllerProvider.notifier)
+          .changeStatus(serviceId, status);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -296,7 +330,9 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
 
   Future<void> _scheduleService(String id, DateTime start, DateTime end) async {
     try {
-      await ref.read(operationsControllerProvider.notifier).schedule(id, start, end);
+      await ref
+          .read(operationsControllerProvider.notifier)
+          .schedule(id, start, end);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -318,7 +354,9 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
 
   Future<void> _toggleStep(String id, String stepId, bool done) async {
     try {
-      await ref.read(operationsControllerProvider.notifier).toggleStep(id, stepId, done);
+      await ref
+          .read(operationsControllerProvider.notifier)
+          .toggleStep(id, stepId, done);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -338,9 +376,14 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     }
   }
 
-  Future<void> _assignTechs(String id, List<Map<String, String>> assignments) async {
+  Future<void> _assignTechs(
+    String id,
+    List<Map<String, String>> assignments,
+  ) async {
     try {
-      await ref.read(operationsControllerProvider.notifier).assign(id, assignments);
+      await ref
+          .read(operationsControllerProvider.notifier)
+          .assign(id, assignments);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -357,9 +400,9 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
           .read(operationsControllerProvider.notifier)
           .uploadEvidence(id, result.files.first);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Evidencia subida')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Evidencia subida')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -392,17 +435,32 @@ class _KpiHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final dash = state.dashboard;
     final inProgress = dash.activeByStatus['in_progress'] ?? 0;
-    final items = [
-      _miniKpi('Activos', '$inProgress'),
-      _miniKpi('Instalaciones hoy', '${dash.installationsPendingToday}'),
-      _miniKpi('Garantías', '${dash.warrantiesOpen}'),
-      _miniKpi('Promedio (h)', dash.averageHoursByLifecycle.toStringAsFixed(1)),
-    ];
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 700;
-        final cardWidth = compact ? (constraints.maxWidth - 28) / 2 : (constraints.maxWidth - 44) / 4;
+        final tinyMobile = constraints.maxWidth < 420;
+        final cardWidth = compact
+            ? (constraints.maxWidth - 28) / 2
+            : (constraints.maxWidth - 44) / 4;
+        final items = [
+          _miniKpi('Activos', '$inProgress', tinyMobile: tinyMobile),
+          _miniKpi(
+            'Instalaciones hoy',
+            '${dash.installationsPendingToday}',
+            tinyMobile: tinyMobile,
+          ),
+          _miniKpi(
+            'Garantías',
+            '${dash.warrantiesOpen}',
+            tinyMobile: tinyMobile,
+          ),
+          _miniKpi(
+            'Promedio (h)',
+            dash.averageHoursByLifecycle.toStringAsFixed(1),
+            tinyMobile: tinyMobile,
+          ),
+        ];
 
         return Padding(
           padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
@@ -418,16 +476,27 @@ class _KpiHeader extends StatelessWidget {
     );
   }
 
-  Widget _miniKpi(String label, String value) {
+  Widget _miniKpi(String label, String value, {required bool tinyMobile}) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(10),
+        padding: EdgeInsets.all(tinyMobile ? 8 : 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: const TextStyle(fontSize: 12)),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: tinyMobile ? 11 : 12),
+            ),
             const SizedBox(height: 4),
-            Text(value, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: tinyMobile ? 15 : 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ],
         ),
       ),
@@ -438,6 +507,7 @@ class _KpiHeader extends StatelessWidget {
 class _FiltersBar extends StatelessWidget {
   final TextEditingController searchCtrl;
   final OperationsState state;
+  final bool compact;
   final Future<void> Function(String) onSearch;
   final Future<void> Function(String?) onStatus;
   final Future<void> Function(String?) onType;
@@ -446,6 +516,7 @@ class _FiltersBar extends StatelessWidget {
   const _FiltersBar({
     required this.searchCtrl,
     required this.state,
+    required this.compact,
     required this.onSearch,
     required this.onStatus,
     required this.onType,
@@ -454,66 +525,97 @@ class _FiltersBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tinyMobile = MediaQuery.sizeOf(context).width < 400;
+
+    InputDecoration decoration(String label) => InputDecoration(
+      labelText: label,
+      border: const OutlineInputBorder(),
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+    );
+
+    final searchField = TextField(
+      controller: searchCtrl,
+      decoration: InputDecoration(
+        prefixIcon: const Icon(Icons.search),
+        hintText: tinyMobile
+            ? 'Buscar cliente o ticket'
+            : 'Buscar cliente, teléfono, ticket',
+        border: const OutlineInputBorder(),
+        isDense: true,
+        suffixIcon: IconButton(
+          tooltip: 'Aplicar',
+          onPressed: () => onSearch(searchCtrl.text),
+          icon: const Icon(Icons.check),
+        ),
+      ),
+      onSubmitted: onSearch,
+    );
+
+    final statusField = DropdownButtonFormField<String?>(
+      value: state.statusFilter,
+      decoration: decoration('Estado'),
+      items: const [
+        DropdownMenuItem<String?>(value: null, child: Text('Todos')),
+        DropdownMenuItem(value: 'reserved', child: Text('Reserva')),
+        DropdownMenuItem(value: 'survey', child: Text('Levantamiento')),
+        DropdownMenuItem(value: 'scheduled', child: Text('Agendado')),
+        DropdownMenuItem(value: 'in_progress', child: Text('En proceso')),
+        DropdownMenuItem(value: 'completed', child: Text('Finalizada')),
+        DropdownMenuItem(value: 'warranty', child: Text('Garantía')),
+        DropdownMenuItem(value: 'closed', child: Text('Cerrada')),
+      ],
+      onChanged: (value) => onStatus(value),
+    );
+
+    final typeField = DropdownButtonFormField<String?>(
+      value: state.typeFilter,
+      decoration: decoration('Tipo'),
+      items: const [
+        DropdownMenuItem<String?>(value: null, child: Text('Todos')),
+        DropdownMenuItem(value: 'installation', child: Text('Instalación')),
+        DropdownMenuItem(value: 'maintenance', child: Text('Mantenimiento')),
+        DropdownMenuItem(value: 'warranty', child: Text('Garantía')),
+        DropdownMenuItem(value: 'pos_support', child: Text('Soporte POS')),
+        DropdownMenuItem(value: 'other', child: Text('Otros')),
+      ],
+      onChanged: (value) => onType(value),
+    );
+
+    final priorityField = DropdownButtonFormField<int?>(
+      value: state.priorityFilter,
+      decoration: decoration('Prioridad'),
+      items: const [
+        DropdownMenuItem<int?>(value: null, child: Text('Todas')),
+        DropdownMenuItem(value: 1, child: Text('Alta')),
+        DropdownMenuItem(value: 2, child: Text('Media')),
+        DropdownMenuItem(value: 3, child: Text('Baja')),
+      ],
+      onChanged: (value) => onPriority(value),
+    );
+
+    if (compact) {
+      return Column(
+        children: [
+          searchField,
+          const SizedBox(height: 8),
+          statusField,
+          const SizedBox(height: 8),
+          typeField,
+          const SizedBox(height: 8),
+          priorityField,
+        ],
+      );
+    }
+
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
-        SizedBox(
-          width: 280,
-          child: TextField(
-            controller: searchCtrl,
-            decoration: InputDecoration(
-              prefixIcon: const Icon(Icons.search),
-              hintText: 'Buscar cliente, teléfono, ticket',
-              border: const OutlineInputBorder(),
-              suffixIcon: IconButton(
-                tooltip: 'Aplicar',
-                onPressed: () => onSearch(searchCtrl.text),
-                icon: const Icon(Icons.check),
-              ),
-            ),
-            onSubmitted: onSearch,
-          ),
-        ),
-        DropdownButton<String?>(
-          value: state.statusFilter,
-          hint: const Text('Estado'),
-          items: const [
-            DropdownMenuItem<String?>(value: null, child: Text('Todos')),
-            DropdownMenuItem(value: 'reserved', child: Text('Reserva')),
-            DropdownMenuItem(value: 'survey', child: Text('Levantamiento')),
-            DropdownMenuItem(value: 'scheduled', child: Text('Agendado')),
-            DropdownMenuItem(value: 'in_progress', child: Text('En proceso')),
-            DropdownMenuItem(value: 'completed', child: Text('Finalizada')),
-            DropdownMenuItem(value: 'warranty', child: Text('Garantía')),
-            DropdownMenuItem(value: 'closed', child: Text('Cerrada')),
-          ],
-          onChanged: onStatus,
-        ),
-        DropdownButton<String?>(
-          value: state.typeFilter,
-          hint: const Text('Tipo'),
-          items: const [
-            DropdownMenuItem<String?>(value: null, child: Text('Todos')),
-            DropdownMenuItem(value: 'installation', child: Text('Instalación')),
-            DropdownMenuItem(value: 'maintenance', child: Text('Mantenimiento')),
-            DropdownMenuItem(value: 'warranty', child: Text('Garantía')),
-            DropdownMenuItem(value: 'pos_support', child: Text('Soporte POS')),
-            DropdownMenuItem(value: 'other', child: Text('Otros')),
-          ],
-          onChanged: onType,
-        ),
-        DropdownButton<int?>(
-          value: state.priorityFilter,
-          hint: const Text('Prioridad'),
-          items: const [
-            DropdownMenuItem<int?>(value: null, child: Text('Todas')),
-            DropdownMenuItem(value: 1, child: Text('Alta')),
-            DropdownMenuItem(value: 2, child: Text('Media')),
-            DropdownMenuItem(value: 3, child: Text('Baja')),
-          ],
-          onChanged: onPriority,
-        ),
+        SizedBox(width: 280, child: searchField),
+        SizedBox(width: 180, child: statusField),
+        SizedBox(width: 180, child: typeField),
+        SizedBox(width: 160, child: priorityField),
       ],
     );
   }
@@ -535,10 +637,11 @@ class _KanbanColumn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dateFormat = DateFormat('dd/MM HH:mm');
+    final compact = MediaQuery.sizeOf(context).width < 420;
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(8),
+        padding: EdgeInsets.all(compact ? 6 : 8),
         child: Column(
           children: [
             Row(
@@ -557,28 +660,50 @@ class _KanbanColumn extends StatelessWidget {
                   ? const Center(child: Text('Sin tickets'))
                   : ListView.separated(
                       itemCount: services.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      separatorBuilder: (_, __) =>
+                          SizedBox(height: compact ? 6 : 8),
                       itemBuilder: (context, index) {
                         final service = services[index];
                         return InkWell(
                           onTap: () => onOpen(service),
                           child: Container(
-                            padding: const EdgeInsets.all(10),
+                            padding: EdgeInsets.all(compact ? 8 : 10),
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Theme.of(context).dividerColor),
+                              border: Border.all(
+                                color: Theme.of(context).dividerColor,
+                              ),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   service.customerName,
-                                  style: const TextStyle(fontWeight: FontWeight.w700),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: compact ? 13 : 14,
+                                  ),
                                 ),
                                 const SizedBox(height: 2),
-                                Text(service.customerPhone),
+                                Text(
+                                  service.customerPhone,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: compact ? 12 : null,
+                                  ),
+                                ),
                                 const SizedBox(height: 4),
-                                Text('${service.serviceType} · ${service.category}'),
+                                Text(
+                                  '${service.serviceType} · ${service.category}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: compact ? 12 : null,
+                                  ),
+                                ),
                                 const SizedBox(height: 4),
                                 Wrap(
                                   spacing: 8,
@@ -590,16 +715,26 @@ class _KanbanColumn extends StatelessWidget {
                                 ),
                                 if (service.scheduledStart != null) ...[
                                   const SizedBox(height: 4),
-                                  Text('Agenda: ${dateFormat.format(service.scheduledStart!)}'),
+                                  Text(
+                                    'Agenda: ${dateFormat.format(service.scheduledStart!)}',
+                                    style: TextStyle(
+                                      fontSize: compact ? 12 : null,
+                                    ),
+                                  ),
                                 ],
                                 if (service.assignments.isNotEmpty) ...[
                                   const SizedBox(height: 4),
                                   Text(
                                     service.assignments
-                                        .map((assignment) => assignment.userName)
+                                        .map(
+                                          (assignment) => assignment.userName,
+                                        )
                                         .join(', '),
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: compact ? 12 : null,
+                                    ),
                                   ),
                                 ],
                               ],
@@ -683,7 +818,9 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
         Text(service.title, style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 4),
         Text('${service.customerName} · ${service.customerPhone}'),
-        Text('${service.serviceType} · ${service.category} · P${service.priority}'),
+        Text(
+          '${service.serviceType} · ${service.category} · P${service.priority}',
+        ),
         const SizedBox(height: 12),
         Wrap(
           spacing: 8,
@@ -692,7 +829,10 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
             DropdownButton<String>(
               value: service.status,
               items: nextStatuses
-                  .map((status) => DropdownMenuItem(value: status, child: Text(status)))
+                  .map(
+                    (status) =>
+                        DropdownMenuItem(value: status, child: Text(status)),
+                  )
                   .toList(),
               onChanged: (value) {
                 if (value == null) return;
@@ -707,7 +847,9 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
                   lastDate: DateTime(2100),
                   initialDateRange: DateTimeRange(
                     start: service.scheduledStart ?? DateTime.now(),
-                    end: service.scheduledEnd ?? DateTime.now().add(const Duration(hours: 2)),
+                    end:
+                        service.scheduledEnd ??
+                        DateTime.now().add(const Duration(hours: 2)),
                   ),
                 );
                 if (picked == null) return;
@@ -735,7 +877,12 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
                 if (ids == null || ids.isEmpty) return;
                 await widget.onAssign(
                   ids
-                      .map((id) => <String, String>{'userId': id, 'role': 'assistant'})
+                      .map(
+                        (id) => <String, String>{
+                          'userId': id,
+                          'role': 'assistant',
+                        },
+                      )
                       .toList(),
                 );
               },
@@ -784,7 +931,11 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
         ),
         const SizedBox(height: 14),
         _sectionTitle('Datos del cliente'),
-        Text(service.customerAddress.isEmpty ? 'Sin dirección' : service.customerAddress),
+        Text(
+          service.customerAddress.isEmpty
+              ? 'Sin dirección'
+              : service.customerAddress,
+        ),
         const SizedBox(height: 10),
         _sectionTitle('Checklist'),
         ...service.steps.map(
@@ -819,11 +970,15 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
         if (service.updates.isEmpty)
           const Text('Sin movimientos')
         else
-          ...service.updates.take(8).map(
+          ...service.updates
+              .take(8)
+              .map(
                 (update) => ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  title: Text(update.message.isEmpty ? update.type : update.message),
+                  title: Text(
+                    update.message.isEmpty ? update.type : update.message,
+                  ),
                   subtitle: Text(
                     '${update.changedBy} · ${update.createdAt == null ? '-' : dateFormat.format(update.createdAt!)}',
                   ),
@@ -872,8 +1027,14 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Asignar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Asignar'),
+          ),
         ],
       ),
     );
@@ -900,8 +1061,14 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
           maxLines: 4,
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Guardar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Guardar'),
+          ),
         ],
       ),
     );
@@ -926,35 +1093,53 @@ class _AgendaTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheduled = services.where((item) => item.scheduledStart != null).toList()
-      ..sort((a, b) => a.scheduledStart!.compareTo(b.scheduledStart!));
+    final scheduled =
+        services.where((item) => item.scheduledStart != null).toList()
+          ..sort((a, b) => a.scheduledStart!.compareTo(b.scheduledStart!));
     final dateFormat = DateFormat('EEE dd/MM HH:mm', 'es');
+    final isCompact = MediaQuery.sizeOf(context).width < 420;
 
     if (scheduled.isEmpty) {
-      return const Center(child: Text('Sin servicios agendados en el rango seleccionado'));
+      return const Center(
+        child: Text('Sin servicios agendados en el rango seleccionado'),
+      );
     }
 
     return ListView.separated(
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.all(isCompact ? 10 : 12),
       itemCount: scheduled.length,
       separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final service = scheduled[index];
         final techs = service.assignments.map((a) => a.userName).join(', ');
+        final subtitle =
+            '${dateFormat.format(service.scheduledStart!)} · ${service.status}\n'
+            '${techs.isEmpty ? 'Sin técnicos' : techs}'
+            '${isCompact ? '\n${service.serviceType} · P${service.priority}' : ''}';
         return Card(
           child: ListTile(
+            dense: isCompact,
+            isThreeLine: true,
             onTap: () => onOpenService(service),
-            title: Text('${service.customerName} · ${service.title}'),
+            title: Text(
+              '${service.customerName} · ${service.title}',
+              maxLines: isCompact ? 1 : 2,
+              overflow: TextOverflow.ellipsis,
+            ),
             subtitle: Text(
-              '${dateFormat.format(service.scheduledStart!)} · ${service.status}\n${techs.isEmpty ? 'Sin técnicos' : techs}',
+              subtitle,
+              maxLines: isCompact ? 3 : 4,
+              overflow: TextOverflow.ellipsis,
             ),
-            trailing: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(service.serviceType),
-                Text('P${service.priority}'),
-              ],
-            ),
+            trailing: isCompact
+                ? null
+                : Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(service.serviceType),
+                      Text('P${service.priority}'),
+                    ],
+                  ),
           ),
         );
       },
@@ -992,7 +1177,8 @@ class _CreateReservationTab extends ConsumerStatefulWidget {
   const _CreateReservationTab({required this.onCreate});
 
   @override
-  ConsumerState<_CreateReservationTab> createState() => _CreateReservationTabState();
+  ConsumerState<_CreateReservationTab> createState() =>
+      _CreateReservationTabState();
 }
 
 class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
@@ -1026,74 +1212,86 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
 
   @override
   Widget build(BuildContext context) {
-    return Form(
-      key: _formKey,
-      child: ListView(
-        padding: const EdgeInsets.all(14),
-        children: [
-          TextFormField(
-            controller: _searchClientCtrl,
-            decoration: InputDecoration(
-              border: const OutlineInputBorder(),
-              labelText: 'Cliente (buscar)',
-              suffixIcon: IconButton(
-                onPressed: _loadingClients ? null : _searchClients,
-                icon: const Icon(Icons.search),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (_loadingClients) const LinearProgressIndicator(),
-          if (_clients.isNotEmpty)
-            Card(
-              child: Column(
-                children: _clients
-                    .map(
-                      (item) => ListTile(
-                        title: Text(item.nombre),
-                        subtitle: Text(item.telefono),
-                        trailing: _customerId == item.id
-                            ? const Icon(Icons.check_circle)
-                            : null,
-                        onTap: () {
-                          setState(() {
-                            _customerId = item.id;
-                            _customerName = item.nombre;
-                            _addressCtrl.text = item.direccion ?? '';
-                          });
-                        },
-                      ),
-                    )
-                    .toList(),
-              ),
-            ),
-          if (_customerName != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text('Cliente seleccionado: $_customerName'),
-            ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: _createQuickClient,
-              icon: const Icon(Icons.person_add_alt_1),
-              label: const Text('Crear cliente rápido'),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 430;
+        final formPadding = isCompact ? 10.0 : 14.0;
+
+        return Form(
+          key: _formKey,
+          child: ListView(
+            padding: EdgeInsets.all(formPadding),
             children: [
-              Expanded(
-                child: DropdownButtonFormField<String>(
+              TextFormField(
+                controller: _searchClientCtrl,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  labelText: 'Cliente (buscar)',
+                  suffixIcon: IconButton(
+                    onPressed: _loadingClients ? null : _searchClients,
+                    icon: const Icon(Icons.search),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (_loadingClients) const LinearProgressIndicator(),
+              if (_clients.isNotEmpty)
+                Card(
+                  child: Column(
+                    children: _clients
+                        .map(
+                          (item) => ListTile(
+                            title: Text(item.nombre),
+                            subtitle: Text(item.telefono),
+                            trailing: _customerId == item.id
+                                ? const Icon(Icons.check_circle)
+                                : null,
+                            onTap: () {
+                              setState(() {
+                                _customerId = item.id;
+                                _customerName = item.nombre;
+                                _addressCtrl.text = item.direccion ?? '';
+                              });
+                            },
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
+              if (_customerName != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text('Cliente seleccionado: $_customerName'),
+                ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _createQuickClient,
+                  icon: const Icon(Icons.person_add_alt_1),
+                  label: const Text('Crear cliente rápido'),
+                ),
+              ),
+              const SizedBox(height: 10),
+              if (isCompact) ...[
+                DropdownButtonFormField<String>(
                   initialValue: _serviceType,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
                     labelText: 'Tipo de servicio',
                   ),
                   items: const [
-                    DropdownMenuItem(value: 'installation', child: Text('Instalación')),
-                    DropdownMenuItem(value: 'maintenance', child: Text('Mantenimiento')),
-                    DropdownMenuItem(value: 'pos_support', child: Text('Soporte POS')),
+                    DropdownMenuItem(
+                      value: 'installation',
+                      child: Text('Instalación'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'maintenance',
+                      child: Text('Mantenimiento'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'pos_support',
+                      child: Text('Soporte POS'),
+                    ),
                     DropdownMenuItem(value: 'other', child: Text('Otro')),
                   ],
                   onChanged: (value) {
@@ -1104,10 +1302,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                     });
                   },
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: DropdownButtonFormField<String>(
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
                   initialValue: _category,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
@@ -1115,68 +1311,146 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                   ),
                   items: const [
                     DropdownMenuItem(value: 'cameras', child: Text('Cámaras')),
-                    DropdownMenuItem(value: 'gate_motor', child: Text('Motor de portón')),
+                    DropdownMenuItem(
+                      value: 'gate_motor',
+                      child: Text('Motor de portón'),
+                    ),
                     DropdownMenuItem(value: 'alarm', child: Text('Alarma')),
-                    DropdownMenuItem(value: 'electric_fence', child: Text('Cerco eléctrico')),
-                    DropdownMenuItem(value: 'intercom', child: Text('Intercom')),
+                    DropdownMenuItem(
+                      value: 'electric_fence',
+                      child: Text('Cerco eléctrico'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'intercom',
+                      child: Text('Intercom'),
+                    ),
                     DropdownMenuItem(value: 'pos', child: Text('POS')),
                   ],
                   onChanged: (value) {
                     if (value != null) setState(() => _category = value);
                   },
                 ),
+              ] else
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _serviceType,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Tipo de servicio',
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'installation',
+                            child: Text('Instalación'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'maintenance',
+                            child: Text('Mantenimiento'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'pos_support',
+                            child: Text('Soporte POS'),
+                          ),
+                          DropdownMenuItem(value: 'other', child: Text('Otro')),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() {
+                            _serviceType = value;
+                            if (value == 'installation') _priority = 1;
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _category,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Categoría',
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'cameras',
+                            child: Text('Cámaras'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'gate_motor',
+                            child: Text('Motor de portón'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'alarm',
+                            child: Text('Alarma'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'electric_fence',
+                            child: Text('Cerco eléctrico'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'intercom',
+                            child: Text('Intercom'),
+                          ),
+                          DropdownMenuItem(value: 'pos', child: Text('POS')),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) setState(() => _category = value);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<int>(
+                initialValue: _priority,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Prioridad',
+                ),
+                items: const [
+                  DropdownMenuItem(value: 1, child: Text('Alta')),
+                  DropdownMenuItem(value: 2, child: Text('Media')),
+                  DropdownMenuItem(value: 3, child: Text('Baja')),
+                ],
+                onChanged: (value) {
+                  if (value != null) setState(() => _priority = value);
+                },
               ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          DropdownButtonFormField<int>(
-            initialValue: _priority,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              labelText: 'Prioridad',
-            ),
-            items: const [
-              DropdownMenuItem(value: 1, child: Text('Alta')),
-              DropdownMenuItem(value: 2, child: Text('Media')),
-              DropdownMenuItem(value: 3, child: Text('Baja')),
-            ],
-            onChanged: (value) {
-              if (value != null) setState(() => _priority = value);
-            },
-          ),
-          const SizedBox(height: 10),
-          TextFormField(
-            controller: _titleCtrl,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              labelText: 'Título',
-            ),
-            validator: (value) => (value ?? '').trim().isEmpty ? 'Requerido' : null,
-          ),
-          const SizedBox(height: 10),
-          TextFormField(
-            controller: _descriptionCtrl,
-            minLines: 3,
-            maxLines: 5,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              labelText: 'Descripción',
-            ),
-            validator: (value) => (value ?? '').trim().isEmpty ? 'Requerido' : null,
-          ),
-          const SizedBox(height: 10),
-          TextFormField(
-            controller: _addressCtrl,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              labelText: 'Dirección (snapshot)',
-            ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: TextFormField(
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _titleCtrl,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Título',
+                ),
+                validator: (value) =>
+                    (value ?? '').trim().isEmpty ? 'Requerido' : null,
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _descriptionCtrl,
+                minLines: 3,
+                maxLines: 5,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Descripción',
+                ),
+                validator: (value) =>
+                    (value ?? '').trim().isEmpty ? 'Requerido' : null,
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _addressCtrl,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Dirección (snapshot)',
+                ),
+              ),
+              const SizedBox(height: 10),
+              if (isCompact) ...[
+                TextFormField(
                   controller: _quotedCtrl,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
@@ -1184,10 +1458,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                     labelText: 'Monto cotizado',
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextFormField(
+                const SizedBox(height: 8),
+                TextFormField(
                   controller: _depositCtrl,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
@@ -1195,17 +1467,42 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                     labelText: 'Abono',
                   ),
                 ),
+              ] else
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _quotedCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Monto cotizado',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _depositCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Abono',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: _saving ? null : _save,
+                icon: const Icon(Icons.save_outlined),
+                label: Text(_saving ? 'Guardando...' : 'Guardar reserva'),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: _saving ? null : _save,
-            icon: const Icon(Icons.save_outlined),
-            label: Text(_saving ? 'Guardando...' : 'Guardar reserva'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -1244,7 +1541,9 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           priority: _priority,
           title: _titleCtrl.text.trim(),
           description: _descriptionCtrl.text.trim(),
-          addressSnapshot: _addressCtrl.text.trim().isEmpty ? null : _addressCtrl.text.trim(),
+          addressSnapshot: _addressCtrl.text.trim().isEmpty
+              ? null
+              : _addressCtrl.text.trim(),
           quotedAmount: double.tryParse(_quotedCtrl.text.trim()),
           depositAmount: double.tryParse(_depositCtrl.text.trim()),
         ),
@@ -1290,8 +1589,14 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Crear')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Crear'),
+          ),
         ],
       ),
     );
@@ -1305,7 +1610,10 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     try {
       final created = await ref
           .read(operationsControllerProvider.notifier)
-          .createQuickClient(nombre: nameCtrl.text.trim(), telefono: phoneCtrl.text.trim());
+          .createQuickClient(
+            nombre: nameCtrl.text.trim(),
+            telefono: phoneCtrl.text.trim(),
+          );
       if (!mounted) return;
       setState(() {
         _customerId = created.id;
