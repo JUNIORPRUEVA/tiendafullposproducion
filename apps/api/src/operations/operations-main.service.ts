@@ -35,6 +35,26 @@ const defaultSteps = [
 export class OperationsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private isSchemaMismatch(error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return error.code === 'P2021' || error.code === 'P2022';
+    }
+
+    if (typeof error === 'object' && error !== null) {
+      const value = error as { code?: unknown; message?: unknown };
+      const code = typeof value.code === 'string' ? value.code : '';
+      const message = typeof value.message === 'string' ? value.message : '';
+      return (
+        code === 'P2021' ||
+        code === 'P2022' ||
+        message.includes('does not exist in the current database') ||
+        message.includes('column')
+      );
+    }
+
+    return false;
+  }
+
   async list(user: AuthUser, query: ServicesQueryDto) {
     const page = query.page && query.page > 0 ? query.page : 1;
     const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : 30;
@@ -63,16 +83,25 @@ export class OperationsService {
       ...this.scheduleRangeWhere(query.from, query.to),
     };
 
-    const [items, total] = await Promise.all([
-      this.prisma.service.findMany({
-        where,
-        include: this.serviceInclude(),
-        orderBy: [{ priority: 'asc' }, { createdAt: 'desc' }],
-        skip,
-        take: pageSize,
-      }),
-      this.prisma.service.count({ where }),
-    ]);
+    let items: any[] = [];
+    let total = 0;
+
+    try {
+      [items, total] = await Promise.all([
+        this.prisma.service.findMany({
+          where,
+          include: this.serviceInclude(),
+          orderBy: [{ priority: 'asc' }, { createdAt: 'desc' }],
+          skip,
+          take: pageSize,
+        }),
+        this.prisma.service.count({ where }),
+      ]);
+    } catch (error) {
+      if (!this.isSchemaMismatch(error)) throw error;
+      items = [];
+      total = 0;
+    }
 
     return {
       items: items.map((item) => this.normalizeService(item)),
@@ -527,37 +556,58 @@ export class OperationsService {
       ...this.scheduleRangeWhere(from, to),
     };
 
-    const [byStatus, installationsPendingToday, warrantiesOpen, completedByTech, avgPerStage] = await Promise.all([
-      this.prisma.service.groupBy({ by: ['status'], where, _count: { _all: true } }),
-      this.prisma.service.count({
-        where: {
-          ...where,
-          serviceType: ServiceType.INSTALLATION,
-          status: { in: [ServiceStatus.RESERVED, ServiceStatus.SURVEY, ServiceStatus.SCHEDULED, ServiceStatus.IN_PROGRESS] },
-          scheduledStart: { gte: this.startOfDay(), lt: this.endOfDay() },
-        },
-      }),
-      this.prisma.service.count({ where: { ...where, status: ServiceStatus.WARRANTY } }),
-      this.prisma.serviceAssignment.groupBy({
-        by: ['userId'],
-        where: {
-          service: {
+    let byStatus: Array<{ status: ServiceStatus; _count: { _all: number } }> = [];
+    let installationsPendingToday = 0;
+    let warrantiesOpen = 0;
+    let completedByTech: Array<{ userId: string; _count: { _all: number } }> = [];
+    let avgPerStage: Array<{ id: string; createdAt: Date; completedAt: Date | null }> = [];
+
+    try {
+      [byStatus, installationsPendingToday, warrantiesOpen, completedByTech, avgPerStage] = await Promise.all([
+        this.prisma.service.groupBy({ by: ['status'], where, _count: { _all: true } }),
+        this.prisma.service.count({
+          where: {
             ...where,
-            status: ServiceStatus.COMPLETED,
+            serviceType: ServiceType.INSTALLATION,
+            status: { in: [ServiceStatus.RESERVED, ServiceStatus.SURVEY, ServiceStatus.SCHEDULED, ServiceStatus.IN_PROGRESS] },
+            scheduledStart: { gte: this.startOfDay(), lt: this.endOfDay() },
           },
-        },
-        _count: { _all: true },
-      }),
-      this.prisma.service.findMany({
-        where: { ...where, status: ServiceStatus.COMPLETED, completedAt: { not: null } },
-        select: { id: true, createdAt: true, completedAt: true },
-      }),
-    ]);
+        }),
+        this.prisma.service.count({ where: { ...where, status: ServiceStatus.WARRANTY } }),
+        this.prisma.serviceAssignment.groupBy({
+          by: ['userId'],
+          where: {
+            service: {
+              ...where,
+              status: ServiceStatus.COMPLETED,
+            },
+          },
+          _count: { _all: true },
+        }),
+        this.prisma.service.findMany({
+          where: { ...where, status: ServiceStatus.COMPLETED, completedAt: { not: null } },
+          select: { id: true, createdAt: true, completedAt: true },
+        }),
+      ]);
+    } catch (error) {
+      if (!this.isSchemaMismatch(error)) throw error;
+      byStatus = [];
+      installationsPendingToday = 0;
+      warrantiesOpen = 0;
+      completedByTech = [];
+      avgPerStage = [];
+    }
 
     const techIds = completedByTech.map((row) => row.userId);
-    const techs = techIds.length
-      ? await this.prisma.user.findMany({ where: { id: { in: techIds } }, select: { id: true, nombreCompleto: true } })
-      : [];
+    let techs: Array<{ id: string; nombreCompleto: string }> = [];
+    if (techIds.length) {
+      try {
+        techs = await this.prisma.user.findMany({ where: { id: { in: techIds } }, select: { id: true, nombreCompleto: true } });
+      } catch (error) {
+        if (!this.isSchemaMismatch(error)) throw error;
+        techs = [];
+      }
+    }
     const techMap = new Map(techs.map((t) => [t.id, t.nombreCompleto]));
 
     const averageHours = avgPerStage.length
