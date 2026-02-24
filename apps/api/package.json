@@ -11,6 +11,7 @@
     "prisma:migrate:dev": "prisma migrate dev --name init",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
+    "auth:reset-password": "node scripts/reset-password.cjs",
     "test:smoke": "ts-node scripts/smoke-test.ts"
   },
   "prisma": {
