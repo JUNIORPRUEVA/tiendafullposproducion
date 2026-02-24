@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
+import { RefreshDto } from './dto/refresh.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -10,7 +11,16 @@ export class AuthController {
 
   @Post('login')
   async login(@Body() dto: LoginDto) {
-    return this.auth.login(dto.email, dto.password);
+    const identifier = (dto.email ?? dto.identifier ?? '').trim();
+    if (!identifier) {
+      throw new BadRequestException('email o identifier es requerido');
+    }
+    return this.auth.login(identifier, dto.password);
+  }
+
+  @Post('refresh')
+  async refresh(@Body() dto: RefreshDto) {
+    return this.auth.refresh(dto.refreshToken);
   }
 
   @UseGuards(AuthGuard('jwt'))
@@ -20,4 +30,3 @@ export class AuthController {
     return this.auth.me(user.id);
   }
 }
-

@@ -5,6 +5,7 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtUser } from './jwt-user.type';
 import { Prisma } from '@prisma/client';
+import { normalizeJwtSecret } from './jwt.util';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -15,11 +16,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: config.get<string>('JWT_SECRET') ?? 'change-me'
+      secretOrKey: normalizeJwtSecret(config.get<string>('JWT_SECRET')) ?? 'change-me'
     });
   }
 
   async validate(payload: JwtUser) {
+    // Bloquea tokens de refresh usados como Bearer token
+    if (payload.tokenType === 'refresh') {
+      throw new UnauthorizedException('Invalid token');
+    }
     const user = await this.findUserForJwt(payload.sub);
     if (!user || user.blocked === true) throw new UnauthorizedException('User blocked');
     return { id: user.id, email: user.email, role: user.role };
@@ -69,4 +74,3 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
   }
 }
-

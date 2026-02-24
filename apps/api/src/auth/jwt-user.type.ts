@@ -2,7 +2,7 @@ import { Role } from '@prisma/client';
 
 export type JwtUser = {
   sub: string;
-  email: string;
-  role: Role;
+  email?: string;
+  role?: Role;
+  tokenType?: 'access' | 'refresh';
 };
-

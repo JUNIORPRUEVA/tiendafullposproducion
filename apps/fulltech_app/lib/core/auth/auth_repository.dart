@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -64,6 +66,7 @@ class AuthRepository {
   }
 
   Future<UserModel> login(String email, String password) async {
+    await _storage.clearTokens();
     try {
       final normalizedEmail = email.trim();
       Response<dynamic> res;
@@ -98,10 +101,14 @@ class AuthRepository {
       final me = await _dio.get(ApiRoutes.me);
       return UserModel.fromJson((me.data as Map).cast<String, dynamic>());
     } on DioException catch (e) {
+      await _storage.clearTokens();
       throw ApiException(
         _formatDioError(e, 'Login fallido'),
         e.response?.statusCode,
       );
+    } catch (_) {
+      await _storage.clearTokens();
+      rethrow;
     }
   }
 
@@ -120,9 +127,44 @@ class AuthRepository {
             final res = await _dio.get(ApiRoutes.me);
             return UserModel.fromJson(res.data);
           }
+
+          final decoded = _decodeJwtUserOrNull(token);
+          if (decoded != null) return decoded;
+        } else {
+          // Fallback offline/servidor caído: decodifica el JWT para mantener la sesión visible.
+          final decoded = _decodeJwtUserOrNull(token);
+          if (decoded != null) return decoded;
         }
         return null;
       }
+    } catch (_) {
+      return null;
+    }
+  }
+
+  UserModel? _decodeJwtUserOrNull(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return null;
+
+      final payload = parts[1];
+      final normalized = base64Url.normalize(payload);
+      final decoded = utf8.decode(base64Url.decode(normalized));
+      final json = jsonDecode(decoded);
+      if (json is! Map) return null;
+
+      final sub = json['sub'] as String?;
+      final email = json['email'] as String?;
+      final role = json['role'] as String?;
+      if (sub == null || sub.isEmpty) return null;
+
+      return UserModel(
+        id: sub,
+        email: email ?? '',
+        nombreCompleto: '',
+        telefono: '',
+        role: role,
+      );
     } catch (_) {
       return null;
     }
@@ -132,10 +174,17 @@ class AuthRepository {
     final refresh = await _storage.getRefreshToken();
     if (refresh == null || refresh.isEmpty) return false;
     try {
-      final res = await _dio.post(ApiRoutes.refresh, data: {'refreshToken': refresh});
+      final res = await _dio.post(
+        ApiRoutes.refresh,
+        data: {'refreshToken': refresh},
+      );
       final access = res.data['accessToken'] as String?;
+      final newRefresh = res.data['refreshToken'] as String?;
       if (access != null && access.isNotEmpty) {
-        await _storage.saveTokens(access, refresh);
+        await _storage.saveTokens(
+          access,
+          (newRefresh != null && newRefresh.isNotEmpty) ? newRefresh : refresh,
+        );
         return true;
       }
     } catch (_) {

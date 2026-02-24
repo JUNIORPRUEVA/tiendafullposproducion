@@ -91,10 +91,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         context.go(Routes.user);
       }
     } on ApiException catch (e) {
+      await ref.read(authStateProvider.notifier).logout();
       if (mounted) {
         setState(() => _error = _formatLoginError(e));
       }
     } catch (e) {
+      await ref.read(authStateProvider.notifier).logout();
       if (mounted) {
         setState(
           () => _error =

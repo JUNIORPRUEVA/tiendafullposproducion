@@ -3,6 +3,11 @@
 type Json = Record<string, any>;
 
 const baseUrl = `http://localhost:${process.env.PORT ?? 4000}`;
+const adminEmail = process.env.ADMIN_EMAIL ?? 'admin@fulltech.local';
+const adminPassword = process.env.ADMIN_PASSWORD;
+if (!adminPassword) {
+  throw new Error('ADMIN_PASSWORD is required to run smoke test');
+}
 
 async function http(method: string, path: string, body?: any, token?: string) {
   const res = await fetch(`${baseUrl}${path}`, {
@@ -39,22 +44,29 @@ async function main() {
   console.log('health ok');
 
   const login = await http('POST', '/auth/login', {
-    email: 'admin@fulltech.local',
-    password: 'Admin12345!'
+    identifier: adminEmail,
+    password: adminPassword
   });
   const token = login.accessToken as string;
   if (!token) throw new Error('Missing accessToken');
+  const refreshToken = login.refreshToken as string | undefined;
+  if (!refreshToken) throw new Error('Missing refreshToken');
   console.log('login ok');
+
+  const refreshed = await http('POST', '/auth/refresh', { refreshToken });
+  const refreshedAccessToken = refreshed.accessToken as string;
+  if (!refreshedAccessToken) throw new Error('Missing refreshed accessToken');
+  console.log('refresh ok');
 
   const product = await http(
     'POST',
     '/products',
     { nombre: `Producto Smoke ${Date.now()}`, precio: 100, costo: 70 },
-    token
+    refreshedAccessToken
   );
   console.log('product created', product.id);
 
-  const products = await http('GET', '/products', undefined, token);
+  const products = await http('GET', '/products', undefined, refreshedAccessToken);
   if (!Array.isArray(products)) throw new Error('Expected products array');
   console.log('products list ok');
 
@@ -62,7 +74,7 @@ async function main() {
     'POST',
     '/clients',
     { nombre: `Cliente Smoke ${Date.now()}`, telefono: '0000000000' },
-    token
+    refreshedAccessToken
   );
   console.log('client created', client.id);
 

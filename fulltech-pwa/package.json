@@ -16,6 +16,10 @@
     "build": "npm -w apps/api run build && npm -w apps/web run build",
     "lint": "echo \"No lint configured\""
   },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",
     "concurrently": "^9.2.0",

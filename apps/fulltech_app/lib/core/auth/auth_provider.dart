@@ -29,7 +29,8 @@ final authStateProvider = StateNotifierProvider<AuthController, AuthState>((
 class AuthController extends StateNotifier<AuthState> {
   final Ref ref;
 
-  AuthController(this.ref) : super(AuthState(isAuthenticated: false, loading: true)) {
+  AuthController(this.ref)
+    : super(AuthState(isAuthenticated: false, loading: true)) {
     _init();
   }
 
@@ -44,8 +45,7 @@ class AuthController extends StateNotifier<AuthState> {
     final storage = ref.read(tokenStorageProvider);
     final token = await storage.getAccessToken();
     if (token != null && token.isNotEmpty) {
-      state = state.copyWith(isAuthenticated: true, user: null, loading: false);
-      return;
+      await storage.clearTokens();
     }
 
     state = state.copyWith(isAuthenticated: false, user: null, loading: false);
@@ -59,7 +59,7 @@ class AuthController extends StateNotifier<AuthState> {
       state = AuthState(isAuthenticated: true, user: user, loading: false);
       return true;
     } catch (_) {
-      state = state.copyWith(loading: false, isAuthenticated: false);
+      state = AuthState(isAuthenticated: false, user: null, loading: false);
       rethrow;
     }
   }
