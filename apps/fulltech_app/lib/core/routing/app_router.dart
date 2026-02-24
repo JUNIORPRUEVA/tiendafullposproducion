@@ -14,6 +14,10 @@ import '../../features/catalogo/catalogo_screen.dart';
 import '../../modules/clientes/cliente_detail_screen.dart';
 import '../../modules/clientes/clientes_screen.dart';
 import '../../modules/clientes/cliente_form_screen.dart';
+import '../../modules/nomina/nomina_screen.dart';
+import '../../modules/nomina/mis_pagos_screen.dart';
+import '../../modules/ventas/mis_ventas_screen.dart';
+import '../../modules/ventas/registrar_venta_screen.dart';
 import '../auth/auth_provider.dart';
 import 'routes.dart';
 
@@ -59,6 +63,14 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const UsersScreen(),
           ),
           GoRoute(
+            path: Routes.nomina,
+            builder: (context, state) => const NominaScreen(),
+          ),
+          GoRoute(
+            path: Routes.misPagos,
+            builder: (context, state) => const MisPagosScreen(),
+          ),
+          GoRoute(
             path: Routes.profile,
             builder: (context, state) => const ProfileScreen(),
           ),
@@ -85,6 +97,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.clientes,
             builder: (context, state) => const ClientesScreen(),
+          ),
+          GoRoute(
+            path: Routes.ventas,
+            builder: (context, state) => const MisVentasScreen(),
+          ),
+          GoRoute(
+            path: Routes.registrarVenta,
+            builder: (context, state) => const RegistrarVentaScreen(),
           ),
           GoRoute(
             path: Routes.clienteNuevo,

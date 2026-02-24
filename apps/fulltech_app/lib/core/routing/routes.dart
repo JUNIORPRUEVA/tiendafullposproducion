@@ -12,10 +12,13 @@ class Routes {
   static const catalogo = '/catalogo';
   static const contabilidad = '/contabilidad';
   static const clientes = '/clientes';
+  static const ventas = '/ventas';
+  static const registrarVenta = '/ventas/nueva';
   static const clienteNuevo = '/clientes/nuevo';
   static const clienteDetalle = '/clientes/:id';
   static const clienteEditar = '/clientes/:id/editar';
-    static const nomina = '/nomina';
+  static const nomina = '/nomina';
+  static const misPagos = '/mis-pagos';
 
   static String clienteDetail(String id) => '/clientes/$id';
   static String clienteEdit(String id) => '/clientes/$id/editar';

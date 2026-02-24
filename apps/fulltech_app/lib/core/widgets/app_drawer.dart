@@ -12,6 +12,8 @@ class AppDrawer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final isAdmin = currentUser?.role == 'ADMIN';
+
     return Drawer(
       child: SafeArea(
         child: Column(
@@ -72,6 +74,15 @@ class AppDrawer extends ConsumerWidget {
                     },
                   ),
                   _DrawerMenuItem(
+                    icon: Icons.point_of_sale_outlined,
+                    title: 'Mis Ventas',
+                    subtitle: 'Registro y comisión',
+                    onTap: () {
+                      Navigator.pop(context);
+                      context.go(Routes.ventas);
+                    },
+                  ),
+                  _DrawerMenuItem(
                     icon: Icons.account_balance,
                     title: 'Contabilidad',
                     subtitle: 'Estado y finanzas',
@@ -89,13 +100,23 @@ class AppDrawer extends ConsumerWidget {
                       context.go(Routes.user);
                     },
                   ),
+                  if (isAdmin)
+                    _DrawerMenuItem(
+                      icon: Icons.payments_outlined,
+                      title: 'Nómina',
+                      subtitle: 'Gestión de nómina',
+                      onTap: () {
+                        Navigator.pop(context);
+                        context.go(Routes.nomina);
+                      },
+                    ),
                   _DrawerMenuItem(
-                    icon: Icons.payments_outlined,
-                    title: 'Nómina',
-                    subtitle: 'Gestión de nómina',
+                    icon: Icons.receipt_long_outlined,
+                    title: 'Mis pagos',
+                    subtitle: 'Historial y acumulados',
                     onTap: () {
                       Navigator.pop(context);
-                      context.go(Routes.nomina);
+                      context.go(Routes.misPagos);
                     },
                   ),
                 ],

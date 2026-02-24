@@ -1,0 +1,89 @@
+-- Sales module tables
+
+CREATE TABLE IF NOT EXISTS "Sale" (
+  "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+  "userId" UUID NOT NULL,
+  "customerId" UUID,
+  "saleDate" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "note" TEXT,
+  "totalSold" DECIMAL(12,2) NOT NULL,
+  "totalCost" DECIMAL(12,2) NOT NULL,
+  "totalProfit" DECIMAL(12,2) NOT NULL,
+  "commissionRate" DECIMAL(5,4) NOT NULL DEFAULT 0.10,
+  "commissionAmount" DECIMAL(12,2) NOT NULL,
+  "isDeleted" BOOLEAN NOT NULL DEFAULT false,
+  "deletedAt" TIMESTAMP(3),
+  "deletedById" UUID,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "Sale_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE IF NOT EXISTS "SaleItem" (
+  "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+  "saleId" UUID NOT NULL,
+  "productId" UUID,
+  "productNameSnapshot" TEXT NOT NULL,
+  "productImageSnapshot" TEXT,
+  "qty" DECIMAL(12,3) NOT NULL,
+  "priceSoldUnit" DECIMAL(12,2) NOT NULL,
+  "costUnitSnapshot" DECIMAL(12,2) NOT NULL,
+  "subtotalSold" DECIMAL(12,2) NOT NULL,
+  "subtotalCost" DECIMAL(12,2) NOT NULL,
+  "profit" DECIMAL(12,2) NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "SaleItem_pkey" PRIMARY KEY ("id")
+);
+
+CREATE INDEX IF NOT EXISTS "Sale_userId_idx" ON "Sale"("userId");
+CREATE INDEX IF NOT EXISTS "Sale_customerId_idx" ON "Sale"("customerId");
+CREATE INDEX IF NOT EXISTS "Sale_saleDate_idx" ON "Sale"("saleDate");
+CREATE INDEX IF NOT EXISTS "Sale_isDeleted_idx" ON "Sale"("isDeleted");
+
+CREATE INDEX IF NOT EXISTS "SaleItem_saleId_idx" ON "SaleItem"("saleId");
+CREATE INDEX IF NOT EXISTS "SaleItem_productId_idx" ON "SaleItem"("productId");
+
+DO $$
+BEGIN
+  ALTER TABLE "Sale"
+    ADD CONSTRAINT "Sale_userId_fkey"
+    FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE "Sale"
+    ADD CONSTRAINT "Sale_customerId_fkey"
+    FOREIGN KEY ("customerId") REFERENCES "Client"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE "Sale"
+    ADD CONSTRAINT "Sale_deletedById_fkey"
+    FOREIGN KEY ("deletedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE "SaleItem"
+    ADD CONSTRAINT "SaleItem_saleId_fkey"
+    FOREIGN KEY ("saleId") REFERENCES "Sale"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE "SaleItem"
+    ADD CONSTRAINT "SaleItem_productId_fkey"
+    FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;

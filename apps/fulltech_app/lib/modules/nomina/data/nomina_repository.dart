@@ -14,8 +14,9 @@ class NominaRepository {
   final Ref ref;
   final NominaDatabaseHelper db;
 
-  String get _ownerId =>
-      NominaDatabaseHelper.ownerIdOrDefault(ref.read(authStateProvider).user?.id);
+  String get _ownerId => NominaDatabaseHelper.ownerIdOrDefault(
+    ref.read(authStateProvider).user?.id,
+  );
 
   Future<List<PayrollPeriod>> listPeriods() => db.listPeriods(_ownerId);
 
@@ -29,10 +30,10 @@ class NominaRepository {
     DateTime start,
     DateTime end,
     String title,
-  ) =>
-      db.createPeriod(_ownerId, start, end, title);
+  ) => db.createPeriod(_ownerId, start, end, title);
 
-  Future<void> closePeriod(String periodId) => db.closePeriod(_ownerId, periodId);
+  Future<void> closePeriod(String periodId) =>
+      db.closePeriod(_ownerId, periodId);
 
   Future<List<PayrollEmployee>> listEmployees({bool activeOnly = true}) =>
       db.listEmployees(_ownerId, activeOnly: activeOnly);
@@ -46,8 +47,7 @@ class NominaRepository {
   Future<PayrollEmployeeConfig?> getEmployeeConfig(
     String periodId,
     String employeeId,
-  ) =>
-      db.getEmployeeConfig(_ownerId, periodId, employeeId);
+  ) => db.getEmployeeConfig(_ownerId, periodId, employeeId);
 
   Future<PayrollEmployeeConfig> upsertEmployeeConfig({
     required String periodId,
@@ -55,20 +55,20 @@ class NominaRepository {
     required double baseSalary,
     required bool includeCommissions,
     String? notes,
-  }) =>
-      db.upsertEmployeeConfig(
-        ownerId: _ownerId,
-        periodId: periodId,
-        employeeId: employeeId,
-        baseSalary: baseSalary,
-        includeCommissions: includeCommissions,
-        notes: notes,
-      );
+  }) => db.upsertEmployeeConfig(
+    ownerId: _ownerId,
+    periodId: periodId,
+    employeeId: employeeId,
+    baseSalary: baseSalary,
+    includeCommissions: includeCommissions,
+    notes: notes,
+  );
 
   Future<List<PayrollEntry>> listEntries(String periodId, String employeeId) =>
       db.listEntries(_ownerId, periodId, employeeId);
 
-  Future<PayrollEntry> addEntry(PayrollEntry entry) => db.addEntry(_ownerId, entry);
+  Future<PayrollEntry> addEntry(PayrollEntry entry) =>
+      db.addEntry(_ownerId, entry);
 
   Future<void> deleteEntry(String entryId) => db.deleteEntry(_ownerId, entryId);
 
@@ -77,6 +77,9 @@ class NominaRepository {
 
   Future<double> computePeriodTotalAllEmployees(String periodId) =>
       db.computePeriodTotalAllEmployees(_ownerId, periodId);
+
+  Future<List<PayrollHistoryItem>> listMyPayrollHistory() =>
+      db.listPayrollHistoryByEmployee(_ownerId, _ownerId);
 
   String get ownerId => _ownerId;
 }

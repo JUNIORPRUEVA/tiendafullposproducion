@@ -34,4 +34,9 @@ class ApiRoutes {
   static String productDetail(String id) => '/products/$id';
   static String updateProduct(String id) => '/products/$id';
   static String deleteProduct(String id) => '/products/$id';
+
+  // Ventas
+  static const sales = '/sales';
+  static const salesSummary = '/sales/summary';
+  static String saleDetail(String id) => '/sales/$id';
 }

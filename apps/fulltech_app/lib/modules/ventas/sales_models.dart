@@ -1,0 +1,203 @@
+import '../../core/models/product_model.dart';
+
+class SalesSummaryModel {
+  final int totalSales;
+  final double totalSold;
+  final double totalCost;
+  final double totalProfit;
+  final double totalCommission;
+
+  const SalesSummaryModel({
+    required this.totalSales,
+    required this.totalSold,
+    required this.totalCost,
+    required this.totalProfit,
+    required this.totalCommission,
+  });
+
+  factory SalesSummaryModel.empty() => const SalesSummaryModel(
+        totalSales: 0,
+        totalSold: 0,
+        totalCost: 0,
+        totalProfit: 0,
+        totalCommission: 0,
+      );
+
+  factory SalesSummaryModel.fromJson(Map<String, dynamic> json) {
+    return SalesSummaryModel(
+      totalSales: (json['totalSales'] as num?)?.toInt() ?? 0,
+      totalSold: _toDouble(json['totalSold']),
+      totalCost: _toDouble(json['totalCost']),
+      totalProfit: _toDouble(json['totalProfit']),
+      totalCommission: _toDouble(json['totalCommission']),
+    );
+  }
+}
+
+class SaleItemModel {
+  final String id;
+  final String? productId;
+  final String productNameSnapshot;
+  final String? productImageSnapshot;
+  final double qty;
+  final double priceSoldUnit;
+  final double costUnitSnapshot;
+  final double subtotalSold;
+  final double subtotalCost;
+  final double profit;
+
+  const SaleItemModel({
+    required this.id,
+    required this.productId,
+    required this.productNameSnapshot,
+    required this.productImageSnapshot,
+    required this.qty,
+    required this.priceSoldUnit,
+    required this.costUnitSnapshot,
+    required this.subtotalSold,
+    required this.subtotalCost,
+    required this.profit,
+  });
+
+  factory SaleItemModel.fromJson(Map<String, dynamic> json) {
+    return SaleItemModel(
+      id: (json['id'] ?? '').toString(),
+      productId: json['productId']?.toString(),
+      productNameSnapshot: (json['productNameSnapshot'] ?? '').toString(),
+      productImageSnapshot: json['productImageSnapshot']?.toString(),
+      qty: _toDouble(json['qty']),
+      priceSoldUnit: _toDouble(json['priceSoldUnit']),
+      costUnitSnapshot: _toDouble(json['costUnitSnapshot']),
+      subtotalSold: _toDouble(json['subtotalSold']),
+      subtotalCost: _toDouble(json['subtotalCost']),
+      profit: _toDouble(json['profit']),
+    );
+  }
+}
+
+class SaleModel {
+  final String id;
+  final String userId;
+  final String? customerId;
+  final String? customerName;
+  final DateTime? saleDate;
+  final String? note;
+  final double totalSold;
+  final double totalCost;
+  final double totalProfit;
+  final double commissionAmount;
+  final List<SaleItemModel> items;
+
+  const SaleModel({
+    required this.id,
+    required this.userId,
+    required this.customerId,
+    required this.customerName,
+    required this.saleDate,
+    required this.note,
+    required this.totalSold,
+    required this.totalCost,
+    required this.totalProfit,
+    required this.commissionAmount,
+    required this.items,
+  });
+
+  factory SaleModel.fromJson(Map<String, dynamic> json) {
+    final rawItems = (json['items'] as List?) ?? const [];
+    final customer = json['customer'];
+    String? customerName;
+    String? customerId;
+    if (customer is Map) {
+      customerName = customer['nombre']?.toString();
+      customerId = customer['id']?.toString();
+    }
+
+    return SaleModel(
+      id: (json['id'] ?? '').toString(),
+      userId: (json['userId'] ?? '').toString(),
+      customerId: json['customerId']?.toString() ?? customerId,
+      customerName: customerName,
+      saleDate: json['saleDate'] != null ? DateTime.tryParse(json['saleDate'].toString()) : null,
+      note: json['note']?.toString(),
+      totalSold: _toDouble(json['totalSold']),
+      totalCost: _toDouble(json['totalCost']),
+      totalProfit: _toDouble(json['totalProfit']),
+      commissionAmount: _toDouble(json['commissionAmount']),
+      items: rawItems
+          .whereType<Map>()
+          .map((item) => SaleItemModel.fromJson(item.cast<String, dynamic>()))
+          .toList(),
+    );
+  }
+}
+
+class SaleDraftItem {
+  final ProductModel? product;
+  final String? productId;
+  final String name;
+  final String? imageUrl;
+  final bool isExternal;
+  final double qty;
+  final double priceSoldUnit;
+  final double costUnitSnapshot;
+
+  const SaleDraftItem({
+    this.product,
+    this.productId,
+    required this.name,
+    required this.imageUrl,
+    required this.isExternal,
+    required this.qty,
+    required this.priceSoldUnit,
+    required this.costUnitSnapshot,
+  });
+
+  double get subtotalSold => qty * priceSoldUnit;
+  double get subtotalCost => qty * costUnitSnapshot;
+  double get profit => subtotalSold - subtotalCost;
+
+  SaleDraftItem copyWith({
+    ProductModel? product,
+    String? productId,
+    String? name,
+    String? imageUrl,
+    bool? isExternal,
+    double? qty,
+    double? priceSoldUnit,
+    double? costUnitSnapshot,
+  }) {
+    return SaleDraftItem(
+      product: product ?? this.product,
+      productId: productId ?? this.productId,
+      name: name ?? this.name,
+      imageUrl: imageUrl ?? this.imageUrl,
+      isExternal: isExternal ?? this.isExternal,
+      qty: qty ?? this.qty,
+      priceSoldUnit: priceSoldUnit ?? this.priceSoldUnit,
+      costUnitSnapshot: costUnitSnapshot ?? this.costUnitSnapshot,
+    );
+  }
+
+  Map<String, dynamic> toPayload() {
+    return {
+      if (productId != null) 'productId': productId,
+      if (productId == null) 'productName': name,
+      'qty': qty,
+      'priceSoldUnit': priceSoldUnit,
+      if (productId == null) 'costUnitSnapshot': costUnitSnapshot,
+    };
+  }
+}
+
+class SalesDateRange {
+  final DateTime from;
+  final DateTime to;
+
+  const SalesDateRange({required this.from, required this.to});
+}
+
+double _toDouble(dynamic value) {
+  if (value is num) return value.toDouble();
+  if (value == null) return 0;
+  return double.tryParse(value.toString()) ?? 0;
+}

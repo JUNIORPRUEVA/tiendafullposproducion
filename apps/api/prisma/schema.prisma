@@ -73,6 +73,8 @@ model User {
   payrollEmployeeConfigs PayrollEmployeeConfig[]
   payrollEntries PayrollEntry[]
   punches Punch[]
+  sales Sale[]
+  deletedSales Sale[] @relation("SaleDeletedBy")
 }
 
 model Punch {
@@ -99,6 +101,7 @@ model Product {
   updatedAt DateTime @updatedAt
 
   category  Category?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  saleItems SaleItem[]
 }
 
 model Category {
@@ -121,10 +124,60 @@ model Client {
   updatedAt DateTime @updatedAt
 
   owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  sales Sale[]
 
   @@index([ownerId])
   @@index([ownerId, nombre])
   @@index([ownerId, telefono])
+}
+
+model Sale {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @db.Uuid
+  customerId       String?   @db.Uuid
+  saleDate         DateTime  @default(now())
+  note             String?
+  totalSold        Decimal   @db.Decimal(12, 2)
+  totalCost        Decimal   @db.Decimal(12, 2)
+  totalProfit      Decimal   @db.Decimal(12, 2)
+  commissionRate   Decimal   @default(0.10) @db.Decimal(5, 4)
+  commissionAmount Decimal   @db.Decimal(12, 2)
+  isDeleted        Boolean   @default(false)
+  deletedAt        DateTime?
+  deletedById      String?   @db.Uuid
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customer  Client?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  deletedBy User?     @relation("SaleDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  items     SaleItem[]
+
+  @@index([userId])
+  @@index([customerId])
+  @@index([saleDate])
+  @@index([isDeleted])
+}
+
+model SaleItem {
+  id                   String   @id @default(uuid()) @db.Uuid
+  saleId               String   @db.Uuid
+  productId            String?  @db.Uuid
+  productNameSnapshot  String
+  productImageSnapshot String?
+  qty                  Decimal  @db.Decimal(12, 3)
+  priceSoldUnit        Decimal  @db.Decimal(12, 2)
+  costUnitSnapshot     Decimal  @db.Decimal(12, 2)
+  subtotalSold         Decimal  @db.Decimal(12, 2)
+  subtotalCost         Decimal  @db.Decimal(12, 2)
+  profit               Decimal  @db.Decimal(12, 2)
+  createdAt            DateTime @default(now())
+
+  sale    Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([saleId])
+  @@index([productId])
 }
 
 model Close {

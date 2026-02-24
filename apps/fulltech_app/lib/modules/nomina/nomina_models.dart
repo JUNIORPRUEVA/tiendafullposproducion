@@ -346,3 +346,58 @@ class PayrollTotals {
     required this.total,
   });
 }
+
+class PayrollHistoryItem {
+  final String entryId;
+  final String periodId;
+  final String periodTitle;
+  final DateTime periodStart;
+  final DateTime periodEnd;
+  final String periodStatus;
+  final double baseSalary;
+  final double commissionFromSales;
+  final double overtimeAmount;
+  final double bonusesAmount;
+  final double deductionsAmount;
+  final double benefitsAmount;
+  final double grossTotal;
+  final double netTotal;
+
+  const PayrollHistoryItem({
+    required this.entryId,
+    required this.periodId,
+    required this.periodTitle,
+    required this.periodStart,
+    required this.periodEnd,
+    required this.periodStatus,
+    required this.baseSalary,
+    required this.commissionFromSales,
+    required this.overtimeAmount,
+    required this.bonusesAmount,
+    required this.deductionsAmount,
+    required this.benefitsAmount,
+    required this.grossTotal,
+    required this.netTotal,
+  });
+
+  bool get isPaid => periodStatus.toUpperCase() == 'PAID';
+
+  factory PayrollHistoryItem.fromMap(Map<String, dynamic> map) {
+    return PayrollHistoryItem(
+      entryId: (map['entry_id'] ?? '').toString(),
+      periodId: (map['period_id'] ?? '').toString(),
+      periodTitle: (map['period_title'] ?? '').toString(),
+      periodStart: DateTime.parse((map['period_start']).toString()),
+      periodEnd: DateTime.parse((map['period_end']).toString()),
+      periodStatus: (map['period_status'] ?? 'DRAFT').toString(),
+      baseSalary: (map['base_salary'] as num?)?.toDouble() ?? 0,
+      commissionFromSales: (map['commission_from_sales'] as num?)?.toDouble() ?? 0,
+      overtimeAmount: (map['overtime_amount'] as num?)?.toDouble() ?? 0,
+      bonusesAmount: (map['bonuses_amount'] as num?)?.toDouble() ?? 0,
+      deductionsAmount: (map['deductions_amount'] as num?)?.toDouble() ?? 0,
+      benefitsAmount: (map['benefits_amount'] as num?)?.toDouble() ?? 0,
+      grossTotal: (map['gross_total'] as num?)?.toDouble() ?? 0,
+      netTotal: (map['net_total'] as num?)?.toDouble() ?? 0,
+    );
+  }
+}

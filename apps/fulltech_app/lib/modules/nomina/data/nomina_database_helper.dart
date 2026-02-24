@@ -101,12 +101,24 @@ class NominaDatabaseHelper {
   }
 
   Future<void> _createIndexes(Database db) async {
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_emp_payroll_owner ON employees_payroll(owner_id)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_periods_owner ON payroll_periods(owner_id)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_cfg_owner ON payroll_employee_config(owner_id)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_entries_owner ON payroll_entries(owner_id)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_cfg_period_employee ON payroll_employee_config(period_id, employee_id)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_entries_period_employee ON payroll_entries(period_id, employee_id)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_emp_payroll_owner ON employees_payroll(owner_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_periods_owner ON payroll_periods(owner_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_cfg_owner ON payroll_employee_config(owner_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_entries_owner ON payroll_entries(owner_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_cfg_period_employee ON payroll_employee_config(period_id, employee_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_entries_period_employee ON payroll_entries(period_id, employee_id)',
+    );
   }
 
   String _id(String prefix) {
@@ -218,7 +230,10 @@ class NominaDatabaseHelper {
     return rows.map(PayrollEmployee.fromMap).toList();
   }
 
-  Future<PayrollEmployee?> getEmployeeById(String ownerId, String employeeId) async {
+  Future<PayrollEmployee?> getEmployeeById(
+    String ownerId,
+    String employeeId,
+  ) async {
     final db = await database;
     final rows = await db.query(
       'employees_payroll',
@@ -230,7 +245,10 @@ class NominaDatabaseHelper {
     return PayrollEmployee.fromMap(rows.first);
   }
 
-  Future<PayrollEmployee> upsertEmployee(String ownerId, PayrollEmployee employee) async {
+  Future<PayrollEmployee> upsertEmployee(
+    String ownerId,
+    PayrollEmployee employee,
+  ) async {
     final db = await database;
     final now = DateTime.now().toIso8601String();
 
@@ -252,10 +270,7 @@ class NominaDatabaseHelper {
     final updated = employee.copyWith(updatedAt: DateTime.now());
     await db.update(
       'employees_payroll',
-      {
-        ...updated.toMap(),
-        'updated_at': now,
-      },
+      {...updated.toMap(), 'updated_at': now},
       where: 'owner_id = ? AND id = ?',
       whereArgs: [ownerId, employee.id],
     );
@@ -324,10 +339,7 @@ class NominaDatabaseHelper {
 
     await db.update(
       'payroll_employee_config',
-      {
-        ...updated.toMap(),
-        'updated_at': now,
-      },
+      {...updated.toMap(), 'updated_at': now},
       where: 'owner_id = ? AND id = ?',
       whereArgs: [ownerId, existing.id],
     );
@@ -365,10 +377,7 @@ class NominaDatabaseHelper {
       cantidad: entry.cantidad,
       createdAt: DateTime.now(),
     );
-    await db.insert('payroll_entries', {
-      ...created.toMap(),
-      'created_at': now,
-    });
+    await db.insert('payroll_entries', {...created.toMap(), 'created_at': now});
     return created;
   }
 
@@ -411,7 +420,10 @@ class NominaDatabaseHelper {
     );
   }
 
-  Future<double> computePeriodTotalAllEmployees(String ownerId, String periodId) async {
+  Future<double> computePeriodTotalAllEmployees(
+    String ownerId,
+    String periodId,
+  ) async {
     final employees = await listEmployees(ownerId);
     double total = 0;
     for (final emp in employees) {
@@ -419,5 +431,39 @@ class NominaDatabaseHelper {
       total += t.total;
     }
     return total;
+  }
+
+  Future<List<PayrollHistoryItem>> listPayrollHistoryByEmployee(
+    String ownerId,
+    String employeeId,
+  ) async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      '''
+      SELECT
+        e.id AS entry_id,
+        p.id AS period_id,
+        p.title AS period_title,
+        p.start_date AS period_start,
+        p.end_date AS period_end,
+        p.status AS period_status,
+        COALESCE(e.base_salary, 0) AS base_salary,
+        COALESCE(e.commission_from_sales, 0) AS commission_from_sales,
+        COALESCE(e.overtime_amount, 0) AS overtime_amount,
+        COALESCE(e.bonuses_amount, 0) AS bonuses_amount,
+        COALESCE(e.deductions_amount, 0) AS deductions_amount,
+        COALESCE(e.benefits_amount, 0) AS benefits_amount,
+        COALESCE(e.gross_total, 0) AS gross_total,
+        COALESCE(e.net_total, 0) AS net_total
+      FROM payroll_entries e
+      INNER JOIN payroll_periods p
+        ON p.id = e.period_id AND p.owner_id = e.owner_id
+      WHERE e.owner_id = ?
+        AND e.employee_id = ?
+      ORDER BY p.start_date DESC
+      ''',
+      [ownerId, employeeId],
+    );
+    return rows.map(PayrollHistoryItem.fromMap).toList();
   }
 }
