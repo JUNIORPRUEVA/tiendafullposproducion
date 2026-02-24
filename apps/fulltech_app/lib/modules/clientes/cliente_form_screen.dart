@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:validators/validators.dart' as validators;
 
+import '../../core/auth/auth_provider.dart';
+import '../../core/widgets/app_drawer.dart';
 import 'application/clientes_controller.dart';
 import 'cliente_model.dart';
 
@@ -89,8 +91,10 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(clientesControllerProvider);
+    final user = ref.watch(authStateProvider).user;
 
     return Scaffold(
+      drawer: AppDrawer(currentUser: user),
       appBar: AppBar(
         title: Text(_isEdit ? 'Editar cliente' : 'Nuevo cliente'),
       ),

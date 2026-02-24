@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/auth/auth_provider.dart';
 import '../../core/routing/routes.dart';
+import '../../core/widgets/app_drawer.dart';
 import '../../features/operaciones/application/operations_controller.dart';
 import '../../features/operaciones/operations_models.dart';
 import 'application/clientes_controller.dart';
@@ -102,8 +104,10 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final user = ref.watch(authStateProvider).user;
 
     return Scaffold(
+      drawer: AppDrawer(currentUser: user),
       appBar: AppBar(
         title: const Text('Detalle del cliente'),
         actions: [

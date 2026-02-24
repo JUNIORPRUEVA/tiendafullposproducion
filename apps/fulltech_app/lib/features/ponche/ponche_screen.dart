@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/widgets/app_drawer.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/models/punch_model.dart';
@@ -160,6 +161,7 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
     return DefaultTabController(
       length: isAdmin ? 2 : 1,
       child: Scaffold(
+        drawer: AppDrawer(currentUser: auth.user),
         appBar: AppBar(
           title: const Text('Ponche'),
           backgroundColor: AppTheme.primaryColor,

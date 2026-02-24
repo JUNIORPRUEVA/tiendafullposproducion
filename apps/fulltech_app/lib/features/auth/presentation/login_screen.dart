@@ -23,6 +23,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _passwordCtrl = TextEditingController();
   String? _error;
   bool _rememberMe = false;
+  bool _obscurePassword = true;
 
   static const _rememberEmailKey = 'remember_email';
   static const _rememberPasswordKey = 'remember_password';
@@ -69,6 +70,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
+  String _formatLoginError(ApiException error) {
+    final code = error.code != null ? 'Código: ${error.code}' : 'Código: N/D';
+    final detail = error.message.trim().isEmpty
+        ? 'No se recibió detalle del servidor.'
+        : error.message.trim();
+    return 'No se pudo iniciar sesión.\nCausa exacta: $code\nDetalle: $detail';
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (!mounted) return;
@@ -83,11 +92,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       }
     } on ApiException catch (e) {
       if (mounted) {
-        setState(() => _error = e.message.trim());
+        setState(() => _error = _formatLoginError(e));
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _error = 'Error inesperado al iniciar sesión: $e');
+        setState(
+          () => _error =
+              'No se pudo iniciar sesión.\nCausa exacta: error inesperado\nDetalle: $e',
+        );
       }
     }
   }
@@ -166,11 +178,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: _passwordCtrl,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Contraseña',
-                            prefixIcon: Icon(Icons.lock_outline),
+                            prefixIcon: const Icon(Icons.lock_outline),
+                            suffixIcon: IconButton(
+                              tooltip: _obscurePassword
+                                  ? 'Mostrar contraseña'
+                                  : 'Ocultar contraseña',
+                              onPressed: () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
+                            ),
                           ),
-                          obscureText: true,
+                          obscureText: _obscurePassword,
                           validator: (v) => (v == null || v.isEmpty)
                               ? 'Ingresa tu contraseña'
                               : null,

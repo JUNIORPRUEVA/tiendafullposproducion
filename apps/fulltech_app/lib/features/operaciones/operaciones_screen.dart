@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/auth/auth_provider.dart';
 import '../../core/errors/api_exception.dart';
+import '../../core/widgets/app_drawer.dart';
 import 'application/operations_controller.dart';
 import 'operations_models.dart';
 
@@ -47,12 +49,17 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
   Widget build(BuildContext context) {
     final state = ref.watch(operationsControllerProvider);
     final notifier = ref.read(operationsControllerProvider.notifier);
+    final user = ref.watch(authStateProvider).user;
 
     return Scaffold(
+      drawer: AppDrawer(currentUser: user),
       appBar: AppBar(
         title: const Text('Operaciones'),
         bottom: TabBar(
           controller: _tabController,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          indicatorColor: Colors.white,
           tabs: const [
             Tab(text: 'Tablero'),
             Tab(text: 'Nueva reserva'),
@@ -127,7 +134,27 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final mobile = constraints.maxWidth < 900;
         final wide = constraints.maxWidth >= 1100;
+
+        Widget buildStatusColumn(String status, {double? width, double height = 300}) {
+          final items = state.services.where((service) => service.status == status).toList();
+          return SizedBox(
+            width: width,
+            height: height,
+            child: _KanbanColumn(
+              title: _labelStatus(status),
+              count: items.length,
+              services: items,
+              onOpen: (service) {
+                setState(() => _selectedServiceId = service.id);
+                if (!wide) {
+                  _openServiceDetail(service);
+                }
+              },
+            ),
+          );
+        }
 
         final board = RefreshIndicator(
           onRefresh: notifier.refresh,
@@ -143,34 +170,26 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
                 onPriority: notifier.setPriority,
               ),
               const SizedBox(height: 10),
-              SizedBox(
-                height: wide ? constraints.maxHeight - 90 : 560,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _statuses.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (context, index) {
-                    final status = _statuses[index];
-                    final items = state.services
-                        .where((service) => service.status == status)
-                        .toList();
-                    return SizedBox(
-                      width: 300,
-                      child: _KanbanColumn(
-                        title: _labelStatus(status),
-                        count: items.length,
-                        services: items,
-                        onOpen: (service) {
-                          setState(() => _selectedServiceId = service.id);
-                          if (!wide) {
-                            _openServiceDetail(service);
-                          }
-                        },
-                      ),
-                    );
-                  },
+              if (mobile)
+                ..._statuses.map(
+                  (status) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: buildStatusColumn(status, height: 250),
+                  ),
+                )
+              else
+                SizedBox(
+                  height: wide ? constraints.maxHeight - 90 : 520,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _statuses.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      final status = _statuses[index];
+                      return buildStatusColumn(status, width: 290, height: wide ? constraints.maxHeight - 110 : 500);
+                    },
+                  ),
                 ),
-              ),
             ],
           ),
         );
@@ -373,24 +392,29 @@ class _KpiHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final dash = state.dashboard;
     final inProgress = dash.activeByStatus['in_progress'] ?? 0;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
-      child: Row(
-        children: [
-          Expanded(child: _miniKpi('Activos', '$inProgress')),
-          const SizedBox(width: 8),
-          Expanded(child: _miniKpi('Instalaciones hoy', '${dash.installationsPendingToday}')),
-          const SizedBox(width: 8),
-          Expanded(child: _miniKpi('Garantías', '${dash.warrantiesOpen}')),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _miniKpi(
-              'Promedio (h)',
-              dash.averageHoursByLifecycle.toStringAsFixed(1),
-            ),
+    final items = [
+      _miniKpi('Activos', '$inProgress'),
+      _miniKpi('Instalaciones hoy', '${dash.installationsPendingToday}'),
+      _miniKpi('Garantías', '${dash.warrantiesOpen}'),
+      _miniKpi('Promedio (h)', dash.averageHoursByLifecycle.toStringAsFixed(1)),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 700;
+        final cardWidth = compact ? (constraints.maxWidth - 28) / 2 : (constraints.maxWidth - 44) / 4;
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: items
+                .map((item) => SizedBox(width: cardWidth, child: item))
+                .toList(),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
