@@ -13,10 +13,11 @@ class SplashScreen extends ConsumerWidget {
           children: const [
             CircularProgressIndicator(),
             SizedBox(height: 12),
-            Text('Verificando sesión...'),
+            Text('Verificando sesi\u00f3n...'),
           ],
         ),
       ),
     );
   }
 }
+

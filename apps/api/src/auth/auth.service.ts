@@ -102,6 +102,26 @@ export class AuthService {
     return false;
   }
 
+  private isMissingBlockedColumn(error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return error.code === 'P2022' && error.meta?.column_name === 'blocked';
+    }
+
+    if (typeof error === 'object' && error !== null) {
+      const value = error as { code?: unknown; message?: unknown };
+      const code = typeof value.code === 'string' ? value.code : '';
+      const message = typeof value.message === 'string' ? value.message : '';
+      return (
+        code === 'P2022' &&
+        (message.includes('blocked') ||
+          (message.toLowerCase().includes('column') &&
+            message.toLowerCase().includes('blocked')))
+      );
+    }
+
+    return false;
+  }
+
   private async findUserForLogin(email: string) {
     try {
       return await this.prisma.user.findUnique({
@@ -184,6 +204,15 @@ export class AuthService {
         },
       });
     } catch (error) {
+      if (this.isMissingBlockedColumn(error)) {
+        const row = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { id: true, email: true, role: true },
+        });
+        if (!row) return null;
+        return { ...row, blocked: false };
+      }
+
       if (!this.isMissingUserTable(error)) throw error;
 
       const rows = await this.prisma.$queryRaw<

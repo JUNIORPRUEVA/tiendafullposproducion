@@ -2,6 +2,11 @@
 cmake_minimum_required(VERSION 3.14)
 project(fulltech_app LANGUAGES CXX)
 
+# Flutter genera scripts de instalación con rutas absolutas al directorio `build/`.
+# En algunos entornos CMAKE_ERROR_ON_ABSOLUTE_INSTALL_DESTINATION viene activado
+# y rompe el build. Forzamos OFF para permitir compilar/instalar en Windows.
+set(CMAKE_ERROR_ON_ABSOLUTE_INSTALL_DESTINATION OFF)
+
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
 set(BINARY_NAME "fulltech_app")
