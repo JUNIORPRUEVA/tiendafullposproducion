@@ -14,6 +14,10 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const port = Number(config.get('PORT') ?? 4000);
   const corsOrigin = config.get<string>('CORS_ORIGIN') ?? 'http://localhost:3000';
+  const allowedOrigins = corsOrigin
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
   const uploadDir = (config.get<string>('UPLOAD_DIR') ?? path.join(process.cwd(), 'uploads')).trim();
 
   fs.mkdirSync(uploadDir, { recursive: true });
@@ -28,7 +32,13 @@ async function bootstrap() {
   );
 
   app.enableCors({
-    origin: corsOrigin === '*' ? true : corsOrigin,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error('Not allowed by CORS'));
+    },
     credentials: true
   });
 
