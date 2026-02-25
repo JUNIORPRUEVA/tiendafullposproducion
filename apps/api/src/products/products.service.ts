@@ -41,17 +41,25 @@ export class ProductsService {
   create(dto: CreateProductDto): Promise<Product> {
     return this.prisma.$transaction(async (tx) => {
       const category = await this.findOrCreateCategory(tx, dto.categoria);
-      const product = await tx.product.create({
-        data: {
-          nombre: dto.nombre,
-          precio: new Prisma.Decimal(dto.precio),
-          costo: new Prisma.Decimal(dto.costo),
-          fotoUrl: dto.fotoUrl,
-          categoryId: category?.id,
-        },
-        include: { category: true },
-      });
-      return this.mapProduct(product);
+      const data = {
+        nombre: dto.nombre,
+        precio: new Prisma.Decimal(dto.precio),
+        costo: new Prisma.Decimal(dto.costo),
+        fotoUrl: dto.fotoUrl,
+        categoryId: category?.id,
+      };
+
+      try {
+        const product = await tx.product.create({
+          data,
+          include: { category: true },
+        });
+        return this.mapProduct(product);
+      } catch (error) {
+        if (!this.isSchemaMismatch(error)) throw error;
+        const product = await tx.product.create({ data });
+        return this.mapProduct(product);
+      }
     });
   }
 
@@ -61,12 +69,19 @@ export class ProductsService {
       return products.map((p) => this.mapProduct(p));
     } catch (error) {
       if (!this.isSchemaMismatch(error)) throw error;
-      return [];
+      const products = await this.prisma.product.findMany({ orderBy: { createdAt: 'desc' } });
+      return products.map((p) => this.mapProduct(p));
     }
   }
 
   async findOne(id: string): Promise<any> {
-    const product = await this.prisma.product.findUnique({ where: { id }, include: { category: true } });
+    let product: (Product & { category?: Category | null }) | null = null;
+    try {
+      product = await this.prisma.product.findUnique({ where: { id }, include: { category: true } });
+    } catch (error) {
+      if (!this.isSchemaMismatch(error)) throw error;
+      product = await this.prisma.product.findUnique({ where: { id } });
+    }
     if (!product) throw new NotFoundException('Product not found');
     return this.mapProduct(product);
   }
@@ -79,18 +94,26 @@ export class ProductsService {
         const category = await this.findOrCreateCategory(tx, dto.categoria);
         categoryId = category?.id;
       }
-      const updated = await tx.product.update({
-        where: { id },
-        data: {
-          nombre: dto.nombre,
-          precio: dto.precio === undefined ? undefined : new Prisma.Decimal(dto.precio),
-          costo: dto.costo === undefined ? undefined : new Prisma.Decimal(dto.costo),
-          fotoUrl: dto.fotoUrl,
-          categoryId,
-        },
-        include: { category: true },
-      });
-      return this.mapProduct(updated);
+      const data = {
+        nombre: dto.nombre,
+        precio: dto.precio === undefined ? undefined : new Prisma.Decimal(dto.precio),
+        costo: dto.costo === undefined ? undefined : new Prisma.Decimal(dto.costo),
+        fotoUrl: dto.fotoUrl,
+        categoryId,
+      };
+
+      try {
+        const updated = await tx.product.update({
+          where: { id },
+          data,
+          include: { category: true },
+        });
+        return this.mapProduct(updated);
+      } catch (error) {
+        if (!this.isSchemaMismatch(error)) throw error;
+        const updated = await tx.product.update({ where: { id }, data });
+        return this.mapProduct(updated);
+      }
     });
   }
 
@@ -105,6 +128,7 @@ export class ProductsService {
     return {
       ...product,
       fotoUrl,
+      categoria: product.category?.nombre ?? null,
       categoriaNombre: product.category?.nombre,
     };
   }
@@ -120,9 +144,14 @@ export class ProductsService {
   private async findOrCreateCategory(tx: PrismaNS.TransactionClient, nombre: string) {
     const trimmed = nombre.trim();
     if (!trimmed) return null;
-    const existing = await tx.category.findUnique({ where: { nombre: trimmed } });
-    if (existing) return existing;
-    return tx.category.create({ data: { nombre: trimmed } });
+    try {
+      const existing = await tx.category.findUnique({ where: { nombre: trimmed } });
+      if (existing) return existing;
+      return tx.category.create({ data: { nombre: trimmed } });
+    } catch (error) {
+      if (!this.isSchemaMismatch(error)) throw error;
+      return null;
+    }
   }
 }
 

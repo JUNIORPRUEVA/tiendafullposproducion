@@ -54,6 +54,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: Routes.home,
         redirect: (context, state) => Routes.operaciones,
       ),
+      GoRoute(
+        path: Routes.registrarVenta,
+        builder: (context, state) => const RegistrarVentaScreen(),
+      ),
       ShellRoute(
         builder: (context, state, child) => HomeShell(child: child),
         routes: [
@@ -102,10 +106,6 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const MisVentasScreen(),
           ),
           GoRoute(
-            path: Routes.registrarVenta,
-            builder: (context, state) => const RegistrarVentaScreen(),
-          ),
-          GoRoute(
             path: Routes.clienteNuevo,
             builder: (context, state) => const ClienteFormScreen(),
           ),
@@ -128,10 +128,15 @@ final routerProvider = Provider<GoRouter>((ref) {
     ],
     redirect: (context, state) {
       final auth = ref.read(authStateProvider);
+      final initialized = auth.initialized;
       final isAuth = auth.isAuthenticated;
       final loc = state.uri.toString();
       final isAuthRoute = loc == Routes.login;
       final isSplash = loc == Routes.splash;
+
+      if (!initialized) {
+        return isSplash ? null : Routes.splash;
+      }
 
       if (isSplash) {
         return isAuth ? Routes.operaciones : Routes.login;

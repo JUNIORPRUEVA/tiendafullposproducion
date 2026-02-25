@@ -178,11 +178,13 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
 
                       if (useCompactList) {
                         return RefreshIndicator(
-                          onRefresh: () =>
-                              ref.read(catalogControllerProvider.notifier).load(),
+                          onRefresh: () => ref
+                              .read(catalogControllerProvider.notifier)
+                              .load(),
                           child: ListView.separated(
                             itemCount: filtered.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
                             itemBuilder: (context, i) {
                               final p = filtered[i];
                               return _ProductCompactTile(
@@ -433,7 +435,10 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                _ProductDetailLine(label: 'Categoría', value: product.categoriaLabel),
+                _ProductDetailLine(
+                  label: 'Categoría',
+                  value: product.categoriaLabel,
+                ),
                 _ProductDetailLine(
                   label: 'Precio',
                   value: '\$${product.precio.toStringAsFixed(2)}',
@@ -975,10 +980,16 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
           const SizedBox(height: 8),
           Row(
             children: [
-              ElevatedButton.icon(
-                onPressed: _saving ? null : _pickImage,
-                icon: const Icon(Icons.file_upload),
-                label: Text(_imageName ?? 'Seleccionar archivo'),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _saving ? null : _pickImage,
+                  icon: const Icon(Icons.file_upload),
+                  label: Text(
+                    _imageName ?? 'Seleccionar archivo',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ),
               const SizedBox(width: 12),
               if (_imageBytes != null)

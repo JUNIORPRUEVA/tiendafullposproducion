@@ -53,8 +53,11 @@ export class ProductsController {
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
-        destination: (_req: Express.Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) =>
-          cb(null, process.env.UPLOAD_DIR?.trim() || join(process.cwd(), 'uploads')),
+        destination: (_req: Express.Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
+          const dir = process.env.UPLOAD_DIR?.trim() || join(process.cwd(), 'uploads');
+          fs.mkdirSync(dir, { recursive: true });
+          cb(null, dir);
+        },
         filename: (_req: Express.Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
           const unique = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
           cb(null, `${unique}${extname(file.originalname)}`);

@@ -120,21 +120,16 @@ class VentasController extends StateNotifier<VentasState> {
         nextRange = SalesDateRange(from: day, to: day);
         break;
       case SalesRangePreset.week:
-        final weekday = now.weekday;
-        final from = DateTime(
-          now.year,
-          now.month,
-          now.day,
-        ).subtract(Duration(days: weekday - 1));
-        final to = from.add(const Duration(days: 6));
-        nextRange = SalesDateRange(from: from, to: to);
+        final day = DateTime(now.year, now.month, now.day);
+        final start = day.subtract(Duration(days: day.weekday - 1));
+        final end = start.add(const Duration(days: 6));
+        nextRange = SalesDateRange(from: start, to: end);
         break;
       case SalesRangePreset.quincena:
         nextRange = _currentQuincena(now);
         break;
       case SalesRangePreset.custom:
-        nextRange = SalesDateRange(from: state.from, to: state.to);
-        break;
+        return;
     }
 
     state = state.copyWith(
@@ -161,21 +156,28 @@ class VentasController extends StateNotifier<VentasState> {
 }
 
 SalesDateRange _currentQuincena(DateTime now) {
-  final day = now.day;
-  if (day <= 15) {
-    final prevMonthLastDay = DateTime(now.year, now.month, 0);
+  DateTime safeDate(int year, int month, int day) {
+    final lastDay = DateTime(year, month + 1, 0).day;
+    final safeDay = day > lastDay ? lastDay : day;
+    return DateTime(year, month, safeDay);
+  }
+
+  if (now.day >= 15 && now.day <= 29) {
     return SalesDateRange(
-      from: DateTime(
-        prevMonthLastDay.year,
-        prevMonthLastDay.month,
-        prevMonthLastDay.day,
-      ),
-      to: DateTime(now.year, now.month, 15),
+      from: safeDate(now.year, now.month, 15),
+      to: DateTime(now.year, now.month, 29),
+    );
+  }
+
+  if (now.day >= 30) {
+    return SalesDateRange(
+      from: safeDate(now.year, now.month, 30),
+      to: DateTime(now.year, now.month + 1, 14),
     );
   }
 
   return SalesDateRange(
-    from: DateTime(now.year, now.month, 16),
-    to: DateTime(now.year, now.month + 1, 0),
+    from: safeDate(now.year, now.month - 1, 30),
+    to: DateTime(now.year, now.month, 14),
   );
 }

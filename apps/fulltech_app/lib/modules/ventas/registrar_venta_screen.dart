@@ -20,7 +20,6 @@ class RegistrarVentaScreen extends ConsumerStatefulWidget {
 class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   final TextEditingController _noteCtrl = TextEditingController();
-  final TextEditingController _clientSearchCtrl = TextEditingController();
 
   bool _loadingProducts = true;
   bool _saving = false;
@@ -29,7 +28,6 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
   int _visibleProducts = 24;
 
   ClienteModel? _selectedClient;
-  List<ClienteModel> _clientOptions = const [];
 
   String _money(double value) =>
       NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(value);
@@ -57,7 +55,6 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
   void dispose() {
     _searchCtrl.dispose();
     _noteCtrl.dispose();
-    _clientSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -81,16 +78,69 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authStateProvider).user;
-    final isWide = MediaQuery.of(context).size.width >= 1024;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final isWide = screenWidth >= 1024;
+    final isCompact = screenWidth < 900;
+    final showInlineTotals = screenWidth >= 700 && screenHeight >= 780;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Registrar Venta'),
-        actions: [
-          SizedBox(
-            width: 320,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+        actions: isWide
+            ? [
+                SizedBox(
+                  width: 320,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: TextField(
+                      controller: _searchCtrl,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Buscar producto...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _searchCtrl.text.isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () {
+                                  _searchCtrl.clear();
+                                  setState(() {});
+                                },
+                                icon: const Icon(Icons.close),
+                              ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        filled: true,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: FilledButton.icon(
+                    onPressed: _openExternalSaleModal,
+                    icon: const Icon(Icons.add_box_outlined),
+                    label: const Text('Vender fuera del inventario'),
+                  ),
+                ),
+              ]
+            : [
+                IconButton(
+                  tooltip: 'Vender fuera del inventario',
+                  onPressed: _openExternalSaleModal,
+                  icon: const Icon(Icons.add_box_outlined),
+                ),
+              ],
+      ),
+      drawer: AppDrawer(currentUser: user),
+      body: Column(
+        children: [
+          if (!isWide)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
               child: TextField(
                 controller: _searchCtrl,
                 onChanged: (_) => setState(() {}),
@@ -108,44 +158,52 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                         ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
                   ),
-                  filled: true,
+                  isDense: true,
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: FilledButton.icon(
-              onPressed: _openExternalSaleModal,
-              icon: const Icon(Icons.add_box_outlined),
-              label: const Text('Vender fuera del inventario'),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                const dividerHeight = 1.0;
+                final available = constraints.maxHeight;
+                final contentHeight = (available - dividerHeight).clamp(
+                  160.0,
+                  available,
+                );
+
+                final panelHeight = contentHeight * 0.50;
+                final productHeight = contentHeight - panelHeight;
+
+                return Column(
+                  children: [
+                    SizedBox(
+                      height: productHeight,
+                      child: _buildProductGrid(isCompact: isCompact),
+                    ),
+                    Container(
+                      height: dividerHeight,
+                      color: Theme.of(context).dividerColor,
+                    ),
+                    SizedBox(
+                      height: panelHeight,
+                      child: _buildCartPanel(
+                        isCompact: isCompact,
+                        showInlineTotals: showInlineTotals,
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ],
       ),
-      drawer: AppDrawer(currentUser: user),
-      body: isWide
-          ? Row(
-              children: [
-                Expanded(flex: 7, child: _buildProductGrid()),
-                Container(width: 1, color: Theme.of(context).dividerColor),
-                Expanded(flex: 3, child: _buildCartPanel()),
-              ],
-            )
-          : Column(
-              children: [
-                Expanded(flex: 6, child: _buildProductGrid()),
-                const Divider(height: 1),
-                Expanded(flex: 4, child: _buildCartPanel()),
-              ],
-            ),
     );
   }
 
-  Widget _buildProductGrid() {
+  Widget _buildProductGrid({required bool isCompact}) {
     if (_loadingProducts) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -159,75 +217,121 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
 
     return Column(
       children: [
-        Expanded(
-          child: GridView.builder(
-            padding: const EdgeInsets.all(12),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 4,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-              childAspectRatio: 0.9,
-            ),
-            itemCount: visible.length,
-            itemBuilder: (context, index) {
-              final p = visible[index];
-              return InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => _addProduct(p),
-                child: Card(
-                  clipBehavior: Clip.antiAlias,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: p.fotoUrl == null || p.fotoUrl!.isEmpty
-                            ? Container(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.surfaceContainerHighest,
-                                child: const Center(
-                                  child: Icon(Icons.inventory_2_outlined),
-                                ),
-                              )
-                            : Image.network(
-                                p.fotoUrl!,
-                                width: double.infinity,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) =>
-                                    const Center(
-                                      child: Icon(Icons.broken_image_outlined),
-                                    ),
-                              ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              p.nombre,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text('Precio: ${_money(p.precio)}'),
-                            Text(
-                              'Costo: ${_money(p.costo)}',
-                              style: TextStyle(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Productos disponibles',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
+              ),
+              Chip(
+                visualDensity: VisualDensity.compact,
+                label: Text('$filtered.length'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth;
+              final crossAxisCount = width < 360
+                  ? 1
+                  : width < 520
+                  ? 2
+                  : width < 900
+                  ? 3
+                  : 4;
+              final aspectRatio = isCompact ? 0.78 : 0.9;
+
+              return GridView.builder(
+                padding: const EdgeInsets.all(12),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: crossAxisCount,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  childAspectRatio: aspectRatio,
+                ),
+                itemCount: visible.length,
+                itemBuilder: (context, index) {
+                  final p = visible[index];
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => _addProduct(p),
+                    child: Card(
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: Theme.of(
+                            context,
+                          ).dividerColor.withValues(alpha: 0.25),
+                        ),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: p.fotoUrl == null || p.fotoUrl!.isEmpty
+                                ? Container(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.surfaceContainerHighest,
+                                    child: const Center(
+                                      child: Icon(Icons.inventory_2_outlined),
+                                    ),
+                                  )
+                                : Image.network(
+                                    p.fotoUrl!,
+                                    width: double.infinity,
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) =>
+                                            const Center(
+                                              child: Icon(
+                                                Icons.broken_image_outlined,
+                                              ),
+                                            ),
+                                  ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  p.nombre,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text('Precio: ${_money(p.precio)}'),
+                                Text(
+                                  'Costo: ${_money(p.costo)}',
+                                  style: TextStyle(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
               );
             },
           ),
@@ -245,192 +349,407 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
     );
   }
 
-  Widget _buildCartPanel() {
+  Widget _buildCartPanel({
+    required bool isCompact,
+    required bool showInlineTotals,
+  }) {
     return Padding(
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Detalle de venta',
-            style: Theme.of(context).textTheme.titleLarge,
+      padding: EdgeInsets.all(isCompact ? 10 : 12),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: Theme.of(context).dividerColor.withValues(alpha: 0.25),
           ),
-          const SizedBox(height: 10),
-          Expanded(
-            child: _cart.isEmpty
-                ? const Center(child: Text('Agrega productos para iniciar'))
-                : ListView.separated(
-                    itemCount: _cart.length,
-                    separatorBuilder: (context, index) =>
-                        const SizedBox(height: 8),
-                    itemBuilder: (context, index) {
-                      final item = _cart[index];
-                      return Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(10),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      item.name,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Quitar item',
-                                    onPressed: () =>
-                                        setState(() => _cart.removeAt(index)),
-                                    icon: const Icon(Icons.delete_outline),
-                                  ),
-                                ],
-                              ),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: _NumberField(
-                                      label: 'Cantidad',
-                                      initialValue: item.qty,
-                                      min: 0.001,
-                                      onChanged: (v) => _updateItem(
-                                        index,
-                                        item.copyWith(qty: v),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: _NumberField(
-                                      label: 'Precio vendido',
-                                      initialValue: item.priceSoldUnit,
-                                      min: 0,
-                                      onChanged: (v) => _updateItem(
-                                        index,
-                                        item.copyWith(priceSoldUnit: v),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'Costo unitario: ${_money(item.costUnitSnapshot)}',
-                              ),
-                              Text('Subtotal: ${_money(item.subtotalSold)}'),
-                            ],
+        ),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            isCompact ? 10 : 12,
+            isCompact ? 10 : 12,
+            isCompact ? 10 : 12,
+            isCompact ? 8 : 10,
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final availableHeight = constraints.maxHeight;
+              final compactVertical = availableHeight < 320;
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Resumen de venta',
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      if (!showInlineTotals)
+                        TextButton.icon(
+                          onPressed: _showTotalsDialog,
+                          icon: const Icon(Icons.receipt_long_outlined),
+                          label: const Text('Resumen'),
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            minimumSize: const Size(0, 34),
                           ),
                         ),
-                      );
-                    },
+                    ],
                   ),
-          ),
-          const SizedBox(height: 8),
-          _buildClientSelector(),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _noteCtrl,
-            maxLines: 2,
-            decoration: const InputDecoration(
-              labelText: 'Nota (opcional)',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 10),
-          _totalsTile('Total vendido', _money(_totalSold)),
-          _totalsTile('Total costo', _money(_totalCost)),
-          _totalsTile('Total utilidad', _money(_totalProfit)),
-          _totalsTile('Comisión (10%)', _money(_commission), highlight: true),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: _saving ? null : _saveSale,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: _saving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text(
-                        'GUARDAR VENTA',
-                        style: TextStyle(fontWeight: FontWeight.w800),
+                  if (_cart.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        '${_cart.length} item(s)',
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
-              ),
-            ),
+                    ),
+                  SizedBox(height: compactVertical ? 6 : 10),
+                  Expanded(
+                    flex: 5,
+                    child: _cart.isEmpty
+                        ? const Center(
+                            child: Text('Agrega productos para iniciar'),
+                          )
+                        : ListView.separated(
+                            itemCount: _cart.length,
+                            separatorBuilder: (context, index) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (context, index) {
+                              final item = _cart[index];
+                              return Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(10),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              item.name,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Quitar item',
+                                            onPressed: () => setState(
+                                              () => _cart.removeAt(index),
+                                            ),
+                                            icon: const Icon(
+                                              Icons.delete_outline,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: _NumberField(
+                                              label: 'Cantidad',
+                                              initialValue: item.qty,
+                                              min: 0.001,
+                                              onChanged: (v) => _updateItem(
+                                                index,
+                                                item.copyWith(qty: v),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: _NumberField(
+                                              label: 'Precio vendido',
+                                              initialValue: item.priceSoldUnit,
+                                              min: 0,
+                                              onChanged: (v) => _updateItem(
+                                                index,
+                                                item.copyWith(priceSoldUnit: v),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        'Costo unitario: ${_money(item.costUnitSnapshot)}',
+                                      ),
+                                      Text(
+                                        'Subtotal: ${_money(item.subtotalSold)}',
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  SizedBox(height: compactVertical ? 6 : 8),
+                  Expanded(
+                    flex: showInlineTotals ? 4 : 3,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: FilledButton.tonalIcon(
+                                  onPressed: _openClientPickerDialog,
+                                  icon: const Icon(
+                                    Icons.person_search_outlined,
+                                  ),
+                                  label: Text(
+                                    _selectedClient == null
+                                        ? 'Cliente'
+                                        : _selectedClient!.nombre,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _openNoteDialog,
+                                  icon: const Icon(
+                                    Icons.sticky_note_2_outlined,
+                                  ),
+                                  label: Text(
+                                    _noteCtrl.text.trim().isEmpty
+                                        ? 'Nota'
+                                        : 'Editar nota',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (_noteCtrl.text.trim().isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                _noteCtrl.text.trim(),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ),
+                          if (showInlineTotals) ...[
+                            const SizedBox(height: 10),
+                            _totalsTile('Total vendido', _money(_totalSold)),
+                            _totalsTile('Total costo', _money(_totalCost)),
+                            _totalsTile('Total utilidad', _money(_totalProfit)),
+                            _totalsTile(
+                              'Comisión (10%)',
+                              _money(_commission),
+                              highlight: true,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: compactVertical ? 4 : 6),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: _saving ? null : _saveSale,
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          vertical: compactVertical ? 10 : 12,
+                        ),
+                        child: _saving
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text(
+                                'GUARDAR VENTA',
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildClientSelector() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _clientSearchCtrl,
-                onSubmitted: (_) => _searchClients(),
-                decoration: InputDecoration(
-                  labelText: _selectedClient == null
-                      ? 'Buscar cliente'
-                      : 'Cliente seleccionado: ${_selectedClient!.nombre}',
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    onPressed: _searchClients,
-                    icon: const Icon(Icons.search),
+  Future<void> _openNoteDialog() async {
+    final noteEditor = TextEditingController(text: _noteCtrl.text);
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Nota de la venta'),
+        content: TextField(
+          controller: noteEditor,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            hintText: 'Escribe una nota (opcional)',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+
+    if (saved == true && mounted) {
+      setState(() {
+        _noteCtrl.text = noteEditor.text.trim();
+      });
+    }
+  }
+
+  Future<void> _openClientPickerDialog() async {
+    final searchCtrl = TextEditingController();
+    var rows = <ClienteModel>[];
+    bool loading = false;
+
+    Future<void> runSearch(StateSetter setDialogState) async {
+      setDialogState(() => loading = true);
+      try {
+        final result = await ref
+            .read(ventasRepositoryProvider)
+            .searchClients(searchCtrl.text);
+        if (!mounted) return;
+        setDialogState(() {
+          rows = result;
+          loading = false;
+        });
+      } catch (_) {
+        if (!mounted) return;
+        setDialogState(() => loading = false);
+      }
+    }
+
+    final selected = await showDialog<ClienteModel>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Seleccionar cliente'),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: searchCtrl,
+                    onSubmitted: (_) => runSearch(setDialogState),
+                    decoration: InputDecoration(
+                      hintText: 'Buscar por nombre o teléfono',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        onPressed: () => runSearch(setDialogState),
+                        icon: const Icon(Icons.search),
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 10),
+                  if (loading)
+                    const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: CircularProgressIndicator(),
+                    )
+                  else
+                    SizedBox(
+                      height: 220,
+                      child: rows.isEmpty
+                          ? const Center(
+                              child: Text(
+                                'Busca un cliente para seleccionarlo',
+                              ),
+                            )
+                          : ListView.separated(
+                              itemCount: rows.length,
+                              separatorBuilder: (context, index) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final c = rows[index];
+                                return ListTile(
+                                  dense: true,
+                                  title: Text(c.nombre),
+                                  subtitle: Text(c.telefono),
+                                  onTap: () => Navigator.of(context).pop(c),
+                                );
+                              },
+                            ),
+                    ),
+                ],
               ),
             ),
-            const SizedBox(width: 8),
-            IconButton(
-              tooltip: 'Nuevo cliente rápido',
-              onPressed: _createQuickClient,
-              icon: const Icon(Icons.person_add_alt_1),
-            ),
-            IconButton(
-              tooltip: 'Quitar cliente',
-              onPressed: _selectedClient == null
-                  ? null
-                  : () => setState(() => _selectedClient = null),
-              icon: const Icon(Icons.clear),
-            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancelar'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  _createQuickClient();
+                },
+                icon: const Icon(Icons.person_add_alt_1),
+                label: const Text('Agregar nuevo cliente'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    if (selected != null && mounted) {
+      setState(() => _selectedClient = selected);
+    }
+  }
+
+  Future<void> _showTotalsDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Resumen de totales'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _totalsTile('Total vendido', _money(_totalSold)),
+            _totalsTile('Total costo', _money(_totalCost)),
+            _totalsTile('Total utilidad', _money(_totalProfit)),
+            _totalsTile('Comisión (10%)', _money(_commission), highlight: true),
           ],
         ),
-        if (_clientOptions.isNotEmpty)
-          Container(
-            margin: const EdgeInsets.only(top: 6),
-            constraints: const BoxConstraints(maxHeight: 120),
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: _clientOptions.length,
-              itemBuilder: (context, index) {
-                final c = _clientOptions[index];
-                return ListTile(
-                  dense: true,
-                  title: Text(c.nombre),
-                  subtitle: Text(c.telefono),
-                  onTap: () {
-                    setState(() {
-                      _selectedClient = c;
-                      _clientOptions = const [];
-                      _clientSearchCtrl.text = c.nombre;
-                    });
-                  },
-                );
-              },
-            ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cerrar'),
           ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -491,21 +810,6 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
     });
   }
 
-  Future<void> _searchClients() async {
-    try {
-      final rows = await ref
-          .read(ventasRepositoryProvider)
-          .searchClients(_clientSearchCtrl.text);
-      if (!mounted) return;
-      setState(() => _clientOptions = rows);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error buscando clientes: $e')));
-    }
-  }
-
   Future<void> _createQuickClient() async {
     final nameCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
@@ -550,8 +854,6 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
       if (!mounted) return;
       setState(() {
         _selectedClient = created;
-        _clientSearchCtrl.text = created.nombre;
-        _clientOptions = const [];
       });
       ScaffoldMessenger.of(
         context,
@@ -691,9 +993,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
       setState(() {
         _cart = [];
         _selectedClient = null;
-        _clientOptions = const [];
         _noteCtrl.clear();
-        _clientSearchCtrl.clear();
       });
 
       ScaffoldMessenger.of(context).showSnackBar(

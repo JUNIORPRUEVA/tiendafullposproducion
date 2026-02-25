@@ -31,6 +31,7 @@ class AuthRepository {
   final TokenStorage _storage;
   static const Duration _loginTimeout = Duration(seconds: 25);
   static const Duration _bootstrapTimeout = Duration(seconds: 12);
+  static const Duration _storageTimeout = Duration(seconds: 3);
 
   AuthRepository({required Dio dio, required TokenStorage storage})
     : _dio = dio,
@@ -80,8 +81,14 @@ class AuthRepository {
     return UserModel.fromJson(normalized);
   }
 
+  Future<void> _safeClearTokens() async {
+    try {
+      await _storage.clearTokens().timeout(_storageTimeout);
+    } catch (_) {}
+  }
+
   Future<UserModel> login(String email, String password) async {
-    await _storage.clearTokens();
+    await _safeClearTokens();
     try {
       final normalizedEmail = email.trim();
       Response<dynamic> res;
@@ -130,26 +137,26 @@ class AuthRepository {
         rethrow;
       }
     } on TimeoutException {
-      await _storage.clearTokens();
+      await _safeClearTokens();
       throw ApiException(
         '[TIMEOUT] El servidor tardó demasiado en responder. Inténtalo de nuevo.',
         null,
       );
     } on DioException catch (e) {
-      await _storage.clearTokens();
+      await _safeClearTokens();
       throw ApiException(
         _formatDioError(e, 'Login fallido'),
         e.response?.statusCode,
       );
     } catch (_) {
-      await _storage.clearTokens();
+      await _safeClearTokens();
       rethrow;
     }
   }
 
   Future<UserModel?> getMeOrNull() async {
     try {
-      final token = await _storage.getAccessToken();
+      final token = await _storage.getAccessToken().timeout(_storageTimeout);
       if (token == null) return null;
       try {
         final res = await _dio.get(ApiRoutes.me).timeout(_bootstrapTimeout);
@@ -164,10 +171,10 @@ class AuthRepository {
           }
         }
 
-        await _storage.clearTokens();
+        await _safeClearTokens();
         return null;
       } on TimeoutException {
-        await _storage.clearTokens();
+        await _safeClearTokens();
         return null;
       }
     } catch (_) {

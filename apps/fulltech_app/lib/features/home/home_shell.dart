@@ -34,9 +34,9 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
-    final currentIndex = _indexFromLocation(
-      GoRouterState.of(context).uri.toString(),
-    );
+    final location = GoRouterState.of(context).uri.path;
+    final currentIndex = _indexFromLocation(location);
+
     return Scaffold(
       body: widget.child,
       bottomNavigationBar: BottomNavigationBar(
