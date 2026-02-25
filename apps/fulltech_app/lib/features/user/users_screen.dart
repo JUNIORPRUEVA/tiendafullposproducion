@@ -299,6 +299,11 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
     final passwordCtrl = TextEditingController();
     String selectedRole = user?.role ?? 'ASISTENTE';
     bool blocked = user?.blocked ?? false;
+    bool tieneHijos = user?.tieneHijos ?? false;
+    bool estaCasado = user?.estaCasado ?? false;
+    bool casaPropia = user?.casaPropia ?? false;
+    bool vehiculo = user?.vehiculo ?? false;
+    bool licenciaConducir = user?.licenciaConducir ?? false;
     String? fotoCedulaUrl = user?.fotoCedulaUrl;
     String? fotoLicenciaUrl = user?.fotoLicenciaUrl;
     String? fotoPersonalUrl = user?.fotoPersonalUrl;
@@ -420,6 +425,37 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                     }
                   },
                 ),
+                const SizedBox(height: 12),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Tiene hijos'),
+                  value: tieneHijos,
+                  onChanged: (v) => setModalState(() => tieneHijos = v),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Está casado/a'),
+                  value: estaCasado,
+                  onChanged: (v) => setModalState(() => estaCasado = v),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Casa propia'),
+                  value: casaPropia,
+                  onChanged: (v) => setModalState(() => casaPropia = v),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Posee vehículo'),
+                  value: vehiculo,
+                  onChanged: (v) => setModalState(() => vehiculo = v),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Licencia de conducir'),
+                  value: licenciaConducir,
+                  onChanged: (v) => setModalState(() => licenciaConducir = v),
+                ),
                 if (user != null)
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
@@ -458,6 +494,11 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                   'fotoLicenciaUrl': fotoLicenciaUrl,
                   'fotoPersonalUrl': fotoPersonalUrl,
                   'edad': edad,
+                  'tieneHijos': tieneHijos,
+                  'estaCasado': estaCasado,
+                  'casaPropia': casaPropia,
+                  'vehiculo': vehiculo,
+                  'licenciaConducir': licenciaConducir,
                   'role': selectedRole,
                   'blocked': blocked,
                 };
@@ -619,6 +660,23 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                           ),
                           _DetailRow('Cédula', user.cedula ?? '—'),
                           _DetailRow('Edad', user.edad?.toString() ?? '—'),
+                          _DetailRow(
+                            'Tiene hijos',
+                            user.tieneHijos ? 'Sí' : 'No',
+                          ),
+                          _DetailRow(
+                            'Estado civil',
+                            user.estaCasado ? 'Casado/a' : 'Soltero/a',
+                          ),
+                          _DetailRow(
+                            'Casa propia',
+                            user.casaPropia ? 'Sí' : 'No',
+                          ),
+                          _DetailRow('Vehículo', user.vehiculo ? 'Sí' : 'No'),
+                          _DetailRow(
+                            'Licencia',
+                            user.licenciaConducir ? 'Sí' : 'No',
+                          ),
                           _DetailRow(
                             'Creado',
                             user.createdAt != null

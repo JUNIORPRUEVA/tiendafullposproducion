@@ -12,6 +12,11 @@ class UserModel {
   final String? role;
   final bool blocked;
   final int? edad;
+  final bool tieneHijos;
+  final bool estaCasado;
+  final bool casaPropia;
+  final bool vehiculo;
+  final bool licenciaConducir;
   final DateTime? createdAt;
 
   UserModel({
@@ -28,6 +33,11 @@ class UserModel {
     this.role,
     this.blocked = false,
     this.edad,
+    this.tieneHijos = false,
+    this.estaCasado = false,
+    this.casaPropia = false,
+    this.vehiculo = false,
+    this.licenciaConducir = false,
     this.createdAt,
   });
 
@@ -46,6 +56,11 @@ class UserModel {
       role: json['role'] ?? json['rol'] ?? 'ASISTENTE',
       blocked: json['blocked'] ?? false,
       edad: json['edad'],
+      tieneHijos: json['tieneHijos'] ?? false,
+      estaCasado: json['estaCasado'] ?? false,
+      casaPropia: json['casaPropia'] ?? false,
+      vehiculo: json['vehiculo'] ?? false,
+      licenciaConducir: json['licenciaConducir'] ?? false,
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'])
           : null,
@@ -67,6 +82,11 @@ class UserModel {
       'role': role,
       'blocked': blocked,
       'edad': edad,
+      'tieneHijos': tieneHijos,
+      'estaCasado': estaCasado,
+      'casaPropia': casaPropia,
+      'vehiculo': vehiculo,
+      'licenciaConducir': licenciaConducir,
       'createdAt': createdAt?.toIso8601String(),
     };
   }

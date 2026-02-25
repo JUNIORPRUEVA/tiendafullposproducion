@@ -1,0 +1,155 @@
+-- Fix cloud sales schema to match current Sales module expectations
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TABLE IF NOT EXISTS "Sale" (
+  "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+  "userId" UUID NOT NULL,
+  "customerId" UUID,
+  "saleDate" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "note" TEXT,
+  "totalSold" DECIMAL(12,2) NOT NULL DEFAULT 0,
+  "totalCost" DECIMAL(12,2) NOT NULL DEFAULT 0,
+  "totalProfit" DECIMAL(12,2) NOT NULL DEFAULT 0,
+  "commissionRate" DECIMAL(5,4) NOT NULL DEFAULT 0.10,
+  "commissionAmount" DECIMAL(12,2) NOT NULL DEFAULT 0,
+  "isDeleted" BOOLEAN NOT NULL DEFAULT false,
+  "deletedAt" TIMESTAMP(3),
+  "deletedById" UUID,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "Sale_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "Sale" ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid();
+ALTER TABLE "Sale" ADD COLUMN IF NOT EXISTS "userId" UUID;
+ALTER TABLE "Sale" ADD COLUMN IF NOT EXISTS "customerId" UUID;
+ALTER TABLE "Sale" ADD COLUMN IF NOT EXISTS "saleDate" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "Sale" ADD COLUMN IF NOT EXISTS "note" TEXT;
+ALTER TABLE "Sale" ADD COLUMN IF NOT EXISTS "totalSold" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "Sale" ADD COLUMN IF NOT EXISTS "totalCost" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "Sale" ADD COLUMN IF NOT EXISTS "totalProfit" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "Sale" ADD COLUMN IF NOT EXISTS "commissionRate" DECIMAL(5,4) NOT NULL DEFAULT 0.10;
+ALTER TABLE "Sale" ADD COLUMN IF NOT EXISTS "commissionAmount" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "Sale" ADD COLUMN IF NOT EXISTS "isDeleted" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Sale" ADD COLUMN IF NOT EXISTS "deletedAt" TIMESTAMP(3);
+ALTER TABLE "Sale" ADD COLUMN IF NOT EXISTS "deletedById" UUID;
+ALTER TABLE "Sale" ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "Sale" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+UPDATE "Sale"
+SET "userId" = (
+  SELECT id
+  FROM users
+  ORDER BY "createdAt" ASC
+  LIMIT 1
+)
+WHERE "userId" IS NULL;
+UPDATE "Sale" SET "totalSold" = 0 WHERE "totalSold" IS NULL;
+UPDATE "Sale" SET "totalCost" = 0 WHERE "totalCost" IS NULL;
+UPDATE "Sale" SET "totalProfit" = 0 WHERE "totalProfit" IS NULL;
+UPDATE "Sale" SET "commissionRate" = 0.10 WHERE "commissionRate" IS NULL;
+UPDATE "Sale" SET "commissionAmount" = 0 WHERE "commissionAmount" IS NULL;
+UPDATE "Sale" SET "isDeleted" = false WHERE "isDeleted" IS NULL;
+UPDATE "Sale" SET "saleDate" = CURRENT_TIMESTAMP WHERE "saleDate" IS NULL;
+UPDATE "Sale" SET "createdAt" = CURRENT_TIMESTAMP WHERE "createdAt" IS NULL;
+UPDATE "Sale" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "updatedAt" IS NULL;
+
+ALTER TABLE "Sale" ALTER COLUMN "userId" SET NOT NULL;
+ALTER TABLE "Sale" ALTER COLUMN "totalSold" SET NOT NULL;
+ALTER TABLE "Sale" ALTER COLUMN "totalCost" SET NOT NULL;
+ALTER TABLE "Sale" ALTER COLUMN "totalProfit" SET NOT NULL;
+ALTER TABLE "Sale" ALTER COLUMN "commissionRate" SET NOT NULL;
+ALTER TABLE "Sale" ALTER COLUMN "commissionAmount" SET NOT NULL;
+ALTER TABLE "Sale" ALTER COLUMN "isDeleted" SET NOT NULL;
+ALTER TABLE "Sale" ALTER COLUMN "saleDate" SET NOT NULL;
+ALTER TABLE "Sale" ALTER COLUMN "createdAt" SET NOT NULL;
+ALTER TABLE "Sale" ALTER COLUMN "updatedAt" SET NOT NULL;
+
+ALTER TABLE "SaleItem" ADD COLUMN IF NOT EXISTS "saleId" UUID;
+ALTER TABLE "SaleItem" ADD COLUMN IF NOT EXISTS "productId" UUID;
+ALTER TABLE "SaleItem" ADD COLUMN IF NOT EXISTS "productNameSnapshot" TEXT;
+ALTER TABLE "SaleItem" ADD COLUMN IF NOT EXISTS "productImageSnapshot" TEXT;
+ALTER TABLE "SaleItem" ADD COLUMN IF NOT EXISTS "qty" DECIMAL(12,3) NOT NULL DEFAULT 1;
+ALTER TABLE "SaleItem" ADD COLUMN IF NOT EXISTS "priceSoldUnit" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "SaleItem" ADD COLUMN IF NOT EXISTS "costUnitSnapshot" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "SaleItem" ADD COLUMN IF NOT EXISTS "subtotalSold" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "SaleItem" ADD COLUMN IF NOT EXISTS "subtotalCost" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "SaleItem" ADD COLUMN IF NOT EXISTS "profit" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "SaleItem" ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE "SaleItem" ALTER COLUMN "qty" TYPE DECIMAL(12,3) USING "qty"::DECIMAL(12,3);
+ALTER TABLE "SaleItem" ALTER COLUMN "productId" DROP NOT NULL;
+
+UPDATE "SaleItem"
+SET "productNameSnapshot" = 'Producto'
+WHERE "productNameSnapshot" IS NULL;
+
+UPDATE "SaleItem" SET "priceSoldUnit" = COALESCE("priceSoldUnit", "unitPriceSold", 0);
+UPDATE "SaleItem" SET "costUnitSnapshot" = COALESCE("costUnitSnapshot", "unitCostSnapshot", 0);
+UPDATE "SaleItem" SET "subtotalSold" = COALESCE("subtotalSold", "lineTotal", 0);
+UPDATE "SaleItem" SET "subtotalCost" = COALESCE("subtotalCost", "lineCost", 0);
+UPDATE "SaleItem" SET "profit" = COALESCE("profit", "lineProfit", 0);
+UPDATE "SaleItem" SET "createdAt" = CURRENT_TIMESTAMP WHERE "createdAt" IS NULL;
+
+ALTER TABLE "SaleItem" ALTER COLUMN "saleId" SET NOT NULL;
+ALTER TABLE "SaleItem" ALTER COLUMN "productNameSnapshot" SET NOT NULL;
+ALTER TABLE "SaleItem" ALTER COLUMN "qty" SET NOT NULL;
+ALTER TABLE "SaleItem" ALTER COLUMN "priceSoldUnit" SET NOT NULL;
+ALTER TABLE "SaleItem" ALTER COLUMN "costUnitSnapshot" SET NOT NULL;
+ALTER TABLE "SaleItem" ALTER COLUMN "subtotalSold" SET NOT NULL;
+ALTER TABLE "SaleItem" ALTER COLUMN "subtotalCost" SET NOT NULL;
+ALTER TABLE "SaleItem" ALTER COLUMN "profit" SET NOT NULL;
+ALTER TABLE "SaleItem" ALTER COLUMN "createdAt" SET NOT NULL;
+
+CREATE INDEX IF NOT EXISTS "Sale_userId_idx" ON "Sale"("userId");
+CREATE INDEX IF NOT EXISTS "Sale_customerId_idx" ON "Sale"("customerId");
+CREATE INDEX IF NOT EXISTS "Sale_saleDate_idx" ON "Sale"("saleDate");
+CREATE INDEX IF NOT EXISTS "Sale_isDeleted_idx" ON "Sale"("isDeleted");
+CREATE INDEX IF NOT EXISTS "SaleItem_saleId_idx" ON "SaleItem"("saleId");
+CREATE INDEX IF NOT EXISTS "SaleItem_productId_idx" ON "SaleItem"("productId");
+
+DO $$
+BEGIN
+  ALTER TABLE "Sale"
+    ADD CONSTRAINT "Sale_userId_fkey"
+    FOREIGN KEY ("userId") REFERENCES users("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE "Sale"
+    ADD CONSTRAINT "Sale_customerId_fkey"
+    FOREIGN KEY ("customerId") REFERENCES "Client"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE "Sale"
+    ADD CONSTRAINT "Sale_deletedById_fkey"
+    FOREIGN KEY ("deletedById") REFERENCES users("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE "SaleItem"
+    ADD CONSTRAINT "SaleItem_saleId_fkey"
+    FOREIGN KEY ("saleId") REFERENCES "Sale"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE "SaleItem"
+    ADD CONSTRAINT "SaleItem_productId_fkey"
+    FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
