@@ -89,6 +89,11 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
         title: const Text('Registrar Venta'),
         actions: isWide
             ? [
+                IconButton(
+                  tooltip: 'Recargar productos',
+                  onPressed: _loadProducts,
+                  icon: const Icon(Icons.refresh),
+                ),
                 SizedBox(
                   width: 320,
                   child: Padding(
@@ -128,6 +133,11 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                 ),
               ]
             : [
+                IconButton(
+                  tooltip: 'Recargar productos',
+                  onPressed: _loadProducts,
+                  icon: const Icon(Icons.refresh),
+                ),
                 IconButton(
                   tooltip: 'Vender fuera del inventario',
                   onPressed: _openExternalSaleModal,
@@ -705,7 +715,9 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                     SizedBox(
                       height: 220,
                       child: rows.isEmpty
-                          ? const Center(child: Text('No hay clientes disponibles'))
+                          ? const Center(
+                              child: Text('No hay clientes disponibles'),
+                            )
                           : ListView.separated(
                               itemCount: rows.length,
                               separatorBuilder: (context, index) =>

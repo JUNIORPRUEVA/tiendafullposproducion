@@ -1,0 +1,216 @@
+{
+  "generatedAt": "2026-02-25T02:22:12.303Z",
+  "tables": [
+    {
+      "table_name": "Client"
+    },
+    {
+      "table_name": "Product"
+    },
+    {
+      "table_name": "Sale"
+    },
+    {
+      "table_name": "SaleItem"
+    },
+    {
+      "table_name": "users"
+    }
+  ],
+  "saleCols": [
+    {
+      "column_name": "id",
+      "data_type": "uuid",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "userId",
+      "data_type": "uuid",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "customerId",
+      "data_type": "uuid",
+      "is_nullable": "YES"
+    },
+    {
+      "column_name": "saleDate",
+      "data_type": "timestamp without time zone",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "note",
+      "data_type": "text",
+      "is_nullable": "YES"
+    },
+    {
+      "column_name": "totalSold",
+      "data_type": "numeric",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "totalCost",
+      "data_type": "numeric",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "totalProfit",
+      "data_type": "numeric",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "commissionRate",
+      "data_type": "numeric",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "commissionAmount",
+      "data_type": "numeric",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "isDeleted",
+      "data_type": "boolean",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "deletedAt",
+      "data_type": "timestamp without time zone",
+      "is_nullable": "YES"
+    },
+    {
+      "column_name": "deletedById",
+      "data_type": "uuid",
+      "is_nullable": "YES"
+    },
+    {
+      "column_name": "createdAt",
+      "data_type": "timestamp without time zone",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "updatedAt",
+      "data_type": "timestamp without time zone",
+      "is_nullable": "NO"
+    }
+  ],
+  "saleItemCols": [
+    {
+      "column_name": "id",
+      "data_type": "uuid",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "saleId",
+      "data_type": "uuid",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "productId",
+      "data_type": "uuid",
+      "is_nullable": "YES"
+    },
+    {
+      "column_name": "qty",
+      "data_type": "numeric",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "unitPriceSold",
+      "data_type": "numeric",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "unitCostSnapshot",
+      "data_type": "numeric",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "lineTotal",
+      "data_type": "numeric",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "lineCost",
+      "data_type": "numeric",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "lineProfit",
+      "data_type": "numeric",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "productNameSnapshot",
+      "data_type": "text",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "productImageSnapshot",
+      "data_type": "text",
+      "is_nullable": "YES"
+    },
+    {
+      "column_name": "priceSoldUnit",
+      "data_type": "numeric",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "costUnitSnapshot",
+      "data_type": "numeric",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "subtotalSold",
+      "data_type": "numeric",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "subtotalCost",
+      "data_type": "numeric",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "profit",
+      "data_type": "numeric",
+      "is_nullable": "NO"
+    },
+    {
+      "column_name": "createdAt",
+      "data_type": "timestamp without time zone",
+      "is_nullable": "NO"
+    }
+  ],
+  "fks": [
+    {
+      "table_name": "Sale",
+      "column_name": "customerId",
+      "foreign_table_name": "Client",
+      "foreign_column_name": "id"
+    },
+    {
+      "table_name": "Sale",
+      "column_name": "deletedById",
+      "foreign_table_name": "users",
+      "foreign_column_name": "id"
+    },
+    {
+      "table_name": "Sale",
+      "column_name": "userId",
+      "foreign_table_name": "users",
+      "foreign_column_name": "id"
+    },
+    {
+      "table_name": "SaleItem",
+      "column_name": "productId",
+      "foreign_table_name": "Product",
+      "foreign_column_name": "id"
+    },
+    {
+      "table_name": "SaleItem",
+      "column_name": "saleId",
+      "foreign_table_name": "Sale",
+      "foreign_column_name": "id"
+    }
+  ]
+}

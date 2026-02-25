@@ -126,6 +126,38 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            if (_hasActiveFilter || query.isNotEmpty)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Mostrando ${filtered.length} de ${catalog.items.length} productos',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _category = 'Todas';
+                          _searchCtrl.clear();
+                        });
+                      },
+                      child: const Text('Limpiar filtros'),
+                    ),
+                  ],
+                ),
+              ),
             Expanded(
               child: Builder(
                 builder: (context) {
