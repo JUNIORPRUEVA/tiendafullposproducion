@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Category, Prisma, Product } from '@prisma/client';
-import type { Prisma as PrismaNS } from '@prisma/client';
+import { Prisma, Product } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -40,20 +39,16 @@ export class ProductsService {
 
   create(dto: CreateProductDto): Promise<Product> {
     return this.prisma.$transaction(async (tx) => {
-      const category = await this.findOrCreateCategory(tx, dto.categoria);
       const data = {
         nombre: dto.nombre,
+        categoria: dto.categoria,
         precio: new Prisma.Decimal(dto.precio),
         costo: new Prisma.Decimal(dto.costo),
-        fotoUrl: dto.fotoUrl,
-        categoryId: category?.id,
+        imagen: dto.fotoUrl,
       };
 
       try {
-        const product = await tx.product.create({
-          data,
-          include: { category: true },
-        });
+        const product = await tx.product.create({ data });
         return this.mapProduct(product);
       } catch (error) {
         if (!this.isSchemaMismatch(error)) throw error;
@@ -65,19 +60,19 @@ export class ProductsService {
 
   async findAll(): Promise<any[]> {
     try {
-      const products = await this.prisma.product.findMany({ orderBy: { createdAt: 'desc' }, include: { category: true } });
+      const products = await this.prisma.product.findMany({ orderBy: { nombre: 'asc' } });
       return products.map((p) => this.mapProduct(p));
     } catch (error) {
       if (!this.isSchemaMismatch(error)) throw error;
-      const products = await this.prisma.product.findMany({ orderBy: { createdAt: 'desc' } });
+      const products = await this.prisma.product.findMany({ orderBy: { nombre: 'asc' } });
       return products.map((p) => this.mapProduct(p));
     }
   }
 
   async findOne(id: string): Promise<any> {
-    let product: (Product & { category?: Category | null }) | null = null;
+    let product: Product | null = null;
     try {
-      product = await this.prisma.product.findUnique({ where: { id }, include: { category: true } });
+      product = await this.prisma.product.findUnique({ where: { id } });
     } catch (error) {
       if (!this.isSchemaMismatch(error)) throw error;
       product = await this.prisma.product.findUnique({ where: { id } });
@@ -89,25 +84,16 @@ export class ProductsService {
   async update(id: string, dto: UpdateProductDto): Promise<any> {
     await this.findOne(id);
     return this.prisma.$transaction(async (tx) => {
-      let categoryId: string | undefined;
-      if (dto.categoria) {
-        const category = await this.findOrCreateCategory(tx, dto.categoria);
-        categoryId = category?.id;
-      }
       const data = {
         nombre: dto.nombre,
+        categoria: dto.categoria,
         precio: dto.precio === undefined ? undefined : new Prisma.Decimal(dto.precio),
         costo: dto.costo === undefined ? undefined : new Prisma.Decimal(dto.costo),
-        fotoUrl: dto.fotoUrl,
-        categoryId,
+        imagen: dto.fotoUrl,
       };
 
       try {
-        const updated = await tx.product.update({
-          where: { id },
-          data,
-          include: { category: true },
-        });
+        const updated = await tx.product.update({ where: { id }, data });
         return this.mapProduct(updated);
       } catch (error) {
         if (!this.isSchemaMismatch(error)) throw error;
@@ -123,13 +109,13 @@ export class ProductsService {
     return { ok: true };
   }
 
-  private mapProduct(product: Product & { category?: Category | null }) {
-    const fotoUrl = this.resolveUrl(product.fotoUrl ?? null);
+  private mapProduct(product: Product) {
+    const fotoUrl = this.resolveUrl(product.imagen ?? null);
     return {
       ...product,
       fotoUrl,
-      categoria: product.category?.nombre ?? null,
-      categoriaNombre: product.category?.nombre,
+      categoria: product.categoria ?? null,
+      categoriaNombre: product.categoria ?? null,
     };
   }
 
@@ -141,17 +127,5 @@ export class ProductsService {
     return `${this.publicBaseUrl}${normalized}`;
   }
 
-  private async findOrCreateCategory(tx: PrismaNS.TransactionClient, nombre: string) {
-    const trimmed = nombre.trim();
-    if (!trimmed) return null;
-    try {
-      const existing = await tx.category.findUnique({ where: { nombre: trimmed } });
-      if (existing) return existing;
-      return tx.category.create({ data: { nombre: trimmed } });
-    } catch (error) {
-      if (!this.isSchemaMismatch(error)) throw error;
-      return null;
-    }
-  }
 }
 

@@ -36,7 +36,7 @@ class ProductModel {
       precio: (json['precio'] is num) ? (json['precio'] as num).toDouble() : double.tryParse(json['precio']?.toString() ?? '') ?? 0,
       costo: (json['costo'] is num) ? (json['costo'] as num).toDouble() : double.tryParse(json['costo']?.toString() ?? '') ?? 0,
       categoria: json['categoria'] as String? ?? json['categoriaNombre'] as String?,
-      fotoUrl: _resolveFotoUrl(json['fotoUrl'] as String?),
+      fotoUrl: _resolveFotoUrl((json['fotoUrl'] ?? json['imagen']) as String?),
       createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt']) : null,
     );
   }
