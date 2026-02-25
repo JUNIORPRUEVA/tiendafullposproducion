@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Req, UnauthorizedException, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../auth/roles.decorator';
@@ -69,6 +69,24 @@ export class UsersController {
     return this.users.findAll();
   }
 
+  @Get('me')
+  me(@Req() req: Request) {
+    const user = req.user as { id?: string } | undefined;
+    if (!user?.id) {
+      throw new UnauthorizedException('Usuario no autenticado');
+    }
+    return this.users.findById(user.id);
+  }
+
+  @Patch('me')
+  updateSelf(@Req() req: Request, @Body() dto: SelfUpdateUserDto) {
+    const user = req.user as { id?: string } | undefined;
+    if (!user?.id) {
+      throw new UnauthorizedException('Usuario no autenticado');
+    }
+    return this.users.updateSelf(user.id, dto);
+  }
+
   @Patch(':id')
   @Roles(Role.ADMIN)
   update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
@@ -85,24 +103,6 @@ export class UsersController {
   @Roles(Role.ADMIN)
   remove(@Param('id') id: string) {
     return this.users.remove(id);
-  }
-
-  @Get('me')
-  me(@Req() req: Request) {
-    const user = req.user as { id?: string } | undefined;
-    if (!user?.id) {
-      throw new Error('Usuario no autenticado');
-    }
-    return this.users.findById(user.id);
-  }
-
-  @Patch('me')
-  updateSelf(@Req() req: Request, @Body() dto: SelfUpdateUserDto) {
-    const user = req.user as { id?: string } | undefined;
-    if (!user?.id) {
-      throw new Error('Usuario no autenticado');
-    }
-    return this.users.updateSelf(user.id, dto);
   }
 }
 

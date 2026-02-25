@@ -115,6 +115,8 @@ model User {
   serviceStepsDone ServiceStep[] @relation("ServiceStepDoneBy")
   serviceUpdates ServiceUpdate[]
   uploadedServiceFiles ServiceFile[]
+
+  @@map("users")
 }
 
 model Punch {

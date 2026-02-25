@@ -160,6 +160,10 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 10,
+                  ),
                 ),
               ),
             ),
@@ -217,38 +221,19 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
 
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Productos disponibles',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              Chip(
-                visualDensity: VisualDensity.compact,
-                label: Text('$filtered.length'),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 4),
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
               final width = constraints.maxWidth;
               final crossAxisCount = width < 360
-                  ? 1
-                  : width < 520
                   ? 2
-                  : width < 900
+                  : width < 520
                   ? 3
-                  : 4;
-              final aspectRatio = isCompact ? 0.78 : 0.9;
+                  : width < 900
+                  ? 4
+                  : 5;
+              final compactCard = width < 900;
+              final aspectRatio = compactCard ? 0.92 : 0.96;
 
               return GridView.builder(
                 padding: const EdgeInsets.all(12),
@@ -275,53 +260,72 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                         ),
                       ),
                       clipBehavior: Clip.antiAlias,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Stack(
+                        fit: StackFit.expand,
                         children: [
-                          Expanded(
-                            child: p.fotoUrl == null || p.fotoUrl!.isEmpty
-                                ? Container(
+                          if (p.fotoUrl == null || p.fotoUrl!.isEmpty)
+                            Container(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainerHighest,
+                              child: const Center(
+                                child: Icon(Icons.inventory_2_outlined),
+                              ),
+                            )
+                          else
+                            Image.network(
+                              p.fotoUrl!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  Container(
                                     color: Theme.of(
                                       context,
                                     ).colorScheme.surfaceContainerHighest,
                                     child: const Center(
-                                      child: Icon(Icons.inventory_2_outlined),
+                                      child: Icon(Icons.broken_image_outlined),
                                     ),
-                                  )
-                                : Image.network(
-                                    p.fotoUrl!,
-                                    width: double.infinity,
-                                    fit: BoxFit.cover,
-                                    errorBuilder:
-                                        (context, error, stackTrace) =>
-                                            const Center(
-                                              child: Icon(
-                                                Icons.broken_image_outlined,
-                                              ),
-                                            ),
                                   ),
+                            ),
+                          const Positioned.fill(
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Color(0x00000000),
+                                    Color(0xAA000000),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                          Positioned(
+                            left: 8,
+                            right: 8,
+                            bottom: 8,
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   p.nombre,
-                                  maxLines: 2,
+                                  maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
+                                  style: TextStyle(
+                                    color: Colors.white,
                                     fontWeight: FontWeight.w700,
+                                    fontSize: compactCard ? 11 : 12,
                                   ),
                                 ),
-                                const SizedBox(height: 4),
-                                Text('Precio: ${_money(p.precio)}'),
+                                const SizedBox(height: 2),
                                 Text(
-                                  'Costo: ${_money(p.costo)}',
+                                  _money(p.precio),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
+                                    color: Colors.white,
+                                    fontSize: compactCard ? 10 : 11,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
                               ],
@@ -365,10 +369,10 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
         ),
         child: Padding(
           padding: EdgeInsets.fromLTRB(
-            isCompact ? 10 : 12,
-            isCompact ? 10 : 12,
-            isCompact ? 10 : 12,
             isCompact ? 8 : 10,
+            isCompact ? 8 : 10,
+            isCompact ? 8 : 10,
+            isCompact ? 6 : 8,
           ),
           child: LayoutBuilder(
             builder: (context, constraints) {
@@ -409,9 +413,11 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                       child: Text(
                         '${_cart.length} item(s)',
                         style: Theme.of(context).textTheme.bodySmall,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                  SizedBox(height: compactVertical ? 6 : 10),
+                  SizedBox(height: compactVertical ? 4 : 6),
                   Expanded(
                     flex: 5,
                     child: _cart.isEmpty
@@ -421,79 +427,73 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                         : ListView.separated(
                             itemCount: _cart.length,
                             separatorBuilder: (context, index) =>
-                                const SizedBox(height: 8),
+                                const SizedBox(height: 4),
                             itemBuilder: (context, index) {
                               final item = _cart[index];
-                              return Card(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(10),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              item.name,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Quitar item',
-                                            onPressed: () => setState(
-                                              () => _cart.removeAt(index),
-                                            ),
-                                            icon: const Icon(
-                                              Icons.delete_outline,
-                                            ),
-                                          ),
-                                        ],
+                              final qtyValue = item.qty % 1 == 0
+                                  ? item.qty.toInt().toString()
+                                  : item.qty.toStringAsFixed(2);
+
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(8),
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.surfaceContainerHighest,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Text(
+                                      qtyValue,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 11,
                                       ),
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: _NumberField(
-                                              label: 'Cantidad',
-                                              initialValue: item.qty,
-                                              min: 0.001,
-                                              onChanged: (v) => _updateItem(
-                                                index,
-                                                item.copyWith(qty: v),
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: _NumberField(
-                                              label: 'Precio vendido',
-                                              initialValue: item.priceSoldUnit,
-                                              min: 0,
-                                              onChanged: (v) => _updateItem(
-                                                index,
-                                                item.copyWith(priceSoldUnit: v),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
+                                      maxLines: 1,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        item.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 11),
                                       ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        'Costo unitario: ${_money(item.costUnitSnapshot)}',
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      _money(item.priceSoldUnit),
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
                                       ),
-                                      Text(
-                                        'Subtotal: ${_money(item.subtotalSold)}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(
+                                        minHeight: 28,
+                                        minWidth: 28,
                                       ),
-                                    ],
-                                  ),
+                                      splashRadius: 14,
+                                      tooltip: 'Quitar item',
+                                      onPressed: () =>
+                                          setState(() => _cart.removeAt(index)),
+                                      icon: const Icon(Icons.close, size: 16),
+                                    ),
+                                  ],
                                 ),
                               );
                             },
                           ),
                   ),
-                  SizedBox(height: compactVertical ? 6 : 8),
+                  SizedBox(height: compactVertical ? 4 : 6),
                   Expanded(
                     flex: showInlineTotals ? 4 : 3,
                     child: SingleChildScrollView(
@@ -512,7 +512,15 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                                     _selectedClient == null
                                         ? 'Cliente'
                                         : _selectedClient!.nombre,
+                                    maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
+                                  ),
+                                  style: FilledButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 8,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -527,7 +535,15 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                                     _noteCtrl.text.trim().isEmpty
                                         ? 'Nota'
                                         : 'Editar nota',
+                                    maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 8,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -535,16 +551,16 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                           ),
                           if (_noteCtrl.text.trim().isNotEmpty)
                             Padding(
-                              padding: const EdgeInsets.only(top: 6),
+                              padding: const EdgeInsets.only(top: 4),
                               child: Text(
                                 _noteCtrl.text.trim(),
-                                maxLines: 2,
+                                maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.bodySmall,
                               ),
                             ),
                           if (showInlineTotals) ...[
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 6),
                             _totalsTile('Total vendido', _money(_totalSold)),
                             _totalsTile('Total costo', _money(_totalCost)),
                             _totalsTile('Total utilidad', _money(_totalProfit)),
@@ -565,7 +581,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                       onPressed: _saving ? null : _saveSale,
                       child: Padding(
                         padding: EdgeInsets.symmetric(
-                          vertical: compactVertical ? 10 : 12,
+                          vertical: compactVertical ? 8 : 10,
                         ),
                         child: _saving
                             ? const SizedBox(
@@ -629,7 +645,15 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
   Future<void> _openClientPickerDialog() async {
     final searchCtrl = TextEditingController();
     var rows = <ClienteModel>[];
-    bool loading = false;
+    bool loading = true;
+
+    try {
+      rows = await ref.read(ventasRepositoryProvider).searchClients('');
+    } catch (_) {
+      rows = const [];
+    } finally {
+      loading = false;
+    }
 
     Future<void> runSearch(StateSetter setDialogState) async {
       setDialogState(() => loading = true);
@@ -681,11 +705,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                     SizedBox(
                       height: 220,
                       child: rows.isEmpty
-                          ? const Center(
-                              child: Text(
-                                'Busca un cliente para seleccionarlo',
-                              ),
-                            )
+                          ? const Center(child: Text('No hay clientes disponibles'))
                           : ListView.separated(
                               itemCount: rows.length,
                               separatorBuilder: (context, index) =>
@@ -755,12 +775,14 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
 
   Widget _totalsTile(String label, String value, {bool highlight = false}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(vertical: 1),
       child: Row(
         children: [
           Expanded(
             child: Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontWeight: highlight ? FontWeight.w700 : FontWeight.w500,
               ),
@@ -768,6 +790,8 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
           ),
           Text(
             value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontWeight: highlight ? FontWeight.w800 : FontWeight.w600,
             ),

@@ -2,16 +2,16 @@ import 'package:flutter/material.dart';
 
 class AppTheme {
   // Colores principales de la marca FullTech
-  static const Color primaryColor = Color(0xFF1E3A8A); // Azul profundo
-  static const Color secondaryColor = Color(0xFF0EA5E9); // Azul cielo
-  static const Color accentColor = Color(0xFF06B6D4); // Cyan
+  static const Color primaryColor = Color(0xFF1E40AF); // Azul marca
+  static const Color secondaryColor = Color(0xFF3B82F6); // Azul acento
+  static const Color accentColor = Color(0xFF111827); // Negro profundo
   static const Color successColor = Color(0xFF10B981); // Verde éxito
   static const Color warningColor = Color(0xFFF59E0B); // Ámbar
   static const Color errorColor = Color(0xFFEF4444); // Rojo
-  static const Color backgroundColor = Color(0xFFF8FAFC); // Gris claro
+  static const Color backgroundColor = Color(0xFFFFFFFF); // Blanco
   static const Color surfaceColor = Color(0xFFFFFFFF); // Blanco
-  static const Color textDarkColor = Color(0xFF0F172A); // Gris oscuro
-  static const Color textLightColor = Color(0xFF64748B); // Gris medio
+  static const Color textDarkColor = Color(0xFF0B1220); // Casi negro
+  static const Color textLightColor = Color(0xFF5B6474); // Gris medio
 
   static ThemeData get light {
     const seed = primaryColor;
@@ -21,7 +21,7 @@ class AppTheme {
       primary: primaryColor,
       secondary: secondaryColor,
       tertiary: accentColor,
-      surface: backgroundColor,
+      surface: surfaceColor,
     );
 
     return ThemeData(
@@ -29,7 +29,7 @@ class AppTheme {
       colorScheme: scheme,
       scaffoldBackgroundColor: backgroundColor,
       useMaterial3: true,
-      
+
       // AppBar Theme
       appBarTheme: AppBarTheme(
         backgroundColor: primaryColor,
@@ -87,12 +87,10 @@ class AppTheme {
       // Card Theme
       cardTheme: CardThemeData(
         margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        elevation: 3,
         color: surfaceColor,
-        shadowColor: Colors.black.withValues(alpha: 0.1),
+        shadowColor: Colors.black.withValues(alpha: 0.14),
       ),
 
       // Input Decoration Theme
@@ -113,10 +111,7 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(
-            color: primaryColor,
-            width: 2,
-          ),
+          borderSide: const BorderSide(color: primaryColor, width: 2),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
@@ -131,10 +126,7 @@ class AppTheme {
           fontSize: 14,
           fontWeight: FontWeight.w500,
         ),
-        hintStyle: TextStyle(
-          color: Colors.grey[400],
-          fontSize: 14,
-        ),
+        hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
       ),
 
       // Button Themes
@@ -142,18 +134,10 @@ class AppTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: primaryColor,
           foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(
-            vertical: 14,
-            horizontal: 24,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           elevation: 2,
-          textStyle: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
 
@@ -161,27 +145,16 @@ class AppTheme {
         style: OutlinedButton.styleFrom(
           foregroundColor: primaryColor,
           side: const BorderSide(color: primaryColor),
-          padding: const EdgeInsets.symmetric(
-            vertical: 14,
-            horizontal: 24,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          textStyle: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
 
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: primaryColor,
-          textStyle: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
         ),
       ),
 
@@ -190,7 +163,7 @@ class AppTheme {
         backgroundColor: surfaceColor,
         selectedItemColor: primaryColor,
         unselectedItemColor: textLightColor,
-        elevation: 8,
+        elevation: 10,
         type: BottomNavigationBarType.fixed,
         selectedLabelStyle: const TextStyle(
           fontWeight: FontWeight.w600,
@@ -213,9 +186,7 @@ class AppTheme {
         backgroundColor: primaryColor,
         foregroundColor: Colors.white,
         elevation: 6,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
 
       // Divider Theme
@@ -228,9 +199,7 @@ class AppTheme {
       // Dialog Theme
       dialogTheme: DialogThemeData(
         backgroundColor: surfaceColor,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
 
       // ChipTheme
@@ -238,9 +207,7 @@ class AppTheme {
         backgroundColor: backgroundColor,
         selectedColor: primaryColor,
         disabledColor: Color(0xFFE2E8F0),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         labelStyle: const TextStyle(
           color: textDarkColor,
           fontWeight: FontWeight.w500,

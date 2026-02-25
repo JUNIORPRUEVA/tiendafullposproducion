@@ -168,26 +168,32 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
             }
 
             return ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 90),
               itemCount: state.items.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              separatorBuilder: (_, __) => const SizedBox(height: 3),
               itemBuilder: (context, index) {
                 final cliente = state.items[index];
-                return _ClienteCard(
-                  cliente: cliente,
-                  onTap: () async {
-                    final changed = await context.push<bool>(Routes.clienteDetail(cliente.id));
-                    if (changed == true) {
-                      await ref.read(clientesControllerProvider.notifier).refresh();
-                    }
-                  },
-                  onEdit: () async {
-                    final changed = await context.push<bool>(Routes.clienteEdit(cliente.id));
-                    if (changed == true) {
-                      await ref.read(clientesControllerProvider.notifier).refresh();
-                    }
-                  },
-                  onDelete: () => _confirmDelete(context, cliente),
+                return Align(
+                  alignment: Alignment.center,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 760),
+                    child: _ClienteCard(
+                      cliente: cliente,
+                      onTap: () async {
+                        final changed = await context.push<bool>(Routes.clienteDetail(cliente.id));
+                        if (changed == true) {
+                          await ref.read(clientesControllerProvider.notifier).refresh();
+                        }
+                      },
+                      onEdit: () async {
+                        final changed = await context.push<bool>(Routes.clienteEdit(cliente.id));
+                        if (changed == true) {
+                          await ref.read(clientesControllerProvider.notifier).refresh();
+                        }
+                      },
+                      onDelete: () => _confirmDelete(context, cliente),
+                    ),
+                  ),
                 );
               },
             );
@@ -363,16 +369,24 @@ class _ClienteCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final subtitleChunks = <String>[cliente.telefono];
+    final lineChunks = <String>[cliente.nombre, cliente.telefono];
     if ((cliente.direccion ?? '').trim().isNotEmpty) {
-      subtitleChunks.add(cliente.direccion!.trim());
+      lineChunks.add(cliente.direccion!.trim());
+    }
+    if ((cliente.correo ?? '').trim().isNotEmpty) {
+      lineChunks.add(cliente.correo!.trim());
     }
 
     return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       child: ListTile(
         onTap: onTap,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        dense: true,
+        visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         leading: CircleAvatar(
+          radius: 15,
           child: Text(
             cliente.nombre.trim().isEmpty
                 ? '?'
@@ -380,33 +394,15 @@ class _ClienteCard extends StatelessWidget {
           ),
         ),
         title: Text(
-          cliente.nombre,
+          lineChunks.join(' · '),
           style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 4),
-            Text(
-              subtitleChunks.join(' · '),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            if ((cliente.correo ?? '').trim().isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  cliente.correo!,
-                  style: theme.textTheme.bodySmall,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-          ],
-        ),
         trailing: PopupMenuButton<String>(
+          splashRadius: 16,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
           onSelected: (value) {
             if (value == 'detail') onTap();
             if (value == 'edit') onEdit();

@@ -137,7 +137,7 @@ class VentasRepository {
         queryParameters: {
           if (search.trim().isNotEmpty) 'search': search.trim(),
           'page': 1,
-          'pageSize': 20,
+          'pageSize': 100,
         },
       );
 

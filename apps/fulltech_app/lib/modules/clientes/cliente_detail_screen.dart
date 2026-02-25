@@ -156,152 +156,171 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                   ? const SizedBox.shrink()
                   : RefreshIndicator(
                       onRefresh: _load,
-                      child: ListView(
-                        padding: const EdgeInsets.all(16),
-                        children: [
-                          Card(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Row(
-                                children: [
-                                  CircleAvatar(
-                                    radius: 30,
-                                    child: Text(
-                                      _cliente!.nombre.trim().isEmpty
-                                          ? '?'
-                                          : _cliente!.nombre.trim().characters.first.toUpperCase(),
-                                      style: theme.textTheme.titleLarge,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 14),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          _cliente!.nombre,
-                                          style: theme.textTheme.titleLarge?.copyWith(
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          _cliente!.telefono,
-                                          style: theme.textTheme.bodyMedium,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          _InfoCard(
-                            icon: Icons.call_outlined,
-                            title: 'Teléfono',
-                            value: _cliente!.telefono,
-                            trailing: IconButton(
-                              tooltip: 'Copiar teléfono',
-                              onPressed: () async {
-                                final messenger = ScaffoldMessenger.of(context);
-                                await Clipboard.setData(ClipboardData(text: _cliente!.telefono));
-                                if (!mounted) return;
-                                messenger.showSnackBar(
-                                  const SnackBar(content: Text('Teléfono copiado')),
-                                );
-                              },
-                              icon: const Icon(Icons.copy_outlined),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          _InfoCard(
-                            icon: Icons.mail_outline,
-                            title: 'Correo',
-                            value: (_cliente!.correo ?? '').trim().isEmpty
-                                ? 'Sin correo registrado'
-                                : _cliente!.correo!,
-                          ),
-                          const SizedBox(height: 10),
-                          _InfoCard(
-                            icon: Icons.location_on_outlined,
-                            title: 'Dirección',
-                            value: (_cliente!.direccion ?? '').trim().isEmpty
-                                ? 'Sin dirección registrada'
-                                : _cliente!.direccion!,
-                          ),
-                          const SizedBox(height: 18),
-                          Card(
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 760),
+                          child: ListView(
+                            padding: const EdgeInsets.all(12),
+                            children: [
+                              Card(
+                                elevation: 1,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(10),
+                                  child: Row(
                                     children: [
-                                      const Expanded(
+                                      CircleAvatar(
+                                        radius: 22,
                                         child: Text(
-                                          'Historial de servicios',
-                                          style: TextStyle(fontWeight: FontWeight.w700),
+                                          _cliente!.nombre.trim().isEmpty
+                                              ? '?'
+                                              : _cliente!.nombre.trim().characters.first.toUpperCase(),
+                                          style: theme.textTheme.titleMedium,
                                         ),
                                       ),
-                                      TextButton.icon(
-                                        onPressed: () => context.go(Routes.operaciones),
-                                        icon: const Icon(Icons.add),
-                                        label: const Text('Nuevo servicio'),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              _cliente!.nombre,
+                                              style: theme.textTheme.titleMedium?.copyWith(
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            Text(
+                                              _cliente!.telefono,
+                                              style: theme.textTheme.bodyMedium,
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ],
                                   ),
-                                  if (_services.isEmpty)
-                                    const Padding(
-                                      padding: EdgeInsets.only(top: 6),
-                                      child: Text('Este cliente no tiene servicios registrados'),
-                                    )
-                                  else
-                                    ..._services.take(8).map(
-                                          (service) => ListTile(
-                                            dense: true,
-                                            contentPadding: EdgeInsets.zero,
-                                            title: Text(service.title),
-                                            subtitle: Text(
-                                              '${service.serviceType} · ${service.status} · ${service.scheduledStart?.toIso8601String().substring(0, 10) ?? 'Sin fecha'}',
-                                            ),
-                                            trailing: Text('P${service.priority}'),
-                                          ),
-                                        ),
-                                ],
+                                ),
                               ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
+                              const SizedBox(height: 4),
+                              _InfoCard(
+                                icon: Icons.call_outlined,
+                                title: 'Teléfono',
+                                value: _cliente!.telefono,
+                                trailing: IconButton(
+                                  tooltip: 'Copiar teléfono',
                                   onPressed: () async {
-                                    final changed = await context.push<bool>(Routes.clienteEdit(_cliente!.id));
-                                    if (changed == true) {
-                                      await _load();
-                                    }
+                                    final messenger = ScaffoldMessenger.of(context);
+                                    await Clipboard.setData(ClipboardData(text: _cliente!.telefono));
+                                    if (!mounted) return;
+                                    messenger.showSnackBar(
+                                      const SnackBar(content: Text('Teléfono copiado')),
+                                    );
                                   },
-                                  icon: const Icon(Icons.edit_outlined),
-                                  label: const Text('Editar'),
+                                  icon: const Icon(Icons.copy_outlined),
                                 ),
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: FilledButton.icon(
-                                  onPressed: _delete,
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: theme.colorScheme.error,
+                              const SizedBox(height: 4),
+                              _InfoCard(
+                                icon: Icons.mail_outline,
+                                title: 'Correo',
+                                value: (_cliente!.correo ?? '').trim().isEmpty
+                                    ? 'Sin correo registrado'
+                                    : _cliente!.correo!,
+                              ),
+                              const SizedBox(height: 4),
+                              _InfoCard(
+                                icon: Icons.location_on_outlined,
+                                title: 'Dirección',
+                                value: (_cliente!.direccion ?? '').trim().isEmpty
+                                    ? 'Sin dirección registrada'
+                                    : _cliente!.direccion!,
+                              ),
+                              const SizedBox(height: 6),
+                              Card(
+                                elevation: 1,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(8),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          const Expanded(
+                                            child: Text(
+                                              'Historial de servicios',
+                                              style: TextStyle(fontWeight: FontWeight.w700),
+                                            ),
+                                          ),
+                                          TextButton.icon(
+                                            onPressed: () => context.go(Routes.operaciones),
+                                            icon: const Icon(Icons.add),
+                                            label: const Text('Nuevo servicio'),
+                                          ),
+                                        ],
+                                      ),
+                                      if (_services.isEmpty)
+                                        const Padding(
+                                          padding: EdgeInsets.only(top: 2),
+                                          child: Text('Este cliente no tiene servicios registrados'),
+                                        )
+                                      else
+                                        ..._services.take(8).map(
+                                              (service) => ListTile(
+                                                dense: true,
+                                                visualDensity: const VisualDensity(
+                                                  horizontal: -2,
+                                                  vertical: -3,
+                                                ),
+                                                contentPadding: EdgeInsets.zero,
+                                                title: Text(service.title),
+                                                subtitle: Text(
+                                                  '${service.serviceType} · ${service.status} · ${service.scheduledStart?.toIso8601String().substring(0, 10) ?? 'Sin fecha'}',
+                                                ),
+                                                trailing: Text('P${service.priority}'),
+                                              ),
+                                            ),
+                                    ],
                                   ),
-                                  icon: const Icon(Icons.delete_outline),
-                                  label: const Text('Eliminar'),
                                 ),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () async {
+                                        final changed = await context.push<bool>(Routes.clienteEdit(_cliente!.id));
+                                        if (changed == true) {
+                                          await _load();
+                                        }
+                                      },
+                                      icon: const Icon(Icons.edit_outlined),
+                                      label: const Text('Editar'),
+                                      style: OutlinedButton.styleFrom(
+                                        visualDensity: VisualDensity.compact,
+                                        padding: const EdgeInsets.symmetric(vertical: 8),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: FilledButton.icon(
+                                      onPressed: _delete,
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: theme.colorScheme.error,
+                                        visualDensity: VisualDensity.compact,
+                                        padding: const EdgeInsets.symmetric(vertical: 8),
+                                      ),
+                                      icon: const Icon(Icons.delete_outline),
+                                      label: const Text('Eliminar'),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
-                        ],
+                        ),
                       ),
                     ),
     );
@@ -326,10 +345,25 @@ class _InfoCard extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       child: ListTile(
+        dense: true,
+        visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         leading: Icon(icon, color: theme.colorScheme.primary),
-        title: Text(title, style: theme.textTheme.titleSmall),
-        subtitle: Text(value),
+        title: Text(
+          title,
+          style: theme.textTheme.titleSmall,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(
+          value,
+          style: theme.textTheme.bodySmall,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         trailing: trailing,
       ),
     );
