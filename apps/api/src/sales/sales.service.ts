@@ -200,7 +200,7 @@ export class SalesService {
       new Set(dto.items.map((item) => item.productId).filter((id): id is string => Boolean(id))),
     );
 
-    let products: Array<{ id: string; nombre: string; fotoUrl: string | null; costo: Prisma.Decimal }> = [];
+    let products: Array<{ id: string; nombre: string; imagen: string | null; costo: Prisma.Decimal }> = [];
     if (productIds.length) {
       try {
         products = await this.prisma.product.findMany({
@@ -208,7 +208,7 @@ export class SalesService {
           select: {
             id: true,
             nombre: true,
-            fotoUrl: true,
+            imagen: true,
             costo: true,
           },
         });
@@ -323,7 +323,7 @@ export class SalesService {
   private normalizeItem(
     item: CreateSaleItemDto,
     index: number,
-    productMap: Map<string, { id: string; nombre: string; fotoUrl: string | null; costo: Prisma.Decimal }>,
+    productMap: Map<string, { id: string; nombre: string; imagen: string | null; costo: Prisma.Decimal }>,
   ) {
     const qty = new Prisma.Decimal(item.qty);
     const priceSoldUnit = new Prisma.Decimal(item.priceSoldUnit);
@@ -350,7 +350,7 @@ export class SalesService {
       return {
         productId: product.id,
         productNameSnapshot: product.nombre,
-        productImageSnapshot: product.fotoUrl,
+        productImageSnapshot: product.imagen,
         qty,
         priceSoldUnit,
         costUnitSnapshot,
