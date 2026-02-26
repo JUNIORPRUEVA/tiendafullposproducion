@@ -126,11 +126,14 @@ export class ProductsService {
 
       try {
         const parsed = new URL(url);
-        const host = parsed.hostname.toLowerCase();
-        if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') {
-          const normalizedPath = parsed.pathname.startsWith('/')
-            ? parsed.pathname
-            : `/${parsed.pathname}`;
+        const publicHost = new URL(this.publicBaseUrl).host.toLowerCase();
+        const currentHost = parsed.host.toLowerCase();
+        const normalizedPath = parsed.pathname.startsWith('/')
+          ? parsed.pathname
+          : `/${parsed.pathname}`;
+        const isUploadsPath = normalizedPath.startsWith('/uploads/');
+
+        if (isUploadsPath && currentHost !== publicHost) {
           const query = parsed.search ?? '';
           return `${this.publicBaseUrl}${normalizedPath}${query}`;
         }

@@ -10,6 +10,7 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { cors: false });
+  app.set('trust proxy', 1);
 
   const config = app.get(ConfigService);
   const port = Number(config.get('PORT') ?? 4000);
