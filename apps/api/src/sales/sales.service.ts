@@ -188,10 +188,10 @@ export class SalesService {
     if (dto.customerId) {
       try {
         const customer = await this.prisma.client.findFirst({
-          where: { id: dto.customerId, ownerId: userId, isDeleted: false },
+          where: { id: dto.customerId, isDeleted: false },
         });
         if (!customer) {
-          throw new BadRequestException('Cliente inválido para este usuario');
+          throw new BadRequestException('Cliente inválido');
         }
       } catch (error) {
         if (!this.isSchemaMismatch(error)) throw error;
