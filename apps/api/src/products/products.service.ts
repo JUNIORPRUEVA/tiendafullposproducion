@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, Product } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -7,6 +7,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 
 @Injectable()
 export class ProductsService {
+  private readonly logger = new Logger(ProductsService.name);
   private readonly publicBaseUrl: string;
 
   constructor(
@@ -39,13 +40,18 @@ export class ProductsService {
 
   create(dto: CreateProductDto): Promise<Product> {
     return this.prisma.$transaction(async (tx) => {
+      const normalizedImagePath = this.normalizeImagePathForStorage(dto.fotoUrl);
       const data = {
         nombre: dto.nombre,
         categoria: dto.categoria,
         precio: new Prisma.Decimal(dto.precio),
         costo: new Prisma.Decimal(dto.costo),
-        imagen: dto.fotoUrl,
+        imagen: normalizedImagePath,
       };
+
+      if (dto.fotoUrl !== normalizedImagePath) {
+        this.logger.log(`normalize create image path: "${dto.fotoUrl ?? ''}" -> "${normalizedImagePath ?? ''}"`);
+      }
 
       try {
         const product = await tx.product.create({ data });
@@ -84,13 +90,20 @@ export class ProductsService {
   async update(id: string, dto: UpdateProductDto): Promise<any> {
     await this.findOne(id);
     return this.prisma.$transaction(async (tx) => {
+      const normalizedImagePath = dto.fotoUrl === undefined
+        ? undefined
+        : this.normalizeImagePathForStorage(dto.fotoUrl);
       const data = {
         nombre: dto.nombre,
         categoria: dto.categoria,
         precio: dto.precio === undefined ? undefined : new Prisma.Decimal(dto.precio),
         costo: dto.costo === undefined ? undefined : new Prisma.Decimal(dto.costo),
-        imagen: dto.fotoUrl,
+        imagen: normalizedImagePath,
       };
+
+      if (dto.fotoUrl !== undefined && dto.fotoUrl !== normalizedImagePath) {
+        this.logger.log(`normalize update image path: "${dto.fotoUrl}" -> "${normalizedImagePath ?? ''}"`);
+      }
 
       try {
         const updated = await tx.product.update({ where: { id }, data });
@@ -168,6 +181,45 @@ export class ProductsService {
     if (!this.publicBaseUrl) return url;
     const normalized = url.startsWith('/') ? url : `/${url}`;
     return `${this.publicBaseUrl}${normalized}`;
+  }
+
+  private normalizeImagePathForStorage(raw?: string | null): string | null {
+    if (raw === undefined || raw === null) return null;
+
+    const extractUploadsPath = (value: string): string | null => {
+      const normalized = value.replace(/\\/g, '/').trim();
+      const marker = '/uploads/';
+      const markerIndex = normalized.indexOf(marker);
+      if (markerIndex >= 0) {
+        return normalized.substring(markerIndex);
+      }
+      if (normalized.startsWith('uploads/')) {
+        return `/${normalized}`;
+      }
+      if (normalized.startsWith('./uploads/')) {
+        return normalized.substring(1);
+      }
+      return null;
+    };
+
+    const value = raw.trim();
+    if (!value) return null;
+
+    if (/^https?:\/\//i.test(value)) {
+      try {
+        const parsed = new URL(value);
+        const uploadsPath = extractUploadsPath(parsed.pathname);
+        if (uploadsPath) return uploadsPath;
+        return null;
+      } catch {
+        return null;
+      }
+    }
+
+    const uploadsPath = extractUploadsPath(value);
+    if (uploadsPath) return uploadsPath;
+
+    return null;
   }
 
 }

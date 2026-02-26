@@ -100,6 +100,8 @@ export class ProductsController {
     const requestBase = host ? `${proto}://${host}` : '';
     const baseUrl = this.publicBaseUrl || requestBase;
     const url = baseUrl ? `${baseUrl}${relativePath}` : relativePath;
+    // eslint-disable-next-line no-console
+    console.log(`[products/upload] saved file=${file.filename} path=${relativePath} url=${url}`);
     return { filename: file.filename, path: relativePath, url };
   }
 

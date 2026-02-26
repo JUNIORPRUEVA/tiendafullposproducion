@@ -30,6 +30,8 @@ async function bootstrap() {
 
   fs.mkdirSync(uploadDir, { recursive: true });
   app.use('/uploads', express.static(uploadDir));
+  // eslint-disable-next-line no-console
+  console.log(`[uploads] serving static files from: ${uploadDir}`);
 
   app.useGlobalPipes(
     new ValidationPipe({
