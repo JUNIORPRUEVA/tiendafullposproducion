@@ -286,13 +286,15 @@ export class PayrollService {
     for (const entry of entries) {
       const amount = this.toNumber(entry.amount);
       switch (entry.type) {
-        case PayrollEntryType.COMISION:
+        case PayrollEntryType.COMISION_SERVICIO:
+        case PayrollEntryType.COMISION_VENTAS:
           if (amount >= 0) commissions += amount;
           break;
-        case PayrollEntryType.BONO:
+        case PayrollEntryType.BONIFICACION:
+        case PayrollEntryType.PAGO_COMBUSTIBLE:
           if (amount >= 0) bonuses += amount;
           break;
-        case PayrollEntryType.FALTA_DIA:
+        case PayrollEntryType.AUSENCIA:
           absences += Math.abs(amount);
           break;
         case PayrollEntryType.TARDE:
@@ -383,13 +385,15 @@ export class PayrollService {
       for (const entry of entries) {
         const amount = this.toNumber(entry.amount);
         switch (entry.type) {
-          case PayrollEntryType.COMISION:
+          case PayrollEntryType.COMISION_SERVICIO:
+          case PayrollEntryType.COMISION_VENTAS:
             commissionFromSales += amount;
             break;
-          case PayrollEntryType.BONO:
+          case PayrollEntryType.BONIFICACION:
+          case PayrollEntryType.PAGO_COMBUSTIBLE:
             bonusesAmount += amount;
             break;
-          case PayrollEntryType.FALTA_DIA:
+          case PayrollEntryType.AUSENCIA:
           case PayrollEntryType.TARDE:
           case PayrollEntryType.ADELANTO:
           case PayrollEntryType.DESCUENTO:

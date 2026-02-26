@@ -493,7 +493,7 @@ class NominaScreen extends ConsumerWidget {
                     controller: conceptCtrl,
                     decoration: const InputDecoration(
                       labelText: 'Concepto',
-                      hintText: 'Ej: Falta 12/02, bono por meta, vacaciones...',
+                      hintText: 'Ej: Ausencia 12/02, bonificación por meta, combustible...',
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -516,7 +516,7 @@ class NominaScreen extends ConsumerWidget {
                             decimal: true,
                           ),
                           decoration: const InputDecoration(
-                            labelText: 'Monto (opcional en falta)',
+                            labelText: 'Monto (opcional en ausencia)',
                           ),
                         ),
                       ),
@@ -543,7 +543,7 @@ class NominaScreen extends ConsumerWidget {
                       final parsedAmount = double.tryParse(amountCtrl.text.trim());
                       double amount;
 
-                      if (selectedType == PayrollEntryType.faltaDia &&
+                        if (selectedType == PayrollEntryType.ausencia &&
                           parsedAmount == null) {
                         final daily = (config?.baseSalary ?? 0) / 15;
                         amount = -(daily * qty);

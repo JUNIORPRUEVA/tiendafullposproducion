@@ -1,10 +1,12 @@
  enum PayrollPeriodStatus { open, closed }
 
 enum PayrollEntryType {
-  faltaDia,
+  ausencia,
   tarde,
-  bono,
-  comision,
+  comisionServicio,
+  comisionVentas,
+  bonificacion,
+  pagoCombustible,
   adelanto,
   descuento,
   otro,
@@ -25,14 +27,18 @@ extension PayrollPeriodStatusX on PayrollPeriodStatus {
 extension PayrollEntryTypeX on PayrollEntryType {
   String get dbValue {
     switch (this) {
-      case PayrollEntryType.faltaDia:
-        return 'FALTA_DIA';
+      case PayrollEntryType.ausencia:
+        return 'AUSENCIA';
       case PayrollEntryType.tarde:
         return 'TARDE';
-      case PayrollEntryType.bono:
-        return 'BONO';
-      case PayrollEntryType.comision:
-        return 'COMISION';
+      case PayrollEntryType.comisionServicio:
+        return 'COMISION_SERVICIO';
+      case PayrollEntryType.comisionVentas:
+        return 'COMISION_VENTAS';
+      case PayrollEntryType.bonificacion:
+        return 'BONIFICACION';
+      case PayrollEntryType.pagoCombustible:
+        return 'PAGO_COMBUSTIBLE';
       case PayrollEntryType.adelanto:
         return 'ADELANTO';
       case PayrollEntryType.descuento:
@@ -44,14 +50,18 @@ extension PayrollEntryTypeX on PayrollEntryType {
 
   String get label {
     switch (this) {
-      case PayrollEntryType.faltaDia:
-        return 'Falta de día';
+      case PayrollEntryType.ausencia:
+        return 'Ausencia';
       case PayrollEntryType.tarde:
         return 'Llegada tarde';
-      case PayrollEntryType.bono:
-        return 'Bono';
-      case PayrollEntryType.comision:
-        return 'Comisión';
+      case PayrollEntryType.comisionServicio:
+        return 'Comisión por servicio';
+      case PayrollEntryType.comisionVentas:
+        return 'Comisión por ventas';
+      case PayrollEntryType.bonificacion:
+        return 'Bonificación';
+      case PayrollEntryType.pagoCombustible:
+        return 'Pago de combustible';
       case PayrollEntryType.adelanto:
         return 'Adelanto';
       case PayrollEntryType.descuento:
@@ -62,7 +72,7 @@ extension PayrollEntryTypeX on PayrollEntryType {
   }
 
   bool get isDeduction {
-    return this == PayrollEntryType.faltaDia ||
+    return this == PayrollEntryType.ausencia ||
         this == PayrollEntryType.tarde ||
         this == PayrollEntryType.adelanto ||
         this == PayrollEntryType.descuento;
@@ -70,14 +80,21 @@ extension PayrollEntryTypeX on PayrollEntryType {
 
   static PayrollEntryType fromDb(String value) {
     switch (value.toUpperCase()) {
+      case 'AUSENCIA':
       case 'FALTA_DIA':
-        return PayrollEntryType.faltaDia;
+        return PayrollEntryType.ausencia;
       case 'TARDE':
         return PayrollEntryType.tarde;
-      case 'BONO':
-        return PayrollEntryType.bono;
+      case 'COMISION_SERVICIO':
+        return PayrollEntryType.comisionServicio;
+      case 'COMISION_VENTAS':
       case 'COMISION':
-        return PayrollEntryType.comision;
+        return PayrollEntryType.comisionVentas;
+      case 'BONIFICACION':
+      case 'BONO':
+        return PayrollEntryType.bonificacion;
+      case 'PAGO_COMBUSTIBLE':
+        return PayrollEntryType.pagoCombustible;
       case 'ADELANTO':
         return PayrollEntryType.adelanto;
       case 'DESCUENTO':

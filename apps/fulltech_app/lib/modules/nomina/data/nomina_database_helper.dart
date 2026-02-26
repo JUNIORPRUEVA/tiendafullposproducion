@@ -570,13 +570,15 @@ class NominaDatabaseHelper {
     for (final item in entries) {
       final amount = item.amount;
       switch (item.type) {
-        case PayrollEntryType.comision:
+        case PayrollEntryType.comisionServicio:
+        case PayrollEntryType.comisionVentas:
           if (amount >= 0) commissions += amount;
           break;
-        case PayrollEntryType.bono:
+        case PayrollEntryType.bonificacion:
+        case PayrollEntryType.pagoCombustible:
           if (amount >= 0) bonuses += amount;
           break;
-        case PayrollEntryType.faltaDia:
+        case PayrollEntryType.ausencia:
           absences += amount.abs();
           break;
         case PayrollEntryType.tarde:
@@ -664,13 +666,15 @@ class NominaDatabaseHelper {
       for (final entry in entries) {
         final amount = entry.amount;
         switch (entry.type) {
-          case PayrollEntryType.comision:
+          case PayrollEntryType.comisionServicio:
+          case PayrollEntryType.comisionVentas:
             commissionFromSales += amount;
             break;
-          case PayrollEntryType.bono:
+          case PayrollEntryType.bonificacion:
+          case PayrollEntryType.pagoCombustible:
             bonusesAmount += amount;
             break;
-          case PayrollEntryType.faltaDia:
+          case PayrollEntryType.ausencia:
           case PayrollEntryType.tarde:
           case PayrollEntryType.adelanto:
           case PayrollEntryType.descuento:
