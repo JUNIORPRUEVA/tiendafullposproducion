@@ -20,8 +20,27 @@ class CatalogoScreen extends ConsumerStatefulWidget {
 class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
   final _searchCtrl = TextEditingController();
   String _category = 'Todas';
+  DateTime? _lastAutoSyncAt;
 
   bool get _hasActiveFilter => _category != 'Todas';
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scheduleAutoSync();
+  }
+
+  void _scheduleAutoSync() {
+    final now = DateTime.now();
+    final last = _lastAutoSyncAt;
+    if (last != null && now.difference(last).inMilliseconds < 1200) return;
+    _lastAutoSyncAt = now;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(catalogControllerProvider.notifier).load();
+    });
+  }
 
   @override
   void dispose() {

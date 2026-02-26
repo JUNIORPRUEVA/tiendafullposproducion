@@ -67,6 +67,7 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
       clearOpenPeriodTotal: true,
     );
     try {
+      await _repo.ensureCurrentOpenPeriod();
       final periods = await _repo.listPeriods();
       final employees = await _repo.listEmployees(activeOnly: false);
 
@@ -119,7 +120,12 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
   }
 
   Future<void> closePeriod(String periodId) async {
+    final period = await _repo.getPeriodById(periodId);
+    if (period == null) {
+      throw Exception('Quincena no encontrada');
+    }
     await _repo.closePeriod(periodId);
+    await _repo.createNextOpenPeriod(period);
     await load();
   }
 
@@ -129,6 +135,8 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
     String? telefono,
     String? puesto,
     double cuotaMinima = 0,
+    double seguroLeyPct = 0,
+    double? salarioBase,
     bool activo = true,
   }) async {
     final trimmedName = nombre.trim();
@@ -140,6 +148,14 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
       throw Exception('La cuota mínima no puede ser negativa');
     }
 
+    if (seguroLeyPct < 0 || seguroLeyPct > 100) {
+      throw Exception('El seguro de ley debe estar entre 0 y 100');
+    }
+
+    if (salarioBase != null && salarioBase < 0) {
+      throw Exception('El salario base no puede ser negativo');
+    }
+
     final existing = id == null ? null : await _repo.getEmployeeById(id);
 
     final employee = PayrollEmployee(
@@ -149,12 +165,29 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
       telefono: (telefono ?? '').trim().isEmpty ? null : telefono!.trim(),
       puesto: (puesto ?? '').trim().isEmpty ? null : puesto!.trim(),
       cuotaMinima: cuotaMinima,
+      seguroLeyPct: seguroLeyPct,
       activo: activo,
       createdAt: existing?.createdAt,
       updatedAt: DateTime.now(),
     );
 
-    await _repo.upsertEmployee(employee);
+    final savedEmployee = await _repo.upsertEmployee(employee);
+
+    if (salarioBase != null) {
+      final open = state.openPeriod;
+      if (open == null) {
+        throw Exception(
+          'Debes crear una quincena abierta para registrar el salario base.',
+        );
+      }
+      await _repo.upsertEmployeeConfig(
+        periodId: open.id,
+        employeeId: savedEmployee.id,
+        baseSalary: salarioBase,
+        includeCommissions: true,
+      );
+    }
+
     await load();
   }
 }

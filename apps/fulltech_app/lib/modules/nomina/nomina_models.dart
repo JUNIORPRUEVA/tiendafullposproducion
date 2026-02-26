@@ -96,6 +96,7 @@ class PayrollEmployee {
   final String? telefono;
   final String? puesto;
   final double cuotaMinima;
+  final double seguroLeyPct;
   final bool activo;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -107,6 +108,7 @@ class PayrollEmployee {
     this.telefono,
     this.puesto,
     this.cuotaMinima = 0,
+    this.seguroLeyPct = 0,
     this.activo = true,
     this.createdAt,
     this.updatedAt,
@@ -119,6 +121,7 @@ class PayrollEmployee {
     String? telefono,
     String? puesto,
     double? cuotaMinima,
+    double? seguroLeyPct,
     bool? activo,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -132,6 +135,7 @@ class PayrollEmployee {
       telefono: clearTelefono ? null : (telefono ?? this.telefono),
       puesto: clearPuesto ? null : (puesto ?? this.puesto),
       cuotaMinima: cuotaMinima ?? this.cuotaMinima,
+      seguroLeyPct: seguroLeyPct ?? this.seguroLeyPct,
       activo: activo ?? this.activo,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -146,6 +150,7 @@ class PayrollEmployee {
       telefono: map['telefono'] as String?,
       puesto: map['puesto'] as String?,
       cuotaMinima: (map['cuota_minima'] as num?)?.toDouble() ?? 0,
+      seguroLeyPct: (map['seguro_ley_pct'] as num?)?.toDouble() ?? 0,
       activo: (map['activo'] ?? 1) == 1,
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'].toString())
@@ -164,6 +169,7 @@ class PayrollEmployee {
       'telefono': telefono,
       'puesto': puesto,
       'cuota_minima': cuotaMinima,
+      'seguro_ley_pct': seguroLeyPct,
       'activo': activo ? 1 : 0,
       'created_at': createdAt?.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
@@ -341,12 +347,28 @@ class PayrollEntry {
 
 class PayrollTotals {
   final double baseSalary;
+  final double commissions;
+  final double bonuses;
+  final double otherAdditions;
+  final double absences;
+  final double late;
+  final double advances;
+  final double otherDeductions;
+  final double seguroLey;
   final double additions;
   final double deductions;
   final double total;
 
   const PayrollTotals({
     required this.baseSalary,
+    this.commissions = 0,
+    this.bonuses = 0,
+    this.otherAdditions = 0,
+    this.absences = 0,
+    this.late = 0,
+    this.advances = 0,
+    this.otherDeductions = 0,
+    this.seguroLey = 0,
     required this.additions,
     required this.deductions,
     required this.total,

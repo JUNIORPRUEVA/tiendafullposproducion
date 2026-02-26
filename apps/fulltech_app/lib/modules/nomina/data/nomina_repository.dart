@@ -14,6 +14,9 @@ class NominaRepository {
   final Ref ref;
   final NominaDatabaseHelper db;
 
+  String get _currentUserId =>
+      (ref.read(authStateProvider).user?.id ?? '').trim();
+
   String get _ownerId => NominaDatabaseHelper.ownerIdOrDefault(
     ref.read(authStateProvider).user?.id,
   );
@@ -31,6 +34,12 @@ class NominaRepository {
     DateTime end,
     String title,
   ) => db.createPeriod(_ownerId, start, end, title);
+
+  Future<PayrollPeriod> ensureCurrentOpenPeriod() =>
+      db.ensureCurrentOpenPeriod(_ownerId);
+
+  Future<PayrollPeriod> createNextOpenPeriod(PayrollPeriod closed) =>
+      db.createNextOpenPeriod(_ownerId, closed);
 
   Future<void> closePeriod(String periodId) =>
       db.closePeriod(_ownerId, periodId);
@@ -78,8 +87,10 @@ class NominaRepository {
   Future<double> computePeriodTotalAllEmployees(String periodId) =>
       db.computePeriodTotalAllEmployees(_ownerId, periodId);
 
-  Future<List<PayrollHistoryItem>> listMyPayrollHistory() =>
-      db.listPayrollHistoryByEmployee(_ownerId, _ownerId);
+  Future<List<PayrollHistoryItem>> listMyPayrollHistory() async {
+    if (_currentUserId.isEmpty) return const [];
+    return db.listPayrollHistoryByEmployeeAnyOwner(_currentUserId);
+  }
 
   Future<double> getCuotaMinimaForUser({
     required String userId,

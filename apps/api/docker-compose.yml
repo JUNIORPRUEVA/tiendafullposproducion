@@ -24,7 +24,7 @@ services:
     ports:
       - "4000:4000"
     volumes:
-      - uploads_data:/app/uploads
+      - uploads_data:/uploads
     restart: unless-stopped
     command: sh scripts/start-prod.sh
 

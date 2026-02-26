@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/widgets/app_drawer.dart';
@@ -19,11 +23,23 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
   bool _loading = true;
   String? _error;
   List<PayrollHistoryItem> _items = const [];
+  Timer? _autoRefresh;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _autoRefresh = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (mounted && !_loading) {
+        _load();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _autoRefresh?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -139,11 +155,63 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
                       ),
                     )
                   else
-                    ..._items.map((item) => _PayrollHistoryCard(item: item)),
+                    ..._items.map(
+                      (item) => _PayrollHistoryCard(
+                        item: item,
+                        onDownload: () => _downloadPayrollPdf(item),
+                      ),
+                    ),
                 ],
               ),
       ),
     );
+  }
+
+  Future<void> _downloadPayrollPdf(PayrollHistoryItem item) async {
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final range =
+        '${DateFormat('dd/MM/yyyy').format(item.periodStart)} - ${DateFormat('dd/MM/yyyy').format(item.periodEnd)}';
+
+    final doc = pw.Document();
+    doc.addPage(
+      pw.Page(
+        build: (context) => pw.Padding(
+          padding: const pw.EdgeInsets.all(20),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'Comprobante de pago',
+                style: pw.TextStyle(
+                  fontSize: 18,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 8),
+              pw.Text('Quincena: ${item.periodTitle}'),
+              pw.Text('Rango: $range'),
+              pw.Text('Estado: ${item.isPaid ? 'Pagado' : 'Pendiente'}'),
+              pw.SizedBox(height: 14),
+              pw.Text('Salario base: ${money.format(item.baseSalary)}'),
+              pw.Text('Comisión: ${money.format(item.commissionFromSales)}'),
+              pw.Text('Extras: ${money.format(item.overtimeAmount + item.bonusesAmount)}'),
+              pw.Text('Beneficios: ${money.format(item.benefitsAmount)}'),
+              pw.Text('Deducciones: ${money.format(item.deductionsAmount)}'),
+              pw.Divider(),
+              pw.Text(
+                'Neto a pagar: ${money.format(item.netTotal)}',
+                style: pw.TextStyle(
+                  fontSize: 14,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await Printing.layoutPdf(onLayout: (_) => doc.save());
   }
 }
 
@@ -209,9 +277,10 @@ class _SummaryLine extends StatelessWidget {
 }
 
 class _PayrollHistoryCard extends StatelessWidget {
-  const _PayrollHistoryCard({required this.item});
+  const _PayrollHistoryCard({required this.item, required this.onDownload});
 
   final PayrollHistoryItem item;
+  final VoidCallback onDownload;
 
   @override
   Widget build(BuildContext context) {
@@ -238,6 +307,14 @@ class _PayrollHistoryCard extends StatelessWidget {
         ),
         childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
         children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: onDownload,
+              icon: const Icon(Icons.download_outlined),
+              label: const Text('Descargar PDF'),
+            ),
+          ),
           _Line(label: 'Neto quincena', value: net, bold: true),
           _Line(label: 'Salario base', value: item.baseSalary),
           _Line(label: 'Comisión', value: item.commissionFromSales),

@@ -121,7 +121,25 @@ export class ProductsService {
 
   private resolveUrl(url: string | null): string | null {
     if (!url) return null;
-    if (/^https?:\/\//i.test(url)) return url;
+    if (/^https?:\/\//i.test(url)) {
+      if (!this.publicBaseUrl) return url;
+
+      try {
+        const parsed = new URL(url);
+        const host = parsed.hostname.toLowerCase();
+        if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') {
+          const normalizedPath = parsed.pathname.startsWith('/')
+            ? parsed.pathname
+            : `/${parsed.pathname}`;
+          const query = parsed.search ?? '';
+          return `${this.publicBaseUrl}${normalizedPath}${query}`;
+        }
+      } catch {
+        return url;
+      }
+
+      return url;
+    }
     if (!this.publicBaseUrl) return url;
     const normalized = url.startsWith('/') ? url : `/${url}`;
     return `${this.publicBaseUrl}${normalized}`;

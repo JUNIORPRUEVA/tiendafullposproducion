@@ -1,5 +1,7 @@
 /* eslint-disable no-console */
 
+export {};
+
 type Json = Record<string, any>;
 
 const baseUrl = `http://localhost:${process.env.PORT ?? 4000}`;

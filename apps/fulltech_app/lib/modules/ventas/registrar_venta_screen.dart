@@ -20,6 +20,7 @@ class RegistrarVentaScreen extends ConsumerStatefulWidget {
 class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   final TextEditingController _noteCtrl = TextEditingController();
+  DateTime? _lastAutoSyncAt;
 
   bool _loadingProducts = true;
   bool _saving = false;
@@ -49,6 +50,24 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
   void initState() {
     super.initState();
     _loadProducts();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scheduleAutoSync();
+  }
+
+  void _scheduleAutoSync() {
+    final now = DateTime.now();
+    final last = _lastAutoSyncAt;
+    if (last != null && now.difference(last).inMilliseconds < 1200) return;
+    _lastAutoSyncAt = now;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadProducts();
+    });
   }
 
   @override

@@ -1,10 +1,10 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client';
 import { diskStorage } from 'multer';
 import { extname, join } from 'node:path';
-import type { Express } from 'express';
+import type { Express, Request } from 'express';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -71,10 +71,14 @@ export class ProductsController {
       limits: { fileSize: 5 * 1024 * 1024 }
     })
   )
-  upload(@UploadedFile() file?: Express.Multer.File) {
+  upload(@Req() req: Request, @UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('No se subió ningún archivo');
     const relativePath = `/uploads/${file.filename}`;
-    const url = this.publicBaseUrl ? `${this.publicBaseUrl}${relativePath}` : relativePath;
+    const proto = (req.get('x-forwarded-proto') ?? req.protocol ?? 'http').split(',')[0].trim();
+    const host = (req.get('x-forwarded-host') ?? req.get('host') ?? '').split(',')[0].trim();
+    const requestBase = host ? `${proto}://${host}` : '';
+    const baseUrl = this.publicBaseUrl || requestBase;
+    const url = baseUrl ? `${baseUrl}${relativePath}` : relativePath;
     return { filename: file.filename, path: relativePath, url };
   }
 

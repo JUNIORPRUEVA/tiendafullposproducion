@@ -2,7 +2,25 @@ import '../api/env.dart';
 
 String? _resolveFotoUrl(String? url) {
   if (url == null || url.isEmpty) return null;
-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    try {
+      final parsed = Uri.parse(url);
+      final host = parsed.host.toLowerCase();
+      if (host == 'localhost' || host == '127.0.0.1' || host == '0.0.0.0') {
+        final base = Env.apiBaseUrl;
+        if (base.isEmpty) return url;
+        final trimmedBase = base.endsWith('/')
+            ? base.substring(0, base.length - 1)
+            : base;
+        final path = parsed.path.startsWith('/') ? parsed.path : '/${parsed.path}';
+        final query = parsed.hasQuery ? '?${parsed.query}' : '';
+        return '$trimmedBase$path$query';
+      }
+    } catch (_) {
+      return url;
+    }
+    return url;
+  }
   final base = Env.apiBaseUrl;
   if (base.isEmpty) return url;
   final trimmedBase = base.endsWith('/')
