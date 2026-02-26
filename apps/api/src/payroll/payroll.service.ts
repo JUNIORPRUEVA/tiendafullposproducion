@@ -186,6 +186,22 @@ export class PayrollService {
           data: payload,
         });
       }
+
+      const userExists = await this.prisma.user.findUnique({
+        where: { id: dto.id },
+        select: { id: true },
+      });
+
+      if (!userExists) {
+        throw new BadRequestException('El usuario seleccionado no existe');
+      }
+
+      return this.prisma.payrollEmployee.create({
+        data: {
+          id: dto.id,
+          ...payload,
+        },
+      });
     }
 
     return this.prisma.payrollEmployee.create({ data: payload });
@@ -298,7 +314,13 @@ export class PayrollService {
       }
     }
 
-    const seguroLey = Math.max(0, this.toNumber(employee?.seguroLeyMonto));
+    const seguroLey = Math.max(
+      0,
+      this.toNumber(
+        (employee as { seguroLeyMonto?: Prisma.Decimal | number | string | null } | null)
+          ?.seguroLeyMonto,
+      ),
+    );
     const additions = commissions + bonuses + otherAdditions;
     const deductions = absences + late + advances + otherDeductions + seguroLey;
     const total = base + additions - deductions;
@@ -345,7 +367,13 @@ export class PayrollService {
       if (!hasData) continue;
 
       const baseSalary = this.toNumber(config?.baseSalary);
-      const seguroLey = Math.max(0, this.toNumber(employee?.seguroLeyMonto));
+      const seguroLey = Math.max(
+        0,
+        this.toNumber(
+          (employee as { seguroLeyMonto?: Prisma.Decimal | number | string | null } | null)
+            ?.seguroLeyMonto,
+        ),
+      );
       let commissionFromSales = 0;
       let overtimeAmount = 0;
       let bonusesAmount = 0;
@@ -408,6 +436,57 @@ export class PayrollService {
     });
 
     return history;
+  }
+
+  async listMyPayrollHistory(ownerId: string, userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, nombreCompleto: true, telefono: true },
+    });
+
+    if (!user) {
+      return [] as Array<Record<string, unknown>>;
+    }
+
+    const direct = await this.prisma.payrollEmployee.findMany({
+      where: { ownerId, id: user.id },
+      select: { id: true },
+    });
+
+    const fallback = await this.prisma.payrollEmployee.findMany({
+      where: {
+        ownerId,
+        nombre: user.nombreCompleto,
+        ...(user.telefono.trim().length > 0 ? { telefono: user.telefono } : {}),
+      },
+      select: { id: true },
+    });
+
+    const employeeIds = new Set<string>([user.id]);
+    for (const item of direct) employeeIds.add(item.id);
+    for (const item of fallback) employeeIds.add(item.id);
+
+    const allHistory: Array<Record<string, unknown>> = [];
+    for (const employeeId of employeeIds) {
+      const rows = await this.listPayrollHistoryByEmployee(ownerId, employeeId);
+      allHistory.push(...rows);
+    }
+
+    const unique = new Map<string, Record<string, unknown>>();
+    for (const row of allHistory) {
+      const key = (row['entry_id'] ?? '').toString();
+      if (!key) continue;
+      if (!unique.has(key)) unique.set(key, row);
+    }
+
+    const result = [...unique.values()];
+    result.sort((a, b) => {
+      const right = new Date((b['period_end'] ?? '').toString()).getTime();
+      const left = new Date((a['period_end'] ?? '').toString()).getTime();
+      return right - left;
+    });
+
+    return result;
   }
 
   async getCuotaMinimaForUser(ownerId: string, userId: string, userName: string) {

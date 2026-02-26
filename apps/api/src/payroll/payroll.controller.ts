@@ -162,7 +162,7 @@ export class PayrollController {
   async listMyPayrollHistory(@Req() req: Request) {
     const ownerId = await this.ownerIdFrom(req);
     const user = req.user as JwtUser;
-    return this.payroll.listPayrollHistoryByEmployee(ownerId, user.id);
+    return this.payroll.listMyPayrollHistory(ownerId, user.id);
   }
 
   @Get('my-goal')
