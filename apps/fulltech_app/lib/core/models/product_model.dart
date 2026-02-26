@@ -7,11 +7,27 @@ String? _resolveFotoUrl(String? url) {
       ? base.substring(0, base.length - 1)
       : base;
 
+  String? extractUploadsPath(String value) {
+    final normalized = value.replaceAll('\\\\', '/').trim();
+    const marker = '/uploads/';
+    final markerIndex = normalized.indexOf(marker);
+    if (markerIndex >= 0) {
+      return normalized.substring(markerIndex);
+    }
+    if (normalized.startsWith('uploads/')) {
+      return '/$normalized';
+    }
+    if (normalized.startsWith('./uploads/')) {
+      return normalized.substring(1);
+    }
+    return null;
+  }
+
   if (url.startsWith('http://') || url.startsWith('https://')) {
     try {
       final parsed = Uri.parse(url);
-      final path = parsed.path.startsWith('/') ? parsed.path : '/${parsed.path}';
-      final isUploadsPath = path.startsWith('/uploads/');
+      final path = extractUploadsPath(parsed.path);
+      final isUploadsPath = path != null;
       if (isUploadsPath && trimmedBase.isNotEmpty) {
         final query = parsed.hasQuery ? '?${parsed.query}' : '';
         return '$trimmedBase$path$query';
@@ -21,6 +37,13 @@ String? _resolveFotoUrl(String? url) {
     }
     return url;
   }
+
+  final uploadsPath = extractUploadsPath(url);
+  if (uploadsPath != null) {
+    if (trimmedBase.isEmpty) return uploadsPath;
+    return '$trimmedBase$uploadsPath';
+  }
+
   if (trimmedBase.isEmpty) return url;
   final normalizedPath = url.startsWith('/') ? url : '/$url';
   return '$trimmedBase$normalizedPath';

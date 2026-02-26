@@ -121,6 +121,23 @@ export class ProductsService {
 
   private resolveUrl(url: string | null): string | null {
     if (!url) return null;
+
+    const extractUploadsPath = (value: string): string | null => {
+      const normalized = value.replace(/\\/g, '/').trim();
+      const marker = '/uploads/';
+      const markerIndex = normalized.indexOf(marker);
+      if (markerIndex >= 0) {
+        return normalized.substring(markerIndex);
+      }
+      if (normalized.startsWith('uploads/')) {
+        return `/${normalized}`;
+      }
+      if (normalized.startsWith('./uploads/')) {
+        return normalized.substring(1);
+      }
+      return null;
+    };
+
     if (/^https?:\/\//i.test(url)) {
       if (!this.publicBaseUrl) return url;
 
@@ -128,10 +145,8 @@ export class ProductsService {
         const parsed = new URL(url);
         const publicHost = new URL(this.publicBaseUrl).host.toLowerCase();
         const currentHost = parsed.host.toLowerCase();
-        const normalizedPath = parsed.pathname.startsWith('/')
-          ? parsed.pathname
-          : `/${parsed.pathname}`;
-        const isUploadsPath = normalizedPath.startsWith('/uploads/');
+        const normalizedPath = extractUploadsPath(parsed.pathname);
+        const isUploadsPath = normalizedPath != null;
 
         if (isUploadsPath && currentHost !== publicHost) {
           const query = parsed.search ?? '';
@@ -143,6 +158,13 @@ export class ProductsService {
 
       return url;
     }
+
+    const uploadsPath = extractUploadsPath(url);
+    if (uploadsPath) {
+      if (!this.publicBaseUrl) return uploadsPath;
+      return `${this.publicBaseUrl}${uploadsPath}`;
+    }
+
     if (!this.publicBaseUrl) return url;
     const normalized = url.startsWith('/') ? url : `/${url}`;
     return `${this.publicBaseUrl}${normalized}`;
