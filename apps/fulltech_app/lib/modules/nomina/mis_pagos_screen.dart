@@ -212,9 +212,12 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
     final range =
         '${DateFormat('dd/MM/yyyy').format(item.periodStart)} - ${DateFormat('dd/MM/yyyy').format(item.periodEnd)}';
     final currentUser = ref.read(authStateProvider).user;
-    final employeeName = (currentUser?.nombreCompleto ?? '').trim().isNotEmpty
-        ? currentUser!.nombreCompleto.trim()
-        : 'Empleado';
+    final fallbackName = (currentUser?.nombreCompleto ?? '').trim().isNotEmpty
+      ? currentUser!.nombreCompleto.trim()
+      : _nameFromEmail(currentUser?.email ?? '');
+    final employeeName = item.employeeName.trim().isNotEmpty
+      ? item.employeeName.trim()
+      : fallbackName;
     final employeeRole = _roleLabel(currentUser?.role ?? '');
 
     final doc = pw.Document();
@@ -295,6 +298,23 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
       default:
         return rawRole.isEmpty ? 'N/D' : rawRole;
     }
+  }
+
+  String _nameFromEmail(String email) {
+    final clean = email.trim();
+    if (clean.isEmpty) return 'N/D';
+    final username = clean.split('@').first.trim();
+    if (username.isEmpty) return clean;
+    final words = username
+        .replaceAll('.', ' ')
+        .replaceAll('_', ' ')
+        .split(' ')
+        .where((w) => w.trim().isNotEmpty)
+        .toList();
+    if (words.isEmpty) return username;
+    return words
+        .map((w) => w[0].toUpperCase() + w.substring(1).toLowerCase())
+        .join(' ');
   }
 
   Future<void> _openPayrollPdfPreview(PayrollHistoryItem item) async {

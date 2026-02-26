@@ -398,6 +398,7 @@ class PayrollTotals {
 
 class PayrollHistoryItem {
   final String entryId;
+  final String employeeName;
   final String periodId;
   final String periodTitle;
   final DateTime periodStart;
@@ -414,6 +415,7 @@ class PayrollHistoryItem {
 
   const PayrollHistoryItem({
     required this.entryId,
+    this.employeeName = '',
     required this.periodId,
     required this.periodTitle,
     required this.periodStart,
@@ -434,6 +436,7 @@ class PayrollHistoryItem {
   factory PayrollHistoryItem.fromMap(Map<String, dynamic> map) {
     return PayrollHistoryItem(
       entryId: (map['entry_id'] ?? '').toString(),
+      employeeName: (map['employee_name'] ?? '').toString(),
       periodId: (map['period_id'] ?? '').toString(),
       periodTitle: (map['period_title'] ?? '').toString(),
       periodStart: DateTime.parse((map['period_start']).toString()),

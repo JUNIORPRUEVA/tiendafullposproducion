@@ -416,6 +416,7 @@ export class PayrollService {
 
       history.push({
         entry_id: entries.length > 0 ? entries[0].id : `period_${period.id}`,
+        employee_name: employee?.nombre ?? '',
         period_id: period.id,
         period_title: period.title,
         period_start: period.startDate.toISOString(),
