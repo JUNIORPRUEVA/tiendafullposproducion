@@ -20,8 +20,24 @@ export class ProductsController {
   private readonly uploadDir: string;
   private readonly publicBaseUrl: string;
 
+  private resolveUploadDir(config: ConfigService): string {
+    const fromEnv = (config.get<string>('UPLOAD_DIR') ?? '').trim();
+    const volumeDir = '/uploads';
+    const volumeExists = fs.existsSync(volumeDir);
+
+    if (fromEnv.length > 0) {
+      if ((fromEnv == './uploads' || fromEnv == 'uploads') && volumeExists) {
+        return volumeDir;
+      }
+      return fromEnv;
+    }
+
+    if (volumeExists) return volumeDir;
+    return join(process.cwd(), 'uploads');
+  }
+
   constructor(private readonly products: ProductsService, config: ConfigService) {
-    const dir = config.get<string>('UPLOAD_DIR') ?? join(process.cwd(), 'uploads');
+    const dir = this.resolveUploadDir(config);
     this.uploadDir = dir.trim();
     const base = config.get<string>('PUBLIC_BASE_URL') ?? config.get<string>('API_BASE_URL') ?? '';
     this.publicBaseUrl = base.trim().replace(/\/$/, '');
@@ -54,7 +70,12 @@ export class ProductsController {
     FileInterceptor('file', {
       storage: diskStorage({
         destination: (_req: Express.Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
-          const dir = process.env.UPLOAD_DIR?.trim() || join(process.cwd(), 'uploads');
+          const fromEnv = (process.env.UPLOAD_DIR ?? '').trim();
+          const volumeDir = '/uploads';
+          const volumeExists = fs.existsSync(volumeDir);
+          const dir = fromEnv.length > 0
+            ? ((fromEnv == './uploads' || fromEnv == 'uploads') && volumeExists ? volumeDir : fromEnv)
+            : (volumeExists ? volumeDir : join(process.cwd(), 'uploads'));
           fs.mkdirSync(dir, { recursive: true });
           cb(null, dir);
         },

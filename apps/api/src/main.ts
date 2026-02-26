@@ -19,7 +19,14 @@ async function bootstrap() {
     .split(',')
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
-  const uploadDir = (config.get<string>('UPLOAD_DIR') ?? path.join(process.cwd(), 'uploads')).trim();
+  const uploadDirEnv = (config.get<string>('UPLOAD_DIR') ?? '').trim();
+  const volumeDir = '/uploads';
+  const volumeExists = fs.existsSync(volumeDir);
+  const uploadDir = uploadDirEnv.length > 0
+    ? ((uploadDirEnv === './uploads' || uploadDirEnv === 'uploads') && volumeExists
+        ? volumeDir
+        : uploadDirEnv)
+    : (volumeExists ? volumeDir : path.join(process.cwd(), 'uploads'));
 
   fs.mkdirSync(uploadDir, { recursive: true });
   app.use('/uploads', express.static(uploadDir));
