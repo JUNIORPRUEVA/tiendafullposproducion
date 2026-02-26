@@ -9,6 +9,7 @@ import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../nomina/data/nomina_repository.dart';
 import 'application/ventas_controller.dart';
+import 'data/ventas_repository.dart';
 import 'sales_models.dart';
 import 'utils/sales_pdf_service.dart';
 
@@ -86,37 +87,38 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
         ],
       ),
       drawer: AppDrawer(currentUser: user),
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          FloatingActionButton.extended(
-            heroTag: 'sales_summary_fab',
-            onPressed: () => _openSummaryDialog(context, state, goal),
-            icon: const Icon(Icons.summarize_outlined),
-            label: const Text('Resumen'),
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'sales_new_fab',
+        onPressed: () async {
+          final created = await context.push<bool>(Routes.registrarVenta);
+          if (created == true) {
+            await ref.read(ventasControllerProvider.notifier).refresh();
+          }
+        },
+        icon: const Icon(Icons.add_shopping_cart),
+        label: const Text('Registrar venta'),
+      ),
+      bottomNavigationBar: SafeArea(
+        minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: SizedBox(
+          height: 50,
+          child: FilledButton.icon(
+            onPressed: () => _openSalesHistoryDialog(context),
+            icon: const Icon(Icons.history),
+            label: const Text('Historial de ventas'),
           ),
-          const SizedBox(height: 10),
-          FloatingActionButton.extended(
-            heroTag: 'sales_new_fab',
-            onPressed: () async {
-              final created = await context.push<bool>(Routes.registrarVenta);
-              if (created == true) {
-                await ref.read(ventasControllerProvider.notifier).refresh();
-              }
-            },
-            icon: const Icon(Icons.add_shopping_cart),
-            label: const Text('Registrar venta'),
-          ),
-        ],
+        ),
       ),
       body: RefreshIndicator(
         onRefresh: () => ref.read(ventasControllerProvider.notifier).refresh(),
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
           children: [
             _buildGoalCompact(state, goal),
             const SizedBox(height: 10),
+            _buildCurrentQuincenaCard(state, goal),
+            const SizedBox(height: 10),
+            _buildSalesByDayStats(state),
             if (state.loading) const LinearProgressIndicator(),
             if (state.error != null) ...[
               const SizedBox(height: 8),
@@ -125,7 +127,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ],
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             if (state.sales.isEmpty && !state.loading)
               Card(
                 child: Padding(
@@ -134,7 +136,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                     children: [
                       const Icon(Icons.receipt_long_outlined, size: 44),
                       const SizedBox(height: 8),
-                      const Text('No hay ventas en este rango'),
+                      const Text('No hay ventas registradas en esta quincena'),
                       const SizedBox(height: 12),
                       FilledButton.icon(
                         onPressed: () async {
@@ -148,56 +150,12 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                           }
                         },
                         icon: const Icon(Icons.add),
-                        label: const Text('Registrar primera venta'),
+                        label: const Text('Registrar venta'),
                       ),
                     ],
                   ),
                 ),
               ),
-            ...state.sales.map(
-              (sale) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Card(
-                  child: ListTile(
-                    onTap: () => _showDetailsDialog(context, sale),
-                    leading: CircleAvatar(
-                      radius: 16,
-                      backgroundColor: Theme.of(
-                        context,
-                      ).colorScheme.primary.withValues(alpha: 0.12),
-                      child: Icon(
-                        Icons.receipt_long_outlined,
-                        size: 17,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 6,
-                    ),
-                    title: Text(
-                      '${_date(sale.saleDate ?? DateTime.now())} · ${sale.customerName ?? 'Sin cliente'} · Vendido ${_money(sale.totalSold)} · Utilidad ${_money(sale.totalProfit)} · Comisión ${_money(sale.commissionAmount)}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                      ),
-                    ),
-                    trailing: PopupMenuButton<String>(
-                      onSelected: (value) async {
-                        if (value == 'delete') {
-                          await _deleteSale(context, sale.id);
-                        }
-                      },
-                      itemBuilder: (context) => const [
-                        PopupMenuItem(value: 'delete', child: Text('Eliminar')),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
           ],
         ),
       ),
@@ -208,11 +166,12 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
     final progress = goal <= 0
         ? 0.0
         : (state.summary.totalSold / goal).clamp(0.0, 1.0).toDouble();
-    final progressLabel = '${(progress * 100).toStringAsFixed(1)}%';
+    final progressLabel = '${(progress * 100).toStringAsFixed(0)}%';
+    final reachedGoal = goal > 0 && state.summary.totalSold >= goal;
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -222,27 +181,236 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Meta de ventas quincena · ${_date(state.from)} - ${_date(state.to)}',
+                    'Embudo de meta quincenal',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
-                Text(
-                  progressLabel,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: reachedGoal
+                        ? Colors.green.withValues(alpha: 0.12)
+                        : Colors.orange.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Text(
+                    progressLabel,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
                 ),
               ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${_date(state.from)} - ${_date(state.to)} · Meta mínima: ${_money(goal)}',
+              style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 8),
             LinearProgressIndicator(value: progress),
             const SizedBox(height: 8),
             Text(
-              'Meta: ${_money(goal)} · Acumulado: ${_money(state.summary.totalSold)}',
+              'Acumulado actual: ${_money(state.summary.totalSold)}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.bodySmall,
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCurrentQuincenaCard(VentasState state, double goal) {
+    final reachedGoal = goal > 0 && state.summary.totalSold >= goal;
+    final lockColor = reachedGoal ? Colors.green : Colors.red;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.event_note_outlined, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Quincena actual fija',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                Text(
+                  '${_date(state.from)} - ${_date(state.to)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _miniMetric(
+                    'Total vendido',
+                    _money(state.summary.totalSold),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _miniMetric(
+                    'Total puntos',
+                    state.summary.totalSales.toString(),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+              decoration: BoxDecoration(
+                color: lockColor.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: lockColor.withValues(alpha: 0.35)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    reachedGoal ? Icons.lock_open_outlined : Icons.lock_outline,
+                    color: lockColor,
+                  ),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Comisión por ventas',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  Text(
+                    reachedGoal
+                        ? _money(state.summary.totalCommission)
+                        : 'BLOQUEADA',
+                    style: TextStyle(
+                      color: lockColor,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              reachedGoal
+                  ? 'Meta alcanzada: beneficios desbloqueados.'
+                  : 'Debes alcanzar la meta mínima para desbloquear beneficios extras.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _miniMetric(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 2),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w800)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSalesByDayStats(VentasState state) {
+    final totalsByDay = <String, double>{};
+    for (final sale in state.sales) {
+      final date = sale.saleDate ?? DateTime.now();
+      final key = DateFormat('dd/MM').format(date);
+      totalsByDay.update(
+        key,
+        (value) => value + sale.totalSold,
+        ifAbsent: () => sale.totalSold,
+      );
+    }
+
+    final entries = totalsByDay.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final top = entries.take(6).toList();
+    final maxValue = top.isEmpty ? 1.0 : top.first.value;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.bar_chart_outlined, size: 18),
+                SizedBox(width: 8),
+                Text(
+                  'Ventas por día',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (top.isEmpty)
+              Text(
+                'Aún no hay datos para estadísticas de días.',
+                style: Theme.of(context).textTheme.bodySmall,
+              )
+            else
+              ...top.map((entry) {
+                final ratio = (entry.value / maxValue).clamp(0.0, 1.0);
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 48,
+                        child: Text(
+                          entry.key,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: LinearProgressIndicator(value: ratio),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        width: 90,
+                        child: Text(
+                          _money(entry.value),
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
           ],
         ),
       ),
@@ -598,170 +766,164 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
     );
   }
 
-  void _openSummaryDialog(
-    BuildContext context,
-    VentasState state,
-    double goal,
-  ) {
-    final reachedGoal = goal > 0 && state.summary.totalSold >= goal;
-    final gainUnlocked = goal <= 0 || reachedGoal;
-    final gainColor = gainUnlocked ? Colors.green : Colors.red;
+  Future<void> _openSalesHistoryDialog(BuildContext context) async {
+    final repo = ref.read(ventasRepositoryProvider);
+    DateTime from = DateTime(DateTime.now().year, DateTime.now().month, 1);
+    DateTime to = DateTime.now();
+    List<SaleModel> items = const [];
+    bool loading = false;
+    String? error;
+    bool initialized = false;
 
-    showDialog<void>(
+    Future<void> load(StateSetter setStateDialog) async {
+      setStateDialog(() {
+        loading = true;
+        error = null;
+      });
+      try {
+        final rows = await repo.listSales(from: from, to: to);
+        if (!context.mounted) return;
+        setStateDialog(() {
+          items = rows;
+          loading = false;
+        });
+      } catch (e) {
+        if (!context.mounted) return;
+        setStateDialog(() {
+          loading = false;
+          error = '$e';
+        });
+      }
+    }
+
+    await showDialog<void>(
       context: context,
-      builder: (context) {
-        final theme = Theme.of(context);
+      builder: (context) => StatefulBuilder(
+        builder: (context, setStateDialog) {
+          if (!initialized) {
+            initialized = true;
+            WidgetsBinding.instance.addPostFrameCallback(
+              (_) => load(setStateDialog),
+            );
+          }
 
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.summarize_outlined, color: theme.colorScheme.primary),
-              const SizedBox(width: 8),
-              const Text('Resumen de ventas'),
-            ],
-          ),
-          content: SizedBox(
-            width: 560,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Rango: ${_date(state.from)} - ${_date(state.to)}',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 10),
-                _summaryItem(
-                  context,
-                  icon: Icons.point_of_sale_outlined,
-                  label: 'Total vendido',
-                  value: _money(state.summary.totalSold),
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(height: 8),
-                _summaryItem(
-                  context,
-                  icon: Icons.shopping_bag_outlined,
-                  label: 'Total costo',
-                  value: _money(state.summary.totalCost),
-                  color: Colors.blueGrey,
-                ),
-                const SizedBox(height: 8),
-                _summaryItem(
-                  context,
-                  icon: Icons.trending_up_outlined,
-                  label: 'Utilidad total',
-                  value: _money(state.summary.totalProfit),
-                  color: Colors.teal,
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: gainColor.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: gainColor.withValues(alpha: 0.40),
-                    ),
-                  ),
-                  child: Row(
+          return AlertDialog(
+            title: const Text('Historial de ventas'),
+            content: SizedBox(
+              width: 720,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
                     children: [
-                      Icon(
-                        gainUnlocked
-                            ? Icons.workspace_premium_outlined
-                            : Icons.lock_outline,
-                        color: gainColor,
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: from,
+                              firstDate: DateTime(2024),
+                              lastDate: DateTime(2100),
+                            );
+                            if (picked == null) return;
+                            setStateDialog(
+                              () => from = DateTime(
+                                picked.year,
+                                picked.month,
+                                picked.day,
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.event),
+                          label: Text('Desde ${_date(from)}'),
+                        ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Ganancia del usuario',
-                              style: TextStyle(
-                                color: gainColor,
-                                fontWeight: FontWeight.w800,
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: to,
+                              firstDate: DateTime(2024),
+                              lastDate: DateTime(2100),
+                            );
+                            if (picked == null) return;
+                            setStateDialog(
+                              () => to = DateTime(
+                                picked.year,
+                                picked.month,
+                                picked.day,
                               ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              gainUnlocked
-                                  ? 'Disponible por meta alcanzada'
-                                  : 'Bloqueada: no le pertenece hasta cumplir la meta',
-                              style: TextStyle(
-                                color: gainColor,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
+                            );
+                          },
+                          icon: const Icon(Icons.event_available),
+                          label: Text('Hasta ${_date(to)}'),
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        gainUnlocked
-                            ? _money(state.summary.totalCommission)
-                            : 'BLOQUEADA',
-                        style: TextStyle(
-                          color: gainColor,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 15,
-                        ),
+                      FilledButton(
+                        onPressed: loading ? null : () => load(setStateDialog),
+                        child: const Text('Filtrar'),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Meta quincenal: ${_money(goal)}',
-                  style: theme.textTheme.bodySmall,
-                ),
-                Text(
-                  'La ganancia del usuario se habilita al cumplir la meta quincenal. Si aún no llega a la meta, ese monto aparece bloqueado.',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
+                  const SizedBox(height: 10),
+                  if (loading) const LinearProgressIndicator(),
+                  if (error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 380,
+                    child: items.isEmpty && !loading
+                        ? const Center(
+                            child: Text('No hay ventas en este rango'),
+                          )
+                        : ListView.separated(
+                            itemCount: items.length,
+                            separatorBuilder: (_, __) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final sale = items[index];
+                              return ListTile(
+                                onTap: () => _showDetailsDialog(context, sale),
+                                title: Text(
+                                  '${_date(sale.saleDate ?? DateTime.now())} · ${sale.customerName ?? 'Sin cliente'}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  'Vendido ${_money(sale.totalSold)} · Comisión ${_money(sale.commissionAmount)}',
+                                ),
+                                trailing: IconButton(
+                                  tooltip: 'Eliminar',
+                                  onPressed: () =>
+                                      _deleteSale(context, sale.id),
+                                  icon: const Icon(Icons.delete_outline),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cerrar'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _summaryItem(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 18),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w800)),
-        ],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cerrar'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

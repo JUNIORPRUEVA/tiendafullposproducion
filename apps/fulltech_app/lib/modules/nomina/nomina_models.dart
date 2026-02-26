@@ -1,4 +1,4 @@
- enum PayrollPeriodStatus { open, closed }
+enum PayrollPeriodStatus { open, closed }
 
 enum PayrollEntryType {
   ausencia,
@@ -167,7 +167,7 @@ class PayrollEmployee {
       telefono: map['telefono'] as String?,
       puesto: map['puesto'] as String?,
       cuotaMinima: (map['cuota_minima'] as num?)?.toDouble() ?? 0,
-        seguroLeyMonto:
+      seguroLeyMonto:
           (map['seguro_ley_monto'] as num?)?.toDouble() ??
           (map['seguro_ley_pct'] as num?)?.toDouble() ??
           0,
@@ -369,6 +369,11 @@ class PayrollEntry {
 class PayrollTotals {
   final double baseSalary;
   final double commissions;
+  final double salesCommissionAuto;
+  final double salesAmountThisPeriod;
+  final double salesGoal;
+  final bool salesGoalReached;
+  final String salesCommissionSource;
   final double bonuses;
   final double otherAdditions;
   final double absences;
@@ -383,6 +388,11 @@ class PayrollTotals {
   const PayrollTotals({
     required this.baseSalary,
     this.commissions = 0,
+    this.salesCommissionAuto = 0,
+    this.salesAmountThisPeriod = 0,
+    this.salesGoal = 0,
+    this.salesGoalReached = false,
+    this.salesCommissionSource = 'manual',
     this.bonuses = 0,
     this.otherAdditions = 0,
     this.absences = 0,
@@ -443,7 +453,8 @@ class PayrollHistoryItem {
       periodEnd: DateTime.parse((map['period_end']).toString()),
       periodStatus: (map['period_status'] ?? 'DRAFT').toString(),
       baseSalary: (map['base_salary'] as num?)?.toDouble() ?? 0,
-      commissionFromSales: (map['commission_from_sales'] as num?)?.toDouble() ?? 0,
+      commissionFromSales:
+          (map['commission_from_sales'] as num?)?.toDouble() ?? 0,
       overtimeAmount: (map['overtime_amount'] as num?)?.toDouble() ?? 0,
       bonusesAmount: (map['bonuses_amount'] as num?)?.toDouble() ?? 0,
       deductionsAmount: (map['deductions_amount'] as num?)?.toDouble() ?? 0,

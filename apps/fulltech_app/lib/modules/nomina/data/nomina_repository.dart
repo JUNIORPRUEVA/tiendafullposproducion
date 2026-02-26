@@ -36,10 +36,10 @@ class NominaRepository {
   }
 
   Future<bool> hasOverlappingOpenPeriod(DateTime start, DateTime end) async {
-    final res = await _getMap(ApiRoutes.payrollPeriodOpenOverlap, query: {
-      'start': start.toIso8601String(),
-      'end': end.toIso8601String(),
-    });
+    final res = await _getMap(
+      ApiRoutes.payrollPeriodOpenOverlap,
+      query: {'start': start.toIso8601String(), 'end': end.toIso8601String()},
+    );
     return res['overlaps'] == true;
   }
 
@@ -57,12 +57,18 @@ class NominaRepository {
   }
 
   Future<PayrollPeriod> ensureCurrentOpenPeriod() async {
-    final data = await _postMap(ApiRoutes.payrollPeriodEnsureCurrentOpen, const {});
+    final data = await _postMap(
+      ApiRoutes.payrollPeriodEnsureCurrentOpen,
+      const {},
+    );
     return PayrollPeriod.fromMap(data);
   }
 
   Future<PayrollPeriod> createNextOpenPeriod(PayrollPeriod closed) async {
-    final data = await _postMap(ApiRoutes.payrollPeriodNextOpen(closed.id), const {});
+    final data = await _postMap(
+      ApiRoutes.payrollPeriodNextOpen(closed.id),
+      const {},
+    );
     return PayrollPeriod.fromMap(data);
   }
 
@@ -71,14 +77,17 @@ class NominaRepository {
   }
 
   Future<List<PayrollEmployee>> listEmployees({bool activeOnly = true}) async {
-    final rows = await _getList(ApiRoutes.payrollEmployees, query: {
-      'activeOnly': activeOnly.toString(),
-    });
+    final rows = await _getList(
+      ApiRoutes.payrollEmployees,
+      query: {'activeOnly': activeOnly.toString()},
+    );
     return rows.map(PayrollEmployee.fromMap).toList();
   }
 
   Future<PayrollEmployee?> getEmployeeById(String employeeId) async {
-    final data = await _getMapOrNull(ApiRoutes.payrollEmployeeDetail(employeeId));
+    final data = await _getMapOrNull(
+      ApiRoutes.payrollEmployeeDetail(employeeId),
+    );
     if (data == null) return null;
     return PayrollEmployee.fromMap(data);
   }
@@ -100,10 +109,10 @@ class NominaRepository {
     String periodId,
     String employeeId,
   ) async {
-    final data = await _getMapOrNull(ApiRoutes.payrollConfig, query: {
-      'periodId': periodId,
-      'employeeId': employeeId,
-    });
+    final data = await _getMapOrNull(
+      ApiRoutes.payrollConfig,
+      query: {'periodId': periodId, 'employeeId': employeeId},
+    );
     if (data == null) return null;
     return PayrollEmployeeConfig.fromMap(data);
   }
@@ -125,11 +134,14 @@ class NominaRepository {
     return PayrollEmployeeConfig.fromMap(data);
   }
 
-  Future<List<PayrollEntry>> listEntries(String periodId, String employeeId) async {
-    final rows = await _getList(ApiRoutes.payrollEntries, query: {
-      'periodId': periodId,
-      'employeeId': employeeId,
-    });
+  Future<List<PayrollEntry>> listEntries(
+    String periodId,
+    String employeeId,
+  ) async {
+    final rows = await _getList(
+      ApiRoutes.payrollEntries,
+      query: {'periodId': periodId, 'employeeId': employeeId},
+    );
     return rows.map(PayrollEntry.fromMap).toList();
   }
 
@@ -150,15 +162,24 @@ class NominaRepository {
     await _delete(ApiRoutes.payrollEntryDetail(entryId));
   }
 
-  Future<PayrollTotals> computeTotals(String periodId, String employeeId) async {
-    final map = await _getMap(ApiRoutes.payrollTotals, query: {
-      'periodId': periodId,
-      'employeeId': employeeId,
-    });
+  Future<PayrollTotals> computeTotals(
+    String periodId,
+    String employeeId,
+  ) async {
+    final map = await _getMap(
+      ApiRoutes.payrollTotals,
+      query: {'periodId': periodId, 'employeeId': employeeId},
+    );
 
     return PayrollTotals(
       baseSalary: _num(map['baseSalary']),
       commissions: _num(map['commissions']),
+      salesCommissionAuto: _num(map['salesCommissionAuto']),
+      salesAmountThisPeriod: _num(map['salesAmountThisPeriod']),
+      salesGoal: _num(map['salesGoal']),
+      salesGoalReached: map['salesGoalReached'] == true,
+      salesCommissionSource: (map['salesCommissionSource'] ?? 'manual')
+          .toString(),
       bonuses: _num(map['bonuses']),
       otherAdditions: _num(map['otherAdditions']),
       absences: _num(map['absences']),
@@ -211,7 +232,10 @@ class NominaRepository {
       }
       throw ApiException('Respuesta inválida del servidor');
     } on DioException catch (e) {
-      throw ApiException(_extractMessage(e, 'Error consultando nómina'), e.response?.statusCode);
+      throw ApiException(
+        _extractMessage(e, 'Error consultando nómina'),
+        e.response?.statusCode,
+      );
     }
   }
 
@@ -231,7 +255,10 @@ class NominaRepository {
       return null;
     } on DioException catch (e) {
       if (e.response?.statusCode == 404) return null;
-      throw ApiException(_extractMessage(e, 'Error consultando nómina'), e.response?.statusCode);
+      throw ApiException(
+        _extractMessage(e, 'Error consultando nómina'),
+        e.response?.statusCode,
+      );
     }
   }
 
@@ -248,11 +275,17 @@ class NominaRepository {
           .map((row) => row.cast<String, dynamic>())
           .toList();
     } on DioException catch (e) {
-      throw ApiException(_extractMessage(e, 'Error consultando nómina'), e.response?.statusCode);
+      throw ApiException(
+        _extractMessage(e, 'Error consultando nómina'),
+        e.response?.statusCode,
+      );
     }
   }
 
-  Future<Map<String, dynamic>> _postMap(String path, Map<String, dynamic> body) async {
+  Future<Map<String, dynamic>> _postMap(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     try {
       final res = await _dio.post(path, data: body);
       if (res.data is Map<String, dynamic>) {
@@ -263,7 +296,10 @@ class NominaRepository {
       }
       throw ApiException('Respuesta inválida del servidor');
     } on DioException catch (e) {
-      throw ApiException(_extractMessage(e, 'No se pudo guardar nómina'), e.response?.statusCode);
+      throw ApiException(
+        _extractMessage(e, 'No se pudo guardar nómina'),
+        e.response?.statusCode,
+      );
     }
   }
 
@@ -271,7 +307,10 @@ class NominaRepository {
     try {
       await _dio.patch(path);
     } on DioException catch (e) {
-      throw ApiException(_extractMessage(e, 'No se pudo actualizar nómina'), e.response?.statusCode);
+      throw ApiException(
+        _extractMessage(e, 'No se pudo actualizar nómina'),
+        e.response?.statusCode,
+      );
     }
   }
 
@@ -279,7 +318,10 @@ class NominaRepository {
     try {
       await _dio.delete(path);
     } on DioException catch (e) {
-      throw ApiException(_extractMessage(e, 'No se pudo eliminar movimiento'), e.response?.statusCode);
+      throw ApiException(
+        _extractMessage(e, 'No se pudo eliminar movimiento'),
+        e.response?.statusCode,
+      );
     }
   }
 

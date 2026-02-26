@@ -274,8 +274,11 @@ export class PayrollService {
       this.listEntries(ownerId, periodId, employeeId),
     ]);
 
+    const period = await this.getPeriodById(ownerId, periodId);
+
     const base = this.toNumber(config?.baseSalary);
-    let commissions = 0;
+    let manualServiceCommissions = 0;
+    let manualSalesCommissions = 0;
     let bonuses = 0;
     let otherAdditions = 0;
     let absences = 0;
@@ -287,8 +290,10 @@ export class PayrollService {
       const amount = this.toNumber(entry.amount);
       switch (entry.type) {
         case PayrollEntryType.COMISION_SERVICIO:
+          if (amount >= 0) manualServiceCommissions += amount;
+          break;
         case PayrollEntryType.COMISION_VENTAS:
-          if (amount >= 0) commissions += amount;
+          if (amount >= 0) manualSalesCommissions += amount;
           break;
         case PayrollEntryType.BONIFICACION:
         case PayrollEntryType.PAGO_COMBUSTIBLE:
@@ -316,6 +321,21 @@ export class PayrollService {
       }
     }
 
+    const hasLinkedSalesUser = Boolean(await this.resolveSalesUserIdForEmployee(ownerId, employee));
+    const automaticSales = await this.computeAutomaticSalesCommissionForEmployee({
+      ownerId,
+      employee,
+      includeCommissions: config?.includeCommissions ?? true,
+      periodStart: period?.startDate,
+      periodEnd: period?.endDate,
+    });
+
+    const commissions =
+      manualServiceCommissions +
+      (automaticSales.usedAutomatic
+        ? automaticSales.commissionAmount
+        : manualSalesCommissions);
+
     const seguroLey = Math.max(
       0,
       this.toNumber(
@@ -337,6 +357,15 @@ export class PayrollService {
       advances,
       otherDeductions,
       seguroLey,
+      salesCommissionAuto: automaticSales.commissionAmount,
+      salesAmountThisPeriod: automaticSales.salesAmount,
+      salesGoal: automaticSales.goal,
+      salesGoalReached: automaticSales.goalReached,
+      salesCommissionSource: automaticSales.usedAutomatic
+        ? 'automatic'
+        : hasLinkedSalesUser
+          ? 'automatic_disabled'
+          : 'manual',
       additions,
       deductions,
       total,
@@ -376,7 +405,8 @@ export class PayrollService {
             ?.seguroLeyMonto,
         ),
       );
-      let commissionFromSales = 0;
+          let manualServiceCommissions = 0;
+          let manualSalesCommissions = 0;
       let overtimeAmount = 0;
       let bonusesAmount = 0;
       let deductionsAmount = 0;
@@ -386,8 +416,10 @@ export class PayrollService {
         const amount = this.toNumber(entry.amount);
         switch (entry.type) {
           case PayrollEntryType.COMISION_SERVICIO:
+            manualServiceCommissions += amount;
+            break;
           case PayrollEntryType.COMISION_VENTAS:
-            commissionFromSales += amount;
+            manualSalesCommissions += amount;
             break;
           case PayrollEntryType.BONIFICACION:
           case PayrollEntryType.PAGO_COMBUSTIBLE:
@@ -408,6 +440,20 @@ export class PayrollService {
             break;
         }
       }
+
+      const automaticSales = await this.computeAutomaticSalesCommissionForEmployee({
+        ownerId,
+        employee,
+        includeCommissions: config?.includeCommissions ?? true,
+        periodStart: period.startDate,
+        periodEnd: period.endDate,
+      });
+
+      const commissionFromSales =
+        manualServiceCommissions +
+        (automaticSales.usedAutomatic
+          ? automaticSales.commissionAmount
+          : manualSalesCommissions);
 
       const additions = commissionFromSales + overtimeAmount + bonusesAmount + benefitsAmount;
       const grossTotal = baseSalary + additions;
@@ -431,6 +477,10 @@ export class PayrollService {
         gross_total: grossTotal,
         net_total: netTotal,
         seguro_ley_monto: seguroLey,
+        sales_commission_auto: automaticSales.commissionAmount,
+        sales_amount_this_period: automaticSales.salesAmount,
+        sales_goal: automaticSales.goal,
+        sales_goal_reached: automaticSales.goalReached,
       });
     }
 
@@ -529,6 +579,117 @@ export class PayrollService {
     }
 
     return 0;
+  }
+
+  private async computeAutomaticSalesCommissionForEmployee(params: {
+    ownerId: string;
+    employee: { id: string; nombre: string; telefono: string | null; cuotaMinima: unknown } | null;
+    includeCommissions: boolean;
+    periodStart?: Date;
+    periodEnd?: Date;
+  }) {
+    const { ownerId, employee, includeCommissions, periodStart, periodEnd } = params;
+
+    const goal = Math.max(0, this.toNumber(employee?.cuotaMinima));
+
+    if (!includeCommissions || !periodStart || !periodEnd || !employee) {
+      return {
+        usedAutomatic: false,
+        salesAmount: 0,
+        commissionAmount: 0,
+        goal,
+        goalReached: false,
+      };
+    }
+
+    const salesUserId = await this.resolveSalesUserIdForEmployee(ownerId, employee);
+    if (!salesUserId) {
+      return {
+        usedAutomatic: false,
+        salesAmount: 0,
+        commissionAmount: 0,
+        goal,
+        goalReached: false,
+      };
+    }
+
+    const start = new Date(periodStart.getFullYear(), periodStart.getMonth(), periodStart.getDate(), 0, 0, 0, 0);
+    const endExclusive = new Date(periodEnd.getFullYear(), periodEnd.getMonth(), periodEnd.getDate() + 1, 0, 0, 0, 0);
+
+    const aggregate = await this.prisma.sale.aggregate({
+      where: {
+        userId: salesUserId,
+        isDeleted: false,
+        saleDate: {
+          gte: start,
+          lt: endExclusive,
+        },
+      },
+      _sum: {
+        totalSold: true,
+        commissionAmount: true,
+      },
+    });
+
+    const salesAmount = this.toNumber(aggregate._sum.totalSold);
+    const totalSalesCommission = this.toNumber(aggregate._sum.commissionAmount);
+    const goalReached = goal <= 0 ? salesAmount > 0 : salesAmount >= goal;
+
+    return {
+      usedAutomatic: true,
+      salesAmount,
+      commissionAmount: goalReached ? totalSalesCommission : 0,
+      goal,
+      goalReached,
+    };
+  }
+
+  private async resolveSalesUserIdForEmployee(
+    ownerId: string,
+    employee: { id: string; nombre: string; telefono: string | null } | null,
+  ) {
+    if (!employee) return null;
+
+    const userById = await this.prisma.user.findUnique({
+      where: { id: employee.id },
+      select: { id: true },
+    });
+    if (userById) return userById.id;
+
+    const trimmedName = employee.nombre.trim();
+    if (!trimmedName) return null;
+
+    const phone = (employee.telefono ?? '').trim();
+    const users = await this.prisma.user.findMany({
+      where: {
+        nombreCompleto: trimmedName,
+        ...(phone.length > 0 ? { telefono: phone } : {}),
+      },
+      select: { id: true },
+      take: 2,
+    });
+
+    if (users.length === 1) return users[0].id;
+
+    const payrollUsers = await this.prisma.payrollEmployee.findMany({
+      where: {
+        ownerId,
+        nombre: trimmedName,
+        ...(phone.length > 0 ? { telefono: phone } : {}),
+      },
+      select: { id: true },
+      take: 2,
+    });
+
+    if (payrollUsers.length === 1) {
+      const userByPayrollId = await this.prisma.user.findUnique({
+        where: { id: payrollUsers[0].id },
+        select: { id: true },
+      });
+      return userByPayrollId?.id ?? null;
+    }
+
+    return null;
   }
 
   private toNumber(value: Prisma.Decimal | number | string | null | undefined) {

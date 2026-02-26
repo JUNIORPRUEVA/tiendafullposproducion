@@ -147,12 +147,16 @@ class NominaScreen extends ConsumerWidget {
                                   Icon(
                                     Icons.event_note_outlined,
                                     size: 40,
-                                    color: Theme.of(context).colorScheme.primary,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
                                   ),
                                   const SizedBox(height: 8),
                                   const Text(
                                     'Aún no hay quincenas creadas',
-                                    style: TextStyle(fontWeight: FontWeight.w600),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                   const SizedBox(height: 4),
                                   const Text(
@@ -173,7 +177,8 @@ class NominaScreen extends ConsumerWidget {
                         else ...[
                           Text(
                             'Quincenas',
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -183,7 +188,11 @@ class NominaScreen extends ConsumerWidget {
                             (period) => _PeriodCard(
                               period: period,
                               onClose: period.isOpen
-                                  ? () => _confirmClosePeriod(context, ref, period)
+                                  ? () => _confirmClosePeriod(
+                                      context,
+                                      ref,
+                                      period,
+                                    )
                                   : null,
                             ),
                           ),
@@ -194,14 +203,16 @@ class NominaScreen extends ConsumerWidget {
                             Expanded(
                               child: Text(
                                 'Equipo de ventas (nómina)',
-                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w700,
                                     ),
                               ),
                             ),
                             OutlinedButton.icon(
-                              onPressed: () => _showEmployeeDialog(context, ref),
+                              onPressed: () =>
+                                  _showEmployeeDialog(context, ref),
                               icon: const Icon(Icons.add),
                               label: const Text('Agregar'),
                               style: OutlinedButton.styleFrom(
@@ -216,15 +227,20 @@ class NominaScreen extends ConsumerWidget {
                           const Card(
                             child: Padding(
                               padding: EdgeInsets.all(14),
-                              child: Text('No hay empleados de nómina registrados.'),
+                              child: Text(
+                                'No hay empleados de nómina registrados.',
+                              ),
                             ),
                           )
                         else
                           ...state.employees.map(
                             (employee) => _EmployeeCard(
                               employee: employee,
-                              onManage: () =>
-                                  _showEmployeePayrollDialog(context, ref, employee),
+                              onManage: () => _showEmployeePayrollDialog(
+                                context,
+                                ref,
+                                employee,
+                              ),
                               onEdit: () => _showEmployeeDialog(
                                 context,
                                 ref,
@@ -420,9 +436,9 @@ class NominaScreen extends ConsumerWidget {
     final state = ref.read(nominaHomeControllerProvider);
     final open = state.openPeriod;
     if (open == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No hay quincena abierta')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No hay quincena abierta')));
       return;
     }
 
@@ -459,7 +475,28 @@ class NominaScreen extends ConsumerWidget {
                 children: [
                   Text('Quincena: ${open.title}'),
                   const SizedBox(height: 6),
-                  Text('Salario base: ${money.format(config?.baseSalary ?? 0)}'),
+                  Text(
+                    'Salario base: ${money.format(config?.baseSalary ?? 0)}',
+                  ),
+                  Text(
+                    'Comisión por ventas (auto): ${money.format(totals.salesCommissionAuto)}',
+                    style: TextStyle(
+                      color: totals.salesGoalReached
+                          ? Theme.of(context).colorScheme.primary
+                          : Theme.of(context).colorScheme.error,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    'Meta: ${money.format(totals.salesGoal)} · Vendido: ${money.format(totals.salesAmountThisPeriod)}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  Text(
+                    totals.salesGoalReached
+                        ? 'Meta alcanzada: comisión por ventas habilitada automáticamente.'
+                        : 'Meta no alcanzada: comisión por ventas en RD\$0.00.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                   Text('Seguro ley: ${money.format(totals.seguroLey)}'),
                   Text(
                     'Total neto: ${money.format(totals.total)}',
@@ -493,7 +530,8 @@ class NominaScreen extends ConsumerWidget {
                     controller: conceptCtrl,
                     decoration: const InputDecoration(
                       labelText: 'Concepto',
-                      hintText: 'Ej: Ausencia 12/02, bonificación por meta, combustible...',
+                      hintText:
+                          'Ej: Ausencia 12/02, bonificación por meta, combustible...',
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -505,7 +543,9 @@ class NominaScreen extends ConsumerWidget {
                           keyboardType: const TextInputType.numberWithOptions(
                             decimal: true,
                           ),
-                          decoration: const InputDecoration(labelText: 'Cantidad'),
+                          decoration: const InputDecoration(
+                            labelText: 'Cantidad',
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -528,22 +568,28 @@ class NominaScreen extends ConsumerWidget {
                       final concept = conceptCtrl.text.trim();
                       if (concept.isEmpty) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Debes escribir un concepto')),
+                          const SnackBar(
+                            content: Text('Debes escribir un concepto'),
+                          ),
                         );
                         return;
                       }
                       final qty = double.tryParse(qtyCtrl.text.trim()) ?? 1;
                       if (qty <= 0) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('La cantidad debe ser > 0')),
+                          const SnackBar(
+                            content: Text('La cantidad debe ser > 0'),
+                          ),
                         );
                         return;
                       }
 
-                      final parsedAmount = double.tryParse(amountCtrl.text.trim());
+                      final parsedAmount = double.tryParse(
+                        amountCtrl.text.trim(),
+                      );
                       double amount;
 
-                        if (selectedType == PayrollEntryType.ausencia &&
+                      if (selectedType == PayrollEntryType.ausencia &&
                           parsedAmount == null) {
                         final daily = (config?.baseSalary ?? 0) / 15;
                         amount = -(daily * qty);
@@ -669,7 +715,8 @@ class NominaScreen extends ConsumerWidget {
     }
 
     final repo = ref.read(nominaRepositoryProvider);
-    final employees = [...state.employees]..sort((a, b) => a.nombre.compareTo(b.nombre));
+    final employees = [...state.employees]
+      ..sort((a, b) => a.nombre.compareTo(b.nombre));
     final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
 
     final rows = <({PayrollEmployee employee, PayrollTotals totals})>[];
@@ -704,7 +751,9 @@ class NominaScreen extends ConsumerWidget {
                     row.employee.nombre,
                     money.format(row.totals.baseSalary),
                     money.format(row.totals.commissions),
-                    money.format(row.totals.bonuses + row.totals.otherAdditions),
+                    money.format(
+                      row.totals.bonuses + row.totals.otherAdditions,
+                    ),
                     money.format(row.totals.seguroLey),
                     money.format(row.totals.deductions),
                     money.format(row.totals.total),
@@ -712,7 +761,10 @@ class NominaScreen extends ConsumerWidget {
                 )
                 .toList(),
             cellStyle: const pw.TextStyle(fontSize: 9),
-            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+            headerStyle: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 9,
+            ),
             headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
           ),
         ],
@@ -722,7 +774,10 @@ class NominaScreen extends ConsumerWidget {
     await Printing.layoutPdf(onLayout: (_) => doc.save());
   }
 
-  Future<UserModel?> _showUserPickerDialog(BuildContext context, WidgetRef ref) async {
+  Future<UserModel?> _showUserPickerDialog(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     final searchCtrl = TextEditingController();
     List<UserModel> users = const [];
 
@@ -776,7 +831,8 @@ class NominaScreen extends ConsumerWidget {
                           )
                         : ListView.separated(
                             itemCount: visible.length,
-                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            separatorBuilder: (_, __) =>
+                                const Divider(height: 1),
                             itemBuilder: (context, index) {
                               final user = visible[index];
                               return RadioListTile<String>(
@@ -795,7 +851,8 @@ class NominaScreen extends ConsumerWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
-                                onChanged: (_) => setDialogState(() => selected = user),
+                                onChanged: (_) =>
+                                    setDialogState(() => selected = user),
                               );
                             },
                           ),
