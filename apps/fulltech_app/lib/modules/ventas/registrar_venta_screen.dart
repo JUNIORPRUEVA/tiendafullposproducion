@@ -607,7 +607,9 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton(
-                      onPressed: _saving ? null : _saveSale,
+                      onPressed: _saving || _selectedClient == null
+                          ? null
+                          : _saveSale,
                       child: Padding(
                         padding: EdgeInsets.symmetric(
                           vertical: compactVertical ? 8 : 10,
@@ -1034,12 +1036,19 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
       return;
     }
 
+    if (_selectedClient == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Debes seleccionar un cliente')),
+      );
+      return;
+    }
+
     setState(() => _saving = true);
     try {
       await ref
           .read(ventasRepositoryProvider)
           .createSale(
-            customerId: _selectedClient?.id,
+            customerId: _selectedClient!.id,
             note: _noteCtrl.text,
             items: _cart,
           );

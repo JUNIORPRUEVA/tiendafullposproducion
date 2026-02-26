@@ -185,17 +185,19 @@ export class SalesService {
       throw new BadRequestException('La venta requiere al menos 1 item');
     }
 
-    if (dto.customerId) {
-      try {
-        const customer = await this.prisma.client.findFirst({
-          where: { id: dto.customerId, isDeleted: false },
-        });
-        if (!customer) {
-          throw new BadRequestException('Cliente inválido');
-        }
-      } catch (error) {
-        if (!this.isSchemaMismatch(error)) throw error;
+    if (!dto.customerId?.trim()) {
+      throw new BadRequestException('Debes seleccionar un cliente');
+    }
+
+    try {
+      const customer = await this.prisma.client.findFirst({
+        where: { id: dto.customerId, isDeleted: false },
+      });
+      if (!customer) {
+        throw new BadRequestException('Cliente inválido');
       }
+    } catch (error) {
+      if (!this.isSchemaMismatch(error)) throw error;
     }
 
     const productIds = Array.from(

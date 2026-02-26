@@ -84,20 +84,22 @@ class VentasRepository {
   }
 
   Future<void> createSale({
-    String? customerId,
+    required String customerId,
     String? note,
     required List<SaleDraftItem> items,
   }) async {
     if (items.isEmpty) {
       throw ApiException('Agrega al menos un item');
     }
+    if (customerId.trim().isEmpty) {
+      throw ApiException('Debes seleccionar un cliente');
+    }
 
     try {
       await _dio.post(
         ApiRoutes.sales,
         data: {
-          if (customerId != null && customerId.isNotEmpty)
-            'customerId': customerId,
+          'customerId': customerId,
           if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
           'items': items.map((item) => item.toPayload()).toList(),
         },
