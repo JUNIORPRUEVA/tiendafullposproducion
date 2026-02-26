@@ -263,7 +263,7 @@ class NominaScreen extends ConsumerWidget {
     );
     final salaryCtrl = TextEditingController(text: employee == null ? '0' : '');
     final seguroLeyCtrl = TextEditingController(
-      text: (employee?.seguroLeyPct ?? 0).toStringAsFixed(2),
+      text: (employee?.seguroLeyMonto ?? 0).toStringAsFixed(2),
     );
     final cuotaCtrl = TextEditingController(
       text: (employee?.cuotaMinima ?? 0).toStringAsFixed(2),
@@ -320,8 +320,8 @@ class NominaScreen extends ConsumerWidget {
                   decimal: true,
                 ),
                 decoration: const InputDecoration(
-                  labelText: 'Seguro de ley (%)',
-                  helperText: 'Porcentaje de deducción automática sobre salario base',
+                  labelText: 'Seguro de ley (monto)',
+                  helperText: 'Deducción fija por quincena',
                 ),
               ),
             ],
@@ -365,12 +365,10 @@ class NominaScreen extends ConsumerWidget {
               }
               final seguroLey =
                   double.tryParse(seguroLeyCtrl.text.trim()) ?? -1;
-              if (seguroLey < 0 || seguroLey > 100) {
+              if (seguroLey < 0) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text(
-                      'El seguro de ley debe estar entre 0 y 100',
-                    ),
+                    content: Text('El seguro de ley debe ser un monto >= 0'),
                   ),
                 );
                 return;
@@ -386,7 +384,7 @@ class NominaScreen extends ConsumerWidget {
                       puesto: roleCtrl.text,
                       salarioBase: salary,
                       cuotaMinima: cuota,
-                      seguroLeyPct: seguroLey,
+                      seguroLeyMonto: seguroLey,
                       activo: employee?.activo ?? true,
                     );
                 if (!context.mounted) return;
@@ -1061,7 +1059,7 @@ class _EmployeeCard extends StatelessWidget {
         ),
         subtitle: Text(
           'Puesto: ${employee.puesto ?? 'N/A'}\n'
-          'Cuota mínima: ${money.format(employee.cuotaMinima)} · Seguro ley: ${employee.seguroLeyPct.toStringAsFixed(2)}%',
+          'Cuota mínima: ${money.format(employee.cuotaMinima)} · Seguro ley: ${money.format(employee.seguroLeyMonto)}',
         ),
         isThreeLine: true,
         trailing: Row(

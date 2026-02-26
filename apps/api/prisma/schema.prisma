@@ -237,6 +237,7 @@ model PayrollEmployee {
   telefono  String?
   puesto    String?
   cuotaMinima Decimal @default(0) @db.Decimal(12, 2)
+  seguroLeyMonto Decimal @default(0) @db.Decimal(12, 2)
   activo    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

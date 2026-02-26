@@ -90,7 +90,7 @@ class NominaRepository {
       'telefono': employee.telefono,
       'puesto': employee.puesto,
       'cuotaMinima': employee.cuotaMinima,
-      'seguroLeyPct': employee.seguroLeyPct,
+      'seguroLeyMonto': employee.seguroLeyMonto,
       'activo': employee.activo,
     });
     return PayrollEmployee.fromMap(data);

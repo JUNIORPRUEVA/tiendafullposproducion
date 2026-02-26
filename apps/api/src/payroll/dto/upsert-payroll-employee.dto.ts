@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsNumber, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 
 export class UpsertPayrollEmployeeDto {
   @IsOptional()
@@ -27,8 +27,7 @@ export class UpsertPayrollEmployeeDto {
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  @Max(100)
-  seguroLeyPct?: number;
+  seguroLeyMonto?: number;
 
   @IsOptional()
   @Type(() => Boolean)

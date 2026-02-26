@@ -135,7 +135,7 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
     String? telefono,
     String? puesto,
     double cuotaMinima = 0,
-    double seguroLeyPct = 0,
+    double seguroLeyMonto = 0,
     double? salarioBase,
     bool activo = true,
   }) async {
@@ -148,8 +148,8 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
       throw Exception('La cuota mínima no puede ser negativa');
     }
 
-    if (seguroLeyPct < 0 || seguroLeyPct > 100) {
-      throw Exception('El seguro de ley debe estar entre 0 y 100');
+    if (seguroLeyMonto < 0) {
+      throw Exception('El seguro de ley no puede ser negativo');
     }
 
     if (salarioBase != null && salarioBase < 0) {
@@ -165,7 +165,7 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
       telefono: (telefono ?? '').trim().isEmpty ? null : telefono!.trim(),
       puesto: (puesto ?? '').trim().isEmpty ? null : puesto!.trim(),
       cuotaMinima: cuotaMinima,
-      seguroLeyPct: seguroLeyPct,
+      seguroLeyMonto: seguroLeyMonto,
       activo: activo,
       createdAt: existing?.createdAt,
       updatedAt: DateTime.now(),

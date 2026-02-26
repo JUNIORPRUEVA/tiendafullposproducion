@@ -598,9 +598,9 @@ class NominaDatabaseHelper {
       }
     }
 
-    final seguroLeyPct = employee?.seguroLeyPct ?? 0;
-    final seguroLey =
-      (base * (seguroLeyPct / 100)).clamp(0, double.infinity).toDouble();
+    final seguroLey = (employee?.seguroLeyMonto ?? 0)
+      .clamp(0, double.infinity)
+      .toDouble();
 
     final additions = commissions + bonuses + otherAdditions;
     final deductions = absences + late + advances + otherDeductions + seguroLey;
@@ -652,7 +652,7 @@ class NominaDatabaseHelper {
       if (!hasData) continue;
 
       final baseSalary = config?.baseSalary ?? 0;
-        final seguroLey = (baseSalary * ((employee?.seguroLeyPct ?? 0) / 100))
+      final seguroLey = (employee?.seguroLeyMonto ?? 0)
           .clamp(0, double.infinity);
 
       double commissionFromSales = 0;

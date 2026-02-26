@@ -186,6 +186,7 @@ export class PayrollController {
     telefono: string | null;
     puesto: string | null;
     cuotaMinima: unknown;
+    seguroLeyMonto: unknown;
     activo: boolean;
     createdAt: Date;
     updatedAt: Date;
@@ -197,7 +198,7 @@ export class PayrollController {
       telefono: employee.telefono,
       puesto: employee.puesto,
       cuota_minima: Number(employee.cuotaMinima ?? 0),
-      seguro_ley_pct: 0,
+      seguro_ley_monto: Number(employee.seguroLeyMonto ?? 0),
       activo: employee.activo ? 1 : 0,
       created_at: employee.createdAt.toISOString(),
       updated_at: employee.updatedAt.toISOString(),

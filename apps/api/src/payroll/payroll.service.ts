@@ -170,6 +170,7 @@ export class PayrollService {
       telefono: dto.telefono?.trim() ? dto.telefono.trim() : null,
       puesto: dto.puesto?.trim() ? dto.puesto.trim() : null,
       cuotaMinima: new Prisma.Decimal(dto.cuotaMinima ?? 0),
+      seguroLeyMonto: new Prisma.Decimal(dto.seguroLeyMonto ?? 0),
       activo: dto.activo ?? true,
     };
 
@@ -297,8 +298,7 @@ export class PayrollService {
       }
     }
 
-    const seguroLeyPct = 0;
-    const seguroLey = Math.max(0, base * (seguroLeyPct / 100));
+    const seguroLey = Math.max(0, this.toNumber(employee?.seguroLeyMonto));
     const additions = commissions + bonuses + otherAdditions;
     const deductions = absences + late + advances + otherDeductions + seguroLey;
     const total = base + additions - deductions;
@@ -316,7 +316,6 @@ export class PayrollService {
       additions,
       deductions,
       total,
-      seguroLeyPct,
       employeeExists: Boolean(employee),
     };
   }
@@ -346,7 +345,7 @@ export class PayrollService {
       if (!hasData) continue;
 
       const baseSalary = this.toNumber(config?.baseSalary);
-      const seguroLey = Math.max(0, baseSalary * 0);
+      const seguroLey = Math.max(0, this.toNumber(employee?.seguroLeyMonto));
       let commissionFromSales = 0;
       let overtimeAmount = 0;
       let bonusesAmount = 0;
@@ -398,7 +397,7 @@ export class PayrollService {
         benefits_amount: benefitsAmount,
         gross_total: grossTotal,
         net_total: netTotal,
-        seguro_ley_pct: employee ? 0 : 0,
+        seguro_ley_monto: seguroLey,
       });
     }
 
