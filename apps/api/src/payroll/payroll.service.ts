@@ -331,10 +331,9 @@ export class PayrollService {
     });
 
     const commissions =
-      manualServiceCommissions +
-      (automaticSales.usedAutomatic
+      automaticSales.usedAutomatic
         ? automaticSales.commissionAmount
-        : manualSalesCommissions);
+        : manualSalesCommissions;
 
     const seguroLey = Math.max(
       0,
@@ -343,13 +342,14 @@ export class PayrollService {
           ?.seguroLeyMonto,
       ),
     );
-    const additions = commissions + bonuses + otherAdditions;
+    const additions = commissions + manualServiceCommissions + bonuses + otherAdditions;
     const deductions = absences + late + advances + otherDeductions + seguroLey;
     const total = base + additions - deductions;
 
     return {
       baseSalary: base,
       commissions,
+      serviceCommissions: manualServiceCommissions,
       bonuses,
       otherAdditions,
       absences,
@@ -394,7 +394,19 @@ export class PayrollService {
         this.getEmployeeConfig(ownerId, period.id, employeeId),
       ]);
 
-      const hasData = Boolean(config) || entries.length > 0;
+      const automaticSales = await this.computeAutomaticSalesCommissionForEmployee({
+        ownerId,
+        employee,
+        includeCommissions: config?.includeCommissions ?? true,
+        periodStart: period.startDate,
+        periodEnd: period.endDate,
+      });
+
+      const hasData =
+        Boolean(config) ||
+        entries.length > 0 ||
+        automaticSales.salesAmount > 0 ||
+        automaticSales.commissionAmount > 0;
       if (!hasData) continue;
 
       const baseSalary = this.toNumber(config?.baseSalary);
@@ -416,10 +428,10 @@ export class PayrollService {
         const amount = this.toNumber(entry.amount);
         switch (entry.type) {
           case PayrollEntryType.COMISION_SERVICIO:
-            manualServiceCommissions += amount;
+            if (amount >= 0) manualServiceCommissions += amount;
             break;
           case PayrollEntryType.COMISION_VENTAS:
-            manualSalesCommissions += amount;
+            if (amount >= 0) manualSalesCommissions += amount;
             break;
           case PayrollEntryType.BONIFICACION:
           case PayrollEntryType.PAGO_COMBUSTIBLE:
@@ -441,19 +453,12 @@ export class PayrollService {
         }
       }
 
-      const automaticSales = await this.computeAutomaticSalesCommissionForEmployee({
-        ownerId,
-        employee,
-        includeCommissions: config?.includeCommissions ?? true,
-        periodStart: period.startDate,
-        periodEnd: period.endDate,
-      });
-
       const commissionFromSales =
-        manualServiceCommissions +
-        (automaticSales.usedAutomatic
+        automaticSales.usedAutomatic
           ? automaticSales.commissionAmount
-          : manualSalesCommissions);
+          : manualSalesCommissions;
+
+      benefitsAmount += manualServiceCommissions;
 
       const additions = commissionFromSales + overtimeAmount + bonusesAmount + benefitsAmount;
       const grossTotal = baseSalary + additions;
