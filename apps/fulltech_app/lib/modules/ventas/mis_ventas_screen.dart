@@ -15,9 +15,13 @@ import 'utils/sales_pdf_service.dart';
 final salesGoalProvider = FutureProvider<double>((ref) async {
   final user = ref.watch(authStateProvider).user;
   if (user == null) return 0;
-  return ref
-      .watch(nominaRepositoryProvider)
-      .getCuotaMinimaForUser(userId: user.id, userName: user.nombreCompleto);
+  try {
+    return await ref
+        .watch(nominaRepositoryProvider)
+        .getCuotaMinimaForUser(userId: user.id, userName: user.nombreCompleto);
+  } catch (_) {
+    return 0;
+  }
 });
 
 class MisVentasScreen extends ConsumerStatefulWidget {

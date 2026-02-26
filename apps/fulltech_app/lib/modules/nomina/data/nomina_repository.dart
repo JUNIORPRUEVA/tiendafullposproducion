@@ -187,11 +187,18 @@ class NominaRepository {
     required String userId,
     required String userName,
   }) async {
-    final map = await _getMap(ApiRoutes.payrollMyGoal, query: {
-      'userId': userId,
-      'userName': userName,
-    });
-    return _num(map['cuota_minima']);
+    try {
+      final map = await _getMap(ApiRoutes.payrollMyGoal, query: {
+        'userId': userId,
+        'userName': userName,
+      });
+      return _num(map['cuota_minima']);
+    } on ApiException catch (e) {
+      if (e.code == 404) {
+        return 0;
+      }
+      rethrow;
+    }
   }
 
   String get ownerId => _ownerId;
