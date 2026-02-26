@@ -52,4 +52,27 @@ class ApiRoutes {
   static String serviceWarranty(String id) => '/services/$id/warranty';
   static String customerServices(String id) => '/customers/$id/services';
   static const operationsDashboard = '/dashboard/operations';
+
+  // Nómina
+  static const payrollPeriods = '/payroll/periods';
+  static const payrollPeriodEnsureCurrentOpen = '/payroll/periods/ensure-current-open';
+  static const payrollPeriodOpenOverlap = '/payroll/periods/open-overlap';
+  static String payrollPeriodDetail(String id) => '/payroll/periods/$id';
+  static String payrollPeriodClose(String id) => '/payroll/periods/$id/close';
+  static String payrollPeriodNextOpen(String id) => '/payroll/periods/$id/next-open';
+  static String payrollPeriodTotalAll(String id) => '/payroll/periods/$id/total-all';
+
+  static const payrollEmployees = '/payroll/employees';
+  static const payrollEmployeeUpsert = '/payroll/employees/upsert';
+  static String payrollEmployeeDetail(String id) => '/payroll/employees/$id';
+
+  static const payrollConfig = '/payroll/config';
+  static const payrollConfigUpsert = '/payroll/config/upsert';
+
+  static const payrollEntries = '/payroll/entries';
+  static String payrollEntryDetail(String id) => '/payroll/entries/$id';
+
+  static const payrollTotals = '/payroll/totals';
+  static const payrollMyHistory = '/payroll/my-history';
+  static const payrollMyGoal = '/payroll/my-goal';
 }

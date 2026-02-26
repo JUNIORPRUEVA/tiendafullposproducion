@@ -53,7 +53,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
     final user = ref.watch(authStateProvider).user;
     final role = user?.role ?? '';
     final isAdmin = role == 'ADMIN';
-    final canManage = role == 'ADMIN' || role == 'ASISTENTE';
+    final canManage = isAdmin;
 
     final catalog = ref.watch(catalogControllerProvider);
 

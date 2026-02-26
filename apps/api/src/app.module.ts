@@ -10,6 +10,7 @@ import { PunchModule } from './punch/punch.module';
 import { ContabilidadModule } from './contabilidad/contabilidad.module';
 import { SalesModule } from './sales/sales.module';
 import { OperationsModule } from './operations/operations.module';
+import { PayrollModule } from './payroll/payroll.module';
 
 @Module({
   imports: [
@@ -26,7 +27,8 @@ import { OperationsModule } from './operations/operations.module';
     PunchModule,
     ContabilidadModule,
     SalesModule,
-    OperationsModule
+    OperationsModule,
+    PayrollModule
   ]
 })
 export class AppModule {}
