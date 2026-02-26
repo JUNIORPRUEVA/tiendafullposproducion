@@ -488,13 +488,13 @@ class NominaScreen extends ConsumerWidget {
                     ),
                   ),
                   Text(
-                    'Meta: ${money.format(totals.salesGoal)} · Vendido: ${money.format(totals.salesAmountThisPeriod)}',
+                    'Meta (puntos): ${money.format(totals.salesGoal)} · Puntos: ${money.format(totals.salesAmountThisPeriod)}',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   Text(
                     totals.salesGoalReached
-                        ? 'Meta alcanzada: comisión por ventas habilitada automáticamente.'
-                        : 'Meta no alcanzada: comisión por ventas en RD\$0.00.',
+                        ? 'Meta alcanzada en puntos: comisión por ventas habilitada automáticamente.'
+                        : 'Meta no alcanzada en puntos: comisión por ventas en RD\$0.00.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   Text('Seguro ley: ${money.format(totals.seguroLey)}'),

@@ -165,9 +165,9 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
   Widget _buildGoalCompact(VentasState state, double goal) {
     final progress = goal <= 0
         ? 0.0
-        : (state.summary.totalSold / goal).clamp(0.0, 1.0).toDouble();
+        : (state.summary.totalProfit / goal).clamp(0.0, 1.0).toDouble();
     final progressLabel = '${(progress * 100).toStringAsFixed(0)}%';
-    final reachedGoal = goal > 0 && state.summary.totalSold >= goal;
+    final reachedGoal = goal > 0 && state.summary.totalProfit >= goal;
 
     return Card(
       child: Padding(
@@ -207,14 +207,14 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              '${_date(state.from)} - ${_date(state.to)} · Meta mínima: ${_money(goal)}',
+              '${_date(state.from)} - ${_date(state.to)} · Meta mínima (puntos): ${_money(goal)}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 8),
             LinearProgressIndicator(value: progress),
             const SizedBox(height: 8),
             Text(
-              'Acumulado actual: ${_money(state.summary.totalSold)}',
+              'Puntos acumulados: ${_money(state.summary.totalProfit)}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.bodySmall,
@@ -226,7 +226,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
   }
 
   Widget _buildCurrentQuincenaCard(VentasState state, double goal) {
-    final reachedGoal = goal > 0 && state.summary.totalSold >= goal;
+    final reachedGoal = goal > 0 && state.summary.totalProfit >= goal;
     final lockColor = reachedGoal ? Colors.green : Colors.red;
     return Card(
       child: Padding(
@@ -262,8 +262,26 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: _miniMetric(
-                    'Total puntos',
+                    'Cantidad',
                     state.summary.totalSales.toString(),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _miniMetric(
+                    'Total puntos',
+                    _money(state.summary.totalProfit),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _miniMetric(
+                    'Total beneficio (10%)',
+                    _money(state.summary.totalCommission),
                   ),
                 ),
               ],
@@ -286,7 +304,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                   const SizedBox(width: 8),
                   const Expanded(
                     child: Text(
-                      'Comisión por ventas',
+                      'Comisión por ventas (usuario)',
                       style: TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
@@ -306,7 +324,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
             Text(
               reachedGoal
                   ? 'Meta alcanzada: beneficios desbloqueados.'
-                  : 'Debes alcanzar la meta mínima para desbloquear beneficios extras.',
+                  : 'Debes alcanzar la meta mínima en puntos para desbloquear beneficios.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
@@ -674,7 +692,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
     }
 
     if (goal <= 0) return;
-    if (state.summary.totalSold < goal) return;
+    if (state.summary.totalProfit < goal) return;
     if (_goalNotified) return;
 
     _goalNotified = true;

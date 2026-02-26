@@ -631,12 +631,12 @@ export class PayrollService {
         },
       },
       _sum: {
-        totalSold: true,
+        totalProfit: true,
         commissionAmount: true,
       },
     });
 
-    const salesAmount = this.toNumber(aggregate._sum.totalSold);
+    const salesAmount = this.toNumber(aggregate._sum.totalProfit);
     const totalSalesCommission = this.toNumber(aggregate._sum.commissionAmount);
     const goalReached = goal <= 0 ? salesAmount > 0 : salesAmount >= goal;
 
