@@ -583,7 +583,12 @@ export class PayrollService {
 
   private async computeAutomaticSalesCommissionForEmployee(params: {
     ownerId: string;
-    employee: { id: string; nombre: string; telefono: string | null; cuotaMinima: unknown } | null;
+    employee: {
+      id: string;
+      nombre: string;
+      telefono: string | null;
+      cuotaMinima: Prisma.Decimal | number | string | null;
+    } | null;
     includeCommissions: boolean;
     periodStart?: Date;
     periodEnd?: Date;
