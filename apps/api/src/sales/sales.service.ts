@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSaleDto, CreateSaleItemDto } from './dto/create-sale.dto';
 
@@ -187,9 +187,11 @@ export class SalesService {
 
     if (dto.customerId) {
       try {
-        const customer = await this.prisma.client.findUnique({ where: { id: dto.customerId } });
+        const customer = await this.prisma.client.findFirst({
+          where: { id: dto.customerId, ownerId: userId, isDeleted: false },
+        });
         if (!customer) {
-          throw new BadRequestException('Cliente inválido');
+          throw new BadRequestException('Cliente inválido para este usuario');
         }
       } catch (error) {
         if (!this.isSchemaMismatch(error)) throw error;
@@ -286,7 +288,7 @@ export class SalesService {
     }
   }
 
-  async remove(requestUserId: string, requestRole: string, saleId: string) {
+  async remove(requestUserId: string, saleId: string) {
     let sale: { id: string; isDeleted: boolean; userId: string } | null = null;
     try {
       sale = await this.prisma.sale.findUnique({ where: { id: saleId } });
@@ -298,8 +300,7 @@ export class SalesService {
       throw new NotFoundException('Venta no encontrada');
     }
 
-    const isAdmin = requestRole === Role.ADMIN;
-    if (!isAdmin && sale.userId !== requestUserId) {
+    if (sale.userId !== requestUserId) {
       throw new ForbiddenException('No puedes eliminar esta venta');
     }
 

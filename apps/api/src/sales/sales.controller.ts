@@ -31,6 +31,6 @@ export class SalesController {
   @Delete(':id')
   remove(@Req() req: Request, @Param('id') id: string) {
     const user = req.user as { id: string; role: string };
-    return this.sales.remove(user.id, user.role, id);
+    return this.sales.remove(user.id, id);
   }
 }

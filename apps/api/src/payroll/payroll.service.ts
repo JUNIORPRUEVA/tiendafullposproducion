@@ -494,7 +494,7 @@ export class PayrollService {
     return result;
   }
 
-  async getCuotaMinimaForUser(ownerId: string, userId: string, userName: string) {
+  async getCuotaMinimaForUser(ownerId: string, userId: string) {
     const byId = await this.prisma.payrollEmployee.findFirst({
       where: { ownerId, id: userId, activo: true },
       select: { cuotaMinima: true },
@@ -504,15 +504,28 @@ export class PayrollService {
       return this.toNumber(byId.cuotaMinima);
     }
 
-    const cleanName = userName.trim();
-    if (cleanName) {
-      const byName = await this.prisma.payrollEmployee.findFirst({
-        where: { ownerId, nombre: cleanName, activo: true },
-        select: { cuotaMinima: true },
-      });
-      if (byName) {
-        return this.toNumber(byName.cuotaMinima);
-      }
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { nombreCompleto: true, telefono: true },
+    });
+
+    if (!user) {
+      return 0;
+    }
+
+    const legacyMatches = await this.prisma.payrollEmployee.findMany({
+      where: {
+        ownerId,
+        activo: true,
+        nombre: user.nombreCompleto,
+        ...(user.telefono.trim().length > 0 ? { telefono: user.telefono } : {}),
+      },
+      select: { cuotaMinima: true },
+      take: 2,
+    });
+
+    if (legacyMatches.length == 1) {
+      return this.toNumber(legacyMatches[0].cuotaMinima);
     }
 
     return 0;

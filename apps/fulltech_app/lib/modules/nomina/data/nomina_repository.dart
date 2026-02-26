@@ -183,15 +183,9 @@ class NominaRepository {
     return rows.map(PayrollHistoryItem.fromMap).toList();
   }
 
-  Future<double> getCuotaMinimaForUser({
-    required String userId,
-    required String userName,
-  }) async {
+  Future<double> getCuotaMinimaForUser() async {
     try {
-      final map = await _getMap(ApiRoutes.payrollMyGoal, query: {
-        'userId': userId,
-        'userName': userName,
-      });
+      final map = await _getMap(ApiRoutes.payrollMyGoal);
       return _num(map['cuota_minima']);
     } on ApiException catch (e) {
       if (e.code == 404) {

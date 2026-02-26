@@ -16,9 +16,7 @@ final salesGoalProvider = FutureProvider<double>((ref) async {
   final user = ref.watch(authStateProvider).user;
   if (user == null) return 0;
   try {
-    return await ref
-        .watch(nominaRepositoryProvider)
-        .getCuotaMinimaForUser(userId: user.id, userName: user.nombreCompleto);
+    return await ref.watch(nominaRepositoryProvider).getCuotaMinimaForUser();
   } catch (_) {
     return 0;
   }

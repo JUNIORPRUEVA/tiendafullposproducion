@@ -6,7 +6,7 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CreatePayrollPeriodDto } from './dto/create-payroll-period.dto';
 import { AddPayrollEntryDto, PayrollEntriesQueryDto } from './dto/payroll-entry.dto';
-import { PayrollGoalQueryDto, PayrollTotalsQueryDto } from './dto/payroll-query.dto';
+import { PayrollTotalsQueryDto } from './dto/payroll-query.dto';
 import { OverlapPeriodQueryDto } from './dto/overlap-period-query.dto';
 import { UpsertPayrollConfigDto } from './dto/upsert-payroll-config.dto';
 import { UpsertPayrollEmployeeDto } from './dto/upsert-payroll-employee.dto';
@@ -166,11 +166,10 @@ export class PayrollController {
   }
 
   @Get('my-goal')
-  async getCuotaMinima(@Req() req: Request, @Query() query: PayrollGoalQueryDto) {
+  async getCuotaMinima(@Req() req: Request) {
     const ownerId = await this.ownerIdFrom(req);
     const user = req.user as JwtUser;
-    const userId = query.userId ?? user.id;
-    const quota = await this.payroll.getCuotaMinimaForUser(ownerId, userId, query.userName ?? '');
+    const quota = await this.payroll.getCuotaMinimaForUser(ownerId, user.id);
     return { cuota_minima: quota };
   }
 
