@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/company/company_settings_repository.dart';
 import '../../core/models/product_model.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
@@ -21,13 +22,33 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
   final _searchCtrl = TextEditingController();
   String _category = 'Todas';
   DateTime? _lastAutoSyncAt;
+  bool _settingsLoaded = false;
+  bool _productsReadOnly = false;
 
   bool get _hasActiveFilter => _category != 'Todas';
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _loadSettingsOnce();
     _scheduleAutoSync();
+  }
+
+  void _loadSettingsOnce() {
+    if (_settingsLoaded) return;
+    _settingsLoaded = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final settings = await ref.read(companySettingsRepositoryProvider).getSettings();
+        if (!mounted) return;
+        setState(() {
+          _productsReadOnly = settings.productsReadOnly;
+        });
+      } catch (_) {
+        // If settings can't be loaded, default to allowing actions based on role.
+      }
+    });
   }
 
   void _scheduleAutoSync() {
@@ -53,7 +74,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
     final user = ref.watch(authStateProvider).user;
     final role = user?.role ?? '';
     final isAdmin = role == 'ADMIN';
-    final canManage = isAdmin;
+    final canManage = isAdmin && !_productsReadOnly;
 
     final catalog = ref.watch(catalogControllerProvider);
 

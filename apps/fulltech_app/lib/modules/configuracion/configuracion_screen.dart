@@ -23,9 +23,11 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
   final _rncCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
+  final _openAiApiKeyCtrl = TextEditingController();
 
   bool _loading = true;
   bool _saving = false;
+  bool _showApiKey = false;
   String? _logoBase64;
 
   @override
@@ -40,21 +42,29 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     _rncCtrl.dispose();
     _phoneCtrl.dispose();
     _addressCtrl.dispose();
+    _openAiApiKeyCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final settings = await ref
-        .read(companySettingsRepositoryProvider)
-        .getSettings();
-    if (!mounted) return;
-    _nameCtrl.text = settings.companyName;
-    _rncCtrl.text = settings.rnc;
-    _phoneCtrl.text = settings.phone;
-    _addressCtrl.text = settings.address;
-    _logoBase64 = settings.logoBase64;
-    setState(() => _loading = false);
+    try {
+      final settings = await ref.read(companySettingsRepositoryProvider).getSettings();
+      if (!mounted) return;
+      _nameCtrl.text = settings.companyName;
+      _rncCtrl.text = settings.rnc;
+      _phoneCtrl.text = settings.phone;
+      _addressCtrl.text = settings.address;
+      _logoBase64 = settings.logoBase64;
+      _openAiApiKeyCtrl.text = settings.openAiApiKey;
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<void> _pickLogo() async {
@@ -88,15 +98,25 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
       phone: _phoneCtrl.text.trim(),
       address: _addressCtrl.text.trim(),
       logoBase64: _logoBase64,
+      openAiApiKey: _openAiApiKeyCtrl.text.trim(),
+      openAiModel: '',
+      hasOpenAiApiKey: _openAiApiKeyCtrl.text.trim().isNotEmpty,
     );
 
-    await ref.read(companySettingsRepositoryProvider).saveSettings(settings);
-
-    if (!mounted) return;
-    setState(() => _saving = false);
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Configuración guardada')));
+    try {
+      await ref.read(companySettingsRepositoryProvider).saveSettings(settings);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Configuración guardada')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e')),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -197,6 +217,61 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
                               fit: BoxFit.cover,
                             ),
                           ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Configuración de API (ChatGPT)',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Solo coloca tu API key. El sistema selecciona automáticamente el mejor modelo disponible según la necesidad.',
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: _openAiApiKeyCtrl,
+                          obscureText: !_showApiKey,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          decoration: InputDecoration(
+                            labelText: 'OpenAI API Key',
+                            hintText: 'sk-...',
+                            suffixIcon: IconButton(
+                              tooltip: _showApiKey
+                                  ? 'Ocultar clave'
+                                  : 'Mostrar clave',
+                              onPressed: () =>
+                                  setState(() => _showApiKey = !_showApiKey),
+                              icon: Icon(
+                                _showApiKey
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _openAiApiKeyCtrl.clear();
+                              });
+                            },
+                            icon: const Icon(Icons.delete_outline),
+                            label: const Text('Limpiar API key'),
+                          ),
+                        ),
                       ],
                     ),
                   ),

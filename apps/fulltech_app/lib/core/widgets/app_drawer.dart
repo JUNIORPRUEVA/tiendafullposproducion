@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../auth/auth_provider.dart';
+import '../auth/role_permissions.dart';
 import '../models/user_model.dart';
 import '../routing/routes.dart';
 
@@ -13,6 +14,7 @@ class AppDrawer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isAdmin = currentUser?.role == 'ADMIN';
+    final canAccessContabilidad = canAccessContabilidadByRole(currentUser?.role);
     final colorScheme = Theme.of(context).colorScheme;
     final location = GoRouterState.of(context).uri.path;
 
@@ -105,16 +107,28 @@ class AppDrawer extends ConsumerWidget {
                         context.go(Routes.clientes);
                       },
                     ),
-                    _DrawerMenuItem(
-                      icon: Icons.account_balance,
-                      title: 'Contabilidad',
-                      subtitle: 'Estado y finanzas',
-                      selected: isActiveRoute(Routes.contabilidad),
-                      onTap: () {
-                        Navigator.pop(context);
-                        context.go(Routes.contabilidad);
-                      },
-                    ),
+                    if (canAccessContabilidad)
+                      _DrawerMenuItem(
+                        icon: Icons.account_balance,
+                        title: 'Contabilidad',
+                        subtitle: 'Estado y finanzas',
+                        selected: isActiveRoute(Routes.contabilidad),
+                        onTap: () {
+                          Navigator.pop(context);
+                          context.go(Routes.contabilidad);
+                        },
+                      ),
+                    if (isAdmin)
+                      _DrawerMenuItem(
+                        icon: Icons.admin_panel_settings_outlined,
+                        title: 'Administración',
+                        subtitle: 'Panel global empresa',
+                        selected: isActiveRoute(Routes.administracion),
+                        onTap: () {
+                          Navigator.pop(context);
+                          context.go(Routes.administracion);
+                        },
+                      ),
 
                     const SizedBox(height: 4),
                     const _DrawerSectionTitle('Nómina'),

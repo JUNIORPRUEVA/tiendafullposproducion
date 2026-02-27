@@ -11,6 +11,8 @@ import { ContabilidadModule } from './contabilidad/contabilidad.module';
 import { SalesModule } from './sales/sales.module';
 import { OperationsModule } from './operations/operations.module';
 import { PayrollModule } from './payroll/payroll.module';
+import { AdminModule } from './admin/admin.module';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
   imports: [
@@ -28,7 +30,9 @@ import { PayrollModule } from './payroll/payroll.module';
     ContabilidadModule,
     SalesModule,
     OperationsModule,
-    PayrollModule
+    PayrollModule,
+    AdminModule,
+    SettingsModule,
   ]
 })
 export class AppModule {}

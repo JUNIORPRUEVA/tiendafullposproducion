@@ -918,22 +918,27 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
   }
 
   void _addProduct(ProductModel product) {
-    final idx = _cart.indexWhere((item) => item.productId == product.id);
+    final idx = _cart.indexWhere((item) => item.product?.id == product.id);
     if (idx >= 0) {
       final current = _cart[idx];
       _updateItem(idx, current.copyWith(qty: current.qty + 1));
       return;
     }
 
+    final isUuid = RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+    ).hasMatch(product.id);
+    final productId = isUuid ? product.id : null;
+
     setState(() {
       _cart = [
         ..._cart,
         SaleDraftItem(
           product: product,
-          productId: product.id,
+          productId: productId,
           name: product.nombre,
           imageUrl: product.fotoUrl,
-          isExternal: false,
+          isExternal: productId == null,
           qty: 1,
           priceSoldUnit: product.precio,
           costUnitSnapshot: product.costo,

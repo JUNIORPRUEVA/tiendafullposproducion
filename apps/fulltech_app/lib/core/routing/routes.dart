@@ -25,6 +25,7 @@ class Routes {
   static const nomina = '/nomina';
   static const misPagos = '/mis-pagos';
   static const configuracion = '/configuracion';
+  static const administracion = '/administracion';
 
   static String clienteDetail(String id) => '/clientes/$id';
   static String clienteEdit(String id) => '/clientes/$id/editar';

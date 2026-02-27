@@ -143,6 +143,21 @@ model User {
   @@map("users")
 }
 
+model AppConfig {
+  id           String   @id @default("global")
+  companyName  String   @default("")
+  rnc          String   @default("")
+  phone        String   @default("")
+  address      String   @default("")
+  logoBase64   String?
+  openAiApiKey String?
+  openAiModel  String   @default("gpt-4o-mini")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("app_config")
+}
+
 model Punch {
   id        String     @id @default(uuid()) @db.Uuid
   userId    String     @db.Uuid
@@ -300,20 +315,20 @@ model FiscalInvoice {
 }
 
 model PayableService {
-  id              String             @id @default(uuid()) @db.Uuid
-  title           String
-  providerKind    PayableProviderKind
-  providerName    String
-  description     String?
-  frequency       PayableFrequency
-  defaultAmount   Decimal?           @db.Decimal(12, 2)
-  nextDueDate     DateTime
-  lastPaidAt      DateTime?
-  active          Boolean            @default(true)
-  createdById     String?            @db.Uuid
-  createdByName   String?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  id            String             @id @default(uuid()) @db.Uuid
+  title         String
+  providerKind  PayableProviderKind
+  providerName  String
+  description   String?
+  frequency     PayableFrequency
+  defaultAmount Decimal?           @db.Decimal(12, 2)
+  nextDueDate   DateTime
+  lastPaidAt    DateTime?
+  active        Boolean            @default(true)
+  createdById   String?            @db.Uuid
+  createdByName String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   payments PayablePayment[]
 
@@ -323,14 +338,14 @@ model PayableService {
 }
 
 model PayablePayment {
-  id            String        @id @default(uuid()) @db.Uuid
-  serviceId     String        @db.Uuid
-  amount        Decimal       @db.Decimal(12, 2)
-  paidAt        DateTime      @default(now())
+  id            String   @id @default(uuid()) @db.Uuid
+  serviceId     String   @db.Uuid
+  amount        Decimal  @db.Decimal(12, 2)
+  paidAt        DateTime @default(now())
   note          String?
-  createdById   String?       @db.Uuid
+  createdById   String?  @db.Uuid
   createdByName String?
-  createdAt     DateTime      @default(now())
+  createdAt     DateTime @default(now())
 
   service PayableService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 

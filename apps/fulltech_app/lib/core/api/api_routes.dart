@@ -3,6 +3,7 @@ class ApiRoutes {
   static const login = '/auth/login';
   static const refresh = '/auth/refresh';
   static const me = '/auth/me';
+  static const settings = '/settings';
 
   // Usuarios
   static const users = '/users';
@@ -19,6 +20,9 @@ class ApiRoutes {
   static const punchAdmin = '/admin/punch';
   static const punchAttendanceSummary = '/admin/attendance/summary';
   static String punchAttendanceUser(String id) => '/admin/attendance/user/$id';
+  static const adminSalesSummary = '/admin/sales/summary';
+  static const adminPanelOverview = '/admin/panel/overview';
+  static const adminPanelAiInsights = '/admin/panel/ai-insights';
 
   // Contabilidad
   static const contabilidadCloses = '/contabilidad/closes';
@@ -27,17 +31,18 @@ class ApiRoutes {
     static const contabilidadDepositOrders = '/contabilidad/deposit-orders';
     static String contabilidadDepositOrderDetail(String id) =>
       '/contabilidad/deposit-orders/$id';
-      static const contabilidadFiscalInvoices = '/contabilidad/fiscal-invoices';
-      static String contabilidadFiscalInvoiceDetail(String id) =>
-        '/contabilidad/fiscal-invoices/$id';
-      static const contabilidadFiscalInvoicesUpload =
-        '/contabilidad/fiscal-invoices/upload';
-      static const contabilidadPayableServices = '/contabilidad/payables/services';
-      static String contabilidadPayableServiceDetail(String id) =>
-        '/contabilidad/payables/services/$id';
-      static String contabilidadPayableServicePayments(String id) =>
-        '/contabilidad/payables/services/$id/payments';
-      static const contabilidadPayablePayments = '/contabilidad/payables/payments';
+    static const contabilidadFiscalInvoices = '/contabilidad/fiscal-invoices';
+    static String contabilidadFiscalInvoiceDetail(String id) =>
+      '/contabilidad/fiscal-invoices/$id';
+    static const contabilidadFiscalInvoicesUpload =
+      '/contabilidad/fiscal-invoices/upload';
+    static const contabilidadPayableServices =
+      '/contabilidad/payables/services';
+    static String contabilidadPayableServiceDetail(String id) =>
+      '/contabilidad/payables/services/$id';
+    static String contabilidadPayableServicePayments(String id) =>
+      '/contabilidad/payables/services/$id/payments';
+    static const contabilidadPayablePayments = '/contabilidad/payables/payments';
 
   // Clientes
   static const clients = '/clients';

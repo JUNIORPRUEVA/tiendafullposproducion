@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Delete, Get, Param, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client';
@@ -93,6 +93,9 @@ export class ProductsController {
     })
   )
   upload(@Req() req: Request, @UploadedFile() file?: Express.Multer.File) {
+    if (this.products.isReadOnly()) {
+      throw new ConflictException('Productos en modo solo-lectura: no se permite subir imágenes aquí.');
+    }
     if (!file) throw new BadRequestException('No se subió ningún archivo');
     const relativePath = `/uploads/${file.filename}`;
     const proto = (req.get('x-forwarded-proto') ?? req.protocol ?? 'http').split(',')[0].trim();

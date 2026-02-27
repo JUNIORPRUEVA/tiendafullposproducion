@@ -13,6 +13,7 @@ import '../../features/contabilidad/contabilidad_screen.dart';
 import '../../features/contabilidad/cierres_diarios_screen.dart';
 import '../../features/contabilidad/factura_fiscal_screen.dart';
 import '../../features/contabilidad/pagos_pendientes_screen.dart';
+import '../../features/administracion/administracion_screen.dart';
 import '../../features/catalogo/catalogo_screen.dart';
 import '../../modules/clientes/cliente_detail_screen.dart';
 import '../../modules/clientes/clientes_screen.dart';
@@ -25,6 +26,7 @@ import '../../modules/cotizaciones/cotizaciones_screen.dart';
 import '../../modules/ventas/mis_ventas_screen.dart';
 import '../../modules/ventas/registrar_venta_screen.dart';
 import '../auth/auth_provider.dart';
+import '../auth/role_permissions.dart';
 import 'routes.dart';
 
 final _routerRefreshProvider = Provider<_RouterRefreshNotifier>((ref) {
@@ -116,6 +118,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const PagosPendientesScreen(),
           ),
           GoRoute(
+            path: Routes.administracion,
+            builder: (context, state) => const AdministracionScreen(),
+          ),
+          GoRoute(
             path: Routes.clientes,
             builder: (context, state) => const ClientesScreen(),
           ),
@@ -161,12 +167,19 @@ final routerProvider = Provider<GoRouter>((ref) {
       final initialized = auth.initialized;
       final isAuth = auth.isAuthenticated;
       final isAdmin = (auth.user?.role ?? '').toUpperCase() == 'ADMIN';
+        final canAccessContabilidad = canAccessContabilidadByRole(auth.user?.role);
       final loc = state.uri.toString();
       final isAuthRoute = loc == Routes.login;
       final isSplash = loc == Routes.splash;
       final isConfigRoute =
           loc == Routes.configuracion ||
           loc.startsWith('${Routes.configuracion}/');
+      final isContabilidadRoute =
+          loc == Routes.contabilidad ||
+          loc.startsWith('${Routes.contabilidad}/');
+      final isAdminRoute =
+          loc == Routes.administracion ||
+          loc.startsWith('${Routes.administracion}/');
 
       if (!initialized) {
         return isSplash ? null : Routes.splash;
@@ -185,6 +198,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       }
 
       if (isConfigRoute && !isAdmin) {
+        return Routes.operaciones;
+      }
+
+      if (isContabilidadRoute && !canAccessContabilidad) {
+        return Routes.operaciones;
+      }
+
+      if (isAdminRoute && !isAdmin) {
         return Routes.operaciones;
       }
 

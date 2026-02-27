@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -24,8 +22,7 @@ class CotizacionesScreen extends ConsumerStatefulWidget {
   ConsumerState<CotizacionesScreen> createState() => _CotizacionesScreenState();
 }
 
-class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
-  with WidgetsBindingObserver {
+class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
 
   final List<CotizacionItem> _items = [];
@@ -45,30 +42,15 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
   String? _editingId;
   DateTime? _editingCreatedAt;
-  String? _draftId;
-  bool _restoringDraft = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _restoreDraft();
     _loadProducts();
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.detached) {
-      unawaited(_persistDraft());
-    }
-  }
-
-  @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    unawaited(_persistDraft());
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -127,71 +109,6 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
   String _newId() => DateTime.now().microsecondsSinceEpoch.toString();
 
-  String _workingId() {
-    if (_editingId != null) return _editingId!;
-    _draftId ??= _newId();
-    return _draftId!;
-  }
-
-  bool get _hasDraftData {
-    return _items.isNotEmpty ||
-        _selectedClientId != null ||
-        _note.trim().isNotEmpty ||
-        _includeItbis;
-  }
-
-  Future<void> _restoreDraft() async {
-    _restoringDraft = true;
-    try {
-      final draft = await ref.read(cotizacionesLocalRepositoryProvider).getDraft();
-      if (draft == null || !mounted) return;
-
-      setState(() {
-        _items
-          ..clear()
-          ..addAll(draft.items.map((item) => item.copyWith()));
-        _selectedClientId = draft.customerId;
-        _selectedClientName = draft.customerName.trim().isEmpty
-            ? 'Sin cliente'
-            : draft.customerName;
-        _selectedClientPhone = draft.customerPhone;
-        _note = draft.note;
-        _includeItbis = draft.includeItbis;
-        _editingId = null;
-        _editingCreatedAt = null;
-        _draftId = draft.id;
-      });
-    } catch (_) {
-      // ignore restore failures
-    } finally {
-      _restoringDraft = false;
-    }
-  }
-
-  Future<void> _persistDraft() async {
-    if (_restoringDraft) return;
-    final repo = ref.read(cotizacionesLocalRepositoryProvider);
-
-    if (!_hasDraftData) {
-      await repo.clearDraft();
-      return;
-    }
-
-    final draft = CotizacionModel(
-      id: _workingId(),
-      createdAt: _editingCreatedAt ?? DateTime.now(),
-      customerId: _selectedClientId,
-      customerName: _selectedClientName,
-      customerPhone: _selectedClientPhone,
-      note: _note,
-      includeItbis: _includeItbis,
-      itbisRate: _itbisRate,
-      items: [..._items],
-    );
-
-    await repo.saveDraft(draft);
-  }
-
   void _addProduct(ProductModel product) {
     final index = _items.indexWhere((item) => item.productId == product.id);
     setState(() {
@@ -210,7 +127,6 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         );
       }
     });
-    unawaited(_persistDraft());
   }
 
   void _setQty(int index, double qty) {
@@ -219,13 +135,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       return;
     }
     setState(() => _items[index] = _items[index].copyWith(qty: qty));
-    unawaited(_persistDraft());
   }
 
   void _setUnitPrice(int index, double price) {
     if (price < 0) return;
     setState(() => _items[index] = _items[index].copyWith(unitPrice: price));
-    unawaited(_persistDraft());
   }
 
   Future<void> _pickCategory() async {
@@ -292,7 +206,6 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
     if (nextNote == null || !mounted) return;
     setState(() => _note = nextNote);
-    unawaited(_persistDraft());
   }
 
   Future<void> _openClientDialog() async {
@@ -390,7 +303,6 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                                         _selectedClientName = client.nombre;
                                         _selectedClientPhone = client.telefono;
                                       });
-                                      unawaited(_persistDraft());
                                       Navigator.pop(context);
                                     },
                                   );
@@ -459,7 +371,6 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                         _selectedClientName = created.nombre;
                         _selectedClientPhone = created.telefono;
                       });
-                      unawaited(_persistDraft());
                       Navigator.pop(context);
                     } catch (e) {
                       if (!context.mounted) return;
@@ -479,7 +390,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
   CotizacionModel _buildDraftCotizacion() {
     return CotizacionModel(
-      id: _editingId ?? _workingId(),
+      id: _editingId ?? _newId(),
       createdAt: _editingCreatedAt ?? DateTime.now(),
       customerId: _selectedClientId,
       customerName: _selectedClientName,
@@ -586,9 +497,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       _includeItbis = payload.source.includeItbis;
       _editingId = payload.duplicate ? null : payload.source.id;
       _editingCreatedAt = payload.duplicate ? null : payload.source.createdAt;
-      _draftId = payload.duplicate ? null : payload.source.id;
     });
-    unawaited(_persistDraft());
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -618,7 +527,6 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
     final cotizacion = _buildDraftCotizacion();
     await ref.read(cotizacionesLocalRepositoryProvider).upsert(cotizacion);
-    await ref.read(cotizacionesLocalRepositoryProvider).clearDraft();
 
     if (!mounted) return;
 
@@ -633,7 +541,6 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       _includeItbis = false;
       _editingId = null;
       _editingCreatedAt = null;
-      _draftId = null;
     });
 
     ScaffoldMessenger.of(context).showSnackBar(

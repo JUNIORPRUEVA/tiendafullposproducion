@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/auth/role_permissions.dart';
 import '../../core/models/close_model.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_drawer.dart';
@@ -68,10 +69,9 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
   Widget build(BuildContext context) {
     final auth = ref.watch(authStateProvider);
     final user = auth.user;
-    final role = user?.role ?? '';
     final state = ref.watch(cierresDiariosControllerProvider);
     final controller = ref.read(cierresDiariosControllerProvider.notifier);
-    final canUseModule = role == 'ADMIN' || role == 'ASISTENTE';
+    final canUseModule = canAccessContabilidadByRole(user?.role);
     final selectedType = state.typeFilter ?? CloseType.capsulas;
     final depositEval = _evaluateDeposit(state.closes);
 
@@ -110,7 +110,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
         _applyEdit(nextEdit);
       }
       if (prevId != null && nextEdit == null) {
-        _resetForm(next.typeFilter ?? CloseType.capsulas);
+        _resetForm();
       }
     });
 
@@ -475,7 +475,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                   ? TextButton(
                       onPressed: () {
                         controller.cancelEditing();
-                        _resetForm(state.typeFilter ?? CloseType.capsulas);
+                        _resetForm();
                       },
                       child: const Text('Cancelar edición'),
                     )
@@ -716,10 +716,11 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
     });
   }
 
-  void _resetForm(CloseType nextType) {
+  void _resetForm() {
     setState(() {
       _editingId = null;
-      _type = nextType;
+      _type = ref.read(cierresDiariosControllerProvider).typeFilter ??
+          CloseType.capsulas;
       _date = DateTime.now();
       _cashCtrl.text = '0';
       _transferCtrl.text = '0';

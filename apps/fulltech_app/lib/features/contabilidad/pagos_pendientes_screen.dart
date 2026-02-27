@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/auth/role_permissions.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_drawer.dart';
 import 'data/contabilidad_repository.dart';
@@ -575,7 +576,29 @@ class _PagosPendientesScreenState extends ConsumerState<PagosPendientesScreen> {
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authStateProvider).user;
+    final canUseModule = canAccessContabilidadByRole(user?.role);
     final active = _activeServices;
+
+    if (!canUseModule) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Pagos pendientes'),
+          backgroundColor: AppTheme.primaryColor,
+          foregroundColor: Colors.white,
+        ),
+        drawer: AppDrawer(currentUser: user),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'Este módulo está disponible solo para usuarios autorizados.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(

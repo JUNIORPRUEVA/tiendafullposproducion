@@ -291,6 +291,8 @@ class ContabilidadRepository {
     }
   }
 
+  // --- Pagos pendientes (Payables) ---
+
   Future<PayableService> createPayableService({
     required String title,
     required PayableProviderKind providerKind,
@@ -354,6 +356,31 @@ class ContabilidadRepository {
     }
   }
 
+  Future<PayablePayment> registerPayablePayment({
+    required String serviceId,
+    required double amount,
+    DateTime? paidAt,
+    String? note,
+  }) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.contabilidadPayableServicePayments(serviceId),
+        data: {
+          'amount': amount,
+          if (paidAt != null) 'paidAt': paidAt.toIso8601String(),
+          if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+        },
+      );
+
+      return PayablePayment.fromJson((res.data as Map).cast<String, dynamic>());
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo registrar el pago'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
   Future<PayableService> updatePayableService({
     required String id,
     String? title,
@@ -388,31 +415,6 @@ class ContabilidadRepository {
           e.response?.data,
           'No se pudo actualizar el servicio por pagar',
         ),
-        e.response?.statusCode,
-      );
-    }
-  }
-
-  Future<PayablePayment> registerPayablePayment({
-    required String serviceId,
-    required double amount,
-    DateTime? paidAt,
-    String? note,
-  }) async {
-    try {
-      final res = await _dio.post(
-        ApiRoutes.contabilidadPayableServicePayments(serviceId),
-        data: {
-          'amount': amount,
-          if (paidAt != null) 'paidAt': paidAt.toIso8601String(),
-          if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
-        },
-      );
-
-      return PayablePayment.fromJson((res.data as Map).cast<String, dynamic>());
-    } on DioException catch (e) {
-      throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudo registrar el pago'),
         e.response?.statusCode,
       );
     }

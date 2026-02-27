@@ -90,22 +90,6 @@ export class ContabilidadService {
     'OTRO',
   ]);
 
-  private isAdmin(actor: Actor) {
-    return actor.role === 'ADMIN';
-  }
-
-  private isAssistant(actor: Actor) {
-    return actor.role === 'ASISTENTE';
-  }
-
-  private isSameLocalDay(a: Date, b: Date) {
-    return (
-      a.getFullYear() === b.getFullYear() &&
-      a.getMonth() === b.getMonth() &&
-      a.getDate() === b.getDate()
-    );
-  }
-
   private normalizeRoleGuard(actor: Actor) {
     if (!actor.id) {
       throw new ForbiddenException('No autorizado para operar cierres');
@@ -222,16 +206,6 @@ export class ContabilidadService {
     const close = await this.prisma.close.findUnique({ where: { id } });
     if (!close) throw new NotFoundException('Cierre no encontrado');
 
-    if (this.isAssistant(actor)) {
-      const isOwner = close.createdById === actor.id;
-      const isToday = this.isSameLocalDay(new Date(close.createdAt), new Date());
-      if (!isOwner || !isToday) {
-        throw new ForbiddenException(
-          'El asistente solo puede editar cierres propios creados el mismo día',
-        );
-      }
-    }
-
     const nextTransfer = dto.transfer ?? Number(close.transfer);
     const nextTransferBankRaw = dto.transferBank ?? close.transferBank;
     this.validateTransferData(nextTransfer, nextTransferBankRaw);
@@ -254,16 +228,6 @@ export class ContabilidadService {
 
     const close = await this.prisma.close.findUnique({ where: { id } });
     if (!close) throw new NotFoundException('Cierre no encontrado');
-
-    if (!this.isAdmin(actor)) {
-      const isOwner = close.createdById === actor.id;
-      const isToday = this.isSameLocalDay(new Date(close.createdAt), new Date());
-      if (!isOwner || !isToday) {
-        throw new ForbiddenException(
-          'El asistente solo puede borrar cierres propios creados el mismo día',
-        );
-      }
-    }
 
     return this.prisma.close.delete({
       where: { id },
@@ -430,11 +394,19 @@ export class ContabilidadService {
           orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }],
         },
       },
-      orderBy: [{ active: 'desc' }, { nextDueDate: 'asc' }, { createdAt: 'desc' }],
+      orderBy: [
+        { active: 'desc' },
+        { nextDueDate: 'asc' },
+        { createdAt: 'desc' },
+      ],
     });
   }
 
-  async updatePayableService(id: string, dto: UpdatePayableServiceDto, actor: Actor) {
+  async updatePayableService(
+    id: string,
+    dto: UpdatePayableServiceDto,
+    actor: Actor,
+  ) {
     this.normalizeRoleGuard(actor);
 
     const existing = await this.prisma.payableService.findUnique({ where: { id } });
@@ -447,11 +419,17 @@ export class ContabilidadService {
       data: {
         ...(dto.title != null ? { title: dto.title.trim() } : {}),
         ...(dto.providerKind != null ? { providerKind: dto.providerKind } : {}),
-        ...(dto.providerName != null ? { providerName: dto.providerName.trim() } : {}),
-        ...(dto.description != null ? { description: this.toNullableTrimmed(dto.description) } : {}),
+        ...(dto.providerName != null
+          ? { providerName: dto.providerName.trim() }
+          : {}),
+        ...(dto.description != null
+          ? { description: this.toNullableTrimmed(dto.description) }
+          : {}),
         ...(dto.frequency != null ? { frequency: dto.frequency } : {}),
         ...(dto.defaultAmount != null ? { defaultAmount: dto.defaultAmount } : {}),
-        ...(dto.nextDueDate != null ? { nextDueDate: new Date(dto.nextDueDate) } : {}),
+        ...(dto.nextDueDate != null
+          ? { nextDueDate: new Date(dto.nextDueDate) }
+          : {}),
         ...(dto.active != null ? { active: dto.active } : {}),
       },
       include: {
@@ -468,6 +446,10 @@ export class ContabilidadService {
     actor: Actor,
   ) {
     this.normalizeRoleGuard(actor);
+
+    if (dto.amount <= 0) {
+      throw new BadRequestException('El monto debe ser mayor a 0');
+    }
 
     const service = await this.prisma.payableService.findUnique({
       where: { id: serviceId },
