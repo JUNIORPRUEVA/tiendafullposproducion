@@ -38,6 +38,16 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
       NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(value);
   String _date(DateTime date) => DateFormat('dd/MM/yyyy').format(date);
 
+  String _quincenaName(DateTime from, DateTime to) {
+    if (from.day == 15) return '1ra quincena';
+    if (to.day == 14) return '2da quincena';
+    return 'Rango personalizado';
+  }
+
+  String _quincenaLabel(DateTime from, DateTime to) {
+    return '${_quincenaName(from, to)} · ${_date(from)} - ${_date(to)}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(ventasControllerProvider);
@@ -52,36 +62,14 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
         title: const Text('Mis Ventas'),
         actions: [
           IconButton(
-            tooltip: 'Filtrar por fecha',
+            tooltip: 'Informe PDF de quincena',
             onPressed: () async {
-              final range = await showDateRangePicker(
-                context: context,
-                firstDate: DateTime(2024),
-                lastDate: DateTime(2100),
-                initialDateRange: DateTimeRange(
-                  start: state.from,
-                  end: state.to,
-                ),
+              await _openPdfPreviewDialog(
+                context,
+                employeeName: user?.nombreCompleto ?? user?.email ?? 'Empleado',
+                state: state,
               );
-              if (range == null) return;
-              await ref
-                  .read(ventasControllerProvider.notifier)
-                  .setCustomRange(range.start, range.end);
             },
-            icon: const Icon(Icons.date_range),
-          ),
-          IconButton(
-            tooltip: 'Ver informe PDF',
-            onPressed: state.sales.isEmpty
-                ? null
-                : () async {
-                    await _openPdfPreviewDialog(
-                      context,
-                      employeeName:
-                          user?.nombreCompleto ?? user?.email ?? 'Empleado',
-                      state: state,
-                    );
-                  },
             icon: const Icon(Icons.picture_as_pdf_outlined),
           ),
         ],
@@ -103,7 +91,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
         child: SizedBox(
           height: 50,
           child: FilledButton.icon(
-            onPressed: () => _openSalesHistoryDialog(context),
+            onPressed: () => _openSalesHistoryDialog(context, state),
             icon: const Icon(Icons.history),
             label: const Text('Historial de ventas'),
           ),
@@ -136,7 +124,10 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                     children: [
                       const Icon(Icons.receipt_long_outlined, size: 44),
                       const SizedBox(height: 8),
-                      const Text('No hay ventas registradas en esta quincena'),
+                      Text(
+                        'No hay ventas registradas en ${_quincenaLabel(state.from, state.to)}',
+                        textAlign: TextAlign.center,
+                      ),
                       const SizedBox(height: 12),
                       FilledButton.icon(
                         onPressed: () async {
@@ -207,7 +198,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              '${_date(state.from)} - ${_date(state.to)} · Meta mínima (puntos): ${_money(goal)}',
+              '${_quincenaLabel(state.from, state.to)} · Meta mínima (puntos): ${_money(goal)}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 8),
@@ -240,15 +231,16 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Quincena actual fija',
+                    'Quincena activa',
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
-                Text(
-                  '${_date(state.from)} - ${_date(state.to)}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
               ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _quincenaLabel(state.from, state.to),
+              style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 10),
             Row(
@@ -724,25 +716,27 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
     await showDialog<void>(
       context: context,
       builder: (context) {
+        final media = MediaQuery.sizeOf(context);
+        final isCompact = media.width < 520;
         return Dialog(
-          insetPadding: const EdgeInsets.all(16),
+          insetPadding: EdgeInsets.all(isCompact ? 8 : 16),
           child: SizedBox(
-            width: 920,
-            height: 760,
+            width: isCompact ? media.width - 16 : 920,
+            height: isCompact ? media.height * 0.92 : 760,
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 10, 8, 6),
+                  padding: EdgeInsets.fromLTRB(isCompact ? 10 : 14, 10, 8, 6),
                   child: Row(
                     children: [
                       const Icon(Icons.picture_as_pdf_outlined),
                       const SizedBox(width: 8),
-                      const Expanded(
+                      Expanded(
                         child: Text(
-                          'Informe PDF de ventas',
+                          'Informe PDF de ventas · ${_quincenaName(state.from, state.to)}',
                           style: TextStyle(
                             fontWeight: FontWeight.w700,
-                            fontSize: 16,
+                            fontSize: isCompact ? 14 : 16,
                           ),
                         ),
                       ),
@@ -755,7 +749,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                           );
                         },
                         icon: const Icon(Icons.download_outlined),
-                        label: const Text('Descargar'),
+                        label: Text(isCompact ? 'Bajar' : 'Descargar'),
                       ),
                       IconButton(
                         tooltip: 'Cerrar',
@@ -771,8 +765,8 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                     canChangePageFormat: false,
                     canChangeOrientation: false,
                     canDebug: false,
-                    allowPrinting: false,
-                    allowSharing: false,
+                    allowPrinting: true,
+                    allowSharing: true,
                     build: (_) async => pdfBytes,
                   ),
                 ),
@@ -784,10 +778,13 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
     );
   }
 
-  Future<void> _openSalesHistoryDialog(BuildContext context) async {
+  Future<void> _openSalesHistoryDialog(
+    BuildContext context,
+    VentasState currentState,
+  ) async {
     final repo = ref.read(ventasRepositoryProvider);
-    DateTime from = DateTime(DateTime.now().year, DateTime.now().month, 1);
-    DateTime to = DateTime.now();
+    DateTime from = currentState.from;
+    DateTime to = currentState.to;
     List<SaleModel> items = const [];
     bool loading = false;
     String? error;
@@ -825,121 +822,226 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
             );
           }
 
-          return AlertDialog(
-            title: const Text('Historial de ventas'),
-            content: SizedBox(
-              width: 720,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final picked = await showDatePicker(
-                              context: context,
-                              initialDate: from,
-                              firstDate: DateTime(2024),
-                              lastDate: DateTime(2100),
-                            );
-                            if (picked == null) return;
-                            setStateDialog(
-                              () => from = DateTime(
-                                picked.year,
-                                picked.month,
-                                picked.day,
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.event),
-                          label: Text('Desde ${_date(from)}'),
+          final media = MediaQuery.sizeOf(context);
+          final isCompact = media.width < 560;
+          final filteredCount = items.length;
+          final filteredSold = items.fold<double>(
+            0,
+            (sum, sale) => sum + sale.totalSold,
+          );
+          final filteredPoints = items.fold<double>(
+            0,
+            (sum, sale) => sum + sale.totalProfit,
+          );
+          final filteredBenefit = items.fold<double>(
+            0,
+            (sum, sale) => sum + sale.commissionAmount,
+          );
+          final scheme = Theme.of(context).colorScheme;
+
+          return Dialog(
+            insetPadding: EdgeInsets.all(isCompact ? 8 : 16),
+            child: SizedBox(
+              width: isCompact ? media.width - 16 : 760,
+              height: isCompact ? media.height * 0.92 : 560,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Historial de ventas',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 16,
+                            ),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final picked = await showDatePicker(
-                              context: context,
-                              initialDate: to,
-                              firstDate: DateTime(2024),
-                              lastDate: DateTime(2100),
-                            );
-                            if (picked == null) return;
-                            setStateDialog(
-                              () => to = DateTime(
-                                picked.year,
-                                picked.month,
-                                picked.day,
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.event_available),
-                          label: Text('Hasta ${_date(to)}'),
+                        IconButton(
+                          tooltip: 'Cerrar',
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        onPressed: loading ? null : () => load(setStateDialog),
-                        child: const Text('Filtrar'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  if (loading) const LinearProgressIndicator(),
-                  if (error != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerLeft,
                       child: Text(
-                        error!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
+                        'Quincena visible: ${_quincenaLabel(from, to)}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: scheme.surfaceContainerHighest.withValues(
+                          alpha: 0.45,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: scheme.outlineVariant.withValues(alpha: 0.65),
+                        ),
+                      ),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: isCompact ? 165 : 200,
+                              child: OutlinedButton.icon(
+                                onPressed: () async {
+                                  final picked = await showDatePicker(
+                                    context: context,
+                                    initialDate: from,
+                                    firstDate: DateTime(2024),
+                                    lastDate: DateTime(2100),
+                                  );
+                                  if (picked == null) return;
+                                  setStateDialog(
+                                    () => from = DateTime(
+                                      picked.year,
+                                      picked.month,
+                                      picked.day,
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.event),
+                                label: Text('Desde ${_date(from)}'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              width: isCompact ? 165 : 200,
+                              child: OutlinedButton.icon(
+                                onPressed: () async {
+                                  final picked = await showDatePicker(
+                                    context: context,
+                                    initialDate: to,
+                                    firstDate: DateTime(2024),
+                                    lastDate: DateTime(2100),
+                                  );
+                                  if (picked == null) return;
+                                  setStateDialog(
+                                    () => to = DateTime(
+                                      picked.year,
+                                      picked.month,
+                                      picked.day,
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.event_available),
+                                label: Text('Hasta ${_date(to)}'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              width: isCompact ? 120 : 130,
+                              child: FilledButton.icon(
+                                onPressed: loading
+                                    ? null
+                                    : () => load(setStateDialog),
+                                icon: const Icon(Icons.filter_alt_outlined),
+                                label: const Text('Filtrar'),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    height: 380,
-                    child: items.isEmpty && !loading
-                        ? const Center(
-                            child: Text('No hay ventas en este rango'),
-                          )
-                        : ListView.separated(
-                            itemCount: items.length,
-                            separatorBuilder: (_, __) =>
-                                const Divider(height: 1),
-                            itemBuilder: (context, index) {
-                              final sale = items[index];
-                              return ListTile(
-                                onTap: () => _showDetailsDialog(context, sale),
-                                title: Text(
-                                  '${_date(sale.saleDate ?? DateTime.now())} · ${sale.customerName ?? 'Sin cliente'}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                subtitle: Text(
-                                  'Vendido ${_money(sale.totalSold)} · Comisión ${_money(sale.commissionAmount)}',
-                                ),
-                                trailing: IconButton(
-                                  tooltip: 'Eliminar',
-                                  onPressed: () =>
-                                      _deleteSale(context, sale.id),
-                                  icon: const Icon(Icons.delete_outline),
-                                ),
-                              );
-                            },
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: scheme.primaryContainer.withValues(alpha: 0.45),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Wrap(
+                        spacing: 10,
+                        runSpacing: 4,
+                        children: [
+                          Text(
+                            'Cantidad: $filteredCount',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
-                  ),
-                ],
+                          Text('Vendido: ${_money(filteredSold)}'),
+                          Text('Puntos: ${_money(filteredPoints)}'),
+                          Text(
+                            'Beneficio 10%: ${_money(filteredBenefit)}',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    if (loading) const LinearProgressIndicator(),
+                    if (error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          error!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: items.isEmpty && !loading
+                          ? const Center(
+                              child: Text('No hay ventas en este rango'),
+                            )
+                          : ListView.separated(
+                              itemCount: items.length,
+                              separatorBuilder: (_, __) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final sale = items[index];
+                                return ListTile(
+                                  onTap: () =>
+                                      _showDetailsDialog(context, sale),
+                                  title: Text(
+                                    '${_date(sale.saleDate ?? DateTime.now())} · ${sale.customerName ?? 'Sin cliente'}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  subtitle: Text(
+                                    'Vendido ${_money(sale.totalSold)} · Comisión ${_money(sale.commissionAmount)}',
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        tooltip: 'Ver detalle',
+                                        onPressed: () =>
+                                            _showDetailsDialog(context, sale),
+                                        icon: const Icon(
+                                          Icons.visibility_outlined,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Eliminar',
+                                        onPressed: () =>
+                                            _deleteSale(context, sale.id),
+                                        icon: const Icon(Icons.delete_outline),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cerrar'),
-              ),
-            ],
           );
         },
       ),

@@ -86,6 +86,16 @@ class AppDrawer extends ConsumerWidget {
                       },
                     ),
                     _DrawerMenuItem(
+                      icon: Icons.request_quote_outlined,
+                      title: 'Cotizaciones',
+                      subtitle: 'Ticket rápido móvil',
+                      selected: isActiveRoute(Routes.cotizaciones),
+                      onTap: () {
+                        Navigator.pop(context);
+                        context.go(Routes.cotizaciones);
+                      },
+                    ),
+                    _DrawerMenuItem(
                       icon: Icons.group_outlined,
                       title: 'Clientes',
                       subtitle: 'Contactos y datos',
@@ -132,6 +142,17 @@ class AppDrawer extends ConsumerWidget {
 
                     const SizedBox(height: 4),
                     const _DrawerSectionTitle('Cuenta'),
+                    if (isAdmin)
+                      _DrawerMenuItem(
+                        icon: Icons.settings_outlined,
+                        title: 'Configuración',
+                        subtitle: 'Datos de la empresa',
+                        selected: isActiveRoute(Routes.configuracion),
+                        onTap: () {
+                          Navigator.pop(context);
+                          context.go(Routes.configuracion);
+                        },
+                      ),
                     _DrawerMenuItem(
                       icon: Icons.people_outline,
                       title: 'Usuarios',

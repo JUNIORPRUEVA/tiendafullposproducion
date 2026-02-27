@@ -743,11 +743,16 @@ export class PayrollService {
   private periodTitle(date: Date) {
     const start = this.periodStartFor(date);
     const end = this.periodEndFor(date);
+    return this.periodTitleFromRange(start, end);
+  }
+
+  private periodTitleFromRange(start: Date, end: Date) {
     const sDay = start.getDate().toString().padStart(2, '0');
     const eDay = end.getDate().toString().padStart(2, '0');
-    const month = (start.getMonth() + 1).toString().padStart(2, '0');
-    const year = start.getFullYear().toString();
-    return `Quincena ${sDay}-${eDay}/${month}/${year}`;
+    const month = (end.getMonth() + 1).toString().padStart(2, '0');
+    const year = end.getFullYear().toString();
+    const quincenaNumber = end.getDate() <= 14 ? 1 : 2;
+    return `Quincena ${quincenaNumber} · ${sDay}-${eDay}/${month}/${year}`;
   }
 
   private isSameDay(left: Date, right: Date) {

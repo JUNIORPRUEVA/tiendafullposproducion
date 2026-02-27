@@ -26,6 +26,7 @@ export class PayrollController {
   @Roles(Role.ADMIN)
   async listPeriods(@Req() req: Request) {
     const ownerId = await this.ownerIdFrom(req);
+    await this.payroll.ensureCurrentOpenPeriod(ownerId);
     const periods = await this.payroll.listPeriods(ownerId);
     return periods.map((item) => this.mapPeriod(item));
   }
@@ -214,10 +215,18 @@ export class PayrollController {
     createdAt: Date;
     updatedAt: Date;
   }) {
+    const start = period.startDate;
+    const end = period.endDate;
+    const sDay = start.getDate().toString().padStart(2, '0');
+    const eDay = end.getDate().toString().padStart(2, '0');
+    const month = (end.getMonth() + 1).toString().padStart(2, '0');
+    const year = end.getFullYear().toString();
+    const quincenaNumber = end.getDate() <= 14 ? 1 : 2;
+
     return {
       id: period.id,
       owner_id: period.ownerId,
-      title: period.title,
+      title: `Quincena ${quincenaNumber} · ${sDay}-${eDay}/${month}/${year}`,
       start_date: period.startDate.toISOString(),
       end_date: period.endDate.toISOString(),
       status: period.status,

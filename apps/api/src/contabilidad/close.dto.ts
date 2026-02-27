@@ -1,4 +1,11 @@
-import { IsEnum, IsString, IsNumber, IsDateString, IsOptional } from 'class-validator';
+import {
+  IsDateString,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 
 export enum CloseType {
   CAPSULAS = 'CAPSULAS',
@@ -18,18 +25,27 @@ export class CreateCloseDto {
   status!: string;
 
   @IsNumber()
+  @Min(0)
   cash!: number;
 
   @IsNumber()
+  @Min(0)
   transfer!: number;
 
+  @IsString()
+  @IsOptional()
+  transferBank?: string;
+
   @IsNumber()
+  @Min(0)
   card!: number;
 
   @IsNumber()
+  @Min(0)
   expenses!: number;
 
   @IsNumber()
+  @Min(0)
   cashDelivered!: number;
 }
 
@@ -40,21 +56,30 @@ export class UpdateCloseDto {
 
   @IsNumber()
   @IsOptional()
+  @Min(0)
   cash?: number;
 
   @IsNumber()
   @IsOptional()
+  @Min(0)
   transfer?: number;
+
+  @IsString()
+  @IsOptional()
+  transferBank?: string;
 
   @IsNumber()
   @IsOptional()
+  @Min(0)
   card?: number;
 
   @IsNumber()
   @IsOptional()
+  @Min(0)
   expenses?: number;
 
   @IsNumber()
   @IsOptional()
+  @Min(0)
   cashDelivered?: number;
 }

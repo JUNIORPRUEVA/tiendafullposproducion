@@ -24,6 +24,20 @@ class ApiRoutes {
   static const contabilidadCloses = '/contabilidad/closes';
   static String contabilidadCloseDetail(String id) =>
       '/contabilidad/closes/$id';
+    static const contabilidadDepositOrders = '/contabilidad/deposit-orders';
+    static String contabilidadDepositOrderDetail(String id) =>
+      '/contabilidad/deposit-orders/$id';
+      static const contabilidadFiscalInvoices = '/contabilidad/fiscal-invoices';
+      static String contabilidadFiscalInvoiceDetail(String id) =>
+        '/contabilidad/fiscal-invoices/$id';
+      static const contabilidadFiscalInvoicesUpload =
+        '/contabilidad/fiscal-invoices/upload';
+      static const contabilidadPayableServices = '/contabilidad/payables/services';
+      static String contabilidadPayableServiceDetail(String id) =>
+        '/contabilidad/payables/services/$id';
+      static String contabilidadPayableServicePayments(String id) =>
+        '/contabilidad/payables/services/$id/payments';
+      static const contabilidadPayablePayments = '/contabilidad/payables/payments';
 
   // Clientes
   static const clients = '/clients';

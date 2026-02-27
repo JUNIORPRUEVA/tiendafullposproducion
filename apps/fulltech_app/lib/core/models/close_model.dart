@@ -4,32 +4,35 @@ extension CloseTypeX on CloseType {
   String get label {
     switch (this) {
       case CloseType.capsulas:
-        return 'Cápsulas';
+        return 'Pastilla';
       case CloseType.pos:
-        return 'POS';
+        return 'Software';
       case CloseType.tienda:
         return 'Tienda';
     }
   }
 
-  String get key {
+  String get apiValue {
     switch (this) {
       case CloseType.capsulas:
-        return 'capsulas';
+        return 'CAPSULAS';
       case CloseType.pos:
-        return 'pos';
+        return 'POS';
       case CloseType.tienda:
-        return 'tienda';
+        return 'TIENDA';
     }
   }
 
   static CloseType fromKey(String value) {
-    switch (value) {
-      case 'capsulas':
+    final normalized = value.trim().toUpperCase();
+    switch (normalized) {
+      case 'CAPSULAS':
+      case 'PASTILLA':
         return CloseType.capsulas;
-      case 'pos':
+      case 'POS':
         return CloseType.pos;
-      case 'tienda':
+      case 'TIENDA':
+      case 'TIENDA_SOFTWARE':
       default:
         return CloseType.tienda;
     }
@@ -43,9 +46,12 @@ class CloseModel {
   final String status; // pending/draft/closed
   final double cash;
   final double transfer;
+  final String? transferBank;
   final double card;
   final double expenses;
   final double cashDelivered;
+  final String? createdById;
+  final String? createdByName;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -56,9 +62,12 @@ class CloseModel {
     required this.status,
     required this.cash,
     required this.transfer,
+    this.transferBank,
     required this.card,
     required this.expenses,
     required this.cashDelivered,
+    this.createdById,
+    this.createdByName,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -71,9 +80,14 @@ class CloseModel {
       status: json['status'],
       cash: (json['cash'] as num).toDouble(),
       transfer: (json['transfer'] as num).toDouble(),
+      transferBank: (json['transferBank'] as String?)?.trim().isEmpty == true
+          ? null
+          : json['transferBank'] as String?,
       card: (json['card'] as num).toDouble(),
       expenses: (json['expenses'] as num).toDouble(),
       cashDelivered: (json['cashDelivered'] as num).toDouble(),
+      createdById: json['createdById'] as String?,
+      createdByName: json['createdByName'] as String?,
       createdAt: DateTime.parse(json['createdAt']),
       updatedAt: DateTime.parse(json['updatedAt']),
     );

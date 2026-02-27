@@ -146,7 +146,8 @@ class NominaDatabaseHelper {
   String _periodTitle(DateTime date) {
     final start = _periodStartFor(date);
     final end = _periodEndFor(date);
-    return 'Quincena ${start.day.toString().padLeft(2, '0')}-${end.day.toString().padLeft(2, '0')}/${start.month.toString().padLeft(2, '0')}/${start.year}';
+    final quincenaNumber = end.day <= 14 ? 1 : 2;
+    return 'Quincena $quincenaNumber · ${start.day.toString().padLeft(2, '0')}-${end.day.toString().padLeft(2, '0')}/${end.month.toString().padLeft(2, '0')}/${end.year}';
   }
 
   Future<void> _createIndexes(Database db) async {
@@ -293,7 +294,10 @@ class NominaDatabaseHelper {
     );
   }
 
-  Future<PayrollPeriod> createNextOpenPeriod(String ownerId, PayrollPeriod closed) async {
+  Future<PayrollPeriod> createNextOpenPeriod(
+    String ownerId,
+    PayrollPeriod closed,
+  ) async {
     final nextBase = closed.endDate.add(const Duration(days: 1));
     final start = _periodStartFor(nextBase);
     final end = _periodEndFor(nextBase);
@@ -601,8 +605,8 @@ class NominaDatabaseHelper {
     }
 
     final seguroLey = (employee?.seguroLeyMonto ?? 0)
-      .clamp(0, double.infinity)
-      .toDouble();
+        .clamp(0, double.infinity)
+        .toDouble();
 
     final additions = commissions + bonuses + otherAdditions;
     final deductions = absences + late + advances + otherDeductions + seguroLey;
@@ -654,8 +658,10 @@ class NominaDatabaseHelper {
       if (!hasData) continue;
 
       final baseSalary = config?.baseSalary ?? 0;
-      final seguroLey = (employee?.seguroLeyMonto ?? 0)
-          .clamp(0, double.infinity);
+      final seguroLey = (employee?.seguroLeyMonto ?? 0).clamp(
+        0,
+        double.infinity,
+      );
 
       double commissionFromSales = 0;
       double overtimeAmount = 0;
@@ -693,8 +699,8 @@ class NominaDatabaseHelper {
       final additions =
           commissionFromSales + overtimeAmount + bonusesAmount + benefitsAmount;
       final grossTotal = baseSalary + additions;
-        final totalDeductions = deductionsAmount + seguroLey;
-        final netTotal = grossTotal - totalDeductions;
+      final totalDeductions = deductionsAmount + seguroLey;
+      final netTotal = grossTotal - totalDeductions;
 
       history.add(
         PayrollHistoryItem(

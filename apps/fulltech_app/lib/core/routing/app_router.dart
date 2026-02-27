@@ -10,12 +10,18 @@ import '../../features/user/users_screen.dart';
 import '../../features/ponche/ponche_screen.dart';
 import '../../features/operaciones/operaciones_screen.dart';
 import '../../features/contabilidad/contabilidad_screen.dart';
+import '../../features/contabilidad/cierres_diarios_screen.dart';
+import '../../features/contabilidad/factura_fiscal_screen.dart';
+import '../../features/contabilidad/pagos_pendientes_screen.dart';
 import '../../features/catalogo/catalogo_screen.dart';
 import '../../modules/clientes/cliente_detail_screen.dart';
 import '../../modules/clientes/clientes_screen.dart';
 import '../../modules/clientes/cliente_form_screen.dart';
 import '../../modules/nomina/nomina_screen.dart';
 import '../../modules/nomina/mis_pagos_screen.dart';
+import '../../modules/configuracion/configuracion_screen.dart';
+import '../../modules/cotizaciones/cotizaciones_historial_screen.dart';
+import '../../modules/cotizaciones/cotizaciones_screen.dart';
 import '../../modules/ventas/mis_ventas_screen.dart';
 import '../../modules/ventas/registrar_venta_screen.dart';
 import '../auth/auth_provider.dart';
@@ -98,12 +104,36 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const ContabilidadScreen(),
           ),
           GoRoute(
+            path: Routes.contabilidadCierresDiarios,
+            builder: (context, state) => const CierresDiariosScreen(),
+          ),
+          GoRoute(
+            path: Routes.contabilidadFacturaFiscal,
+            builder: (context, state) => const FacturaFiscalScreen(),
+          ),
+          GoRoute(
+            path: Routes.contabilidadPagosPendientes,
+            builder: (context, state) => const PagosPendientesScreen(),
+          ),
+          GoRoute(
             path: Routes.clientes,
             builder: (context, state) => const ClientesScreen(),
           ),
           GoRoute(
             path: Routes.ventas,
             builder: (context, state) => const MisVentasScreen(),
+          ),
+          GoRoute(
+            path: Routes.cotizaciones,
+            builder: (context, state) => const CotizacionesScreen(),
+          ),
+          GoRoute(
+            path: Routes.cotizacionesHistorial,
+            builder: (context, state) => const CotizacionesHistorialScreen(),
+          ),
+          GoRoute(
+            path: Routes.configuracion,
+            builder: (context, state) => const ConfiguracionScreen(),
           ),
           GoRoute(
             path: Routes.clienteNuevo,
@@ -130,9 +160,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       final auth = ref.read(authStateProvider);
       final initialized = auth.initialized;
       final isAuth = auth.isAuthenticated;
+      final isAdmin = (auth.user?.role ?? '').toUpperCase() == 'ADMIN';
       final loc = state.uri.toString();
       final isAuthRoute = loc == Routes.login;
       final isSplash = loc == Routes.splash;
+      final isConfigRoute =
+          loc == Routes.configuracion ||
+          loc.startsWith('${Routes.configuracion}/');
 
       if (!initialized) {
         return isSplash ? null : Routes.splash;
@@ -147,6 +181,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       }
 
       if (isAuth && isAuthRoute) {
+        return Routes.operaciones;
+      }
+
+      if (isConfigRoute && !isAdmin) {
         return Routes.operaciones;
       }
 

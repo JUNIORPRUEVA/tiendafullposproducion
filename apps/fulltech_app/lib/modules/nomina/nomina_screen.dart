@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -88,11 +90,6 @@ class NominaScreen extends ConsumerWidget {
           title: const Text('Nómina'),
           actions: [
             IconButton(
-              tooltip: 'Agregar empleado',
-              onPressed: () => _showEmployeeDialog(context, ref),
-              icon: const Icon(Icons.person_add_alt_1),
-            ),
-            IconButton(
               tooltip: 'Recargar',
               onPressed: state.loading ? null : controller.load,
               icon: const Icon(Icons.refresh),
@@ -110,6 +107,29 @@ class NominaScreen extends ConsumerWidget {
           ],
         ),
         drawer: AppDrawer(currentUser: currentUser),
+        floatingActionButton: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            FloatingActionButton.extended(
+              heroTag: 'nomina_historial_fab',
+              onPressed: state.loading
+                  ? null
+                  : () => _openPayrollHistoryDialog(context, ref, state),
+              icon: const Icon(Icons.history),
+              label: const Text('Historial'),
+            ),
+            const SizedBox(height: 10),
+            FloatingActionButton.extended(
+              heroTag: 'nomina_totales_fab',
+              onPressed: state.loading
+                  ? null
+                  : () => _openOpenPeriodTotalsDialog(context, ref, state),
+              icon: const Icon(Icons.summarize_outlined),
+              label: const Text('Totales'),
+            ),
+          ],
+        ),
         body: RefreshIndicator(
           onRefresh: controller.load,
           child: state.loading && state.periods.isEmpty
@@ -257,6 +277,491 @@ class NominaScreen extends ConsumerWidget {
     );
   }
 
+  Future<List<({PayrollEmployee employee, PayrollTotals totals})>>
+  _loadOpenPeriodRows(WidgetRef ref, NominaHomeState state) async {
+    final open = state.openPeriod;
+    if (open == null) return const [];
+
+    final repo = ref.read(nominaRepositoryProvider);
+    final employees = [...state.employees]
+      ..sort((a, b) => a.nombre.compareTo(b.nombre));
+
+    final rows = <({PayrollEmployee employee, PayrollTotals totals})>[];
+    for (final employee in employees) {
+      final totals = await repo.computeTotals(open.id, employee.id);
+      rows.add((employee: employee, totals: totals));
+    }
+    return rows;
+  }
+
+  Future<List<({PayrollEmployee employee, PayrollTotals totals})>>
+  _loadRowsForPeriod(
+    WidgetRef ref,
+    NominaHomeState state,
+    PayrollPeriod period,
+  ) async {
+    final repo = ref.read(nominaRepositoryProvider);
+    final employees = [...state.employees]
+      ..sort((a, b) => a.nombre.compareTo(b.nombre));
+
+    final rows = <({PayrollEmployee employee, PayrollTotals totals})>[];
+    for (final employee in employees) {
+      final totals = await repo.computeTotals(period.id, employee.id);
+      rows.add((employee: employee, totals: totals));
+    }
+    return rows;
+  }
+
+  Future<void> _openPayrollHistoryDialog(
+    BuildContext context,
+    WidgetRef ref,
+    NominaHomeState state,
+  ) async {
+    final pastPeriods = state.periods.where((p) => !p.isOpen).toList();
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+
+    if (pastPeriods.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No hay quincenas pasadas para mostrar')),
+      );
+      return;
+    }
+
+    final repo = ref.read(nominaRepositoryProvider);
+    final totalsByPeriod = <String, double>{};
+    for (final period in pastPeriods) {
+      totalsByPeriod[period.id] = await repo.computePeriodTotalAllEmployees(
+        period.id,
+      );
+    }
+    if (!context.mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Historial de nóminas'),
+        content: SizedBox(
+          width: 620,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: pastPeriods.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final period = pastPeriods[index];
+              final total = totalsByPeriod[period.id] ?? 0;
+              return ListTile(
+                title: Text(
+                  period.title,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                subtitle: Text('Total pagado: ${money.format(total)}'),
+                trailing: FilledButton.tonal(
+                  onPressed: () async {
+                    await _openPastPeriodDetailsDialog(
+                      context,
+                      ref,
+                      state,
+                      period,
+                    );
+                  },
+                  child: const Text('Ver detalles'),
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openPastPeriodDetailsDialog(
+    BuildContext context,
+    WidgetRef ref,
+    NominaHomeState state,
+    PayrollPeriod period,
+  ) async {
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final rows = await _loadRowsForPeriod(ref, state, period);
+    if (!context.mounted) return;
+
+    final totalPagar = rows.fold<double>(
+      0,
+      (sum, row) => sum + row.totals.total,
+    );
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Detalle ${period.title}'),
+        content: SizedBox(
+          width: 680,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Empleados: ${rows.length}'),
+              Text(
+                'Total pagado quincena: ${money.format(totalPagar)}',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 340,
+                child: ListView.separated(
+                  itemCount: rows.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final row = rows[index];
+                    return ListTile(
+                      title: Text(
+                        row.employee.nombre,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(
+                        'Base ${money.format(row.totals.baseSalary)} · Comisión ${money.format(row.totals.commissions)} · Deducciones ${money.format(row.totals.deductions)}',
+                      ),
+                      trailing: Text(
+                        money.format(row.totals.total),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
+          FilledButton.icon(
+            onPressed: () async {
+              await _openOpenPeriodPdfPreviewDialog(context, period, rows);
+            },
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            label: const Text('PDF'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openOpenPeriodTotalsDialog(
+    BuildContext context,
+    WidgetRef ref,
+    NominaHomeState state,
+  ) async {
+    final open = state.openPeriod;
+    if (open == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No hay quincena abierta')));
+      return;
+    }
+
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final rows = await _loadOpenPeriodRows(ref, state);
+    if (!context.mounted) return;
+
+    final totalBase = rows.fold<double>(
+      0,
+      (sum, row) => sum + row.totals.baseSalary,
+    );
+    final totalCommissions = rows.fold<double>(
+      0,
+      (sum, row) => sum + row.totals.commissions,
+    );
+    final totalBonos = rows.fold<double>(
+      0,
+      (sum, row) => sum + row.totals.bonuses + row.totals.otherAdditions,
+    );
+    final totalDeductions = rows.fold<double>(
+      0,
+      (sum, row) => sum + row.totals.deductions,
+    );
+    final totalPagar = rows.fold<double>(
+      0,
+      (sum, row) => sum + row.totals.total,
+    );
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Totales de quincena actual'),
+        content: SizedBox(
+          width: 560,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Quincena: ${open.title}'),
+              Text('Empleados: ${rows.length}'),
+              const SizedBox(height: 10),
+              _summaryLine('Total base', money.format(totalBase)),
+              _summaryLine(
+                'Comisión por ventas',
+                money.format(totalCommissions),
+              ),
+              _summaryLine('Bonos / extras', money.format(totalBonos)),
+              _summaryLine('Deducciones', money.format(totalDeductions)),
+              const Divider(height: 14),
+              _summaryLine(
+                'TOTAL GENERAL A PAGAR',
+                money.format(totalPagar),
+                highlight: true,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
+          FilledButton.icon(
+            onPressed: () async {
+              await _openOpenPeriodPdfPreviewDialog(context, open, rows);
+            },
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            label: const Text('Generar PDF'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryLine(String label, String value, {bool highlight = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontWeight: highlight ? FontWeight.w800 : FontWeight.w600,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: highlight ? FontWeight.w900 : FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<Uint8List> _buildOpenPeriodPayrollPdfBytes(
+    PayrollPeriod open,
+    List<({PayrollEmployee employee, PayrollTotals totals})> rows,
+  ) async {
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final doc = pw.Document();
+
+    final totalBase = rows.fold<double>(
+      0,
+      (sum, row) => sum + row.totals.baseSalary,
+    );
+    final totalCommissions = rows.fold<double>(
+      0,
+      (sum, row) => sum + row.totals.commissions,
+    );
+    final totalBonos = rows.fold<double>(
+      0,
+      (sum, row) => sum + row.totals.bonuses + row.totals.otherAdditions,
+    );
+    final totalDeductions = rows.fold<double>(
+      0,
+      (sum, row) => sum + row.totals.deductions,
+    );
+    final totalPagar = rows.fold<double>(
+      0,
+      (sum, row) => sum + row.totals.total,
+    );
+
+    doc.addPage(
+      pw.MultiPage(
+        build: (context) => [
+          pw.Text(
+            'Nómina quincenal - ${open.title}',
+            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 16),
+          ),
+          pw.SizedBox(height: 8),
+          pw.Table.fromTextArray(
+            headers: const [
+              'Empleado',
+              'Base',
+              'Comisión',
+              'Bonos/Extras',
+              'Deducciones',
+              'Neto',
+            ],
+            data: rows
+                .map(
+                  (row) => [
+                    row.employee.nombre,
+                    money.format(row.totals.baseSalary),
+                    money.format(row.totals.commissions),
+                    money.format(
+                      row.totals.bonuses + row.totals.otherAdditions,
+                    ),
+                    money.format(row.totals.deductions),
+                    money.format(row.totals.total),
+                  ],
+                )
+                .toList(),
+            cellStyle: const pw.TextStyle(fontSize: 9),
+            headerStyle: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 9,
+            ),
+            headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+          ),
+          pw.SizedBox(height: 10),
+          pw.Align(
+            alignment: pw.Alignment.centerRight,
+            child: pw.Container(
+              width: 280,
+              padding: const pw.EdgeInsets.all(10),
+              decoration: pw.BoxDecoration(
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                border: pw.Border.all(color: PdfColors.grey400),
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                children: [
+                  _pdfTotalLine('Total base', money.format(totalBase)),
+                  _pdfTotalLine('Comisión', money.format(totalCommissions)),
+                  _pdfTotalLine('Bonos / extras', money.format(totalBonos)),
+                  _pdfTotalLine('Deducciones', money.format(totalDeductions)),
+                  pw.Divider(height: 10),
+                  _pdfTotalLine(
+                    'TOTAL GENERAL',
+                    money.format(totalPagar),
+                    highlight: true,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return doc.save();
+  }
+
+  pw.Widget _pdfTotalLine(
+    String label,
+    String value, {
+    bool highlight = false,
+  }) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 2),
+      child: pw.Row(
+        children: [
+          pw.Expanded(
+            child: pw.Text(
+              label,
+              style: pw.TextStyle(
+                fontWeight: highlight
+                    ? pw.FontWeight.bold
+                    : pw.FontWeight.normal,
+              ),
+            ),
+          ),
+          pw.Text(
+            value,
+            style: pw.TextStyle(
+              fontWeight: highlight ? pw.FontWeight.bold : pw.FontWeight.normal,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openOpenPeriodPdfPreviewDialog(
+    BuildContext context,
+    PayrollPeriod open,
+    List<({PayrollEmployee employee, PayrollTotals totals})> rows,
+  ) async {
+    final pdfBytes = await _buildOpenPeriodPayrollPdfBytes(open, rows);
+    if (!context.mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: SizedBox(
+          width: 920,
+          height: 760,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 8, 6),
+                child: Row(
+                  children: [
+                    const Icon(Icons.picture_as_pdf_outlined),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'PDF Nómina · ${open.title}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () async {
+                        final fileName =
+                            'nomina_${open.title.replaceAll(' ', '_')}.pdf';
+                        await Printing.sharePdf(
+                          bytes: pdfBytes,
+                          filename: fileName,
+                        );
+                      },
+                      icon: const Icon(Icons.download_outlined),
+                      label: const Text('Descargar'),
+                    ),
+                    IconButton(
+                      tooltip: 'Cerrar',
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: PdfPreview(
+                  canChangePageFormat: false,
+                  canChangeOrientation: false,
+                  canDebug: false,
+                  allowPrinting: true,
+                  allowSharing: true,
+                  build: (_) async => pdfBytes,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _showEmployeeDialog(
     BuildContext context,
     WidgetRef ref, {
@@ -264,7 +769,16 @@ class NominaScreen extends ConsumerWidget {
   }) async {
     UserModel? selectedUser;
     if (employee == null) {
-      selectedUser = await _showUserPickerDialog(context, ref);
+      final existingUserIds = ref
+          .read(nominaHomeControllerProvider)
+          .employees
+          .map((item) => item.id)
+          .toSet();
+      selectedUser = await _showUserPickerDialog(
+        context,
+        ref,
+        excludedUserIds: existingUserIds,
+      );
       if (selectedUser == null) return;
     }
 
@@ -388,6 +902,21 @@ class NominaScreen extends ConsumerWidget {
                   ),
                 );
                 return;
+              }
+
+              if (employee == null && selectedUser != null) {
+                final alreadyExists = ref
+                    .read(nominaHomeControllerProvider)
+                    .employees
+                    .any((item) => item.id == selectedUser!.id);
+                if (alreadyExists) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Este usuario ya está agregado en nómina'),
+                    ),
+                  );
+                  return;
+                }
               }
 
               try {
@@ -714,70 +1243,16 @@ class NominaScreen extends ConsumerWidget {
       return;
     }
 
-    final repo = ref.read(nominaRepositoryProvider);
-    final employees = [...state.employees]
-      ..sort((a, b) => a.nombre.compareTo(b.nombre));
-    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
-
-    final rows = <({PayrollEmployee employee, PayrollTotals totals})>[];
-    for (final employee in employees) {
-      final totals = await repo.computeTotals(open.id, employee.id);
-      rows.add((employee: employee, totals: totals));
-    }
-
-    final doc = pw.Document();
-
-    doc.addPage(
-      pw.MultiPage(
-        build: (context) => [
-          pw.Text(
-            'Nómina quincenal - ${open.title}',
-            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 16),
-          ),
-          pw.SizedBox(height: 8),
-          pw.Table.fromTextArray(
-            headers: const [
-              'Empleado',
-              'Base',
-              'Comisión',
-              'Bonos/Extras',
-              'Seguro ley',
-              'Deducciones',
-              'Neto',
-            ],
-            data: rows
-                .map(
-                  (row) => [
-                    row.employee.nombre,
-                    money.format(row.totals.baseSalary),
-                    money.format(row.totals.commissions),
-                    money.format(
-                      row.totals.bonuses + row.totals.otherAdditions,
-                    ),
-                    money.format(row.totals.seguroLey),
-                    money.format(row.totals.deductions),
-                    money.format(row.totals.total),
-                  ],
-                )
-                .toList(),
-            cellStyle: const pw.TextStyle(fontSize: 9),
-            headerStyle: pw.TextStyle(
-              fontWeight: pw.FontWeight.bold,
-              fontSize: 9,
-            ),
-            headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
-          ),
-        ],
-      ),
-    );
-
-    await Printing.layoutPdf(onLayout: (_) => doc.save());
+    final rows = await _loadOpenPeriodRows(ref, state);
+    final bytes = await _buildOpenPeriodPayrollPdfBytes(open, rows);
+    await Printing.layoutPdf(onLayout: (_) => bytes);
   }
 
   Future<UserModel?> _showUserPickerDialog(
     BuildContext context,
-    WidgetRef ref,
-  ) async {
+    WidgetRef ref, {
+    Set<String> excludedUserIds = const {},
+  }) async {
     final searchCtrl = TextEditingController();
     List<UserModel> users = const [];
 
@@ -800,6 +1275,7 @@ class NominaScreen extends ConsumerWidget {
         builder: (context, setDialogState) {
           final query = searchCtrl.text.trim().toLowerCase();
           final visible = users.where((u) {
+            if (excludedUserIds.contains(u.id)) return false;
             if (query.isEmpty) return true;
             return u.nombreCompleto.toLowerCase().contains(query) ||
                 u.email.toLowerCase().contains(query) ||

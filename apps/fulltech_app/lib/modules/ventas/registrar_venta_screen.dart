@@ -27,6 +27,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
   List<ProductModel> _products = const [];
   List<SaleDraftItem> _cart = [];
   int _visibleProducts = 24;
+  String? _selectedCategory;
 
   ClienteModel? _selectedClient;
 
@@ -35,8 +36,18 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
 
   List<ProductModel> get _filteredProducts {
     final q = _searchCtrl.text.trim().toLowerCase();
-    if (q.isEmpty) return _products;
-    return _products.where((p) => p.nombre.toLowerCase().contains(q)).toList();
+    return _products.where((p) {
+      final matchesText = q.isEmpty || p.nombre.toLowerCase().contains(q);
+      final matchesCategory =
+          _selectedCategory == null || p.categoriaLabel == _selectedCategory;
+      return matchesText && matchesCategory;
+    }).toList();
+  }
+
+  List<String> get _availableCategories {
+    final values = _products.map((item) => item.categoriaLabel).toSet().toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return values;
   }
 
   double get _totalSold =>
@@ -94,6 +105,46 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
     }
   }
 
+  Future<void> _pickCategoryFilter() async {
+    final selected = await showModalBottomSheet<String?>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        final categories = _availableCategories;
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(
+                leading: Icon(
+                  _selectedCategory == null
+                      ? Icons.check_circle
+                      : Icons.list_alt_outlined,
+                ),
+                title: const Text('Todas las categorías'),
+                onTap: () => Navigator.pop(context, null),
+              ),
+              for (final category in categories)
+                ListTile(
+                  leading: Icon(
+                    _selectedCategory == category
+                        ? Icons.check_circle
+                        : Icons.category_outlined,
+                  ),
+                  title: Text(category),
+                  onTap: () => Navigator.pop(context, category),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted) return;
+    if (selected == _selectedCategory) return;
+    setState(() => _selectedCategory = selected);
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authStateProvider).user;
@@ -123,15 +174,31 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                       decoration: InputDecoration(
                         hintText: 'Buscar producto...',
                         prefixIcon: const Icon(Icons.search),
-                        suffixIcon: _searchCtrl.text.isEmpty
-                            ? null
-                            : IconButton(
+                        suffixIcon: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_searchCtrl.text.isNotEmpty)
+                              IconButton(
+                                tooltip: 'Limpiar búsqueda',
                                 onPressed: () {
                                   _searchCtrl.clear();
                                   setState(() {});
                                 },
                                 icon: const Icon(Icons.close),
                               ),
+                            IconButton(
+                              tooltip: _selectedCategory == null
+                                  ? 'Filtrar por categoría'
+                                  : 'Categoría: $_selectedCategory',
+                              onPressed: _pickCategoryFilter,
+                              icon: Icon(
+                                _selectedCategory == null
+                                    ? Icons.filter_alt_outlined
+                                    : Icons.filter_alt,
+                              ),
+                            ),
+                          ],
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide.none,
@@ -176,15 +243,31 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                 decoration: InputDecoration(
                   hintText: 'Buscar producto...',
                   prefixIcon: const Icon(Icons.search),
-                  suffixIcon: _searchCtrl.text.isEmpty
-                      ? null
-                      : IconButton(
+                  suffixIcon: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_searchCtrl.text.isNotEmpty)
+                        IconButton(
+                          tooltip: 'Limpiar búsqueda',
                           onPressed: () {
                             _searchCtrl.clear();
                             setState(() {});
                           },
                           icon: const Icon(Icons.close),
                         ),
+                      IconButton(
+                        tooltip: _selectedCategory == null
+                            ? 'Filtrar por categoría'
+                            : 'Categoría: $_selectedCategory',
+                        onPressed: _pickCategoryFilter,
+                        icon: Icon(
+                          _selectedCategory == null
+                              ? Icons.filter_alt_outlined
+                              : Icons.filter_alt,
+                        ),
+                      ),
+                    ],
+                  ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
