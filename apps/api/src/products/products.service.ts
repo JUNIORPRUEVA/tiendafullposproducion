@@ -55,6 +55,10 @@ export class ProductsService {
     return this.productsSource === 'FULLPOS';
   }
 
+  getSource(): ProductsSource {
+    return this.productsSource;
+  }
+
   private assertWritable() {
     if (this.productsSource === 'FULLPOS') {
       throw new ConflictException('Productos en modo solo-lectura: fuente FULLPOS (cloud). Administra productos en FULLPOS.');

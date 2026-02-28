@@ -51,6 +51,15 @@ export class ProductsController {
   }
 
   @UseGuards(AuthGuard('jwt'))
+  @Get('source')
+  source() {
+    return {
+      source: this.products.getSource(),
+      readOnly: this.products.isReadOnly(),
+    };
+  }
+
+  @UseGuards(AuthGuard('jwt'))
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.products.findOne(id);
