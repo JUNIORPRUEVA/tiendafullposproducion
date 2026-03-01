@@ -184,7 +184,6 @@ export class OperationsService {
         depositAmount: dto.depositAmount,
         paymentStatus: dto.paymentStatus ?? 'pending',
         addressSnapshot: dto.addressSnapshot?.trim() || customer.direccion,
-        warrantyParentServiceId: dto.warrantyParentServiceId,
         tags: dto.tags ?? [],
         steps: {
           create: defaultSteps,
@@ -200,11 +199,14 @@ export class OperationsService {
         },
       };
 
-      final createWithOrderFields = {
+      const createWithOrderFields = {
         ...baseData,
         orderType: dto.orderType ? this.parseOrderType(dto.orderType) : OrderType.RESERVA,
         orderState: dto.orderState ? this.parseOrderState(dto.orderState) : OrderState.PENDING,
         ...(hasOrderExtras ? { orderExtras: orderExtras as Prisma.InputJsonValue } : {}),
+        ...(dto.warrantyParentServiceId
+          ? { warrantyParent: { connect: { id: dto.warrantyParentServiceId } } }
+          : {}),
         ...(technicianId ? { technician: { connect: { id: technicianId } } } : {}),
       } as any;
 
