@@ -66,6 +66,7 @@ class ApiRoutes {
 
   // Operaciones
   static const services = '/services';
+    static const technicians = '/technicians';
   static String serviceDetail(String id) => '/services/$id';
   static String serviceStatus(String id) => '/services/$id/status';
   static String serviceSchedule(String id) => '/services/$id/schedule';

@@ -57,6 +57,13 @@ export class OperationsController {
     return this.operations.list(user, query);
   }
 
+  @Get('technicians')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  technicians(@Req() req: Request) {
+    const user = req.user as { id: string; role: Role };
+    return this.operations.listTechnicians(user);
+  }
+
   @Get('services/:id')
   @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
   getOne(@Req() req: Request, @Param('id') id: string) {
@@ -72,35 +79,35 @@ export class OperationsController {
   }
 
   @Patch('services/:id/status')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.TECNICO)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
   changeStatus(@Req() req: Request, @Param('id') id: string, @Body() dto: ChangeServiceStatusDto) {
     const user = req.user as { id: string; role: Role };
     return this.operations.changeStatus(user, id, dto);
   }
 
   @Patch('services/:id/schedule')
-  @Roles(Role.ADMIN, Role.ASISTENTE)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
   schedule(@Req() req: Request, @Param('id') id: string, @Body() dto: ScheduleServiceDto) {
     const user = req.user as { id: string; role: Role };
     return this.operations.schedule(user, id, dto);
   }
 
   @Post('services/:id/assign')
-  @Roles(Role.ADMIN, Role.ASISTENTE)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
   assign(@Req() req: Request, @Param('id') id: string, @Body() dto: AssignServiceDto) {
     const user = req.user as { id: string; role: Role };
     return this.operations.assign(user, id, dto);
   }
 
   @Post('services/:id/update')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
   addUpdate(@Req() req: Request, @Param('id') id: string, @Body() dto: ServiceUpdateDto) {
     const user = req.user as { id: string; role: Role };
     return this.operations.addUpdate(user, id, dto);
   }
 
   @Post('services/:id/files')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.TECNICO)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
@@ -128,7 +135,7 @@ export class OperationsController {
   }
 
   @Post('services/:id/warranty')
-  @Roles(Role.ADMIN, Role.ASISTENTE)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
   createWarranty(@Req() req: Request, @Param('id') id: string, @Body() dto: CreateWarrantyDto) {
     const user = req.user as { id: string; role: Role };
     return this.operations.createWarranty(user, id, dto);

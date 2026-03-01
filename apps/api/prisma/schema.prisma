@@ -88,6 +88,23 @@ enum ServiceStatus {
   CANCELLED
 }
 
+enum OrderType {
+  RESERVA
+  SERVICIO
+  LEVANTAMIENTO
+  GARANTIA
+}
+
+enum OrderState {
+  PENDING
+  CONFIRMED
+  ASSIGNED
+  IN_PROGRESS
+  FINALIZED
+  CANCELLED
+  RESCHEDULED
+}
+
 enum ServiceAssignmentRole {
   LEAD
   ASSISTANT
@@ -140,6 +157,7 @@ model User {
   deletedSales Sale[] @relation("SaleDeletedBy")
   createdServices Service[] @relation("ServiceCreatedBy")
   assignedServices ServiceAssignment[]
+  technicianServices Service[] @relation("ServiceTechnician")
   serviceStepsDone ServiceStep[] @relation("ServiceStepDoneBy")
   serviceUpdates ServiceUpdate[]
   uploadedServiceFiles ServiceFile[]
@@ -468,6 +486,9 @@ model Service {
   serviceType             ServiceType
   category                String
   status                  ServiceStatus @default(RESERVED)
+  orderType               OrderType     @default(RESERVA)
+  orderState              OrderState    @default(PENDING)
+  technicianId            String?       @db.Uuid
   priority                Int           @default(2)
   title                   String
   description             String
@@ -475,6 +496,7 @@ model Service {
   depositAmount           Decimal?      @db.Decimal(12, 2)
   paymentStatus           String        @default("pending")
   addressSnapshot         String?
+  orderExtras              Json?
   scheduledStart          DateTime?
   scheduledEnd            DateTime?
   completedAt             DateTime?
@@ -486,6 +508,7 @@ model Service {
 
   customer Client   @relation(fields: [customerId], references: [id], onDelete: Restrict)
   createdBy User    @relation("ServiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  technician User?  @relation("ServiceTechnician", fields: [technicianId], references: [id], onDelete: SetNull)
   warrantyParent Service?  @relation("WarrantyParent", fields: [warrantyParentServiceId], references: [id], onDelete: SetNull)
   warrantyChildren Service[] @relation("WarrantyParent")
   assignments ServiceAssignment[]
@@ -497,6 +520,9 @@ model Service {
   @@index([createdByUserId])
   @@index([serviceType])
   @@index([status])
+  @@index([orderType])
+  @@index([orderState])
+  @@index([technicianId])
   @@index([priority])
   @@index([scheduledStart])
   @@index([isDeleted])

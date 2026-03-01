@@ -32,6 +32,9 @@ class OperationsRepository {
   Future<ServicesPageModel> listServices({
     String? status,
     String? type,
+    String? orderType,
+    String? orderState,
+    String? technicianId,
     int? priority,
     String? assignedTo,
     String? customerId,
@@ -47,17 +50,27 @@ class OperationsRepository {
         queryParameters: {
           if (status != null && status.isNotEmpty) 'status': status,
           if (type != null && type.isNotEmpty) 'type': type,
+          if (orderType != null && orderType.isNotEmpty) 'orderType': orderType,
+          if (orderState != null && orderState.isNotEmpty)
+            'orderState': orderState,
+          if (technicianId != null && technicianId.isNotEmpty)
+            'technicianId': technicianId,
           if (priority != null) 'priority': priority,
-          if (assignedTo != null && assignedTo.isNotEmpty) 'assignedTo': assignedTo,
-          if (customerId != null && customerId.isNotEmpty) 'customerId': customerId,
-          if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+          if (assignedTo != null && assignedTo.isNotEmpty)
+            'assignedTo': assignedTo,
+          if (customerId != null && customerId.isNotEmpty)
+            'customerId': customerId,
+          if (search != null && search.trim().isNotEmpty)
+            'search': search.trim(),
           if (from != null) 'from': from.toIso8601String(),
           if (to != null) 'to': to.toIso8601String(),
           'page': page,
           'pageSize': pageSize,
         },
       );
-      return ServicesPageModel.fromJson((res.data as Map).cast<String, dynamic>());
+      return ServicesPageModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudieron cargar servicios'),
@@ -78,6 +91,17 @@ class OperationsRepository {
     }
   }
 
+  Future<void> deleteService(String id) async {
+    try {
+      await _dio.delete(ApiRoutes.serviceDetail(id));
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo eliminar el servicio'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
   Future<ServiceModel> createService({
     required String customerId,
     required String serviceType,
@@ -88,6 +112,13 @@ class OperationsRepository {
     String? addressSnapshot,
     double? quotedAmount,
     double? depositAmount,
+    String? orderType,
+    String? orderState,
+    String? technicianId,
+    String? warrantyParentServiceId,
+    String? surveyResult,
+    String? materialsUsed,
+    double? finalCost,
     List<String>? tags,
   }) async {
     try {
@@ -104,6 +135,20 @@ class OperationsRepository {
             'addressSnapshot': addressSnapshot.trim(),
           if (quotedAmount != null) 'quotedAmount': quotedAmount,
           if (depositAmount != null) 'depositAmount': depositAmount,
+          if (orderType != null && orderType.trim().isNotEmpty)
+            'orderType': orderType.trim(),
+          if (orderState != null && orderState.trim().isNotEmpty)
+            'orderState': orderState.trim(),
+          if (technicianId != null && technicianId.trim().isNotEmpty)
+            'technicianId': technicianId.trim(),
+          if (warrantyParentServiceId != null &&
+              warrantyParentServiceId.trim().isNotEmpty)
+            'warrantyParentServiceId': warrantyParentServiceId.trim(),
+          if (surveyResult != null && surveyResult.trim().isNotEmpty)
+            'surveyResult': surveyResult.trim(),
+          if (materialsUsed != null && materialsUsed.trim().isNotEmpty)
+            'materialsUsed': materialsUsed.trim(),
+          if (finalCost != null) 'finalCost': finalCost,
           if (tags != null && tags.isNotEmpty) 'tags': tags,
         },
       );
@@ -111,6 +156,25 @@ class OperationsRepository {
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo crear la reserva'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<List<TechnicianModel>> listTechnicians() async {
+    try {
+      final res = await _dio.get(ApiRoutes.technicians);
+      final data = (res.data as Map).cast<String, dynamic>();
+      final raw = data['items'];
+      if (raw is! List) return const [];
+      return raw
+          .whereType<Map>()
+          .map((row) => TechnicianModel.fromJson(row.cast<String, dynamic>()))
+          .where((t) => t.id.trim().isNotEmpty)
+          .toList();
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudieron cargar técnicos'),
         e.response?.statusCode,
       );
     }
@@ -213,10 +277,7 @@ class OperationsRepository {
   }) async {
     try {
       final form = FormData.fromMap({
-        'file': MultipartFile.fromBytes(
-          file.bytes!,
-          filename: file.name,
-        ),
+        'file': MultipartFile.fromBytes(file.bytes!, filename: file.name),
       });
       await _dio.post(ApiRoutes.serviceFiles(serviceId), data: form);
     } on DioException catch (e) {
@@ -283,7 +344,10 @@ class OperationsRepository {
           .toList();
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudo cargar historial del cliente'),
+        _extractMessage(
+          e.response?.data,
+          'No se pudo cargar historial del cliente',
+        ),
         e.response?.statusCode,
       );
     }

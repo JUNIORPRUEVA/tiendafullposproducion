@@ -46,7 +46,7 @@ class UserScreen extends ConsumerWidget {
                         : NetworkImage(user.fotoPersonalUrl!),
                     child: (user.fotoPersonalUrl ?? '').trim().isEmpty
                         ? Text(
-                            _getInitials(user.nombreCompleto ?? 'U'),
+                            _getInitials(user.nombreCompleto),
                             style: const TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.w700,
@@ -73,8 +73,8 @@ class UserScreen extends ConsumerWidget {
                     backgroundColor: Theme.of(context).colorScheme.primary,
                     backgroundImage:
                         (user?.fotoPersonalUrl ?? '').trim().isEmpty
-                            ? null
-                            : NetworkImage(user!.fotoPersonalUrl!),
+                        ? null
+                        : NetworkImage(user!.fotoPersonalUrl!),
                     child: (user?.fotoPersonalUrl ?? '').trim().isEmpty
                         ? Text(
                             _getInitials(user?.nombreCompleto ?? 'U'),
@@ -118,11 +118,11 @@ class UserScreen extends ConsumerWidget {
                 child: _InfoList(
                   children: [
                     if ((user?.nombreCompleto ?? '').trim().isNotEmpty)
-                      _InfoRow('Nombre Completo', user!.nombreCompleto!.trim()),
+                      _InfoRow('Nombre Completo', user!.nombreCompleto.trim()),
                     if ((user?.email ?? '').trim().isNotEmpty)
-                      _InfoRow('Email', user!.email!.trim()),
+                      _InfoRow('Email', user!.email.trim()),
                     if ((user?.telefono ?? '').trim().isNotEmpty)
-                      _InfoRow('Teléfono', user!.telefono!.trim()),
+                      _InfoRow('Teléfono', user!.telefono.trim()),
                     if ((user?.cedula ?? '').trim().isNotEmpty)
                       _InfoRow('Cédula', user!.cedula!.trim()),
                     if ((user?.experienciaLaboral ?? '').trim().isNotEmpty)
@@ -153,10 +153,7 @@ class UserScreen extends ConsumerWidget {
 
             // Nómina
             if ((user?.cuentaNominaPreferencial ?? '').trim().isNotEmpty) ...[
-              Text(
-                'Nómina',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
+              Text('Nómina', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 12),
               Card(
                 child: Padding(
@@ -317,10 +314,7 @@ class _Divider extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Divider(
-        color: Theme.of(context).dividerColor,
-        height: 16,
-      ),
+      child: Divider(color: Theme.of(context).dividerColor, height: 16),
     );
   }
 }

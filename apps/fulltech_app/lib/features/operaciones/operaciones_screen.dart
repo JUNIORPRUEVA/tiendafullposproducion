@@ -1,10 +1,14 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:dio/dio.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -14,6 +18,7 @@ import '../../core/errors/api_exception.dart';
 import '../../core/models/punch_model.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/geo_utils.dart';
+import '../../core/utils/external_launcher.dart';
 import '../../core/utils/string_utils.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../modules/cotizaciones/data/cotizaciones_repository.dart';
@@ -22,7 +27,6 @@ import '../catalogo/catalogo_screen.dart';
 import '../ponche/application/punch_controller.dart';
 import 'application/operations_controller.dart';
 import 'data/operations_repository.dart';
-import 'operaciones_finalizados_screen.dart';
 import 'operations_models.dart';
 import '../../modules/clientes/cliente_model.dart';
 
@@ -33,24 +37,120 @@ class OperacionesScreen extends ConsumerStatefulWidget {
   ConsumerState<OperacionesScreen> createState() => _OperacionesScreenState();
 }
 
-class _OperacionesScreenState extends ConsumerState<OperacionesScreen> {
+class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
+    with WidgetsBindingObserver {
   final _searchCtrl = TextEditingController();
-  Timer? _autoRefreshTimer;
 
   @override
   void initState() {
     super.initState();
-    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (!mounted) return;
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    if (state == AppLifecycleState.resumed) {
       ref.read(operationsControllerProvider.notifier).refresh();
-    });
+    }
   }
 
   @override
   void dispose() {
-    _autoRefreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _changeStatusWithConfirm(ServiceModel service) async {
+    final statuses = const [
+      'reserved',
+      'survey',
+      'scheduled',
+      'in_progress',
+      'completed',
+      'warranty',
+      'closed',
+      'cancelled',
+    ];
+
+    String label(String raw) {
+      switch (raw) {
+        case 'reserved':
+          return 'Reserva';
+        case 'survey':
+          return 'Levantamiento';
+        case 'scheduled':
+          return 'Servicio (agendado)';
+        case 'in_progress':
+          return 'Servicio (en proceso)';
+        case 'warranty':
+          return 'Garantía';
+        case 'completed':
+          return 'Finalizado';
+        case 'closed':
+          return 'Cerrado';
+        case 'cancelled':
+          return 'Cancelado';
+        default:
+          return raw;
+      }
+    }
+
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return SimpleDialog(
+          title: const Text('Cambiar estado'),
+          children: statuses
+              .map(
+                (s) => SimpleDialogOption(
+                  onPressed: () => Navigator.pop(context, s),
+                  child: Row(
+                    children: [
+                      Expanded(child: Text(label(s))),
+                      if (s == service.status)
+                        const Icon(Icons.check_rounded, size: 18),
+                    ],
+                  ),
+                ),
+              )
+              .toList(),
+        );
+      },
+    );
+
+    if (!mounted || picked == null) return;
+    if (picked == service.status) return;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Confirmar cambio'),
+          content: Text(
+            'Vas a cambiar el estado de "${label(service.status)}" a "${label(picked)}".\n\n¿Seguro que deseas hacerlo?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Cambiar'),
+            ),
+          ],
+        );
+      },
+    );
+    if (!mounted || ok != true) return;
+
+    await _changeStatus(service.id, picked);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Estado cambiado a ${label(picked)}')),
+    );
   }
 
   Future<void> _openCatalogoDialog() async {
@@ -186,6 +286,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen> {
             state: state,
             searchCtrl: _searchCtrl,
             onOpenService: _openServiceDetail,
+            onChangeStatus: _changeStatusWithConfirm,
           ),
         ],
       ),
@@ -223,6 +324,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen> {
     );
   }
 
+  // ignore: unused_element
   Future<void> _handleCreateService(_CreateServiceDraft draft) async {
     try {
       final created = await _createService(draft);
@@ -304,6 +406,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen> {
         );
   }
 
+  // ignore: unused_element
   Future<bool> _handleCreateFromAgenda(
     _CreateServiceDraft draft,
     String kind,
@@ -482,6 +585,7 @@ class OperacionesAgendaScreen extends ConsumerStatefulWidget {
 
 class _OperacionesAgendaScreenState
     extends ConsumerState<OperacionesAgendaScreen> {
+  // ignore: unused_element
   String _statusLabel(String raw) {
     switch (raw) {
       case 'reserved':
@@ -546,6 +650,97 @@ class _OperacionesAgendaScreenState
           );
         },
       ),
+    );
+  }
+
+  Future<void> _changeStatusWithConfirm(ServiceModel service) async {
+    final statuses = const [
+      'reserved',
+      'survey',
+      'scheduled',
+      'in_progress',
+      'completed',
+      'warranty',
+      'closed',
+      'cancelled',
+    ];
+
+    String label(String raw) {
+      switch (raw) {
+        case 'reserved':
+          return 'Reserva';
+        case 'survey':
+          return 'Levantamiento';
+        case 'scheduled':
+          return 'Servicio (agendado)';
+        case 'in_progress':
+          return 'Servicio (en proceso)';
+        case 'warranty':
+          return 'Garantía';
+        case 'completed':
+          return 'Finalizado';
+        case 'closed':
+          return 'Cerrado';
+        case 'cancelled':
+          return 'Cancelado';
+        default:
+          return raw;
+      }
+    }
+
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return SimpleDialog(
+          title: const Text('Cambiar estado'),
+          children: statuses
+              .map(
+                (s) => SimpleDialogOption(
+                  onPressed: () => Navigator.pop(context, s),
+                  child: Row(
+                    children: [
+                      Expanded(child: Text(label(s))),
+                      if (s == service.status)
+                        const Icon(Icons.check_rounded, size: 18),
+                    ],
+                  ),
+                ),
+              )
+              .toList(),
+        );
+      },
+    );
+
+    if (!mounted || picked == null) return;
+    if (picked == service.status) return;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Confirmar cambio'),
+          content: Text(
+            'Vas a cambiar el estado de "${label(service.status)}" a "${label(picked)}".\n\n¿Seguro que deseas hacerlo?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Cambiar'),
+            ),
+          ],
+        );
+      },
+    );
+    if (!mounted || ok != true) return;
+
+    await _changeStatus(service.id, picked);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Estado cambiado a ${label(picked)}')),
     );
   }
 
@@ -674,6 +869,14 @@ class _OperacionesAgendaScreenState
             addressSnapshot: draft.addressSnapshot,
             quotedAmount: draft.quotedAmount,
             depositAmount: draft.depositAmount,
+            orderType: lower,
+            orderState: draft.orderState,
+            technicianId: draft.technicianId,
+            warrantyParentServiceId: draft.relatedServiceId,
+            surveyResult: draft.surveyResult,
+            materialsUsed: draft.materialsUsed,
+            finalCost: draft.finalCost,
+            tags: draft.tags,
           );
 
       final reservationAt = draft.reservationAt;
@@ -719,25 +922,19 @@ class _OperacionesAgendaScreenState
     var kind = 'reserva';
 
     String titleForKind(String k) {
-      final lower = k.trim().toLowerCase();
-      return lower == 'reserva'
-          ? 'Agendar reserva'
-          : lower == 'levantamiento'
-          ? 'Agendar levantamiento'
-          : lower == 'servicio'
-          ? 'Agendar servicio'
-          : 'Agendar garantía';
+      return 'Crear orden de servicio';
     }
 
     String submitForKind(String k) {
       final lower = k.trim().toLowerCase();
-      return lower == 'reserva'
-          ? 'Guardar reserva'
-          : lower == 'levantamiento'
-          ? 'Guardar levantamiento'
-          : lower == 'servicio'
-          ? 'Guardar servicio'
-          : 'Guardar garantía';
+      final label = switch (lower) {
+        'reserva' => 'Reserva',
+        'servicio' => 'Servicio',
+        'levantamiento' => 'Levantamiento',
+        'garantia' => 'Garantía',
+        _ => 'Orden',
+      };
+      return 'Guardar orden ($label)';
     }
 
     String initialServiceTypeForKind(String k) {
@@ -788,7 +985,7 @@ class _OperacionesAgendaScreenState
                           isExpanded: true,
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
-                            labelText: 'Tipo',
+                            labelText: 'Tipo de orden',
                           ),
                           items: const [
                             DropdownMenuItem(
@@ -817,10 +1014,10 @@ class _OperacionesAgendaScreenState
                       const Divider(height: 1),
                       Expanded(
                         child: _CreateReservationTab(
-                          key: ValueKey('agenda-form-$kind'),
+                          agendaKind: kind,
                           submitLabel: submitForKind(kind),
                           initialServiceType: initialServiceTypeForKind(kind),
-                          showServiceTypeField: false,
+                          showServiceTypeField: kind == 'servicio',
                           onCreate: (draft) async {
                             final ok = await _createFromAgenda(draft, kind);
                             if (ok && context.mounted) Navigator.pop(context);
@@ -944,7 +1141,7 @@ class _OperacionesAgendaScreenState
     final scheduled =
         state.services.where((s) => s.scheduledStart != null).toList()
           ..sort((a, b) => a.scheduledStart!.compareTo(b.scheduledStart!));
-    final dateFormat = DateFormat('EEE dd/MM HH:mm', 'es');
+
 
     return Scaffold(
       appBar: AppBar(
@@ -1017,16 +1214,9 @@ class _OperacionesAgendaScreenState
                     )
                   else
                     ...scheduled.map((service) {
-                      final techCount = service.assignments
-                          .map((a) => a.userName)
-                          .where((t) => t.trim().isNotEmpty)
-                          .length;
-                      final statusText = _statusLabel(service.status);
                       final typeText = _serviceTypeLabel(service.serviceType);
                       final categoryText = service.category.trim();
-                      final whenText = dateFormat.format(
-                        service.scheduledStart!,
-                      );
+                      final address = service.customerAddress.trim();
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Card(
@@ -1057,51 +1247,54 @@ class _OperacionesAgendaScreenState
                                           ),
                                         ),
                                       ),
-                                      if (service.isSeguro) ...[
-                                        const SizedBox(width: 8),
-                                        const _SeguroBadge(),
-                                      ],
-                                      const SizedBox(width: 8),
-                                      _inlineChip(
-                                        context,
-                                        icon: Icons.flag_outlined,
-                                        text: statusText,
+                                      IconButton(
+                                        tooltip: 'Cambiar estado',
+                                        onPressed: () =>
+                                            _changeStatusWithConfirm(service),
+                                        icon: const Icon(
+                                          Icons.swap_horiz_rounded,
+                                        ),
                                       ),
                                     ],
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    service.title.trim().isEmpty
-                                        ? 'Servicio'
-                                        : service.title.trim(),
+                                    categoryText.isEmpty
+                                        ? typeText
+                                        : '$typeText · $categoryText',
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                   const SizedBox(height: 6),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
+                                  Row(
                                     children: [
-                                      _inlineChip(
-                                        context,
-                                        icon: Icons.build_outlined,
-                                        text: categoryText.isEmpty
-                                            ? typeText
-                                            : '$typeText · $categoryText',
+                                      Icon(
+                                        Icons.place_outlined,
+                                        size: 16,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface
+                                            .withValues(alpha: 0.65),
                                       ),
-                                      _inlineChip(
-                                        context,
-                                        icon: Icons.event_outlined,
-                                        text: whenText,
-                                      ),
-                                      _inlineChip(
-                                        context,
-                                        icon: Icons.groups_outlined,
-                                        text: techCount == 0
-                                            ? 'Sin técnicos'
-                                            : techCount == 1
-                                            ? '1 técnico'
-                                            : '$techCount técnicos',
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          address.isEmpty
+                                              ? 'Sin dirección'
+                                              : address,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .onSurface
+                                                    .withValues(alpha: 0.70),
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -1235,6 +1428,8 @@ class _PanelFilterResult {
   final DateTimeRange range;
   final _PanelStatusFilter status;
   final _PanelPriorityFilter priority;
+  final String? orderType;
+  final String? orderState;
   final String technicianQuery;
   final String sellerQuery;
 
@@ -1242,6 +1437,8 @@ class _PanelFilterResult {
     required this.range,
     required this.status,
     required this.priority,
+    required this.orderType,
+    required this.orderState,
     required this.technicianQuery,
     required this.sellerQuery,
   });
@@ -1251,11 +1448,13 @@ class _PanelOptions extends StatefulWidget {
   final OperationsState state;
   final TextEditingController searchCtrl;
   final void Function(ServiceModel) onOpenService;
+  final Future<void> Function(ServiceModel service) onChangeStatus;
 
   const _PanelOptions({
     required this.state,
     required this.searchCtrl,
     required this.onOpenService,
+    required this.onChangeStatus,
   });
 
   @override
@@ -1266,6 +1465,8 @@ class _PanelOptionsState extends State<_PanelOptions> {
   DateTimeRange? _range;
   _PanelStatusFilter _statusFilter = _PanelStatusFilter.todos;
   _PanelPriorityFilter _priorityFilter = _PanelPriorityFilter.todas;
+  String? _orderTypeFilter;
+  String? _orderStateFilter;
   String _technicianQuery = '';
   String _sellerQuery = '';
 
@@ -1340,6 +1541,8 @@ class _PanelOptionsState extends State<_PanelOptions> {
     DateTimeRange range = _effectiveRange();
     var status = _statusFilter;
     var priority = _priorityFilter;
+    var orderType = _orderTypeFilter;
+    var orderState = _orderStateFilter;
     var technicianQuery = _technicianQuery;
     var sellerQuery = _sellerQuery;
 
@@ -1551,6 +1754,95 @@ class _PanelOptionsState extends State<_PanelOptions> {
                         ],
                       ),
                     ),
+                    sectionTitle('Orden de servicio'),
+                    if (MediaQuery.sizeOf(context).width < 430) ...[
+                      DropdownButtonFormField<String>(
+                        value: orderType ?? '',
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Tipo de orden',
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: '', child: Text('Todos')),
+                          DropdownMenuItem(value: 'reserva', child: Text('Reserva')),
+                          DropdownMenuItem(value: 'servicio', child: Text('Servicio')),
+                          DropdownMenuItem(value: 'levantamiento', child: Text('Levantamiento')),
+                          DropdownMenuItem(value: 'garantia', child: Text('Garantía')),
+                        ],
+                        onChanged: (v) =>
+                            setSheetState(() => orderType = (v ?? '').trim().isEmpty ? null : v),
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        value: orderState ?? '',
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Estado de orden',
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: '', child: Text('Todos')),
+                          DropdownMenuItem(value: 'pending', child: Text('Pendiente')),
+                          DropdownMenuItem(value: 'confirmed', child: Text('Confirmada')),
+                          DropdownMenuItem(value: 'assigned', child: Text('Asignada')),
+                          DropdownMenuItem(value: 'in_progress', child: Text('En progreso')),
+                          DropdownMenuItem(value: 'finalized', child: Text('Finalizada')),
+                          DropdownMenuItem(value: 'cancelled', child: Text('Cancelada')),
+                          DropdownMenuItem(value: 'rescheduled', child: Text('Reagendada')),
+                        ],
+                        onChanged: (v) =>
+                            setSheetState(() => orderState = (v ?? '').trim().isEmpty ? null : v),
+                      ),
+                    ] else
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: orderType ?? '',
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                border: OutlineInputBorder(),
+                                labelText: 'Tipo de orden',
+                              ),
+                              items: const [
+                                DropdownMenuItem(value: '', child: Text('Todos')),
+                                DropdownMenuItem(value: 'reserva', child: Text('Reserva')),
+                                DropdownMenuItem(value: 'servicio', child: Text('Servicio')),
+                                DropdownMenuItem(value: 'levantamiento', child: Text('Levantamiento')),
+                                DropdownMenuItem(value: 'garantia', child: Text('Garantía')),
+                              ],
+                              onChanged: (v) => setSheetState(
+                                () => orderType = (v ?? '').trim().isEmpty ? null : v,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: orderState ?? '',
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                border: OutlineInputBorder(),
+                                labelText: 'Estado de orden',
+                              ),
+                              items: const [
+                                DropdownMenuItem(value: '', child: Text('Todos')),
+                                DropdownMenuItem(value: 'pending', child: Text('Pendiente')),
+                                DropdownMenuItem(value: 'confirmed', child: Text('Confirmada')),
+                                DropdownMenuItem(value: 'assigned', child: Text('Asignada')),
+                                DropdownMenuItem(value: 'in_progress', child: Text('En progreso')),
+                                DropdownMenuItem(value: 'finalized', child: Text('Finalizada')),
+                                DropdownMenuItem(value: 'cancelled', child: Text('Cancelada')),
+                                DropdownMenuItem(value: 'rescheduled', child: Text('Reagendada')),
+                              ],
+                              onChanged: (v) => setSheetState(
+                                () => orderState = (v ?? '').trim().isEmpty ? null : v,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
@@ -1574,6 +1866,8 @@ class _PanelOptionsState extends State<_PanelOptions> {
                                 ),
                                 status: _PanelStatusFilter.todos,
                                 priority: _PanelPriorityFilter.todas,
+                                orderType: null,
+                                orderState: null,
                                 technicianQuery: '',
                                 sellerQuery: '',
                               ),
@@ -1590,6 +1884,8 @@ class _PanelOptionsState extends State<_PanelOptions> {
                                 range: range,
                                 status: status,
                                 priority: priority,
+                                orderType: orderType,
+                                orderState: orderState,
                                 technicianQuery: technicianCtrl.text,
                                 sellerQuery: sellerCtrl.text,
                               ),
@@ -1616,6 +1912,8 @@ class _PanelOptionsState extends State<_PanelOptions> {
       _range = result.range;
       _statusFilter = result.status;
       _priorityFilter = result.priority;
+      _orderTypeFilter = result.orderType;
+      _orderStateFilter = result.orderState;
       _technicianQuery = result.technicianQuery.trim();
       _sellerQuery = result.sellerQuery.trim();
     });
@@ -1630,6 +1928,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
   static const _inProgressStatuses = {'in_progress'};
   static const _completedStatuses = {'completed', 'closed'};
 
+  // ignore: unused_element
   String _statusLabel(String raw) {
     switch (raw) {
       case 'reserved':
@@ -1691,6 +1990,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
     }
   }
 
+  // ignore: unused_element
   String _techLabel(ServiceModel s) {
     if (s.assignments.isEmpty) return 'Sin asignar';
     final tech = s.assignments
@@ -1704,7 +2004,6 @@ class _PanelOptionsState extends State<_PanelOptions> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final now = DateTime.now();
-    final timeFormat = DateFormat('hh:mm a', 'es');
     final range = _effectiveRange();
 
     bool inRange(ServiceModel s) {
@@ -1784,11 +2083,25 @@ class _PanelOptionsState extends State<_PanelOptions> {
       return s.createdByName.toLowerCase().contains(q);
     }
 
+    bool matchesOrderType(ServiceModel s) {
+      final v = (_orderTypeFilter ?? '').trim().toLowerCase();
+      if (v.isEmpty) return true;
+      return s.orderType.trim().toLowerCase() == v;
+    }
+
+    bool matchesOrderState(ServiceModel s) {
+      final v = (_orderStateFilter ?? '').trim().toLowerCase();
+      if (v.isEmpty) return true;
+      return s.orderState.trim().toLowerCase() == v;
+    }
+
     final filtered = window
         .where(
           (s) =>
               matchesStatus(s) &&
               matchesPriority(s) &&
+              matchesOrderType(s) &&
+              matchesOrderState(s) &&
               matchesTechnician(s) &&
               matchesSeller(s) &&
               matchesQuery(s),
@@ -1933,14 +2246,9 @@ class _PanelOptionsState extends State<_PanelOptions> {
         else
           ...filtered.map((s) {
             final tint = _statusTint(context, s.status);
-            final time = s.scheduledStart == null
-                ? '—'
-                : timeFormat.format(s.scheduledStart!);
-
-            final priority = s.priority <= 1
-                ? 'Alta Prioridad'
-                : (s.priority >= 3 ? 'Baja Prioridad' : 'Prioridad');
-            final showPriority = s.priority <= 1;
+            final type = _typeLabel(s.serviceType);
+            final category = s.category.trim();
+            final address = s.customerAddress.trim();
 
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
@@ -1966,43 +2274,44 @@ class _PanelOptionsState extends State<_PanelOptions> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '${_typeLabel(s.serviceType)} · ${s.title}',
+                          category.isEmpty ? type : '$type · $category',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 4),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 6,
+                        Row(
                           children: [
-                            _inlineChip(
-                              context,
-                              icon: Icons.schedule,
-                              text: time,
-                            ),
-                            _inlineChip(
-                              context,
-                              icon: Icons.person_outline,
-                              text: 'Técnico: ${_techLabel(s)}',
-                            ),
-                            _inlineChip(
-                              context,
-                              icon: Icons.flag_outlined,
-                              text: _statusLabel(s.status),
-                            ),
-                            if (showPriority)
-                              _inlineChip(
-                                context,
-                                icon: Icons.priority_high,
-                                text: priority,
-                                tint: theme.colorScheme.error,
+                            Icon(
+                              Icons.place_outlined,
+                              size: 16,
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.65,
                               ),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                address.isEmpty ? 'Sin dirección' : address,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurface.withValues(
+                                    alpha: 0.70,
+                                  ),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ],
                     ),
                   ),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: IconButton(
+                    tooltip: 'Cambiar estado',
+                    icon: const Icon(Icons.swap_horiz_rounded),
+                    onPressed: () => widget.onChangeStatus(s),
+                  ),
                 ),
               ),
             );
@@ -2012,38 +2321,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
   }
 }
 
-Widget _inlineChip(
-  BuildContext context, {
-  required IconData icon,
-  required String text,
-  Color? tint,
-}) {
-  final theme = Theme.of(context);
-  final cs = theme.colorScheme;
-  final color = tint ?? cs.primary;
-  return Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.10),
-      borderRadius: BorderRadius.circular(999),
-      border: Border.all(color: cs.outline.withValues(alpha: 0.18)),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: color),
-        const SizedBox(width: 6),
-        Text(
-          text,
-          style: theme.textTheme.bodySmall?.copyWith(
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
+// ignore: unused_element
 class _ReservaScreen extends StatelessWidget {
   final Future<void> Function(_CreateServiceDraft draft) onCreate;
 
@@ -2058,7 +2336,7 @@ class _ReservaScreen extends StatelessWidget {
   }
 }
 
-class _ServiceDetailPanel extends StatefulWidget {
+class _ServiceDetailPanel extends ConsumerStatefulWidget {
   final ServiceModel service;
   final Future<void> Function(String status) onChangeStatus;
   final Future<void> Function(DateTime start, DateTime end) onSchedule;
@@ -2080,10 +2358,11 @@ class _ServiceDetailPanel extends StatefulWidget {
   });
 
   @override
-  State<_ServiceDetailPanel> createState() => _ServiceDetailPanelState();
+  ConsumerState<_ServiceDetailPanel> createState() =>
+      _ServiceDetailPanelState();
 }
 
-class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
+class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
   final _noteCtrl = TextEditingController();
   final _techCtrl = TextEditingController();
 
@@ -2123,44 +2402,9 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
     }
   }
 
-  Future<void> _changeStatusWithConfirm() async {
+  Future<void> _setStatusWithConfirm(String targetStatus) async {
     final service = widget.service;
-    final statuses = const [
-      'reserved',
-      'survey',
-      'scheduled',
-      'in_progress',
-      'completed',
-      'warranty',
-      'closed',
-      'cancelled',
-    ];
-
-    final picked = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        return SimpleDialog(
-          title: const Text('Cambiar estado'),
-          children: statuses
-              .map(
-                (s) => SimpleDialogOption(
-                  onPressed: () => Navigator.pop(context, s),
-                  child: Row(
-                    children: [
-                      Expanded(child: Text(_statusLabel(s))),
-                      if (s == service.status)
-                        const Icon(Icons.check_rounded, size: 18),
-                    ],
-                  ),
-                ),
-              )
-              .toList(),
-        );
-      },
-    );
-
-    if (!mounted || picked == null) return;
-    if (picked == service.status) return;
+    if (targetStatus == service.status) return;
 
     final ok = await showDialog<bool>(
       context: context,
@@ -2168,7 +2412,7 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
         return AlertDialog(
           title: const Text('Confirmar cambio'),
           content: Text(
-            'Vas a cambiar el estado de "${_statusLabel(service.status)}" a "${_statusLabel(picked)}".\n\n¿Seguro que deseas hacerlo?',
+            'Vas a cambiar el estado de "${_statusLabel(service.status)}" a "${_statusLabel(targetStatus)}".\n\n¿Seguro que deseas hacerlo?',
           ),
           actions: [
             TextButton(
@@ -2177,22 +2421,96 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Cambiar'),
+              child: const Text('Confirmar'),
             ),
           ],
         );
       },
     );
+
     if (!mounted || ok != true) return;
 
-    await widget.onChangeStatus(picked);
+    await widget.onChangeStatus(targetStatus);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Estado cambiado a ${_statusLabel(picked)}')),
+      SnackBar(content: Text('Estado: ${_statusLabel(targetStatus)}')),
     );
 
     // Cierra el panel para evitar mostrar info desactualizada.
     Navigator.pop(context);
+  }
+
+  Future<DateTime?> _pickDateTime({
+    required String helpText,
+    required DateTime initial,
+  }) async {
+    final pickedDate = await showDatePicker(
+      context: context,
+      firstDate: DateTime(2024),
+      lastDate: DateTime(2100),
+      initialDate: DateTime(initial.year, initial.month, initial.day),
+      helpText: helpText,
+    );
+    if (!mounted || pickedDate == null) return null;
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (!mounted || pickedTime == null) return null;
+
+    return DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+  }
+
+  Future<void> _deleteWithConfirm(ServiceModel service) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Eliminar servicio'),
+          content: Text(
+            'Vas a eliminar "${service.title.trim().isEmpty ? 'Servicio' : service.title.trim()}".\n\nEsta acción no se puede deshacer. ¿Seguro que deseas hacerlo?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+              ),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Eliminar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || ok != true) return;
+
+    try {
+      await ref
+          .read(operationsControllerProvider.notifier)
+          .deleteService(service.id);
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Servicio eliminado')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e is ApiException ? e.message : '$e')),
+      );
+    }
   }
 
   @override
@@ -2206,6 +2524,67 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
   Widget build(BuildContext context) {
     final service = widget.service;
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
+
+    final auth = ref.watch(authStateProvider);
+    final user = auth.user;
+    final userId = (user?.id ?? '').trim();
+    final role = (user?.role ?? '').trim().toLowerCase();
+
+    final isAdmin = role == 'admin' || role == 'asistente';
+    final isOwner = userId.isNotEmpty && userId == service.createdByUserId;
+    final isTech = role == 'tecnico';
+    final isAssignedTech =
+        isTech &&
+        userId.isNotEmpty &&
+        service.assignments.any((a) => a.userId == userId);
+
+    final canOperate = isAdmin || isOwner;
+    final canChangeStatus = canOperate || isAssignedTech;
+    final canDelete = role == 'admin';
+
+    Widget infoRow({
+      required IconData icon,
+      required String label,
+      required String value,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.70),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 92,
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.75),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                value,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     final statusText = _statusLabel(service.status);
     final typeText = _serviceTypeLabel(service.serviceType);
@@ -2262,7 +2641,42 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
               ),
             ),
             const SizedBox(width: 8),
-            _inlineChip(context, icon: Icons.flag_outlined, text: statusText),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.flag_outlined,
+                      size: 16,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.70),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      statusText,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                if (service.isSeguro) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Seguro',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.70),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ],
         ),
         const SizedBox(height: 10),
@@ -2270,47 +2684,82 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
           spacing: 8,
           runSpacing: 8,
           children: [
-            _inlineChip(
-              context,
-              icon: Icons.build_outlined,
-              text: categoryText.isEmpty
-                  ? typeText
-                  : '$typeText · $categoryText',
+            OutlinedButton.icon(
+              onPressed: service.customerId.trim().isEmpty
+                  ? null
+                  : () => context.push(
+                      Routes.clienteDetail(service.customerId.trim()),
+                    ),
+              icon: const Icon(Icons.person_outline),
+              label: const Text('Cliente'),
             ),
-            _inlineChip(
-              context,
-              icon: Icons.priority_high_rounded,
-              text: 'Prioridad P${service.priority}',
+            OutlinedButton.icon(
+              onPressed: customerPhone.isEmpty
+                  ? null
+                  : () => context.push(
+                      '${Routes.cotizacionesHistorial}?customerPhone=${Uri.encodeQueryComponent(customerPhone)}&pick=0',
+                    ),
+              icon: const Icon(Icons.receipt_long_outlined),
+              label: const Text('Cotizaciones'),
             ),
-            if (service.scheduledStart != null)
-              _inlineChip(
-                context,
-                icon: Icons.event_outlined,
-                text: dateFormat.format(service.scheduledStart!),
-              ),
-            if (service.scheduledEnd != null)
-              _inlineChip(
-                context,
-                icon: Icons.event_busy_outlined,
-                text: 'Hasta ${dateFormat.format(service.scheduledEnd!)}',
-              ),
-            if (service.completedAt != null)
-              _inlineChip(
-                context,
-                icon: Icons.check_circle_outline,
-                text: 'Finalizado ${dateFormat.format(service.completedAt!)}',
-              ),
-            if (service.isSeguro) const _SeguroBadge(),
           ],
         ),
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: _changeStatusWithConfirm,
-            icon: const Icon(Icons.swap_horiz_rounded),
-            label: const Text('Cambiar estado'),
+        const SizedBox(height: 10),
+        _sectionTitle('Resumen'),
+        infoRow(
+          icon: Icons.build_outlined,
+          label: 'Tipo',
+          value: categoryText.isEmpty ? typeText : '$typeText · $categoryText',
+        ),
+        infoRow(
+          icon: Icons.priority_high_rounded,
+          label: 'Prioridad',
+          value: 'P${service.priority}',
+        ),
+        if (service.scheduledStart != null)
+          infoRow(
+            icon: Icons.event_outlined,
+            label: 'Inicio',
+            value: dateFormat.format(service.scheduledStart!),
           ),
+        if (service.scheduledEnd != null)
+          infoRow(
+            icon: Icons.event_busy_outlined,
+            label: 'Fin',
+            value: dateFormat.format(service.scheduledEnd!),
+          ),
+        if (service.completedAt != null)
+          infoRow(
+            icon: Icons.check_circle_outline,
+            label: 'Completado',
+            value: dateFormat.format(service.completedAt!),
+          ),
+        if (service.createdByName.trim().isNotEmpty)
+          infoRow(
+            icon: Icons.badge_outlined,
+            label: 'Creado por',
+            value: service.createdByName.trim(),
+          ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: !canChangeStatus || service.status == 'in_progress'
+                  ? null
+                  : () => _setStatusWithConfirm('in_progress'),
+              icon: const Icon(Icons.play_circle_outline),
+              label: const Text('En proceso'),
+            ),
+            FilledButton.icon(
+              onPressed: !canChangeStatus || service.status == 'completed'
+                  ? null
+                  : () => _setStatusWithConfirm('completed'),
+              icon: const Icon(Icons.check_circle_outline),
+              label: const Text('Finalizado'),
+            ),
+          ],
         ),
         const SizedBox(height: 8),
         Wrap(
@@ -2318,60 +2767,83 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
           runSpacing: 8,
           children: [
             OutlinedButton.icon(
-              onPressed: () async {
-                final picked = await showDateRangePicker(
-                  context: context,
-                  firstDate: DateTime(2024),
-                  lastDate: DateTime(2100),
-                  initialDateRange: DateTimeRange(
-                    start: service.scheduledStart ?? DateTime.now(),
-                    end:
-                        service.scheduledEnd ??
-                        DateTime.now().add(const Duration(hours: 2)),
-                  ),
-                );
-                if (picked == null) return;
-                await widget.onSchedule(
-                  DateTime(
-                    picked.start.year,
-                    picked.start.month,
-                    picked.start.day,
-                    8,
-                  ),
-                  DateTime(
-                    picked.end.year,
-                    picked.end.month,
-                    picked.end.day,
-                    18,
-                  ),
-                );
-              },
+              onPressed: canOperate
+                  ? () async {
+                      final now = DateTime.now();
+                      final startInitial = service.scheduledStart ?? now;
+                      final start = await _pickDateTime(
+                        helpText: 'Selecciona inicio',
+                        initial: startInitial,
+                      );
+                      if (start == null) return;
+
+                      final endInitial =
+                          service.scheduledEnd ??
+                          start.add(const Duration(hours: 2));
+                      final end = await _pickDateTime(
+                        helpText: 'Selecciona fin',
+                        initial: endInitial,
+                      );
+                      if (end == null) return;
+
+                      if (!end.isAfter(start)) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'El fin debe ser posterior al inicio',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+
+                      await widget.onSchedule(start, end);
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Agenda actualizada')),
+                      );
+
+                      // Cierra el panel para evitar mostrar info desactualizada.
+                      Navigator.pop(context);
+                    }
+                  : null,
               icon: const Icon(Icons.event_available_outlined),
               label: const Text('Agendar/Reagendar'),
             ),
             OutlinedButton.icon(
-              onPressed: () async {
-                final ids = await _askTechIds(context);
-                if (ids == null || ids.isEmpty) return;
-                await widget.onAssign(
-                  ids
-                      .map(
-                        (id) => <String, String>{
-                          'userId': id,
-                          'role': 'assistant',
-                        },
-                      )
-                      .toList(),
-                );
-              },
+              onPressed: canOperate
+                  ? () async {
+                      final ids = await _askTechIds(context);
+                      if (ids == null || ids.isEmpty) return;
+                      await widget.onAssign(
+                        ids
+                            .map(
+                              (id) => <String, String>{
+                                'userId': id,
+                                'role': 'assistant',
+                              },
+                            )
+                            .toList(),
+                      );
+                    }
+                  : null,
               icon: const Icon(Icons.groups_outlined),
               label: const Text('Asignar técnicos'),
             ),
             if (service.status == 'completed' || service.status == 'closed')
               FilledButton.icon(
-                onPressed: widget.onCreateWarranty,
+                onPressed: canOperate ? widget.onCreateWarranty : null,
                 icon: const Icon(Icons.verified_outlined),
                 label: const Text('Crear garantía'),
+              ),
+            if (canDelete)
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.error,
+                ),
+                onPressed: () => _deleteWithConfirm(service),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('Eliminar'),
               ),
           ],
         ),
@@ -2381,37 +2853,33 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
           Text(descText),
           const SizedBox(height: 10),
         ],
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _inlineChip(
-              context,
-              icon: Icons.request_quote_outlined,
-              text: 'Cotizado: ${money(service.quotedAmount)}',
-            ),
-            _inlineChip(
-              context,
-              icon: Icons.payments_outlined,
-              text: 'Depósito: ${money(service.depositAmount)}',
-            ),
-            if (service.createdByName.trim().isNotEmpty)
-              _inlineChip(
-                context,
-                icon: Icons.person_outline,
-                text: 'Creado por: ${service.createdByName.trim()}',
-              ),
-          ],
+        infoRow(
+          icon: Icons.request_quote_outlined,
+          label: 'Cotizado',
+          value: money(service.quotedAmount),
         ),
+        infoRow(
+          icon: Icons.payments_outlined,
+          label: 'Depósito',
+          value: money(service.depositAmount),
+        ),
+        if (service.createdByName.trim().isNotEmpty)
+          infoRow(
+            icon: Icons.person_outline,
+            label: 'Creado por',
+            value: service.createdByName.trim(),
+          ),
         if (tags.isNotEmpty) ...[
           const SizedBox(height: 10),
           _sectionTitle('Tags'),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               for (final t in tags)
-                _inlineChip(context, icon: Icons.local_offer_outlined, text: t),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text('• $t'),
+                ),
             ],
           ),
         ],
@@ -2421,27 +2889,35 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
           runSpacing: 8,
           children: [
             OutlinedButton(
-              onPressed: () => widget.onAddNote('Llegué al sitio'),
+              onPressed: canOperate
+                  ? () => widget.onAddNote('Llegué al sitio')
+                  : null,
               child: const Text('Llegué al sitio'),
             ),
             OutlinedButton(
-              onPressed: () => widget.onAddNote('Inicié trabajo'),
+              onPressed: canOperate
+                  ? () => widget.onAddNote('Inicié trabajo')
+                  : null,
               child: const Text('Inicié'),
             ),
             OutlinedButton(
-              onPressed: () => widget.onAddNote('Finalicé trabajo'),
+              onPressed: canOperate
+                  ? () => widget.onAddNote('Finalicé trabajo')
+                  : null,
               child: const Text('Finalicé'),
             ),
             OutlinedButton(
-              onPressed: () async {
-                final reason = await _askReason(context);
-                if (reason == null || reason.trim().isEmpty) return;
-                await widget.onAddNote('Pendiente por: ${reason.trim()}');
-              },
+              onPressed: canOperate
+                  ? () async {
+                      final reason = await _askReason(context);
+                      if (reason == null || reason.trim().isEmpty) return;
+                      await widget.onAddNote('Pendiente por: ${reason.trim()}');
+                    }
+                  : null,
               child: const Text('Pendiente por X'),
             ),
             FilledButton.icon(
-              onPressed: widget.onUploadEvidence,
+              onPressed: canOperate ? widget.onUploadEvidence : null,
               icon: const Icon(Icons.attach_file),
               label: const Text('Subir evidencia'),
             ),
@@ -2458,15 +2934,26 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
         if (techNames.isEmpty)
           const Text('Sin técnicos asignados')
         else
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               for (final name in techNames)
-                _inlineChip(
-                  context,
-                  icon: Icons.engineering_outlined,
-                  text: name,
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.engineering_outlined,
+                        size: 16,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.70),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(name)),
+                    ],
+                  ),
                 ),
             ],
           ),
@@ -2481,6 +2968,7 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
                 : Text('Completado ${dateFormat.format(step.doneAt!)}'),
             value: step.isDone,
             onChanged: (value) {
+              if (!canOperate) return;
               if (value == null) return;
               widget.onToggleStep(step.id, value);
             },
@@ -2814,15 +3302,11 @@ class OperacionesHistorialBodyState
                       _pill(context, 'Tipo', _typeLabel(service.serviceType)),
                       _pill(context, 'Prioridad', 'P${service.priority}'),
                       if (service.isSeguro) _pill(context, 'SEGURO', 'Sí'),
-                      _pill(
-                        context,
-                        'Último',
-                        (_lastUpdateAt(service) ?? service.completedAt) == null
-                            ? '—'
-                            : df.format(
-                                _lastUpdateAt(service) ?? service.completedAt!,
-                              ),
-                      ),
+                      _pill(context, 'Último', () {
+                        final last =
+                            _lastUpdateAt(service) ?? service.completedAt;
+                        return last == null ? '—' : df.format(last);
+                      }()),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -3042,6 +3526,7 @@ class OperacionesHistorialBodyState
   }
 }
 
+// ignore: unused_element
 class _AgendaTab extends StatelessWidget {
   final List<ServiceModel> services;
   final void Function(ServiceModel) onOpenService;
@@ -3263,6 +3748,7 @@ class _AgendaTab extends StatelessWidget {
                       final ok = await onCreateFromAgenda(draft, lower);
                       if (ok && context.mounted) Navigator.pop(context);
                     },
+                    agendaKind: lower,
                     submitLabel: submitLabel,
                     initialServiceType: initialServiceType,
                     showServiceTypeField: false,
@@ -3375,8 +3861,15 @@ class _CreateServiceDraft {
   final String title;
   final String description;
   final String? addressSnapshot;
+  final String orderState;
+  final String? technicianId;
+  final String? relatedServiceId;
+  final String? surveyResult;
+  final String? materialsUsed;
+  final double? finalCost;
   final double? quotedAmount;
   final double? depositAmount;
+  final List<String> tags;
   final PlatformFile? referencePhoto;
 
   _CreateServiceDraft({
@@ -3387,9 +3880,16 @@ class _CreateServiceDraft {
     required this.reservationAt,
     required this.title,
     required this.description,
+    required this.orderState,
+    this.technicianId,
     this.addressSnapshot,
+    this.relatedServiceId,
+    this.surveyResult,
+    this.materialsUsed,
+    this.finalCost,
     this.quotedAmount,
     this.depositAmount,
+    this.tags = const [],
     this.referencePhoto,
   });
 }
@@ -3399,6 +3899,7 @@ class _CreateReservationTab extends ConsumerStatefulWidget {
   final String submitLabel;
   final String initialServiceType;
   final bool showServiceTypeField;
+  final String? agendaKind;
 
   const _CreateReservationTab({
     super.key,
@@ -3406,6 +3907,7 @@ class _CreateReservationTab extends ConsumerStatefulWidget {
     this.submitLabel = 'Guardar reserva',
     this.initialServiceType = 'installation',
     this.showServiceTypeField = true,
+    this.agendaKind,
   });
 
   @override
@@ -3422,10 +3924,20 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   final _gpsCtrl = TextEditingController();
   final _quotedCtrl = TextEditingController();
   final _depositCtrl = TextEditingController();
+  final _relatedServiceCtrl = TextEditingController();
+  final _surveyResultCtrl = TextEditingController();
+  final _materialsUsedCtrl = TextEditingController();
+  final _finalCostCtrl = TextEditingController();
 
   late String _serviceType;
   late String _category;
   late int _priority;
+  late String _orderState;
+  String? _technicianId;
+  bool _orderStateTouched = false;
+  bool _priorityTouched = false;
+  bool _loadingTechnicians = false;
+  List<TechnicianModel> _technicians = const [];
   String? _customerId;
   String? _customerName;
   String? _customerPhone;
@@ -3433,9 +3945,46 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   bool _checkingCotizaciones = false;
   bool _hasCotizaciones = false;
   CotizacionModel? _selectedCotizacion;
+
+  String _cotizacionesRouteForSelectedClient() {
+    final id = (_customerId ?? '').trim();
+    final name = (_customerName ?? '').trim();
+    final phone = (_customerPhone ?? '').trim();
+
+    final params = <String, String>{
+      // Cuando se abre Cotizaciones desde Agenda, al guardar debe regresar.
+      'popOnSave': '1',
+    };
+    if (id.isNotEmpty) params['customerId'] = id;
+    if (name.isNotEmpty) params['customerName'] = name;
+    if (phone.isNotEmpty) params['customerPhone'] = phone;
+
+    final q = params.entries
+        .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
+        .join('&');
+    return '${Routes.cotizaciones}?$q';
+  }
+
   LatLng? _gpsPoint;
+  Timer? _gpsResolveDebounce;
+  bool _resolvingGps = false;
+  int _gpsResolveSeq = 0;
   PlatformFile? _referencePhoto;
   bool _saving = false;
+
+  bool get _isAgendaReserva {
+    final k = (widget.agendaKind ?? '').trim().toLowerCase();
+    return k == 'reserva';
+  }
+
+  String? _requiredPriceValidator(String? _) {
+    if (!_isAgendaReserva) return null;
+    final raw = _quotedCtrl.text.trim();
+    if (raw.isEmpty) return 'Requerido';
+    final value = double.tryParse(raw);
+    if (value == null || value <= 0) return 'Requerido';
+    return null;
+  }
 
   @override
   void initState() {
@@ -3443,6 +3992,29 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     _serviceType = widget.initialServiceType;
     _category = 'cameras';
     _priority = 1;
+    _orderState = 'pending';
+    _applyDefaultsForKind(widget.agendaKind, kindChanged: true);
+    Future.microtask(_loadTechnicians);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CreateReservationTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldKind = (oldWidget.agendaKind ?? '').trim().toLowerCase();
+    final newKind = (widget.agendaKind ?? '').trim().toLowerCase();
+    if (oldKind != newKind) {
+      _applyDefaultsForKind(widget.agendaKind, kindChanged: true);
+    }
+
+    if (oldWidget.showServiceTypeField != widget.showServiceTypeField) {
+      if (!widget.showServiceTypeField) {
+        final lower = (widget.agendaKind ?? '').trim().toLowerCase();
+        final next = lower == 'garantia' ? 'warranty' : 'installation';
+        if (_serviceType != next) {
+          setState(() => _serviceType = next);
+        }
+      }
+    }
   }
 
   @override
@@ -3452,9 +4024,186 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     _descriptionCtrl.dispose();
     _addressCtrl.dispose();
     _gpsCtrl.dispose();
+    _gpsResolveDebounce?.cancel();
     _quotedCtrl.dispose();
     _depositCtrl.dispose();
+    _relatedServiceCtrl.dispose();
+    _surveyResultCtrl.dispose();
+    _materialsUsedCtrl.dispose();
+    _finalCostCtrl.dispose();
     super.dispose();
+  }
+
+  void _applyDefaultsForKind(String? kind, {required bool kindChanged}) {
+    final lower = (kind ?? '').trim().toLowerCase();
+
+    final hasTech = (_technicianId ?? '').trim().isNotEmpty;
+    final nextState = !_orderStateTouched
+      ? (lower == 'servicio' && hasTech ? 'assigned' : 'pending')
+      : _orderState;
+
+    final nextPriority = (!_priorityTouched && lower == 'garantia')
+        ? 1
+        : _priority;
+
+    if (!mounted) {
+      _orderState = nextState;
+      _priority = nextPriority;
+      return;
+    }
+
+    setState(() {
+      _orderState = nextState;
+      _priority = nextPriority;
+    });
+  }
+
+  Future<void> _loadTechnicians() async {
+    if (_loadingTechnicians) return;
+    setState(() => _loadingTechnicians = true);
+    try {
+      final items = await ref
+          .read(operationsRepositoryProvider)
+          .listTechnicians();
+      if (!mounted) return;
+      setState(() => _technicians = items);
+    } catch (_) {
+      // Silencioso: el formulario funciona igual sin dropdown.
+    } finally {
+      if (mounted) setState(() => _loadingTechnicians = false);
+    }
+  }
+
+  bool _looksLikeHttpUrl(String value) {
+    final v = value.trim();
+    if (v.isEmpty) return false;
+    final uri = Uri.tryParse(v);
+    if (uri == null) return false;
+    return uri.hasScheme && (uri.scheme == 'http' || uri.scheme == 'https');
+  }
+
+  LatLng? _extractLatLngByRegex(String text) {
+    final patterns = <RegExp>[
+      RegExp(r'@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)'),
+      RegExp(r'center=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)'),
+      RegExp(r'll=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)'),
+      RegExp(r'q=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)'),
+      // Google Maps place URLs often include coords as: ...!3dLAT!4dLNG...
+      RegExp(r'!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)'),
+    ];
+    for (final re in patterns) {
+      final m = re.firstMatch(text);
+      if (m == null) continue;
+      final lat = double.tryParse(m.group(1) ?? '');
+      final lng = double.tryParse(m.group(2) ?? '');
+      if (lat == null || lng == null) continue;
+      return LatLng(lat, lng);
+    }
+    return null;
+  }
+
+  String? _extractGoogleMapsUrlFromHtml(String html) {
+    final candidates = <RegExp>[
+      RegExp(r'https?://www\.google\.com/maps[^\"\s<]+'),
+      RegExp(r'https?://maps\.google\.com/\?[^\"\s<]+'),
+      RegExp(r'https?://google\.com/maps[^\"\s<]+'),
+    ];
+    for (final re in candidates) {
+      final m = re.firstMatch(html);
+      if (m == null) continue;
+      return m.group(0);
+    }
+    return null;
+  }
+
+  Future<LatLng?> _resolveLatLngFromText(String value) async {
+    final direct = parseLatLngFromText(value);
+    if (direct != null) return direct;
+
+    if (!_looksLikeHttpUrl(value)) return null;
+    final uri = Uri.tryParse(value.trim());
+    if (uri == null) return null;
+
+    try {
+      final dio = Dio(
+        BaseOptions(
+          followRedirects: true,
+          maxRedirects: 8,
+          connectTimeout: const Duration(seconds: 8),
+          sendTimeout: const Duration(seconds: 8),
+          receiveTimeout: const Duration(seconds: 10),
+          responseType: ResponseType.plain,
+          validateStatus: (s) => s != null && s >= 200 && s < 500,
+        ),
+      );
+
+      final response = await dio.getUri(uri);
+      final resolvedUrl = response.realUri.toString();
+
+      final fromResolvedUrl = parseLatLngFromText(resolvedUrl);
+      if (fromResolvedUrl != null) return fromResolvedUrl;
+
+      final fromResolvedUrlRegex = _extractLatLngByRegex(resolvedUrl);
+      if (fromResolvedUrlRegex != null) return fromResolvedUrlRegex;
+
+      final body = response.data?.toString() ?? '';
+      final fromBody = _extractLatLngByRegex(body);
+      if (fromBody != null) return fromBody;
+
+      final embeddedMapsUrl = _extractGoogleMapsUrlFromHtml(body);
+      if (embeddedMapsUrl != null) {
+        final fromEmbeddedUrl = parseLatLngFromText(embeddedMapsUrl);
+        if (fromEmbeddedUrl != null) return fromEmbeddedUrl;
+
+        final fromEmbeddedUrlRegex = _extractLatLngByRegex(embeddedMapsUrl);
+        if (fromEmbeddedUrlRegex != null) return fromEmbeddedUrlRegex;
+      }
+
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _resolveAndSetGpsPoint(String raw,
+      {bool showSnackOnFail = false}) async {
+    final text = raw.trim();
+    if (text.isEmpty) return;
+
+    final seq = ++_gpsResolveSeq;
+    if (mounted) {
+      setState(() => _resolvingGps = true);
+    }
+
+    final point = await _resolveLatLngFromText(text);
+
+    if (!mounted) return;
+    if (seq != _gpsResolveSeq) return;
+
+    setState(() {
+      _resolvingGps = false;
+      if (point != null) _gpsPoint = point;
+    });
+
+    if (point == null && showSnackOnFail) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'No pude detectar coordenadas. Prueba pegar un link que incluya lat,lng (o pega "lat,lng" directamente).'),
+        ),
+      );
+    }
+  }
+
+  void _openGpsFullScreen(LatLng point) {
+    Navigator.of(context, rootNavigator: true).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _AgendaGpsFullMapScreen(
+          point: point,
+          title: _customerName ?? 'Ubicación',
+        ),
+      ),
+    );
   }
 
   String _serviceTypeLabel(String raw) {
@@ -3511,18 +4260,22 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       _gpsPoint = parsed;
     });
 
-    if (parsed == null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No pude detectar lat/lng en el texto')),
-      );
+    if (parsed == null) {
+      await _resolveAndSetGpsPoint(text, showSnackOnFail: true);
     }
   }
 
-  Future<void> _openGpsInMaps() async {
+  Future<void> _openGpsInApp() async {
     final point = _gpsPoint ?? parseLatLngFromText(_gpsCtrl.text);
-    if (point == null) return;
-    final url = Uri.parse(buildGoogleMapsSearchUrl(point));
-    await launchUrl(url, mode: LaunchMode.externalApplication);
+    if (point != null) {
+      _openGpsFullScreen(point);
+      return;
+    }
+
+    await _resolveAndSetGpsPoint(_gpsCtrl.text, showSnackOnFail: true);
+    final resolved = _gpsPoint;
+    if (!mounted || resolved == null) return;
+    _openGpsFullScreen(resolved);
   }
 
   String? _buildAddressSnapshot() {
@@ -3535,7 +4288,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     if (!hasAddress && !hasPoint) return null;
     if (!hasPoint) return address;
 
-    final gpsLine = 'GPS: ${formatLatLng(point!)}';
+    final gpsLine = 'GPS: ${formatLatLng(point)}';
     final mapsLine = 'MAPS: ${buildGoogleMapsSearchUrl(point)}';
 
     final lines = <String>[];
@@ -3685,7 +4438,9 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                             ),
                             OutlinedButton.icon(
                               onPressed: () async {
-                                await context.push(Routes.cotizaciones);
+                                await context.push(
+                                  _cotizacionesRouteForSelectedClient(),
+                                );
                                 if (!mounted) return;
                                 await _checkCotizacionesForSelectedClient();
                                 final picked =
@@ -3925,7 +4680,170 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                   DropdownMenuItem(value: 3, child: Text('Baja')),
                 ],
                 onChanged: (value) {
-                  if (value != null) setState(() => _priority = value);
+                  if (value != null) {
+                    setState(() {
+                      _priority = value;
+                      _priorityTouched = true;
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                value: _orderState,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Estado',
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'pending', child: Text('Pendiente')),
+                  DropdownMenuItem(value: 'confirmed', child: Text('Confirmada')),
+                  DropdownMenuItem(value: 'assigned', child: Text('Asignada')),
+                  DropdownMenuItem(value: 'in_progress', child: Text('En progreso')),
+                  DropdownMenuItem(value: 'finalized', child: Text('Finalizada')),
+                  DropdownMenuItem(value: 'cancelled', child: Text('Cancelada')),
+                  DropdownMenuItem(value: 'rescheduled', child: Text('Reagendada')),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() {
+                    _orderState = value;
+                    _orderStateTouched = true;
+                  });
+                },
+                validator: (value) {
+                  final v = (value ?? '').trim();
+                  if (v.isEmpty) return 'Requerido';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                value: _technicianId ?? '',
+                isExpanded: true,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  labelText: 'Técnico asignado',
+                  helperText: _loadingTechnicians
+                      ? 'Cargando técnicos...'
+                      : (_technicians.isEmpty
+                          ? 'No tienes técnicos registrados. Puedes guardar sin asignar.'
+                          : null),
+                ),
+                items: [
+                  const DropdownMenuItem(
+                    value: '',
+                    child: Text('Sin asignar'),
+                  ),
+                  ..._technicians.map(
+                    (t) => DropdownMenuItem(
+                      value: t.id,
+                      child: Text(t.name),
+                    ),
+                  ),
+                ],
+                onChanged: _loadingTechnicians
+                    ? null
+                    : (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          setState(() => _technicianId = null);
+                        } else {
+                          setState(() => _technicianId = value);
+                        }
+
+                        final kind = (widget.agendaKind ?? '').trim().toLowerCase();
+                        if (kind == 'servicio' && !_orderStateTouched) {
+                          setState(() {
+                            _orderState = (_technicianId ?? '').trim().isNotEmpty
+                                ? 'assigned'
+                                : 'pending';
+                          });
+                        }
+                      },
+              ),
+              if (!_loadingTechnicians && _technicians.isEmpty) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'No tienes técnicos registrados.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _saving ? null : () => context.push(Routes.users),
+                      icon: const Icon(Icons.person_add_alt_1_outlined),
+                      label: const Text('Crear técnico'),
+                    ),
+                  ],
+                ),
+              ],
+              Builder(
+                builder: (context) {
+                  final kind = (widget.agendaKind ?? '').trim().toLowerCase();
+
+                  if (kind == 'garantia') {
+                    return Column(
+                      children: [
+                        const SizedBox(height: 10),
+                        TextFormField(
+                          controller: _relatedServiceCtrl,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            labelText:
+                                'Orden anterior / Servicio relacionado (opcional)',
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+
+                  if (kind == 'levantamiento') {
+                    return Column(
+                      children: [
+                        const SizedBox(height: 10),
+                        TextFormField(
+                          controller: _surveyResultCtrl,
+                          minLines: 2,
+                          maxLines: 4,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            labelText: 'Resultado del levantamiento (opcional)',
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+
+                  if (kind == 'servicio') {
+                    return Column(
+                      children: [
+                        const SizedBox(height: 10),
+                        TextFormField(
+                          controller: _materialsUsedCtrl,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            labelText: 'Material usado (opcional)',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          controller: _finalCostCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            labelText: 'Costo final (opcional)',
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+
+                  return const SizedBox.shrink();
                 },
               ),
               const SizedBox(height: 10),
@@ -3947,6 +4865,43 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      if (_referencePhoto != null) ...[
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              width: 92,
+                              height: 92,
+                              decoration: BoxDecoration(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
+                                border: Border.all(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.outline.withValues(alpha: 0.25),
+                                ),
+                              ),
+                              child: (_referencePhoto!.bytes != null)
+                                  ? Image.memory(
+                                      _referencePhoto!.bytes!,
+                                      fit: BoxFit.cover,
+                                    )
+                                  : Center(
+                                      child: Icon(
+                                        Icons.image_outlined,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface
+                                            .withValues(alpha: 0.65),
+                                      ),
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 10),
                       Wrap(
                         spacing: 8,
@@ -3978,9 +4933,11 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                 decoration: InputDecoration(
                   border: const OutlineInputBorder(),
                   labelText: 'Ubicación GPS (WhatsApp/Maps)',
-                  helperText: _gpsPoint == null
-                      ? 'Pega un link de Google Maps o "lat,lng"'
-                      : 'Detectado: ${formatLatLng(_gpsPoint!)}',
+                  helperText: _resolvingGps
+                      ? 'Detectando ubicación desde el link...'
+                      : (_gpsPoint == null
+                          ? 'Pega un link de Google Maps o "lat,lng"'
+                          : 'Detectado: ${formatLatLng(_gpsPoint!)}'),
                   suffixIcon: SizedBox(
                     width: 96,
                     child: Row(
@@ -3992,18 +4949,44 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                           icon: const Icon(Icons.content_paste_rounded),
                         ),
                         IconButton(
-                          tooltip: 'Abrir en Maps',
-                          onPressed: _gpsPoint == null ? null : _openGpsInMaps,
-                          icon: const Icon(Icons.near_me_outlined),
+                          tooltip: 'Ver mapa',
+                          onPressed:
+                              _gpsCtrl.text.trim().isEmpty ? null : _openGpsInApp,
+                          icon: const Icon(Icons.map_outlined),
                         ),
                       ],
                     ),
                   ),
                 ),
                 onChanged: (value) {
-                  setState(() => _gpsPoint = parseLatLngFromText(value));
+                  final parsed = parseLatLngFromText(value);
+                  setState(() => _gpsPoint = parsed);
+                  if (parsed != null) return;
+
+                  if (!_looksLikeHttpUrl(value)) return;
+                  _gpsResolveDebounce?.cancel();
+                  _gpsResolveDebounce = Timer(
+                    const Duration(milliseconds: 650),
+                    () => _resolveAndSetGpsPoint(value),
+                  );
                 },
               ),
+              if (_gpsPoint != null) ...[
+                const SizedBox(height: 10),
+                _GpsMapPreviewCard(
+                  point: _gpsPoint!,
+                  onOpen: () {
+                    final point = _gpsPoint;
+                    if (point == null) return;
+                    _openGpsFullScreen(point);
+                  },
+                  onNavigate: () {
+                    final point = _gpsPoint;
+                    if (point == null) return;
+                    _openBestNavigation(context, point);
+                  },
+                ),
+              ],
               const SizedBox(height: 10),
               TextFormField(
                 controller: _descriptionCtrl,
@@ -4025,6 +5008,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                     border: OutlineInputBorder(),
                     labelText: 'Precio vendido',
                   ),
+                  validator: _requiredPriceValidator,
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -4051,6 +5035,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                           border: OutlineInputBorder(),
                           labelText: 'Precio vendido',
                         ),
+                        validator: _requiredPriceValidator,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -4273,7 +5258,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                       FilledButton.tonalIcon(
                         onPressed: () {
                           Navigator.pop(context);
-                          context.push(Routes.cotizaciones);
+                          context.push(_cotizacionesRouteForSelectedClient());
                         },
                         icon: const Icon(Icons.add_box_outlined),
                         label: const Text('Crear nueva cotización'),
@@ -4536,7 +5521,58 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       return;
     }
 
+    if (_category.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('La categoría es requerida')),
+      );
+      return;
+    }
+
+    if (_priority < 1 || _priority > 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('La prioridad es requerida')),
+      );
+      return;
+    }
+
+    if (_isAgendaReserva) {
+      final phone = (_customerPhone ?? '').trim();
+      if (phone.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El cliente debe tener teléfono')),
+        );
+        return;
+      }
+
+      if (_selectedCotizacion == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Selecciona o crea una cotización')),
+        );
+        return;
+      }
+    }
+
     if (!_formKey.currentState!.validate()) return;
+
+    final quoted = double.tryParse(_quotedCtrl.text.trim());
+    final deposit = double.tryParse(_depositCtrl.text.trim());
+    if ((deposit ?? 0) > 0) {
+      if (quoted == null || quoted <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Si hay abono, el precio vendido es requerido')),
+        );
+        return;
+      }
+      if (deposit! > quoted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El abono no puede ser mayor que el precio vendido')),
+        );
+        return;
+      }
+    }
+
+    final tags = <String>[];
+    if ((deposit ?? 0) > 0) tags.add('seguro');
 
     setState(() => _saving = true);
     try {
@@ -4554,9 +5590,22 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           reservationAt: _reservationAt,
           title: title,
           description: description,
+          orderState: _orderState,
+          technicianId: _technicianId,
           addressSnapshot: _buildAddressSnapshot(),
-          quotedAmount: double.tryParse(_quotedCtrl.text.trim()),
-          depositAmount: double.tryParse(_depositCtrl.text.trim()),
+          relatedServiceId: _relatedServiceCtrl.text.trim().isEmpty
+              ? null
+              : _relatedServiceCtrl.text.trim(),
+          surveyResult: _surveyResultCtrl.text.trim().isEmpty
+              ? null
+              : _surveyResultCtrl.text.trim(),
+          materialsUsed: _materialsUsedCtrl.text.trim().isEmpty
+              ? null
+              : _materialsUsedCtrl.text.trim(),
+          finalCost: double.tryParse(_finalCostCtrl.text.trim()),
+          quotedAmount: quoted,
+          depositAmount: deposit,
+          tags: tags,
           referencePhoto: _referencePhoto,
         ),
       );
@@ -4569,6 +5618,14 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       _gpsCtrl.clear();
       _gpsPoint = null;
       _referencePhoto = null;
+      _orderState = 'pending';
+      _technicianId = null;
+      _orderStateTouched = false;
+      _priorityTouched = false;
+      _relatedServiceCtrl.clear();
+      _surveyResultCtrl.clear();
+      _materialsUsedCtrl.clear();
+      _finalCostCtrl.clear();
       _quotedCtrl.clear();
       _depositCtrl.clear();
     } finally {
@@ -4802,6 +5859,388 @@ class _PoncheFabIcon extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _GpsMapPreviewCard extends StatelessWidget {
+  final LatLng point;
+  final VoidCallback onOpen;
+  final VoidCallback onNavigate;
+
+  const _GpsMapPreviewCard({
+    required this.point,
+    required this.onOpen,
+    required this.onNavigate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: 170,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: IgnorePointer(
+                    ignoring: true,
+                    child: FlutterMap(
+                      options: MapOptions(
+                        initialCenter: point,
+                        initialZoom: 15,
+                        interactionOptions: const InteractionOptions(
+                          flags: InteractiveFlag.none,
+                        ),
+                      ),
+                      children: [
+                        TileLayer(
+                          urlTemplate:
+                              'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          userAgentPackageName: 'fulltech_app',
+                          tileProvider: NetworkTileProvider(),
+                        ),
+                        MarkerLayer(
+                          markers: [
+                            Marker(
+                              width: 50,
+                              height: 50,
+                              point: point,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.location_on,
+                                    color: scheme.onSurface.withValues(
+                                      alpha: 0.35,
+                                    ),
+                                    size: 50,
+                                  ),
+                                  Icon(
+                                    Icons.location_on,
+                                    color: scheme.primary,
+                                    size: 46,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(
+                    Icons.open_in_full,
+                    size: 16,
+                    color: scheme.onSurface.withValues(alpha: 0.70),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Ver mapa en pantalla completa',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: scheme.onSurface.withValues(alpha: 0.80),
+                      ),
+                    ),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: onNavigate,
+                    icon: const Icon(Icons.directions_outlined, size: 18),
+                    label: const Text('Ir'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                formatLatLng(point),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: scheme.onSurface.withValues(alpha: 0.65),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> _openBestNavigation(BuildContext context, LatLng point) async {
+  final dest = '${point.latitude},${point.longitude}';
+  final googleDirectionsUrl = Uri.parse(
+    'https://www.google.com/maps/dir/?api=1&destination=${Uri.encodeQueryComponent(dest)}&travelmode=driving',
+  );
+
+  final wazeAppUrl = Uri.parse('waze://?ll=$dest&navigate=yes');
+
+  Future<bool> safeLaunch(Uri uri) async {
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (ok) return true;
+    } catch (_) {
+      // Fall through to OS-level launch.
+    }
+    return openUrlWithOs(uri);
+  }
+
+  void showFail(String appName) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('No se pudo abrir $appName')),
+    );
+  }
+
+  final platform = defaultTargetPlatform;
+  final isDesktop = platform == TargetPlatform.windows ||
+      platform == TargetPlatform.linux ||
+      platform == TargetPlatform.macOS;
+
+  // Desktop UX: open the browser directly (Waze app scheme isn't expected there).
+  if (isDesktop) {
+    final ok = await safeLaunch(googleDirectionsUrl);
+    if (!ok) showFail('Google Maps');
+    return;
+  }
+
+  // One-tap behavior: prefer Waze (app), fallback to Google Maps.
+  if (await safeLaunch(wazeAppUrl)) return;
+  final googleUrl = platform == TargetPlatform.android
+      ? Uri.parse('google.navigation:q=$dest&mode=d')
+      : googleDirectionsUrl;
+
+  final ok = await safeLaunch(googleUrl);
+  if (!ok) showFail('Google Maps');
+}
+
+class _AgendaGpsFullMapScreen extends StatefulWidget {
+  final LatLng point;
+  final String title;
+
+  const _AgendaGpsFullMapScreen({required this.point, required this.title});
+
+  @override
+  State<_AgendaGpsFullMapScreen> createState() => _AgendaGpsFullMapScreenState();
+}
+
+class _AgendaGpsFullMapScreenState extends State<_AgendaGpsFullMapScreen> {
+  final _mapController = MapController();
+  LatLng? _myPoint;
+  bool _locating = false;
+
+  String get _coordsText => formatLatLng(widget.point);
+
+  Future<void> _navigateExternal() async {
+    await _openBestNavigation(context, widget.point);
+  }
+
+  Future<void> _copyCoords() async {
+    await Clipboard.setData(ClipboardData(text: _coordsText));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Copiado: $_coordsText')),
+    );
+  }
+
+  Future<void> _copyDirectionsLink() async {
+    final url = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=${Uri.encodeQueryComponent(_coordsText)}&travelmode=driving',
+    ).toString();
+    await Clipboard.setData(ClipboardData(text: url));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Link de navegación copiado')),
+    );
+  }
+
+  void _centerOnDestination() {
+    _mapController.move(widget.point, 16);
+  }
+
+  Future<void> _centerOnMyLocation() async {
+    if (_locating) return;
+    setState(() => _locating = true);
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Activa el GPS del dispositivo')),
+        );
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Permiso de ubicación denegado')),
+        );
+        return;
+      }
+
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      final p = LatLng(pos.latitude, pos.longitude);
+      if (!mounted) return;
+      setState(() => _myPoint = p);
+      _mapController.move(p, 16);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo obtener tu ubicación')),
+      );
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    final destinationMarker = Marker(
+      width: 56,
+      height: 56,
+      point: widget.point,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Icon(
+            Icons.location_on,
+            color: scheme.onSurface.withValues(alpha: 0.35),
+            size: 58,
+          ),
+          Icon(
+            Icons.location_on,
+            color: scheme.primary,
+            size: 52,
+          ),
+        ],
+      ),
+    );
+
+    final myMarker = _myPoint == null
+        ? null
+        : Marker(
+            width: 22,
+            height: 22,
+            point: _myPoint!,
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: scheme.secondary,
+                border: Border.all(
+                  color: scheme.onSecondary,
+                  width: 2,
+                ),
+              ),
+            ),
+          );
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+        actions: [
+          IconButton(
+            tooltip: 'Copiar coordenadas',
+            onPressed: _copyCoords,
+            icon: const Icon(Icons.copy_all_outlined),
+          ),
+          IconButton(
+            tooltip: 'Copiar link navegación',
+            onPressed: _copyDirectionsLink,
+            icon: const Icon(Icons.link_outlined),
+          ),
+          IconButton(
+            tooltip: 'Ir',
+            onPressed: _navigateExternal,
+            icon: const Icon(Icons.directions_outlined),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Stack(
+          children: [
+            FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: widget.point,
+                initialZoom: 16,
+              ),
+              children: [
+                TileLayer(
+                  urlTemplate:
+                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'fulltech_app',
+                  tileProvider: NetworkTileProvider(),
+                ),
+                MarkerLayer(
+                  markers: [
+                    destinationMarker,
+                    if (myMarker != null) myMarker,
+                  ],
+                ),
+              ],
+            ),
+            Positioned(
+              right: 12,
+              bottom: 12,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FloatingActionButton.small(
+                    heroTag: 'gps-center-dest',
+                    tooltip: 'Centrar ubicación',
+                    onPressed: _centerOnDestination,
+                    child: const Icon(Icons.my_location_outlined),
+                  ),
+                  const SizedBox(height: 10),
+                  FloatingActionButton.small(
+                    heroTag: 'gps-my-location',
+                    tooltip: 'Mi ubicación',
+                    onPressed: _locating ? null : _centerOnMyLocation,
+                    child: _locating
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.person_pin_circle_outlined),
+                  ),
+                  const SizedBox(height: 10),
+                  FloatingActionButton.small(
+                    heroTag: 'gps-navigate',
+                    tooltip: 'Ir',
+                    onPressed: _navigateExternal,
+                    child: const Icon(Icons.directions_outlined),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

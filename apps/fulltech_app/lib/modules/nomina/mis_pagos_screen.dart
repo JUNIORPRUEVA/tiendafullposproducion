@@ -146,7 +146,7 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
                             : NetworkImage(currentUser.fotoPersonalUrl!),
                     child: (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
                         ? Text(
-                            getInitials(currentUser.nombreCompleto ?? 'U'),
+                            getInitials(currentUser.nombreCompleto),
                             style: const TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.w700,

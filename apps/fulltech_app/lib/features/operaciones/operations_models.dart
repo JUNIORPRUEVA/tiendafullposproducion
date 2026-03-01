@@ -103,6 +103,20 @@ class ServiceUpdateModel {
   }
 }
 
+class TechnicianModel {
+  final String id;
+  final String name;
+
+  TechnicianModel({required this.id, required this.name});
+
+  factory TechnicianModel.fromJson(Map<String, dynamic> json) {
+    return TechnicianModel(
+      id: (json['id'] ?? '').toString(),
+      name: (json['nombreCompleto'] ?? json['name'] ?? 'Técnico').toString(),
+    );
+  }
+}
+
 class ServiceModel {
   final String id;
   final String title;
@@ -110,6 +124,9 @@ class ServiceModel {
   final String serviceType;
   final String category;
   final String status;
+  final String orderType;
+  final String orderState;
+  final String? technicianId;
   final int priority;
   final double? quotedAmount;
   final double? depositAmount;
@@ -135,6 +152,8 @@ class ServiceModel {
     required this.serviceType,
     required this.category,
     required this.status,
+    required this.orderType,
+    required this.orderState,
     required this.priority,
     required this.tags,
     required this.customerId,
@@ -147,6 +166,7 @@ class ServiceModel {
     required this.steps,
     required this.files,
     required this.updates,
+    this.technicianId,
     this.quotedAmount,
     this.depositAmount,
     this.scheduledStart,
@@ -191,6 +211,11 @@ class ServiceModel {
       serviceType: (json['serviceType'] ?? 'other').toString(),
       category: (json['category'] ?? '').toString(),
       status: (json['status'] ?? 'reserved').toString(),
+      orderType: (json['orderType'] ?? 'reserva').toString(),
+      orderState: (json['orderState'] ?? 'pending').toString(),
+      technicianId: json['technicianId'] == null
+        ? null
+        : (json['technicianId'] ?? '').toString(),
       priority: (json['priority'] is int)
           ? json['priority'] as int
           : int.tryParse('${json['priority']}') ?? 2,

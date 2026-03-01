@@ -42,13 +42,21 @@ class CotizacionItem {
   };
 
   Map<String, dynamic> toCreateDto() => {
-    if (productId.trim().isNotEmpty) 'productId': productId,
+    if (_isUuid(productId)) 'productId': productId,
     'productName': nombre,
     if (imageUrl != null && imageUrl!.trim().isNotEmpty)
       'productImageSnapshot': imageUrl,
     'qty': qty,
     'unitPrice': unitPrice,
   };
+
+  static bool _isUuid(String? value) {
+    final v = (value ?? '').trim();
+    if (v.isEmpty) return false;
+    return RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+    ).hasMatch(v);
+  }
 
   factory CotizacionItem.fromMap(Map<String, dynamic> map) {
     return CotizacionItem(
@@ -70,8 +78,15 @@ class CotizacionItem {
   factory CotizacionItem.fromApi(Map<String, dynamic> map) {
     return CotizacionItem(
       productId: (map['productId'] ?? '').toString(),
-      nombre: (map['productNameSnapshot'] ?? map['productName'] ?? map['nombre'] ?? '').toString(),
-      imageUrl: (map['productImageSnapshot'] ?? map['imageUrl'] ?? map['image_url'])?.toString(),
+      nombre:
+          (map['productNameSnapshot'] ??
+                  map['productName'] ??
+                  map['nombre'] ??
+                  '')
+              .toString(),
+      imageUrl:
+          (map['productImageSnapshot'] ?? map['imageUrl'] ?? map['image_url'])
+              ?.toString(),
       unitPrice: _asDouble(map['unitPrice']),
       qty: _asDouble(map['qty']),
     );
@@ -172,7 +187,9 @@ class CotizacionModel {
     final rawItems = (map['items'] as List?) ?? const [];
     return CotizacionModel(
       id: (map['id'] ?? '').toString(),
-      createdAt: DateTime.tryParse((map['createdAt'] ?? '').toString()) ?? DateTime.now(),
+      createdAt:
+          DateTime.tryParse((map['createdAt'] ?? '').toString()) ??
+          DateTime.now(),
       customerId: map['customerId']?.toString(),
       customerName: (map['customerName'] ?? '').toString(),
       customerPhone: map['customerPhone']?.toString(),

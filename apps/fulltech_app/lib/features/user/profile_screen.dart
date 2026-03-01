@@ -56,7 +56,7 @@ class ProfileScreen extends ConsumerWidget {
                           if ((user?.email ?? '').trim().isNotEmpty) ...[
                             const SizedBox(height: 4),
                             Text(
-                              user!.email!.trim(),
+                              user!.email.trim(),
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 color: theme.colorScheme.outline,
                               ),
@@ -131,16 +131,16 @@ class ProfileScreen extends ConsumerWidget {
                         child: _InfoList(
                           children: [
                             if ((user?.telefono ?? '').trim().isNotEmpty)
-                              _InfoRow('Teléfono', user!.telefono!.trim()),
+                              _InfoRow('Teléfono', (user?.telefono ?? '').trim()),
                             if ((user?.telefonoFamiliar ?? '')
                                 .trim()
                                 .isNotEmpty)
                               _InfoRow(
                                 'Teléfono familiar',
-                                user!.telefonoFamiliar!.trim(),
+                                (user?.telefonoFamiliar ?? '').trim(),
                               ),
                             if ((user?.email ?? '').trim().isNotEmpty)
-                              _InfoRow('Email', user!.email!.trim()),
+                              _InfoRow('Email', (user?.email ?? '').trim()),
                           ],
                         ),
                       ),

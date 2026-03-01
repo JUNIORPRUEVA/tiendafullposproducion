@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import {
   Prisma,
+  OrderState,
+  OrderType,
   Role,
   ServiceAssignmentRole,
   ServiceStatus,
@@ -65,6 +67,9 @@ export class OperationsService {
       ...(query.includeDeleted ? {} : { isDeleted: false }),
       ...(query.status ? { status: this.parseStatus(query.status) } : {}),
       ...(query.type ? { serviceType: this.parseType(query.type) } : {}),
+      ...(query.orderType ? { orderType: this.parseOrderType(query.orderType) } : {}),
+      ...(query.orderState ? { orderState: this.parseOrderState(query.orderState) } : {}),
+      ...(query.technicianId ? { technicianId: query.technicianId } : {}),
       ...(query.priority ? { priority: query.priority } : {}),
       ...(query.assignedTo ? { assignments: { some: { userId: query.assignedTo } } } : {}),
       ...(query.customerId ? { customerId: query.customerId } : {}),
@@ -112,6 +117,15 @@ export class OperationsService {
     };
   }
 
+  async listTechnicians(_user: AuthUser) {
+    const items = await this.prisma.user.findMany({
+      where: { role: Role.TECNICO, blocked: false },
+      select: { id: true, nombreCompleto: true },
+      orderBy: { nombreCompleto: 'asc' },
+    });
+    return { items };
+  }
+
   async findOne(user: AuthUser, id: string) {
     const service = await this.prisma.service.findFirst({
       where: { id, ...this.scopeWhere(user), isDeleted: false },
@@ -128,10 +142,6 @@ export class OperationsService {
       throw new BadRequestException('Cliente inválido');
     }
 
-    if (dto.serviceType === 'warranty' && !dto.warrantyParentServiceId) {
-      throw new BadRequestException('Garantía requiere servicio padre');
-    }
-
     if (dto.warrantyParentServiceId) {
       const parent = await this.prisma.service.findFirst({
         where: { id: dto.warrantyParentServiceId, isDeleted: false },
@@ -141,40 +151,93 @@ export class OperationsService {
 
     const priority = dto.priority ?? (dto.serviceType === 'installation' ? 1 : 2);
 
+    const surveyResult = dto.surveyResult?.trim();
+    const materialsUsed = dto.materialsUsed?.trim();
+    const finalCost = dto.finalCost;
+    const orderExtras: Record<string, unknown> = {};
+    if (surveyResult) orderExtras.surveyResult = surveyResult;
+    if (materialsUsed) orderExtras.materialsUsed = materialsUsed;
+    if (finalCost != null) orderExtras.finalCost = finalCost;
+    const hasOrderExtras = Object.keys(orderExtras).length > 0;
+
+    let technicianId: string | null = null;
+    if (dto.technicianId) {
+      const tech = await this.prisma.user.findFirst({
+        where: { id: dto.technicianId, role: Role.TECNICO, blocked: false },
+        select: { id: true },
+      });
+      if (!tech) throw new BadRequestException('Técnico inválido');
+      technicianId = tech.id;
+    }
+
     const created = await this.prisma.$transaction(async (tx) => {
-      const service = await tx.service.create({
-        data: {
-          customerId: dto.customerId,
-          createdByUserId: user.id,
-          serviceType: this.parseType(dto.serviceType),
-          category: dto.category.trim(),
-          status: ServiceStatus.RESERVED,
-          priority,
-          title: dto.title.trim(),
-          description: dto.description.trim(),
-          quotedAmount: dto.quotedAmount,
-          depositAmount: dto.depositAmount,
-          paymentStatus: dto.paymentStatus ?? 'pending',
-          addressSnapshot: dto.addressSnapshot?.trim() || customer.direccion,
-          warrantyParentServiceId: dto.warrantyParentServiceId,
-          tags: dto.tags ?? [],
-          steps: {
-            create: defaultSteps,
-          },
-          updates: {
-            create: {
-              changedByUserId: user.id,
-              type: ServiceUpdateType.STATUS_CHANGE,
-              oldValue: Prisma.DbNull,
-              newValue: { status: 'reserved' },
-              message: 'Reserva creada',
-            },
+      const baseData: Prisma.ServiceCreateInput = {
+        customer: { connect: { id: dto.customerId } },
+        createdBy: { connect: { id: user.id } },
+        serviceType: this.parseType(dto.serviceType),
+        category: dto.category.trim(),
+        status: ServiceStatus.RESERVED,
+        priority,
+        title: dto.title.trim(),
+        description: dto.description.trim(),
+        quotedAmount: dto.quotedAmount,
+        depositAmount: dto.depositAmount,
+        paymentStatus: dto.paymentStatus ?? 'pending',
+        addressSnapshot: dto.addressSnapshot?.trim() || customer.direccion,
+        warrantyParentServiceId: dto.warrantyParentServiceId,
+        tags: dto.tags ?? [],
+        steps: {
+          create: defaultSteps,
+        },
+        updates: {
+          create: {
+            changedByUserId: user.id,
+            type: ServiceUpdateType.STATUS_CHANGE,
+            oldValue: Prisma.DbNull,
+            newValue: { status: 'reserved' },
+            message: 'Reserva creada',
           },
         },
-        include: this.serviceInclude(),
-      });
+      };
 
-      return service;
+      final createWithOrderFields = {
+        ...baseData,
+        orderType: dto.orderType ? this.parseOrderType(dto.orderType) : OrderType.RESERVA,
+        orderState: dto.orderState ? this.parseOrderState(dto.orderState) : OrderState.PENDING,
+        ...(hasOrderExtras ? { orderExtras: orderExtras as Prisma.InputJsonValue } : {}),
+        ...(technicianId ? { technician: { connect: { id: technicianId } } } : {}),
+      } as any;
+
+      let service: any;
+      try {
+        service = await tx.service.create({
+          data: createWithOrderFields,
+          include: this.serviceInclude(),
+        });
+      } catch (error) {
+        if (!this.isSchemaMismatch(error)) throw error;
+        service = await tx.service.create({
+          data: baseData,
+          include: this.serviceInclude(),
+        });
+      }
+
+      if (technicianId) {
+        await tx.serviceAssignment.create({
+          data: {
+            serviceId: service.id,
+            userId: technicianId,
+            role: ServiceAssignmentRole.LEAD,
+          },
+        });
+      }
+
+      const finalRow = technicianId
+        ? await tx.service.findUnique({ where: { id: service.id }, include: this.serviceInclude() })
+        : service;
+
+      if (!finalRow) throw new NotFoundException('Servicio no encontrado');
+      return finalRow;
     });
 
     return this.normalizeService(created);
@@ -342,6 +405,17 @@ export class OperationsService {
           role: this.parseAssignRole(item.role),
         })),
       });
+
+      const lead = dto.assignments.find((a) => a.role === 'lead') ?? dto.assignments[0];
+      const leadId = lead?.userId ?? null;
+      try {
+        await tx.service.update({
+          where: { id },
+          data: { technicianId: leadId },
+        });
+      } catch (error) {
+        if (!this.isSchemaMismatch(error)) throw error;
+      }
 
       await tx.serviceUpdate.create({
         data: {
@@ -668,6 +742,8 @@ export class OperationsService {
       ...service,
       serviceType: this.toApiType(service.serviceType),
       status: this.toApiStatus(service.status),
+      orderType: service.orderType ? this.toApiOrderType(service.orderType) : 'reserva',
+      orderState: service.orderState ? this.toApiOrderState(service.orderState) : 'pending',
       assignments: (service.assignments ?? []).map((item: any) => ({
         ...item,
         role: this.toApiAssignRole(item.role),
@@ -750,6 +826,35 @@ export class OperationsService {
     return parsed;
   }
 
+  private parseOrderType(value: string): OrderType {
+    const key = value.trim().toLowerCase();
+    const map: Record<string, OrderType> = {
+      reserva: OrderType.RESERVA,
+      servicio: OrderType.SERVICIO,
+      levantamiento: OrderType.LEVANTAMIENTO,
+      garantia: OrderType.GARANTIA,
+    };
+    const parsed = map[key];
+    if (!parsed) throw new BadRequestException('Tipo de orden inválido');
+    return parsed;
+  }
+
+  private parseOrderState(value: string): OrderState {
+    const key = value.trim().toLowerCase();
+    const map: Record<string, OrderState> = {
+      pending: OrderState.PENDING,
+      confirmed: OrderState.CONFIRMED,
+      assigned: OrderState.ASSIGNED,
+      in_progress: OrderState.IN_PROGRESS,
+      finalized: OrderState.FINALIZED,
+      cancelled: OrderState.CANCELLED,
+      rescheduled: OrderState.RESCHEDULED,
+    };
+    const parsed = map[key];
+    if (!parsed) throw new BadRequestException('Estado de orden inválido');
+    return parsed;
+  }
+
   private parseAssignRole(value: string): ServiceAssignmentRole {
     return value === 'lead' ? ServiceAssignmentRole.LEAD : ServiceAssignmentRole.ASSISTANT;
   }
@@ -807,6 +912,29 @@ export class OperationsService {
       [ServiceUpdateType.STEP_UPDATE]: 'step_update',
       [ServiceUpdateType.FILE_UPLOAD]: 'file_upload',
       [ServiceUpdateType.WARRANTY_CREATED]: 'warranty_created',
+    };
+    return map[value];
+  }
+
+  private toApiOrderType(value: OrderType): string {
+    const map: Record<OrderType, string> = {
+      [OrderType.RESERVA]: 'reserva',
+      [OrderType.SERVICIO]: 'servicio',
+      [OrderType.LEVANTAMIENTO]: 'levantamiento',
+      [OrderType.GARANTIA]: 'garantia',
+    };
+    return map[value];
+  }
+
+  private toApiOrderState(value: OrderState): string {
+    const map: Record<OrderState, string> = {
+      [OrderState.PENDING]: 'pending',
+      [OrderState.CONFIRMED]: 'confirmed',
+      [OrderState.ASSIGNED]: 'assigned',
+      [OrderState.IN_PROGRESS]: 'in_progress',
+      [OrderState.FINALIZED]: 'finalized',
+      [OrderState.CANCELLED]: 'cancelled',
+      [OrderState.RESCHEDULED]: 'rescheduled',
     };
     return map[value];
   }

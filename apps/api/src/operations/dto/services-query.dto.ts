@@ -3,6 +3,8 @@ import { IsDateString, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min } fro
 
 const serviceStatuses = ['reserved', 'survey', 'scheduled', 'in_progress', 'completed', 'warranty', 'closed', 'cancelled'] as const;
 const serviceTypes = ['installation', 'maintenance', 'warranty', 'pos_support', 'other'] as const;
+const orderTypes = ['reserva', 'servicio', 'levantamiento', 'garantia'] as const;
+const orderStates = ['pending', 'confirmed', 'assigned', 'in_progress', 'finalized', 'cancelled', 'rescheduled'] as const;
 
 export class ServicesQueryDto {
   @IsOptional()
@@ -23,6 +25,18 @@ export class ServicesQueryDto {
   @IsOptional()
   @IsUUID()
   assignedTo?: string;
+
+  @IsOptional()
+  @IsIn(orderTypes)
+  orderType?: (typeof orderTypes)[number];
+
+  @IsOptional()
+  @IsIn(orderStates)
+  orderState?: (typeof orderStates)[number];
+
+  @IsOptional()
+  @IsUUID()
+  technicianId?: string;
 
   @IsOptional()
   @IsDateString()

@@ -14,6 +14,7 @@ import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../user/application/users_controller.dart';
 import './profile_screen.dart';
+import 'utils/cedula_ocr_service.dart';
 import 'utils/work_contract_preview_screen.dart';
 import 'utils/work_contract_pdf_service.dart';
 
@@ -85,7 +86,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                               : NetworkImage(currentUser.fotoPersonalUrl!),
                       child: (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
                           ? Text(
-                              getInitials(currentUser.nombreCompleto ?? 'U'),
+                              getInitials(currentUser.nombreCompleto),
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w700,
@@ -148,7 +149,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                             : NetworkImage(currentUser.fotoPersonalUrl!),
                     child: (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
                         ? Text(
-                            getInitials(currentUser.nombreCompleto ?? 'U'),
+                            getInitials(currentUser.nombreCompleto),
                             style: const TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.w700,
@@ -376,6 +377,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
     String? fotoCedulaUrl = user?.fotoCedulaUrl;
     String? fotoLicenciaUrl = user?.fotoLicenciaUrl;
     String? fotoPersonalUrl = user?.fotoPersonalUrl;
+    bool scanningCedula = false;
 
     showDialog(
       context: context,
@@ -415,6 +417,124 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                   controller: cedulaCtrl,
                   decoration: const InputDecoration(
                     labelText: 'Número de cédula',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.document_scanner_outlined),
+                    label: Text(
+                      scanningCedula
+                          ? 'Escaneando cédula...'
+                          : 'Escanear cédula (IA)',
+                    ),
+                    onPressed: scanningCedula
+                        ? null
+                        : () async {
+                            final result = await FilePicker.platform.pickFiles(
+                              type: FileType.custom,
+                              allowedExtensions: const [
+                                'jpg',
+                                'jpeg',
+                                'png',
+                                'webp',
+                              ],
+                              withData: true,
+                            );
+
+                            if (result == null || result.files.isEmpty) return;
+                            final file = result.files.first;
+                            final bytes = file.bytes;
+                            if (bytes == null || bytes.isEmpty) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'No se pudo leer la imagen seleccionada',
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+
+                            setModalState(() => scanningCedula = true);
+                            try {
+                              // 1) Subir imagen automáticamente
+                              final uploadedUrl = await ref
+                                  .read(usersControllerProvider.notifier)
+                                  .uploadDocument(
+                                    bytes: bytes,
+                                    fileName: file.name,
+                                  );
+                              setModalState(() => fotoCedulaUrl = uploadedUrl);
+
+                              // 2) OCR para autollenar campos
+                              final ocr = ref.read(cedulaOcrServiceProvider);
+                              final ocrResult = await ocr.scan(
+                                bytes: bytes,
+                                fileName: file.name,
+                              );
+
+                              final cedula = (ocrResult.cedula ?? '').trim();
+                              if (cedula.isNotEmpty &&
+                                  cedulaCtrl.text.trim().isEmpty) {
+                                cedulaCtrl.text = cedula;
+                              }
+
+                              final nombre =
+                                  (ocrResult.nombreCompleto ?? '').trim();
+                              if (nombre.isNotEmpty &&
+                                  nameCtrl.text.trim().isEmpty) {
+                                nameCtrl.text = nombre;
+                              }
+
+                              if (ocrResult.fechaNacimiento != null &&
+                                  fechaNacimiento == null) {
+                                setModalState(
+                                  () =>
+                                      fechaNacimiento = ocrResult.fechaNacimiento,
+                                );
+
+                                // Autocalcular edad si está vacía.
+                                if (edadCtrl.text.trim().isEmpty) {
+                                  final now = DateTime.now();
+                                  final dob = ocrResult.fechaNacimiento!;
+                                  var age = now.year - dob.year;
+                                  final hadBirthdayThisYear =
+                                      (now.month > dob.month) ||
+                                      (now.month == dob.month &&
+                                          now.day >= dob.day);
+                                  if (!hadBirthdayThisYear) age -= 1;
+                                  if (age >= 0 && age <= 120) {
+                                    edadCtrl.text = age.toString();
+                                  }
+                                }
+                              }
+
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Cédula escaneada y datos autollenados',
+                                  ),
+                                ),
+                              );
+                            } catch (e) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'No se pudo escanear la cédula: $e',
+                                  ),
+                                ),
+                              );
+                            } finally {
+                              if (context.mounted) {
+                                setModalState(() => scanningCedula = false);
+                              }
+                            }
+                          },
                   ),
                 ),
                 const SizedBox(height: 12),

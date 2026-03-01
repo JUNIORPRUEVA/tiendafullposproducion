@@ -14,6 +14,9 @@ class OperationsState {
   final String search;
   final String? statusFilter;
   final String? typeFilter;
+  final String? orderTypeFilter;
+  final String? orderStateFilter;
+  final String? technicianIdFilter;
   final int? priorityFilter;
   final String? customerIdFilter;
   final DateTime? from;
@@ -27,6 +30,9 @@ class OperationsState {
     this.search = '',
     this.statusFilter,
     this.typeFilter,
+    this.orderTypeFilter,
+    this.orderStateFilter,
+    this.technicianIdFilter,
     this.priorityFilter,
     this.customerIdFilter,
     this.from,
@@ -51,6 +57,9 @@ class OperationsState {
     String? search,
     String? statusFilter,
     String? typeFilter,
+    String? orderTypeFilter,
+    String? orderStateFilter,
+    String? technicianIdFilter,
     int? priorityFilter,
     String? customerIdFilter,
     DateTime? from,
@@ -58,6 +67,9 @@ class OperationsState {
     bool clearError = false,
     bool clearStatus = false,
     bool clearType = false,
+    bool clearOrderType = false,
+    bool clearOrderState = false,
+    bool clearTechnician = false,
     bool clearPriority = false,
     bool clearCustomer = false,
   }) {
@@ -69,6 +81,9 @@ class OperationsState {
       search: search ?? this.search,
       statusFilter: clearStatus ? null : (statusFilter ?? this.statusFilter),
       typeFilter: clearType ? null : (typeFilter ?? this.typeFilter),
+      orderTypeFilter: clearOrderType ? null : (orderTypeFilter ?? this.orderTypeFilter),
+      orderStateFilter: clearOrderState ? null : (orderStateFilter ?? this.orderStateFilter),
+      technicianIdFilter: clearTechnician ? null : (technicianIdFilter ?? this.technicianIdFilter),
       priorityFilter: clearPriority ? null : (priorityFilter ?? this.priorityFilter),
       customerIdFilter: clearCustomer ? null : (customerIdFilter ?? this.customerIdFilter),
       from: from ?? this.from,
@@ -97,6 +112,9 @@ class OperationsController extends StateNotifier<OperationsState> {
         repo.listServices(
           status: state.statusFilter,
           type: state.typeFilter,
+          orderType: state.orderTypeFilter,
+          orderState: state.orderStateFilter,
+          technicianId: state.technicianIdFilter,
           priority: state.priorityFilter,
           customerId: state.customerIdFilter,
           search: state.search,
@@ -145,6 +163,27 @@ class OperationsController extends StateNotifier<OperationsState> {
     await load();
   }
 
+  Future<void> setOrderType(String? value) async {
+    state = value == null
+        ? state.copyWith(clearOrderType: true)
+        : state.copyWith(orderTypeFilter: value);
+    await load();
+  }
+
+  Future<void> setOrderState(String? value) async {
+    state = value == null
+        ? state.copyWith(clearOrderState: true)
+        : state.copyWith(orderStateFilter: value);
+    await load();
+  }
+
+  Future<void> setTechnicianId(String? value) async {
+    state = value == null
+        ? state.copyWith(clearTechnician: true)
+        : state.copyWith(technicianIdFilter: value);
+    await load();
+  }
+
   Future<void> setPriority(int? value) async {
     state = value == null
         ? state.copyWith(clearPriority: true)
@@ -178,6 +217,13 @@ class OperationsController extends StateNotifier<OperationsState> {
     String? addressSnapshot,
     double? quotedAmount,
     double? depositAmount,
+    String? orderType,
+    String? orderState,
+    String? technicianId,
+    String? warrantyParentServiceId,
+    String? surveyResult,
+    String? materialsUsed,
+    double? finalCost,
     List<String>? tags,
   }) async {
     final service = await ref.read(operationsRepositoryProvider).createService(
@@ -190,6 +236,13 @@ class OperationsController extends StateNotifier<OperationsState> {
           addressSnapshot: addressSnapshot,
           quotedAmount: quotedAmount,
           depositAmount: depositAmount,
+          orderType: orderType,
+          orderState: orderState,
+          technicianId: technicianId,
+          warrantyParentServiceId: warrantyParentServiceId,
+          surveyResult: surveyResult,
+          materialsUsed: materialsUsed,
+          finalCost: finalCost,
           tags: tags,
         );
     await load();
@@ -253,6 +306,11 @@ class OperationsController extends StateNotifier<OperationsState> {
     await ref
         .read(operationsRepositoryProvider)
         .uploadEvidence(serviceId: id, file: file);
+    await load();
+  }
+
+  Future<void> deleteService(String id) async {
+    await ref.read(operationsRepositoryProvider).deleteService(id);
     await load();
   }
 

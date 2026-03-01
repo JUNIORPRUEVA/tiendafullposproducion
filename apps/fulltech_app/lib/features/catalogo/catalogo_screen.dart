@@ -199,7 +199,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
                                   : NetworkImage(user.fotoPersonalUrl!),
                           child: (user.fotoPersonalUrl ?? '').trim().isEmpty
                               ? Text(
-                                  getInitials(user.nombreCompleto ?? 'U'),
+                                  getInitials(user.nombreCompleto),
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.w700,

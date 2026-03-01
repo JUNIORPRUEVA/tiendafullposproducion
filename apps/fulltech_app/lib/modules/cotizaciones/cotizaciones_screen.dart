@@ -44,10 +44,80 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen> {
   String? _editingId;
   DateTime? _editingCreatedAt;
 
+  bool _prefillFromRouteApplied = false;
+
   @override
   void initState() {
     super.initState();
     _loadProducts();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    if (_prefillFromRouteApplied) return;
+    _prefillFromRouteApplied = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _applyClientPrefillFromRoute();
+    });
+  }
+
+  void _applyClientPrefillFromRoute() {
+    final qp = GoRouterState.of(context).uri.queryParameters;
+    final id = (qp['customerId'] ?? '').trim();
+    final name = (qp['customerName'] ?? '').trim();
+    final phone = (qp['customerPhone'] ?? '').trim();
+
+    if (id.isEmpty && name.isEmpty && phone.isEmpty) return;
+
+    final hasSelection =
+        (_selectedClientId ?? '').trim().isNotEmpty ||
+        _selectedClientName.trim() != 'Sin cliente';
+    if (hasSelection) return;
+
+    setState(() {
+      if (id.isNotEmpty) _selectedClientId = id;
+      if (name.isNotEmpty) _selectedClientName = name;
+      if (phone.isNotEmpty) _selectedClientPhone = phone;
+    });
+
+    if ((_selectedClientId ?? '').trim().isEmpty && phone.isNotEmpty) {
+      _resolveClientIdByPhone(phone);
+    }
+  }
+
+  Future<void> _resolveClientIdByPhone(String phone) async {
+    try {
+      final clients = await ref
+          .read(ventasRepositoryProvider)
+          .searchClients(phone);
+      if (!mounted) return;
+
+      ClienteModel? match;
+      for (final c in clients) {
+        if (c.telefono.trim() == phone.trim()) {
+          match = c;
+          break;
+        }
+      }
+      match ??= clients.isEmpty ? null : clients.first;
+      if (match == null) return;
+
+      final matchId = match.id;
+      final matchName = match.nombre;
+      final matchPhone = match.telefono;
+
+      setState(() {
+        _selectedClientId = matchId;
+        _selectedClientName = matchName;
+        _selectedClientPhone = matchPhone;
+      });
+    } catch (_) {
+      // Silencioso: si no se puede resolver, el usuario puede escoger cliente.
+    }
   }
 
   @override
@@ -539,7 +609,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen> {
       if ((_editingId ?? '').trim().isEmpty) {
         await ref.read(cotizacionesRepositoryProvider).create(cotizacion);
       } else {
-        await ref.read(cotizacionesRepositoryProvider).update(_editingId!, cotizacion);
+        await ref
+            .read(cotizacionesRepositoryProvider)
+            .update(_editingId!, cotizacion);
       }
     } catch (e) {
       if (!mounted) return;
@@ -567,10 +639,18 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          wasEditing ? 'Cotización actualizada en nube' : 'Cotización guardada en nube',
+          wasEditing
+              ? 'Cotización actualizada en nube'
+              : 'Cotización guardada en nube',
         ),
       ),
     );
+
+    final qp = GoRouterState.of(context).uri.queryParameters;
+    final popOnSave = (qp['popOnSave'] ?? '').trim() == '1';
+    if (popOnSave && mounted) {
+      context.pop(true);
+    }
   }
 
   @override
@@ -898,8 +978,9 @@ class _ProductThumbCard extends StatelessWidget {
               children: [
                 CircleAvatar(
                   radius: 19,
-                  backgroundColor:
-                      Theme.of(context).colorScheme.surfaceContainerHighest,
+                  backgroundColor: Theme.of(
+                    context,
+                  ).colorScheme.surfaceContainerHighest,
                   child: (product.fotoUrl ?? '').trim().isEmpty
                       ? const Icon(Icons.inventory_2_outlined, size: 17)
                       : ClipOval(
@@ -913,8 +994,7 @@ class _ProductThumbCard extends StatelessWidget {
                                 child: Icon(
                                   Icons.broken_image_outlined,
                                   size: 18,
-                                  color:
-                                      Theme.of(context).colorScheme.outline,
+                                  color: Theme.of(context).colorScheme.outline,
                                 ),
                               );
                             },
@@ -1013,10 +1093,7 @@ class _TicketCompactItemState extends State<_TicketCompactItem> {
               item.nombre,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 11,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
             ),
           ),
           const SizedBox(width: 6),
@@ -1025,11 +1102,16 @@ class _TicketCompactItemState extends State<_TicketCompactItem> {
             child: TextField(
               controller: _priceCtrl,
               style: const TextStyle(fontSize: 11),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: const InputDecoration(
                 isDense: true,
                 hintText: 'Precio',
-                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 8,
+                ),
                 border: OutlineInputBorder(),
               ),
               onSubmitted: (value) {
