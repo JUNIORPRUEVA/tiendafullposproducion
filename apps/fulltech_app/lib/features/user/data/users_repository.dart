@@ -57,15 +57,22 @@ class UsersRepository {
     String? password,
     String? fotoPersonalUrl,
   }) async {
+    final payload = <String, dynamic>{
+      'email': email,
+      'nombreCompleto': nombreCompleto,
+      'telefono': telefono,
+      'password': password,
+      'fotoPersonalUrl': fotoPersonalUrl,
+    };
+    payload.removeWhere((key, value) {
+      if (value == null) return true;
+      if (value is String && value.trim().isEmpty) return true;
+      return false;
+    });
+
     final res = await _dio.patch(
       '${ApiRoutes.users}/me',
-      data: {
-        'email': email,
-        'nombreCompleto': nombreCompleto,
-        'telefono': telefono,
-        'password': password,
-        'fotoPersonalUrl': fotoPersonalUrl,
-      },
+      data: payload,
     );
     return UserModel.fromJson(res.data as Map<String, dynamic>);
   }

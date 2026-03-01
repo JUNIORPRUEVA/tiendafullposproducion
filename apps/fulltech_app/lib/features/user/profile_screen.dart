@@ -9,6 +9,7 @@ import '../../core/utils/string_utils.dart';
 import '../../core/models/user_model.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../user/data/users_repository.dart';
+import 'utils/work_contract_preview_screen.dart';
 import 'utils/work_contract_pdf_service.dart';
 
 class ProfileScreen extends ConsumerWidget {
@@ -167,9 +168,23 @@ class ProfileScreen extends ConsumerWidget {
                                       employee: user,
                                       company: company,
                                     );
-                                    await shareWorkContractPdf(
-                                      bytes: bytes,
-                                      employee: user,
+                                    final safeName = user.nombreCompleto.trim().isEmpty
+                                        ? 'empleado'
+                                        : user.nombreCompleto
+                                            .trim()
+                                            .replaceAll(RegExp(r'\s+'), '_');
+                                    final dateFmt = DateFormat('yyyyMMdd');
+                                    final fileName =
+                                        'contrato_${safeName}_${dateFmt.format(DateTime.now())}.pdf';
+
+                                    if (!context.mounted) return;
+                                    await Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => WorkContractPreviewScreen(
+                                          bytes: bytes,
+                                          fileName: fileName,
+                                        ),
+                                      ),
                                     );
                                   } catch (e) {
                                     if (!context.mounted) return;

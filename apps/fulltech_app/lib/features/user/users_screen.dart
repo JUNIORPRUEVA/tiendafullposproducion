@@ -14,6 +14,7 @@ import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../user/application/users_controller.dart';
 import './profile_screen.dart';
+import 'utils/work_contract_preview_screen.dart';
 import 'utils/work_contract_pdf_service.dart';
 
 String? _resolveUserDocUrl(String? url) {
@@ -842,7 +843,26 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                             employee: user,
                             company: company,
                           );
-                          await shareWorkContractPdf(bytes: bytes, employee: user);
+                          final safeName = user.nombreCompleto.trim().isEmpty
+                              ? 'empleado'
+                              : user.nombreCompleto
+                                  .trim()
+                                  .replaceAll(RegExp(r'\s+'), '_');
+                          final dateFmt = DateFormat('yyyyMMdd');
+                          final fileName =
+                              'contrato_${safeName}_${dateFmt.format(DateTime.now())}.pdf';
+
+                          if (!context.mounted) return;
+                          final navigator = Navigator.of(context);
+                          navigator.pop();
+                          await navigator.push(
+                            MaterialPageRoute(
+                              builder: (_) => WorkContractPreviewScreen(
+                                bytes: bytes,
+                                fileName: fileName,
+                              ),
+                            ),
+                          );
                         } catch (e) {
                           if (!context.mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(

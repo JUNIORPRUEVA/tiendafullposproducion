@@ -145,6 +145,115 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
     return false;
   }
 
+  private isInconsistentQueryResult(error: unknown) {
+    if (typeof error !== 'object' || error === null) return false;
+    const value = error as { message?: unknown; name?: unknown };
+    const message = typeof value.message === 'string' ? value.message : '';
+    const name = typeof value.name === 'string' ? value.name : '';
+    return (
+      message.includes('Inconsistent query result') ||
+      message.includes('got null instead') ||
+      name.includes('PrismaClientUnknownRequestError')
+    );
+  }
+
+  private mapSafeUserRow(row: any) {
+    return {
+      id: row.id,
+      email: row.email,
+      nombreCompleto: row.nombreCompleto ?? '',
+      telefono: row.telefono ?? '',
+      telefonoFamiliar: row.telefonoFamiliar ?? null,
+      cedula: row.cedula ?? null,
+      fotoCedulaUrl: row.fotoCedulaUrl ?? null,
+      fotoLicenciaUrl: row.fotoLicenciaUrl ?? null,
+      fotoPersonalUrl: row.fotoPersonalUrl ?? null,
+      edad: row.edad ?? 0,
+      tieneHijos: row.tieneHijos ?? false,
+      estaCasado: row.estaCasado ?? false,
+      casaPropia: row.casaPropia ?? false,
+      vehiculo: row.vehiculo ?? false,
+      licenciaConducir: row.licenciaConducir ?? false,
+      fechaIngreso: row.fechaIngreso ?? null,
+      fechaNacimiento: row.fechaNacimiento ?? null,
+      cuentaNominaPreferencial: row.cuentaNominaPreferencial ?? null,
+      habilidades: row.habilidades ?? null,
+      role: row.role ?? 'ASISTENTE',
+      blocked: row.blocked ?? false,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  private async findAllSafe() {
+    const rows = await this.prisma.$queryRaw<any[]>(Prisma.sql`
+      SELECT
+        id,
+        email,
+        COALESCE("nombreCompleto", '') AS "nombreCompleto",
+        COALESCE(telefono, '') AS telefono,
+        "telefonoFamiliar",
+        cedula,
+        "fotoCedulaUrl",
+        "fotoLicenciaUrl",
+        "fotoPersonalUrl",
+        COALESCE(edad, 0) AS edad,
+        COALESCE("tieneHijos", false) AS "tieneHijos",
+        COALESCE("estaCasado", false) AS "estaCasado",
+        COALESCE("casaPropia", false) AS "casaPropia",
+        COALESCE(vehiculo, false) AS vehiculo,
+        COALESCE("licenciaConducir", false) AS "licenciaConducir",
+        "fechaIngreso",
+        "fechaNacimiento",
+        "cuentaNominaPreferencial",
+        habilidades,
+        COALESCE(role::text, 'ASISTENTE') AS role,
+        COALESCE(blocked, false) AS blocked,
+        "createdAt",
+        "updatedAt"
+      FROM users
+      ORDER BY "createdAt" DESC
+    `);
+
+    return rows.map((row) => this.mapSafeUserRow(row));
+  }
+
+  private async findByIdSafe(id: string) {
+    const rows = await this.prisma.$queryRaw<any[]>(Prisma.sql`
+      SELECT
+        id,
+        email,
+        COALESCE("nombreCompleto", '') AS "nombreCompleto",
+        COALESCE(telefono, '') AS telefono,
+        "telefonoFamiliar",
+        cedula,
+        "fotoCedulaUrl",
+        "fotoLicenciaUrl",
+        "fotoPersonalUrl",
+        COALESCE(edad, 0) AS edad,
+        COALESCE("tieneHijos", false) AS "tieneHijos",
+        COALESCE("estaCasado", false) AS "estaCasado",
+        COALESCE("casaPropia", false) AS "casaPropia",
+        COALESCE(vehiculo, false) AS vehiculo,
+        COALESCE("licenciaConducir", false) AS "licenciaConducir",
+        "fechaIngreso",
+        "fechaNacimiento",
+        "cuentaNominaPreferencial",
+        habilidades,
+        COALESCE(role::text, 'ASISTENTE') AS role,
+        COALESCE(blocked, false) AS blocked,
+        "createdAt",
+        "updatedAt"
+      FROM users
+      WHERE id::text = ${id}
+      LIMIT 1
+    `);
+
+    const row = rows[0];
+    if (!row) throw new NotFoundException('User not found');
+    return this.mapSafeUserRow(row);
+  }
+
   private mapMinimalUser(row: {
     id: string;
     email: string;
@@ -212,6 +321,9 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         }
       });
     } catch (error) {
+      if (this.isInconsistentQueryResult(error)) {
+        return this.findByIdSafe(id);
+      }
       if (!this.isMissingUserTable(error)) throw error;
 
       const rows = await this.prisma.$queryRaw<
@@ -321,6 +433,10 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         updatedAt: true
       }
     }).catch(async (error) => {
+      if (this.isInconsistentQueryResult(error)) {
+        return this.findAllSafe();
+      }
+
       if (!this.isMissingUserTable(error)) throw error;
       const rows = await this.prisma.$queryRaw<
         Array<{ id: string; email: string; role: string; createdAt: Date; updatedAt: Date }>
@@ -348,7 +464,7 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
     }
 
     const passwordHash = dto.password ? await bcrypt.hash(dto.password, 10) : undefined;
-    return this.prisma.user.update({
+    await this.prisma.user.update({
       where: { id },
       data: {
         email: dto.email,
@@ -373,32 +489,10 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         role: dto.role,
         blocked: dto.blocked
       },
-      select: {
-        id: true,
-        email: true,
-        nombreCompleto: true,
-        telefono: true,
-        telefonoFamiliar: true,
-        cedula: true,
-        fotoCedulaUrl: true,
-        fotoLicenciaUrl: true,
-        fotoPersonalUrl: true,
-        edad: true,
-        tieneHijos: true,
-        estaCasado: true,
-        casaPropia: true,
-        vehiculo: true,
-        licenciaConducir: true,
-        fechaIngreso: true,
-        fechaNacimiento: true,
-        cuentaNominaPreferencial: true,
-        habilidades: true,
-        role: true,
-        blocked: true,
-        createdAt: true,
-        updatedAt: true
-      }
+      select: { id: true }
     });
+
+    return this.findById(id);
   }
 
   async updateSelf(id: string, dto: SelfUpdateUserDto) {
@@ -411,41 +505,31 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
     }
 
     const passwordHash = dto.password ? await bcrypt.hash(dto.password, 10) : undefined;
-    return this.prisma.user.update({
+
+    const data: Prisma.UserUpdateInput = {};
+    const email = (dto as any).email === null ? undefined : dto.email;
+    const nombreCompleto = (dto as any).nombreCompleto === null ? undefined : dto.nombreCompleto;
+    const telefono = (dto as any).telefono === null ? undefined : dto.telefono;
+    const fotoPersonalUrl = (dto as any).fotoPersonalUrl === null ? undefined : dto.fotoPersonalUrl;
+    const password = (dto as any).password === null ? undefined : dto.password;
+
+    if (email !== undefined) data.email = email;
+    if (nombreCompleto !== undefined) data.nombreCompleto = nombreCompleto;
+    if (telefono !== undefined) data.telefono = telefono;
+    if (fotoPersonalUrl !== undefined) data.fotoPersonalUrl = fotoPersonalUrl;
+    if (password !== undefined && passwordHash !== undefined) data.passwordHash = passwordHash;
+
+    if (Object.keys(data).length === 0) {
+      return this.findById(id);
+    }
+
+    await this.prisma.user.update({
       where: { id },
-      data: {
-        email: dto.email,
-        nombreCompleto: dto.nombreCompleto,
-        telefono: dto.telefono,
-        fotoPersonalUrl: dto.fotoPersonalUrl,
-        passwordHash
-      },
-      select: {
-        id: true,
-        email: true,
-        nombreCompleto: true,
-        telefono: true,
-        telefonoFamiliar: true,
-        cedula: true,
-        fotoCedulaUrl: true,
-        fotoLicenciaUrl: true,
-        fotoPersonalUrl: true,
-        edad: true,
-        tieneHijos: true,
-        estaCasado: true,
-        casaPropia: true,
-        vehiculo: true,
-        licenciaConducir: true,
-        fechaIngreso: true,
-        fechaNacimiento: true,
-        cuentaNominaPreferencial: true,
-        habilidades: true,
-        role: true,
-        blocked: true,
-        createdAt: true,
-        updatedAt: true
-      }
+      data,
+      select: { id: true }
     });
+
+    return this.findById(id);
   }
 
   async setBlocked(id: string, blocked?: boolean) {
