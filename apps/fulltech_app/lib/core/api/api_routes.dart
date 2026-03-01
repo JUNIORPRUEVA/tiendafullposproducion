@@ -7,6 +7,7 @@ class ApiRoutes {
 
   // Usuarios
   static const users = '/users';
+    static const usersMe = '/users/me';
   static String userDetail(String id) => '/users/$id';
   static String updateUser(String id) => '/users/$id';
   static String deleteUser(String id) => '/users/$id';

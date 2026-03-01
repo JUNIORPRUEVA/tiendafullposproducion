@@ -125,7 +125,7 @@ class AuthRepository {
         await _storage.saveTokens(access, refresh);
       }
       try {
-        final me = await _dio.get(ApiRoutes.me).timeout(_loginTimeout);
+        final me = await _dio.get(ApiRoutes.usersMe).timeout(_loginTimeout);
         return UserModel.fromJson((me.data as Map).cast<String, dynamic>());
       } on DioException {
         final fallbackUser = _userFromLoginResponse(res.data);
@@ -159,15 +159,15 @@ class AuthRepository {
       final token = await _storage.getAccessToken().timeout(_storageTimeout);
       if (token == null) return null;
       try {
-        final res = await _dio.get(ApiRoutes.me).timeout(_bootstrapTimeout);
-        return UserModel.fromJson(res.data);
+        final res = await _dio.get(ApiRoutes.usersMe).timeout(_bootstrapTimeout);
+        return UserModel.fromJson((res.data as Map).cast<String, dynamic>());
       } on DioException catch (e) {
         // Si expira, intenta refresh y reintenta
         if (e.response?.statusCode == 401) {
           final refreshed = await _refreshAndSave();
           if (refreshed) {
-            final res = await _dio.get(ApiRoutes.me).timeout(_bootstrapTimeout);
-            return UserModel.fromJson(res.data);
+            final res = await _dio.get(ApiRoutes.usersMe).timeout(_bootstrapTimeout);
+            return UserModel.fromJson((res.data as Map).cast<String, dynamic>());
           }
         }
 

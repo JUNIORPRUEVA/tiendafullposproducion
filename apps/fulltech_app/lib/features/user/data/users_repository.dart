@@ -46,7 +46,7 @@ class UsersRepository {
   }
 
   Future<UserModel> fetchMe() async {
-    final res = await _dio.get('${ApiRoutes.users}/me');
+    final res = await _dio.get(ApiRoutes.usersMe);
     return UserModel.fromJson(res.data as Map<String, dynamic>);
   }
 
@@ -71,7 +71,7 @@ class UsersRepository {
     });
 
     final res = await _dio.patch(
-      '${ApiRoutes.users}/me',
+      ApiRoutes.usersMe,
       data: payload,
     );
     return UserModel.fromJson(res.data as Map<String, dynamic>);
