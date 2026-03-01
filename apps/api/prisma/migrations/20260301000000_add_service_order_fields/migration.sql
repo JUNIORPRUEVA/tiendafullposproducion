@@ -25,9 +25,13 @@ CREATE INDEX IF NOT EXISTS "Service_technicianId_idx" ON "Service"("technicianId
 
 DO $$
 BEGIN
-  ALTER TABLE "Service"
-    ADD CONSTRAINT "Service_technicianId_fkey"
-    FOREIGN KEY ("technicianId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'Service_technicianId_fkey'
+  ) THEN
+    ALTER TABLE "Service"
+      ADD CONSTRAINT "Service_technicianId_fkey"
+      FOREIGN KEY ("technicianId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
 END $$;
