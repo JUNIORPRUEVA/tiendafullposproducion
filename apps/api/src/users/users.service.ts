@@ -434,8 +434,18 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
       }
     }).catch(async (error) => {
       if (this.isInconsistentQueryResult(error)) {
+        // eslint-disable-next-line no-console
+        console.error('[users.findAll] Prisma inconsistent query result; falling back to raw SQL', {
+          message: error instanceof Error ? error.message : String(error)
+        });
         return this.findAllSafe();
       }
+
+      // eslint-disable-next-line no-console
+      console.error('[users.findAll] Prisma error', {
+        message: error instanceof Error ? error.message : String(error),
+        name: (error as any)?.name,
+      });
 
       if (!this.isMissingUserTable(error)) throw error;
       const rows = await this.prisma.$queryRaw<

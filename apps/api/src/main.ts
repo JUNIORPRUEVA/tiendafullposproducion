@@ -2,17 +2,38 @@ import 'reflect-metadata';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as express from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { cors: false });
   app.set('trust proxy', 1);
 
+  // Basic request logging (method/url/status/duration).
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const start = Date.now();
+    const method = req.method;
+    const url = req.originalUrl || req.url;
+
+    res.on('finish', () => {
+      const durationMs = Date.now() - start;
+      const status = res.statusCode;
+      // eslint-disable-next-line no-console
+      console.log(`[req] ${method} ${url} -> ${status} (${durationMs}ms)`);
+    });
+
+    next();
+  });
+
   const config = app.get(ConfigService);
+
+  // Global exception filter: logs errors (incl. Prisma meta) and returns safe JSON.
+  app.useGlobalFilters(new GlobalExceptionFilter());
   const port = Number(config.get('PORT') ?? 4000);
   const corsOrigin = config.get<string>('CORS_ORIGIN') ?? 'http://localhost:3000';
   const allowedOrigins = corsOrigin

@@ -29,6 +29,26 @@
 - Dev server: `npm run api:dev`
 - Smoke test: `npm run api:smoke`
 
+## Diagnóstico de integridad (usuarios)
+Cuando `GET /users` da 500 en producción de forma intermitente, suele ser por datos legacy (NULLs en campos requeridos, roles inválidos, duplicados, etc.) que hacen que Prisma lance errores runtime.
+
+- Endpoint (ADMIN): `GET /admin/diagnostics/users-integrity`
+	- Devuelve un reporte con `counts` + `samples` para ubicar los IDs problemáticos.
+
+## Scripts de integridad (Prisma)
+Ejecuta estos comandos dentro de `apps/api` o desde la raíz usando workspaces.
+
+- Solo revisar (no cambia nada):
+	- `npm --workspace apps/api run integrity:check`
+- Aplicar fixes seguros (no borra data):
+	- `npm --workspace apps/api run integrity:fix`
+
+Notas:
+- El fix normaliza strings vacíos a `NULL` en columnas opcionales.
+- Para rellenar `NULL` en campos requeridos con defaults (más agresivo), usa:
+	- `ts-node prisma/scripts/fix_integrity.ts --fix --fix-required-nulls`
+- No se borran filas huérfanas automáticamente a menos que se habilite explícitamente `--allow-delete`.
+
 ## Seed (credenciales)
 - `ADMIN_EMAIL` (si no se define, usa `admin@fulltech.local`)
 - `ADMIN_PASSWORD` (requerido; define/actualiza la contraseña del ADMIN)
