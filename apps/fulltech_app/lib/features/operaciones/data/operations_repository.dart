@@ -88,6 +88,7 @@ class OperationsRepository {
     String? addressSnapshot,
     double? quotedAmount,
     double? depositAmount,
+    List<String>? tags,
   }) async {
     try {
       final res = await _dio.post(
@@ -103,6 +104,7 @@ class OperationsRepository {
             'addressSnapshot': addressSnapshot.trim(),
           if (quotedAmount != null) 'quotedAmount': quotedAmount,
           if (depositAmount != null) 'depositAmount': depositAmount,
+          if (tags != null && tags.isNotEmpty) 'tags': tags,
         },
       );
       return ServiceModel.fromJson((res.data as Map).cast<String, dynamic>());

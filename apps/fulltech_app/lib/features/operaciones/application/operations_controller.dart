@@ -178,6 +178,7 @@ class OperationsController extends StateNotifier<OperationsState> {
     String? addressSnapshot,
     double? quotedAmount,
     double? depositAmount,
+    List<String>? tags,
   }) async {
     final service = await ref.read(operationsRepositoryProvider).createService(
           customerId: customerId,
@@ -189,6 +190,7 @@ class OperationsController extends StateNotifier<OperationsState> {
           addressSnapshot: addressSnapshot,
           quotedAmount: quotedAmount,
           depositAmount: depositAmount,
+          tags: tags,
         );
     await load();
     return service;

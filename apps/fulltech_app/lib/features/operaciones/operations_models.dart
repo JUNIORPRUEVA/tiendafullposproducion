@@ -111,6 +111,9 @@ class ServiceModel {
   final String category;
   final String status;
   final int priority;
+  final double? quotedAmount;
+  final double? depositAmount;
+  final List<String> tags;
   final DateTime? scheduledStart;
   final DateTime? scheduledEnd;
   final DateTime? completedAt;
@@ -133,6 +136,7 @@ class ServiceModel {
     required this.category,
     required this.status,
     required this.priority,
+    required this.tags,
     required this.customerId,
     required this.customerName,
     required this.customerPhone,
@@ -143,14 +147,34 @@ class ServiceModel {
     required this.steps,
     required this.files,
     required this.updates,
+    this.quotedAmount,
+    this.depositAmount,
     this.scheduledStart,
     this.scheduledEnd,
     this.completedAt,
   });
 
+  bool get isSeguro {
+    final deposit = depositAmount ?? 0;
+    if (deposit > 0) return true;
+    return tags.any((t) => t.trim().toLowerCase() == 'seguro');
+  }
+
   factory ServiceModel.fromJson(Map<String, dynamic> json) {
     final customer = (json['customer'] as Map?)?.cast<String, dynamic>() ?? const {};
     final createdBy = (json['createdBy'] as Map?)?.cast<String, dynamic>() ?? const {};
+
+    double? parseMoney(dynamic raw) {
+      if (raw == null) return null;
+      if (raw is num) return raw.toDouble();
+      if (raw is String) return double.tryParse(raw);
+      return double.tryParse(raw.toString());
+    }
+
+    List<String> parseStringList(dynamic raw) {
+      if (raw is! List) return const [];
+      return raw.map((e) => (e ?? '').toString()).where((s) => s.trim().isNotEmpty).toList();
+    }
 
     List<T> parseList<T>(dynamic raw, T Function(Map<String, dynamic>) parser) {
       if (raw is! List) return [];
@@ -170,6 +194,9 @@ class ServiceModel {
       priority: (json['priority'] is int)
           ? json['priority'] as int
           : int.tryParse('${json['priority']}') ?? 2,
+      quotedAmount: parseMoney(json['quotedAmount']),
+      depositAmount: parseMoney(json['depositAmount']),
+      tags: parseStringList(json['tags']),
       scheduledStart: json['scheduledStart'] == null
           ? null
           : DateTime.tryParse(json['scheduledStart'].toString()),

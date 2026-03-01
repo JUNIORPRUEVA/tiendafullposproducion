@@ -1,15 +1,19 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/models/punch_model.dart';
 import '../../core/routing/routes.dart';
+import '../../core/utils/geo_utils.dart';
 import '../../core/utils/string_utils.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../modules/cotizaciones/data/cotizaciones_repository.dart';
@@ -130,6 +134,11 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen> {
             onPressed: () => context.go(Routes.operacionesAgenda),
             icon: const Icon(Icons.event_note_rounded),
           ),
+          IconButton(
+            tooltip: 'Mapa clientes',
+            onPressed: () => context.push(Routes.operacionesMapaClientes),
+            icon: const Icon(Icons.map_outlined),
+          ),
           _UserAvatarAction(
             userName: authState.user?.nombreCompleto,
             photoUrl: authState.user?.fotoPersonalUrl,
@@ -240,6 +249,26 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen> {
         }
       }
 
+      final referencePhoto = draft.referencePhoto;
+      if (referencePhoto != null) {
+        try {
+          await ref
+              .read(operationsControllerProvider.notifier)
+              .uploadEvidence(created.id, referencePhoto);
+        } catch (e) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                e is ApiException
+                    ? e.message
+                    : 'No se pudo subir la foto de referencia',
+              ),
+            ),
+          );
+        }
+      }
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Reserva creada correctamente')),
@@ -257,6 +286,8 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen> {
   }
 
   Future<ServiceModel> _createService(_CreateServiceDraft draft) {
+    final deposit = draft.depositAmount ?? 0;
+    final tags = deposit > 0 ? const ['SEGURO'] : const <String>[];
     return ref
         .read(operationsControllerProvider.notifier)
         .createReservation(
@@ -269,6 +300,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen> {
           addressSnapshot: draft.addressSnapshot,
           quotedAmount: draft.quotedAmount,
           depositAmount: draft.depositAmount,
+          tags: tags,
         );
   }
 
@@ -304,6 +336,17 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen> {
                 reservationAt,
                 reservationAt.add(const Duration(hours: 1)),
               );
+        } catch (_) {
+          // No bloquea la creación desde agenda.
+        }
+      }
+
+      final referencePhoto = draft.referencePhoto;
+      if (referencePhoto != null) {
+        try {
+          await ref
+              .read(operationsControllerProvider.notifier)
+              .uploadEvidence(created.id, referencePhoto);
         } catch (_) {
           // No bloquea la creación desde agenda.
         }
@@ -683,10 +726,20 @@ class _OperacionesAgendaScreenState
                               final date = service.scheduledStart ?? service.completedAt;
                               final dateText = date == null ? '—' : df.format(date);
                               return ListTile(
-                                title: Text(
-                                  '${service.customerName} · ${service.title}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                title: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '${service.customerName} · ${service.title}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    if (service.isSeguro) ...[
+                                      const SizedBox(width: 8),
+                                      const _SeguroBadge(),
+                                    ],
+                                  ],
                                 ),
                                 subtitle: Text(
                                   '$dateText · ${service.status} · ${service.serviceType} · P${service.priority}',
@@ -801,10 +854,20 @@ class _OperacionesAgendaScreenState
                         child: Card(
                           child: ListTile(
                             isThreeLine: true,
-                            title: Text(
-                              '${service.customerName} · ${service.title}',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
+                            title: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '${service.customerName} · ${service.title}',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                if (service.isSeguro) ...[
+                                  const SizedBox(width: 8),
+                                  const _SeguroBadge(),
+                                ],
+                              ],
                             ),
                             subtitle: Text(
                               '${dateFormat.format(service.scheduledStart!)} · ${service.status}\n'
@@ -903,6 +966,34 @@ class _InitialsAvatar extends StatelessWidget {
           fontWeight: FontWeight.w800,
           fontSize: 12,
           letterSpacing: 0.4,
+        ),
+      ),
+    );
+  }
+}
+
+class _SeguroBadge extends StatelessWidget {
+  const _SeguroBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withValues(alpha: 0.40),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: scheme.primary.withValues(alpha: 0.30),
+        ),
+      ),
+      child: Text(
+        'SEGURO',
+        style: TextStyle(
+          color: scheme.primary,
+          fontWeight: FontWeight.w900,
+          fontSize: 11,
+          letterSpacing: 0.3,
         ),
       ),
     );
@@ -2228,6 +2319,7 @@ class OperacionesHistorialBodyState
                       _pill(context, 'Estado', _statusLabel(service.status)),
                       _pill(context, 'Tipo', _typeLabel(service.serviceType)),
                       _pill(context, 'Prioridad', 'P${service.priority}'),
+                      if (service.isSeguro) _pill(context, 'SEGURO', 'Sí'),
                       _pill(
                         context,
                         'Último',
@@ -2556,10 +2648,20 @@ class _AgendaTab extends StatelessWidget {
                   dense: isCompact,
                   isThreeLine: true,
                   onTap: () => onOpenService(service),
-                  title: Text(
-                    '${service.customerName} · ${service.title}',
-                    maxLines: isCompact ? 1 : 2,
-                    overflow: TextOverflow.ellipsis,
+                  title: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${service.customerName} · ${service.title}',
+                          maxLines: isCompact ? 1 : 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (service.isSeguro) ...[
+                        const SizedBox(width: 8),
+                        const _SeguroBadge(),
+                      ],
+                    ],
                   ),
                   subtitle: Text(
                     subtitle,
@@ -2771,6 +2873,7 @@ class _CreateServiceDraft {
   final String? addressSnapshot;
   final double? quotedAmount;
   final double? depositAmount;
+  final PlatformFile? referencePhoto;
 
   _CreateServiceDraft({
     required this.customerId,
@@ -2783,6 +2886,7 @@ class _CreateServiceDraft {
     this.addressSnapshot,
     this.quotedAmount,
     this.depositAmount,
+    this.referencePhoto,
   });
 }
 
@@ -2809,9 +2913,9 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   final _formKey = GlobalKey<FormState>();
   final _searchClientCtrl = TextEditingController();
   final _reservationDateCtrl = TextEditingController();
-  final _titleCtrl = TextEditingController();
   final _descriptionCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
+  final _gpsCtrl = TextEditingController();
   final _quotedCtrl = TextEditingController();
   final _depositCtrl = TextEditingController();
 
@@ -2825,6 +2929,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   bool _checkingCotizaciones = false;
   bool _hasCotizaciones = false;
   CotizacionModel? _selectedCotizacion;
+  LatLng? _gpsPoint;
+  PlatformFile? _referencePhoto;
   bool _saving = false;
 
   @override
@@ -2839,17 +2945,104 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   void dispose() {
     _searchClientCtrl.dispose();
     _reservationDateCtrl.dispose();
-    _titleCtrl.dispose();
     _descriptionCtrl.dispose();
     _addressCtrl.dispose();
+    _gpsCtrl.dispose();
     _quotedCtrl.dispose();
     _depositCtrl.dispose();
     super.dispose();
   }
 
+  String _serviceTypeLabel(String raw) {
+    switch (raw.trim().toLowerCase()) {
+      case 'installation':
+        return 'Instalación';
+      case 'maintenance':
+        return 'Mantenimiento';
+      case 'warranty':
+        return 'Garantía';
+      case 'pos_support':
+        return 'Soporte POS';
+      default:
+        return 'Servicio';
+    }
+  }
+
+  String _categoryLabel(String raw) {
+    switch (raw.trim().toLowerCase()) {
+      case 'cameras':
+        return 'Cámaras';
+      case 'gate_motor':
+        return 'Motores de puertones';
+      case 'alarm':
+        return 'Alarma';
+      case 'electric_fence':
+        return 'Cerco eléctrico';
+      case 'intercom':
+        return 'Intercom';
+      case 'pos':
+        return 'Punto de ventas';
+      default:
+        return raw.trim().isEmpty ? 'General' : raw.trim();
+    }
+  }
+
+  Future<void> _pickReferencePhoto() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    setState(() => _referencePhoto = result.files.first);
+  }
+
+  Future<void> _pasteGpsFromClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = (data?.text ?? '').trim();
+    if (text.isEmpty) return;
+
+    final parsed = parseLatLngFromText(text);
+    setState(() {
+      _gpsCtrl.text = text;
+      _gpsPoint = parsed;
+    });
+
+    if (parsed == null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No pude detectar lat/lng en el texto')),
+      );
+    }
+  }
+
+  Future<void> _openGpsInMaps() async {
+    final point = _gpsPoint ?? parseLatLngFromText(_gpsCtrl.text);
+    if (point == null) return;
+    final url = Uri.parse(buildGoogleMapsSearchUrl(point));
+    await launchUrl(url, mode: LaunchMode.externalApplication);
+  }
+
+  String? _buildAddressSnapshot() {
+    final address = _addressCtrl.text.trim();
+    final point = _gpsPoint ?? parseLatLngFromText(_gpsCtrl.text);
+
+    final hasAddress = address.isNotEmpty;
+    final hasPoint = point != null;
+
+    if (!hasAddress && !hasPoint) return null;
+    if (!hasPoint) return address;
+
+    final gpsLine = 'GPS: ${formatLatLng(point!)}';
+    final mapsLine = 'MAPS: ${buildGoogleMapsSearchUrl(point)}';
+
+    final lines = <String>[];
+    if (hasAddress) lines.add(address);
+    lines.add(gpsLine);
+    lines.add(mapsLine);
+    return lines.join('\n');
+  }
+
   @override
   Widget build(BuildContext context) {
-    final auth = ref.watch(authStateProvider);
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 430;
@@ -2863,37 +3056,6 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           child: ListView(
             padding: EdgeInsets.all(formPadding),
             children: [
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.verified_user_outlined),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Creado por',
-                              style: TextStyle(fontWeight: FontWeight.w800),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              (auth.user?.nombreCompleto ?? '—').trim().isEmpty
-                                  ? '—'
-                                  : auth.user!.nombreCompleto,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -3043,8 +3205,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                 readOnly: true,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
-                  labelText: 'Fecha de reserva',
-                  suffixIcon: Icon(Icons.calendar_month_outlined),
+                  labelText: 'Fecha y hora de reserva',
+                  suffixIcon: Icon(Icons.schedule_outlined),
                 ),
                 onTap: _pickReservationDate,
                 validator: (_) => _reservationAt == null ? 'Requerido' : null,
@@ -3250,40 +3412,97 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                 },
               ),
               const SizedBox(height: 10),
-              TextFormField(
-                controller: _titleCtrl,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Servicio',
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        'Foto de referencia (casa)',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _referencePhoto == null
+                            ? 'Opcional: sube una foto para ubicar la casa más rápido.'
+                            : 'Seleccionada: ${_referencePhoto!.name}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: _pickReferencePhoto,
+                            icon: const Icon(Icons.photo_camera_outlined),
+                            label: Text(
+                              _referencePhoto == null ? 'Agregar' : 'Cambiar',
+                            ),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: _referencePhoto == null
+                                ? null
+                                : () => setState(() => _referencePhoto = null),
+                            icon: const Icon(Icons.delete_outline),
+                            label: const Text('Quitar'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-                validator: (value) =>
-                    (value ?? '').trim().isEmpty ? 'Requerido' : null,
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _gpsCtrl,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  labelText: 'Ubicación GPS (WhatsApp/Maps)',
+                  helperText: _gpsPoint == null
+                      ? 'Pega un link de Google Maps o "lat,lng"'
+                      : 'Detectado: ${formatLatLng(_gpsPoint!)}',
+                  suffixIcon: SizedBox(
+                    width: 96,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: 'Pegar',
+                          onPressed: _pasteGpsFromClipboard,
+                          icon: const Icon(Icons.content_paste_rounded),
+                        ),
+                        IconButton(
+                          tooltip: 'Abrir en Maps',
+                          onPressed: _gpsPoint == null ? null : _openGpsInMaps,
+                          icon: const Icon(Icons.near_me_outlined),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                onChanged: (value) {
+                  setState(() => _gpsPoint = parseLatLngFromText(value));
+                },
               ),
               const SizedBox(height: 10),
               TextFormField(
                 controller: _descriptionCtrl,
-                minLines: 3,
-                maxLines: 5,
+                minLines: 2,
+                maxLines: 4,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
-                  labelText: 'Nota',
-                ),
-                validator: (value) =>
-                    (value ?? '').trim().isEmpty ? 'Requerido' : null,
-              ),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _addressCtrl,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Dirección (snapshot)',
+                  labelText: 'Nota (opcional)',
                 ),
               ),
               const SizedBox(height: 10),
               if (isCompact) ...[
                 TextFormField(
                   controller: _quotedCtrl,
-                  keyboardType: TextInputType.number,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
                     labelText: 'Precio vendido',
@@ -3292,10 +3511,12 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _depositCtrl,
-                  keyboardType: TextInputType.number,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
-                    labelText: 'Abono',
+                    labelText: 'Abono (señal)',
+                    helperText: 'Si hay abono, se marca como SEGURO',
                   ),
                 ),
               ] else
@@ -3304,7 +3525,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                     Expanded(
                       child: TextFormField(
                         controller: _quotedCtrl,
-                        keyboardType: TextInputType.number,
+                        keyboardType:
+                            const TextInputType.numberWithOptions(decimal: true),
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
                           labelText: 'Precio vendido',
@@ -3315,10 +3537,12 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                     Expanded(
                       child: TextFormField(
                         controller: _depositCtrl,
-                        keyboardType: TextInputType.number,
+                        keyboardType:
+                            const TextInputType.numberWithOptions(decimal: true),
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
-                          labelText: 'Abono',
+                          labelText: 'Abono (señal)',
+                          helperText: 'Si hay abono, se marca como SEGURO',
                         ),
                       ),
                     ),
@@ -3345,7 +3569,12 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       _customerName = selected.nombre;
       _customerPhone = selected.telefono;
       _addressCtrl.text = selected.direccion ?? '';
+      _selectedCotizacion = null;
+      _hasCotizaciones = false;
     });
+
+    // Evita arrastrar precio/cotización de un cliente anterior.
+    _quotedCtrl.clear();
 
     await _checkCotizacionesForSelectedClient();
   }
@@ -3362,13 +3591,19 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     );
     if (!mounted || pickedDate == null) return;
 
-    final timeSource = _reservationAt ?? DateTime.now();
+    final initialTimeSource = _reservationAt ?? DateTime.now();
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initialTimeSource),
+    );
+    if (!mounted || pickedTime == null) return;
+
     final next = DateTime(
       pickedDate.year,
       pickedDate.month,
       pickedDate.day,
-      timeSource.hour,
-      timeSource.minute,
+      pickedTime.hour,
+      pickedTime.minute,
     );
 
     setState(() {
@@ -3538,6 +3773,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       setState(() {
         _hasCotizaciones = false;
         _checkingCotizaciones = false;
+        _selectedCotizacion = null;
       });
       return;
     }
@@ -3548,7 +3784,19 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           .read(cotizacionesRepositoryProvider)
           .list(customerPhone: phone, take: 1);
       if (!mounted) return;
-      setState(() => _hasCotizaciones = rows.isNotEmpty);
+      final latest = rows.isEmpty ? null : rows.first;
+      setState(() {
+        _hasCotizaciones = latest != null;
+
+        // Por defecto, toma el precio vendido del total de la última cotización.
+        // No pisa si el usuario ya escribió un precio.
+        if (latest != null && _selectedCotizacion == null) {
+          _selectedCotizacion = latest;
+          if (_quotedCtrl.text.trim().isEmpty) {
+            _quotedCtrl.text = latest.total.toStringAsFixed(2);
+          }
+        }
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() => _hasCotizaciones = false);
@@ -3769,6 +4017,10 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
 
     setState(() => _saving = true);
     try {
+      final title = '${_serviceTypeLabel(_serviceType)} · ${_categoryLabel(_category)}';
+      final note = _descriptionCtrl.text.trim();
+      final description = note.isEmpty ? 'Sin nota' : note;
+
       await widget.onCreate(
         _CreateServiceDraft(
           customerId: _customerId!,
@@ -3776,22 +4028,23 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           category: _category,
           priority: _priority,
           reservationAt: _reservationAt,
-          title: _titleCtrl.text.trim(),
-          description: _descriptionCtrl.text.trim(),
-          addressSnapshot: _addressCtrl.text.trim().isEmpty
-              ? null
-              : _addressCtrl.text.trim(),
+          title: title,
+          description: description,
+          addressSnapshot: _buildAddressSnapshot(),
           quotedAmount: double.tryParse(_quotedCtrl.text.trim()),
           depositAmount: double.tryParse(_depositCtrl.text.trim()),
+          referencePhoto: _referencePhoto,
         ),
       );
       if (!mounted) return;
       _formKey.currentState!.reset();
       _reservationDateCtrl.clear();
       _reservationAt = null;
-      _titleCtrl.clear();
       _descriptionCtrl.clear();
       _addressCtrl.clear();
+      _gpsCtrl.clear();
+      _gpsPoint = null;
+      _referencePhoto = null;
       _quotedCtrl.clear();
       _depositCtrl.clear();
     } finally {

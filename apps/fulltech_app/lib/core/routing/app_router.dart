@@ -9,6 +9,7 @@ import '../../features/user/profile_screen.dart';
 import '../../features/user/users_screen.dart';
 import '../../features/ponche/ponche_screen.dart';
 import '../../features/operaciones/operaciones_screen.dart';
+import '../../features/operaciones/operaciones_mapa_clientes_screen.dart';
 import '../../features/operaciones/operaciones_reglas_screen.dart';
 import '../../features/contabilidad/contabilidad_screen.dart';
 import '../../features/contabilidad/cierres_diarios_screen.dart';
@@ -103,6 +104,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const OperacionesAgendaScreen(),
           ),
           GoRoute(
+            path: Routes.operacionesMapaClientes,
+            builder: (context, state) => const OperacionesMapaClientesScreen(),
+          ),
+          GoRoute(
             path: Routes.operacionesReglas,
             builder: (context, state) => const OperacionesReglasScreen(),
           ),
@@ -145,7 +150,8 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.cotizacionesHistorial,
             builder: (context, state) {
-              final phone = (state.uri.queryParameters['customerPhone'] ?? '').trim();
+              final phone = (state.uri.queryParameters['customerPhone'] ?? '')
+                  .trim();
               final pick = (state.uri.queryParameters['pick'] ?? '').trim();
               final pickForEditor = pick != '0';
               return CotizacionesHistorialScreen(
@@ -184,7 +190,9 @@ final routerProvider = Provider<GoRouter>((ref) {
       final initialized = auth.initialized;
       final isAuth = auth.isAuthenticated;
       final isAdmin = (auth.user?.role ?? '').toUpperCase() == 'ADMIN';
-        final canAccessContabilidad = canAccessContabilidadByRole(auth.user?.role);
+      final canAccessContabilidad = canAccessContabilidadByRole(
+        auth.user?.role,
+      );
       final loc = state.uri.toString();
       final isAuthRoute = loc == Routes.login;
       final isSplash = loc == Routes.splash;

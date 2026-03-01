@@ -10,6 +10,7 @@ class Routes {
   static const ponche = '/ponche';
   static const operaciones = '/operaciones';
   static const operacionesAgenda = '/operaciones/agenda';
+  static const operacionesMapaClientes = '/operaciones/mapa-clientes';
   static const operacionesReglas = '/operaciones/reglas';
   static const catalogo = '/catalogo';
   static const contabilidad = '/contabilidad';
