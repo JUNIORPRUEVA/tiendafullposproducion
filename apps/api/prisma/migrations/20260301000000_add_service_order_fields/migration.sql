@@ -27,7 +27,7 @@ DO $$
 BEGIN
   ALTER TABLE "Service"
     ADD CONSTRAINT "Service_technicianId_fkey"
-    FOREIGN KEY ("technicianId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    FOREIGN KEY ("technicianId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
