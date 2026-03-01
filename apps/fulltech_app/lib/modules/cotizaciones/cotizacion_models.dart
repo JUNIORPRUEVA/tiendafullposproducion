@@ -41,6 +41,15 @@ class CotizacionItem {
     'qty': qty,
   };
 
+  Map<String, dynamic> toCreateDto() => {
+    if (productId.trim().isNotEmpty) 'productId': productId,
+    'productName': nombre,
+    if (imageUrl != null && imageUrl!.trim().isNotEmpty)
+      'productImageSnapshot': imageUrl,
+    'qty': qty,
+    'unitPrice': unitPrice,
+  };
+
   factory CotizacionItem.fromMap(Map<String, dynamic> map) {
     return CotizacionItem(
       productId: (map['productId'] ?? '').toString(),
@@ -48,6 +57,23 @@ class CotizacionItem {
       imageUrl: map['imageUrl']?.toString(),
       unitPrice: (map['unitPrice'] as num?)?.toDouble() ?? 0,
       qty: (map['qty'] as num?)?.toDouble() ?? 0,
+    );
+  }
+
+  static double _asDouble(dynamic value, [double fallback = 0]) {
+    if (value == null) return fallback;
+    if (value is num) return value.toDouble();
+    final parsed = double.tryParse(value.toString());
+    return parsed ?? fallback;
+  }
+
+  factory CotizacionItem.fromApi(Map<String, dynamic> map) {
+    return CotizacionItem(
+      productId: (map['productId'] ?? '').toString(),
+      nombre: (map['productNameSnapshot'] ?? map['productName'] ?? map['nombre'] ?? '').toString(),
+      imageUrl: (map['productImageSnapshot'] ?? map['imageUrl'] ?? map['image_url'])?.toString(),
+      unitPrice: _asDouble(map['unitPrice']),
+      qty: _asDouble(map['qty']),
     );
   }
 }
@@ -134,6 +160,42 @@ class CotizacionModel {
           .toList(),
     );
   }
+
+  static double _asDouble(dynamic value, [double fallback = 0]) {
+    if (value == null) return fallback;
+    if (value is num) return value.toDouble();
+    final parsed = double.tryParse(value.toString());
+    return parsed ?? fallback;
+  }
+
+  factory CotizacionModel.fromApi(Map<String, dynamic> map) {
+    final rawItems = (map['items'] as List?) ?? const [];
+    return CotizacionModel(
+      id: (map['id'] ?? '').toString(),
+      createdAt: DateTime.tryParse((map['createdAt'] ?? '').toString()) ?? DateTime.now(),
+      customerId: map['customerId']?.toString(),
+      customerName: (map['customerName'] ?? '').toString(),
+      customerPhone: map['customerPhone']?.toString(),
+      note: (map['note'] ?? '').toString(),
+      includeItbis: map['includeItbis'] == true,
+      itbisRate: _asDouble(map['itbisRate'], 0.18),
+      items: rawItems
+          .whereType<Map>()
+          .map((row) => CotizacionItem.fromApi(row.cast<String, dynamic>()))
+          .toList(),
+    );
+  }
+
+  Map<String, dynamic> toCreateDto() => {
+    if (customerId != null && customerId!.trim().isNotEmpty)
+      'customerId': customerId,
+    'customerName': customerName,
+    'customerPhone': (customerPhone ?? '').trim(),
+    if (note.trim().isNotEmpty) 'note': note.trim(),
+    'includeItbis': includeItbis,
+    'itbisRate': itbisRate,
+    'items': items.map((item) => item.toCreateDto()).toList(),
+  };
 
   String toJsonString() => jsonEncode(toMap());
 

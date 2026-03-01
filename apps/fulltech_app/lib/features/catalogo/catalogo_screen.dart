@@ -5,14 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/auth_provider.dart';
-import '../../core/company/company_settings_repository.dart';
 import '../../core/models/product_model.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import 'application/catalog_controller.dart';
 
 class CatalogoScreen extends ConsumerStatefulWidget {
-  const CatalogoScreen({super.key});
+  final bool modal;
+
+  const CatalogoScreen({super.key, this.modal = false});
 
   @override
   ConsumerState<CatalogoScreen> createState() => _CatalogoScreenState();
@@ -22,33 +23,13 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
   final _searchCtrl = TextEditingController();
   String _category = 'Todas';
   DateTime? _lastAutoSyncAt;
-  bool _settingsLoaded = false;
-  bool _productsReadOnly = false;
 
   bool get _hasActiveFilter => _category != 'Todas';
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _loadSettingsOnce();
     _scheduleAutoSync();
-  }
-
-  void _loadSettingsOnce() {
-    if (_settingsLoaded) return;
-    _settingsLoaded = true;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      try {
-        final settings = await ref.read(companySettingsRepositoryProvider).getSettings();
-        if (!mounted) return;
-        setState(() {
-          _productsReadOnly = settings.productsReadOnly;
-        });
-      } catch (_) {
-        // If settings can't be loaded, default to allowing actions based on role.
-      }
-    });
   }
 
   void _scheduleAutoSync() {
@@ -72,9 +53,10 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authStateProvider).user;
-    final role = user?.role ?? '';
-    final isAdmin = role == 'ADMIN';
-    final canManage = isAdmin && !_productsReadOnly;
+    final isAdmin = (user?.role ?? '').trim().toUpperCase() == 'ADMIN';
+    final canManage = isAdmin;
+
+    final isModal = widget.modal;
 
     final catalog = ref.watch(catalogControllerProvider);
 
@@ -105,67 +87,107 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
 
     final hasCategoryFilters = categories.length > 1;
 
-    return Scaffold(
-      appBar: CustomAppBar(
-        title: 'Catálogo',
-        showLogo: false,
-        titleWidget: TextField(
-          controller: _searchCtrl,
-          textInputAction: TextInputAction.search,
-          onChanged: (_) => setState(() {}),
-          style: Theme.of(context).textTheme.bodyMedium,
-          decoration: InputDecoration(
-            hintText: 'Buscar producto',
-            prefixIcon: const Icon(Icons.search, size: 20),
-            suffixIcon: _searchCtrl.text.isEmpty
-                ? null
-                : IconButton(
-                    tooltip: 'Limpiar búsqueda',
-                    onPressed: () {
-                      _searchCtrl.clear();
-                      setState(() {});
-                    },
-                    icon: const Icon(Icons.close, size: 18),
-                  ),
-            isDense: true,
-            filled: true,
-            fillColor: Theme.of(context).colorScheme.surface,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(22),
-              borderSide: BorderSide.none,
-            ),
-          ),
+    InputDecoration searchDecoration() {
+      return InputDecoration(
+        hintText: 'Buscar producto',
+        prefixIcon: const Icon(Icons.search, size: 20),
+        suffixIcon: _searchCtrl.text.isEmpty
+            ? null
+            : IconButton(
+                tooltip: 'Limpiar búsqueda',
+                onPressed: () {
+                  _searchCtrl.clear();
+                  setState(() {});
+                },
+                icon: const Icon(Icons.close, size: 18),
+              ),
+        isDense: true,
+        filled: true,
+        fillColor: Theme.of(context).colorScheme.surface,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(22),
+          borderSide: BorderSide.none,
         ),
-        actions: hasCategoryFilters
-            ? [
-                Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: Badge(
-                    isLabelVisible: _hasActiveFilter,
-                    smallSize: 8,
-                    child: IconButton(
-                      tooltip: 'Filtrar categoría',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => _openCategoryFilter(categories),
-                      icon: const Icon(Icons.tune, size: 20),
-                    ),
+      );
+    }
+
+    Widget modalHeader() {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Row(
+          children: [
+            IconButton(
+              tooltip: 'Volver',
+              onPressed: () => Navigator.of(context).pop(),
+              icon: const Icon(Icons.arrow_back),
+            ),
+            Expanded(
+              child: TextField(
+                controller: _searchCtrl,
+                textInputAction: TextInputAction.search,
+                onChanged: (_) => setState(() {}),
+                style: Theme.of(context).textTheme.bodyMedium,
+                decoration: searchDecoration(),
+              ),
+            ),
+            if (hasCategoryFilters)
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: Badge(
+                  isLabelVisible: _hasActiveFilter,
+                  smallSize: 8,
+                  child: IconButton(
+                    tooltip: 'Filtrar categoría',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _openCategoryFilter(categories),
+                    icon: const Icon(Icons.tune, size: 20),
                   ),
                 ),
-              ]
-            : null,
-      ),
-      drawer: AppDrawer(currentUser: user),
-      floatingActionButton: canManage
-          ? FloatingActionButton(
-              onPressed: () => _openProductForm(categories: categoryOptions),
-              child: const Icon(Icons.add),
-            )
-          : null,
+              ),
+          ],
+        ),
+      );
+    }
+
+    return Scaffold(
+      appBar: isModal
+          ? null
+          : CustomAppBar(
+              title: 'Catálogo',
+              showLogo: false,
+              titleWidget: TextField(
+                controller: _searchCtrl,
+                textInputAction: TextInputAction.search,
+                onChanged: (_) => setState(() {}),
+                style: Theme.of(context).textTheme.bodyMedium,
+                decoration: searchDecoration(),
+              ),
+              actions: hasCategoryFilters
+                  ? [
+                      Padding(
+                        padding: const EdgeInsets.only(right: 10),
+                        child: Badge(
+                          isLabelVisible: _hasActiveFilter,
+                          smallSize: 8,
+                          child: IconButton(
+                            tooltip: 'Filtrar categoría',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => _openCategoryFilter(categories),
+                            icon: const Icon(Icons.tune, size: 20),
+                          ),
+                        ),
+                      ),
+                    ]
+                  : null,
+            ),
+      drawer: isModal ? null : AppDrawer(currentUser: user),
+      floatingActionButton: null,
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            if (isModal) modalHeader(),
             if (_hasActiveFilter || query.isNotEmpty)
               Container(
                 width: double.infinity,

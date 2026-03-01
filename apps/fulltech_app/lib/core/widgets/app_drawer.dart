@@ -16,7 +16,23 @@ class AppDrawer extends ConsumerWidget {
     final isAdmin = currentUser?.role == 'ADMIN';
     final canAccessContabilidad = canAccessContabilidadByRole(currentUser?.role);
     final colorScheme = Theme.of(context).colorScheme;
-    final location = GoRouterState.of(context).uri.path;
+    final mediaQuery = MediaQuery.of(context);
+    final isCompactMobile = mediaQuery.size.width < 390;
+    final location = _safeLocation(context);
+
+    // Theme-driven blue/white gradient (more visible than a tiny lerp).
+    final gradientTop = Color.alphaBlend(
+      colorScheme.primary.withValues(alpha: 0.08),
+      colorScheme.surface,
+    );
+    final gradientMid = Color.alphaBlend(
+      colorScheme.primary.withValues(alpha: 0.14),
+      colorScheme.surface,
+    );
+    final gradientBottom = Color.alphaBlend(
+      colorScheme.secondary.withValues(alpha: 0.18),
+      colorScheme.surface,
+    );
 
     bool isActiveRoute(String route) {
       return location == route || location.startsWith('$route/');
@@ -24,29 +40,35 @@ class AppDrawer extends ConsumerWidget {
 
     return Drawer(
       child: DecoratedBox(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFFFFFFFF), Color(0xFFF5F9FF), Color(0xFFE8F0FF)],
+            colors: [gradientTop, gradientMid, gradientBottom],
+            stops: const [0.0, 0.55, 1.0],
           ),
         ),
         child: SafeArea(
           child: Column(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+                padding: EdgeInsets.fromLTRB(
+                  isCompactMobile ? 10 : 14,
+                  isCompactMobile ? 10 : 12,
+                  isCompactMobile ? 10 : 14,
+                  isCompactMobile ? 6 : 8,
+                ),
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 8,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isCompactMobile ? 9 : 10,
+                    vertical: isCompactMobile ? 7 : 8,
                   ),
                   decoration: BoxDecoration(
-                    color: colorScheme.primary.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(10),
+                    color: colorScheme.surface.withValues(alpha: 0.72),
+                    borderRadius: BorderRadius.circular(isCompactMobile ? 9 : 10),
                     border: Border.all(
-                      color: colorScheme.primary.withValues(alpha: 0.12),
+                      color: colorScheme.primary.withValues(alpha: 0.16),
                     ),
                   ),
                   child: Row(
@@ -54,15 +76,15 @@ class AppDrawer extends ConsumerWidget {
                       Icon(
                         Icons.business_rounded,
                         color: colorScheme.primary,
-                        size: 16,
+                        size: isCompactMobile ? 15 : 16,
                       ),
-                      const SizedBox(width: 8),
+                      SizedBox(width: isCompactMobile ? 6 : 8),
                       Expanded(
                         child: Text(
                           'FULLTECH, SRL',
                           style: TextStyle(
                             color: colorScheme.primary,
-                            fontSize: 13,
+                            fontSize: isCompactMobile ? 12 : 13,
                             fontWeight: FontWeight.w600,
                             letterSpacing: 0.1,
                           ),
@@ -76,11 +98,41 @@ class AppDrawer extends ConsumerWidget {
                 child: ListView(
                   padding: EdgeInsets.zero,
                   children: [
-                    const _DrawerSectionTitle('Principal'),
+                    _DrawerSectionTitle('Principal', compact: isCompactMobile),
+                    _DrawerMenuItem(
+                      icon: Icons.build_outlined,
+                      title: 'Operaciones',
+                      compact: isCompactMobile,
+                      selected: isActiveRoute(Routes.operaciones),
+                      onTap: () {
+                        Navigator.pop(context);
+                        context.go(Routes.operaciones);
+                      },
+                    ),
+                    _DrawerMenuItem(
+                      icon: Icons.access_time_rounded,
+                      title: 'Ponche',
+                      compact: isCompactMobile,
+                      selected: isActiveRoute(Routes.ponche),
+                      onTap: () {
+                        Navigator.pop(context);
+                        context.go(Routes.ponche);
+                      },
+                    ),
+                    _DrawerMenuItem(
+                      icon: Icons.storefront_outlined,
+                      title: 'Catálogo',
+                      compact: isCompactMobile,
+                      selected: isActiveRoute(Routes.catalogo),
+                      onTap: () {
+                        Navigator.pop(context);
+                        context.go(Routes.catalogo);
+                      },
+                    ),
                     _DrawerMenuItem(
                       icon: Icons.point_of_sale_outlined,
                       title: 'Mis Ventas',
-                      subtitle: 'Registro y comisión',
+                      compact: isCompactMobile,
                       selected: isActiveRoute(Routes.ventas),
                       onTap: () {
                         Navigator.pop(context);
@@ -90,7 +142,7 @@ class AppDrawer extends ConsumerWidget {
                     _DrawerMenuItem(
                       icon: Icons.request_quote_outlined,
                       title: 'Cotizaciones',
-                      subtitle: 'Ticket rápido móvil',
+                      compact: isCompactMobile,
                       selected: isActiveRoute(Routes.cotizaciones),
                       onTap: () {
                         Navigator.pop(context);
@@ -100,7 +152,7 @@ class AppDrawer extends ConsumerWidget {
                     _DrawerMenuItem(
                       icon: Icons.group_outlined,
                       title: 'Clientes',
-                      subtitle: 'Contactos y datos',
+                      compact: isCompactMobile,
                       selected: isActiveRoute(Routes.clientes),
                       onTap: () {
                         Navigator.pop(context);
@@ -111,7 +163,7 @@ class AppDrawer extends ConsumerWidget {
                       _DrawerMenuItem(
                         icon: Icons.account_balance,
                         title: 'Contabilidad',
-                        subtitle: 'Estado y finanzas',
+                        compact: isCompactMobile,
                         selected: isActiveRoute(Routes.contabilidad),
                         onTap: () {
                           Navigator.pop(context);
@@ -122,7 +174,7 @@ class AppDrawer extends ConsumerWidget {
                       _DrawerMenuItem(
                         icon: Icons.admin_panel_settings_outlined,
                         title: 'Administración',
-                        subtitle: 'Panel global empresa',
+                        compact: isCompactMobile,
                         selected: isActiveRoute(Routes.administracion),
                         onTap: () {
                           Navigator.pop(context);
@@ -130,13 +182,13 @@ class AppDrawer extends ConsumerWidget {
                         },
                       ),
 
-                    const SizedBox(height: 4),
-                    const _DrawerSectionTitle('Nómina'),
+                    SizedBox(height: isCompactMobile ? 2 : 4),
+                    _DrawerSectionTitle('Nómina', compact: isCompactMobile),
                     if (isAdmin)
                       _DrawerMenuItem(
                         icon: Icons.payments_outlined,
                         title: 'Nómina',
-                        subtitle: 'Gestión de nómina',
+                        compact: isCompactMobile,
                         selected: isActiveRoute(Routes.nomina),
                         onTap: () {
                           Navigator.pop(context);
@@ -146,7 +198,7 @@ class AppDrawer extends ConsumerWidget {
                     _DrawerMenuItem(
                       icon: Icons.receipt_long_outlined,
                       title: 'Mis pagos',
-                      subtitle: 'Historial y acumulados',
+                      compact: isCompactMobile,
                       selected: isActiveRoute(Routes.misPagos),
                       onTap: () {
                         Navigator.pop(context);
@@ -154,35 +206,41 @@ class AppDrawer extends ConsumerWidget {
                       },
                     ),
 
-                    const SizedBox(height: 4),
-                    const _DrawerSectionTitle('Cuenta'),
+                    SizedBox(height: isCompactMobile ? 2 : 4),
+                    _DrawerSectionTitle('Cuenta', compact: isCompactMobile),
                     if (isAdmin)
                       _DrawerMenuItem(
                         icon: Icons.settings_outlined,
                         title: 'Configuración',
-                        subtitle: 'Datos de la empresa',
+                        compact: isCompactMobile,
                         selected: isActiveRoute(Routes.configuracion),
                         onTap: () {
                           Navigator.pop(context);
                           context.go(Routes.configuracion);
                         },
                       ),
-                    _DrawerMenuItem(
-                      icon: Icons.people_outline,
-                      title: 'Usuarios',
-                      subtitle: 'Gestión y perfiles',
-                      selected: isActiveRoute(Routes.user),
-                      onTap: () {
-                        Navigator.pop(context);
-                        context.go(Routes.user);
-                      },
-                    ),
+                    if (isAdmin)
+                      _DrawerMenuItem(
+                        icon: Icons.people_outline,
+                        title: 'Usuarios',
+                        compact: isCompactMobile,
+                        selected: isActiveRoute(Routes.users),
+                        onTap: () {
+                          Navigator.pop(context);
+                          context.go(Routes.users);
+                        },
+                      ),
                   ],
                 ),
               ),
               const Divider(height: 1),
               Padding(
-                padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
+                padding: EdgeInsets.fromLTRB(
+                  isCompactMobile ? 8 : 10,
+                  isCompactMobile ? 2 : 4,
+                  isCompactMobile ? 8 : 10,
+                  isCompactMobile ? 8 : 10,
+                ),
                 child: Row(
                   children: [
                     Expanded(
@@ -192,28 +250,33 @@ class AppDrawer extends ConsumerWidget {
                           alpha: 0.10,
                         ),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(
+                            isCompactMobile ? 10 : 12,
+                          ),
                         ),
-                        leading: const Icon(Icons.badge_outlined),
-                        title: const Text(
+                        leading: Icon(
+                          Icons.badge_outlined,
+                          size: isCompactMobile ? 20 : 22,
+                        ),
+                        title: Text(
                           'Perfil',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        subtitle: const Text(
-                          'Datos y preferencias',
-                          style: TextStyle(fontSize: 12),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: isCompactMobile ? 13 : 14,
+                          ),
                         ),
                         trailing: Icon(
                           Icons.chevron_right_rounded,
                           color: colorScheme.onSurfaceVariant,
+                          size: isCompactMobile ? 18 : 20,
                         ),
                         onTap: () {
                           Navigator.pop(context);
                           context.go(Routes.profile);
                         },
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 4,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: isCompactMobile ? 12 : 16,
+                          vertical: isCompactMobile ? 4 : 6,
                         ),
                       ),
                     ),
@@ -242,17 +305,34 @@ class AppDrawer extends ConsumerWidget {
   }
 }
 
+String _safeLocation(BuildContext context) {
+  try {
+    // `GoRouterState.of(context)` can throw in some widget subtrees (e.g. Drawer).
+    return GoRouterState.of(context).uri.toString();
+  } catch (_) {
+    try {
+      return GoRouter.of(context)
+          .routerDelegate
+          .currentConfiguration
+          .uri
+          .toString();
+    } catch (_) {
+      return '';
+    }
+  }
+}
+
 class _DrawerMenuItem extends StatelessWidget {
   final IconData icon;
   final String title;
-  final String subtitle;
+  final bool compact;
   final bool selected;
   final VoidCallback onTap;
 
   const _DrawerMenuItem({
     required this.icon,
     required this.title,
-    required this.subtitle,
+    required this.compact,
     required this.selected,
     required this.onTap,
   });
@@ -260,14 +340,24 @@ class _DrawerMenuItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final tileBg = selected
+        ? Color.alphaBlend(
+            colorScheme.primary.withValues(alpha: 0.08),
+            colorScheme.surface,
+          )
+        : colorScheme.surface.withValues(alpha: 0.92);
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 2, 10, 2),
+      padding: EdgeInsets.fromLTRB(
+        compact ? 8 : 10,
+        compact ? 2 : 3,
+        compact ? 8 : 10,
+        compact ? 2 : 3,
+      ),
       child: Container(
         decoration: BoxDecoration(
-          color: selected
-              ? colorScheme.primary.withValues(alpha: 0.08)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
+          color: tileBg,
+          borderRadius: BorderRadius.circular(compact ? 12 : 14),
           border: Border.all(
             color: selected
                 ? colorScheme.primary.withValues(alpha: 0.20)
@@ -276,36 +366,34 @@ class _DrawerMenuItem extends StatelessWidget {
         ),
         child: ListTile(
           dense: true,
-          visualDensity: VisualDensity.compact,
+          visualDensity: compact
+              ? const VisualDensity(horizontal: -1, vertical: -2)
+              : VisualDensity.compact,
           selected: selected,
           leading: Icon(
             icon,
-            size: 20,
+            size: compact ? 20 : 22,
             color: selected ? colorScheme.primary : colorScheme.onSurface,
           ),
           title: Text(
             title,
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              fontSize: 14,
+              fontSize: compact ? 13.5 : 14.5,
               color: selected ? colorScheme.primary : null,
             ),
           ),
-          subtitle: Text(
-            subtitle,
-            style: TextStyle(fontSize: 11, color: colorScheme.onSurfaceVariant),
-          ),
           trailing: Icon(
             Icons.chevron_right_rounded,
-            size: 18,
+            size: compact ? 18 : 19,
             color: selected
                 ? colorScheme.primary
                 : colorScheme.onSurfaceVariant,
           ),
           onTap: onTap,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 0,
+          contentPadding: EdgeInsets.symmetric(
+            horizontal: compact ? 12 : 14,
+            vertical: compact ? 2 : 4,
           ),
         ),
       ),
@@ -315,20 +403,26 @@ class _DrawerMenuItem extends StatelessWidget {
 
 class _DrawerSectionTitle extends StatelessWidget {
   final String text;
+  final bool compact;
 
-  const _DrawerSectionTitle(this.text);
+  const _DrawerSectionTitle(this.text, {required this.compact});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
+      padding: EdgeInsets.fromLTRB(
+        compact ? 12 : 14,
+        compact ? 6 : 8,
+        compact ? 12 : 14,
+        compact ? 3 : 4,
+      ),
       child: Row(
         children: [
           Expanded(
             child: Text(
               text,
               style: TextStyle(
-                fontSize: 11,
+                fontSize: compact ? 10.5 : 11,
                 fontWeight: FontWeight.w700,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
                 letterSpacing: 0.2,

@@ -24,25 +24,28 @@ class ApiRoutes {
   static const adminPanelOverview = '/admin/panel/overview';
   static const adminPanelAiInsights = '/admin/panel/ai-insights';
 
+  // Ubicación
+  static const locationsReport = '/locations';
+  static const adminLocationsLatest = '/admin/locations/latest';
+
   // Contabilidad
   static const contabilidadCloses = '/contabilidad/closes';
   static String contabilidadCloseDetail(String id) =>
       '/contabilidad/closes/$id';
-    static const contabilidadDepositOrders = '/contabilidad/deposit-orders';
-    static String contabilidadDepositOrderDetail(String id) =>
+  static const contabilidadDepositOrders = '/contabilidad/deposit-orders';
+  static String contabilidadDepositOrderDetail(String id) =>
       '/contabilidad/deposit-orders/$id';
-    static const contabilidadFiscalInvoices = '/contabilidad/fiscal-invoices';
-    static String contabilidadFiscalInvoiceDetail(String id) =>
+  static const contabilidadFiscalInvoices = '/contabilidad/fiscal-invoices';
+  static String contabilidadFiscalInvoiceDetail(String id) =>
       '/contabilidad/fiscal-invoices/$id';
-    static const contabilidadFiscalInvoicesUpload =
+  static const contabilidadFiscalInvoicesUpload =
       '/contabilidad/fiscal-invoices/upload';
-    static const contabilidadPayableServices =
-      '/contabilidad/payables/services';
-    static String contabilidadPayableServiceDetail(String id) =>
+  static const contabilidadPayableServices = '/contabilidad/payables/services';
+  static String contabilidadPayableServiceDetail(String id) =>
       '/contabilidad/payables/services/$id';
-    static String contabilidadPayableServicePayments(String id) =>
+  static String contabilidadPayableServicePayments(String id) =>
       '/contabilidad/payables/services/$id/payments';
-    static const contabilidadPayablePayments = '/contabilidad/payables/payments';
+  static const contabilidadPayablePayments = '/contabilidad/payables/payments';
 
   // Clientes
   static const clients = '/clients';
@@ -74,12 +77,15 @@ class ApiRoutes {
 
   // Nómina
   static const payrollPeriods = '/payroll/periods';
-  static const payrollPeriodEnsureCurrentOpen = '/payroll/periods/ensure-current-open';
+  static const payrollPeriodEnsureCurrentOpen =
+      '/payroll/periods/ensure-current-open';
   static const payrollPeriodOpenOverlap = '/payroll/periods/open-overlap';
   static String payrollPeriodDetail(String id) => '/payroll/periods/$id';
   static String payrollPeriodClose(String id) => '/payroll/periods/$id/close';
-  static String payrollPeriodNextOpen(String id) => '/payroll/periods/$id/next-open';
-  static String payrollPeriodTotalAll(String id) => '/payroll/periods/$id/total-all';
+  static String payrollPeriodNextOpen(String id) =>
+      '/payroll/periods/$id/next-open';
+  static String payrollPeriodTotalAll(String id) =>
+      '/payroll/periods/$id/total-all';
 
   static const payrollEmployees = '/payroll/employees';
   static const payrollEmployeeUpsert = '/payroll/employees/upsert';
@@ -94,4 +100,8 @@ class ApiRoutes {
   static const payrollTotals = '/payroll/totals';
   static const payrollMyHistory = '/payroll/my-history';
   static const payrollMyGoal = '/payroll/my-goal';
+
+  // Cotizaciones (nube)
+  static const cotizaciones = '/cotizaciones';
+  static String cotizacionDetail(String id) => '/cotizaciones/$id';
 }

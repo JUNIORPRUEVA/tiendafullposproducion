@@ -55,6 +55,7 @@ class UsersRepository {
     String? nombreCompleto,
     String? telefono,
     String? password,
+    String? fotoPersonalUrl,
   }) async {
     final res = await _dio.patch(
       '${ApiRoutes.users}/me',
@@ -63,6 +64,7 @@ class UsersRepository {
         'nombreCompleto': nombreCompleto,
         'telefono': telefono,
         'password': password,
+        'fotoPersonalUrl': fotoPersonalUrl,
       },
     );
     return UserModel.fromJson(res.data as Map<String, dynamic>);

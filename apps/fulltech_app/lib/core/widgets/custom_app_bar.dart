@@ -18,7 +18,24 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scaffold = Scaffold.maybeOf(context);
+    final canPop = Navigator.of(context).canPop();
+    final hasDrawer = scaffold?.hasDrawer ?? false;
+
     return AppBar(
+      leading: canPop
+          ? null
+          : (onMenuPressed != null || hasDrawer)
+              ? IconButton(
+                  tooltip: 'Menú',
+                  onPressed:
+                      onMenuPressed ??
+                      () {
+                        scaffold?.openDrawer();
+                      },
+                  icon: const Icon(Icons.menu_rounded),
+                )
+              : null,
       title:
           titleWidget ??
           Row(

@@ -1,8 +1,13 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/cache/fulltech_cache_manager.dart';
 import '../../core/models/product_model.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../clientes/cliente_model.dart';
@@ -22,11 +27,13 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
   final TextEditingController _noteCtrl = TextEditingController();
   DateTime? _lastAutoSyncAt;
 
+  static const _productsCacheKey = 'ventas_products_cache_v1';
+  static const _productsCacheAtKey = 'ventas_products_cache_at_v1';
+
   bool _loadingProducts = true;
   bool _saving = false;
   List<ProductModel> _products = const [];
   List<SaleDraftItem> _cart = [];
-  int _visibleProducts = 24;
   String? _selectedCategory;
 
   ClienteModel? _selectedClient;
@@ -89,20 +96,102 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
   }
 
   Future<void> _loadProducts() async {
-    setState(() => _loadingProducts = true);
+    await _loadProductsFromCacheIfEmpty();
+    if (mounted) setState(() => _loadingProducts = true);
     try {
       final products = await ref.read(ventasRepositoryProvider).fetchProducts();
+      if (!mounted) return;
       setState(() {
         _products = products;
         _loadingProducts = false;
       });
+      await _saveProductsToCache(products);
+      _prefetchProductImages(products);
     } catch (e) {
-      setState(() => _loadingProducts = false);
+      if (mounted) setState(() => _loadingProducts = false);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('No se pudieron cargar productos: $e')),
       );
     }
+  }
+
+  Future<void> _loadProductsFromCacheIfEmpty() async {
+    if (_products.isNotEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_productsCacheKey);
+      if (raw == null || raw.trim().isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return;
+      final cached = decoded
+          .whereType<Map>()
+          .map((row) => ProductModel.fromJson(row.cast<String, dynamic>()))
+          .toList();
+      if (!mounted || cached.isEmpty) return;
+      setState(() {
+        _products = cached;
+        _loadingProducts = false;
+      });
+      _prefetchProductImages(cached);
+    } catch (_) {
+      // Ignore cache failures.
+    }
+  }
+
+  Future<void> _saveProductsToCache(List<ProductModel> products) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final payload = jsonEncode(products.map((p) => p.toJson()).toList());
+      await prefs.setString(_productsCacheKey, payload);
+      await prefs.setString(
+        _productsCacheAtKey,
+        DateTime.now().toIso8601String(),
+      );
+    } catch (_) {
+      // Ignore cache failures.
+    }
+  }
+
+  Future<void> _clearProductsCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_productsCacheKey);
+    await prefs.remove(_productsCacheAtKey);
+  }
+
+  void _prefetchProductImages(List<ProductModel> products) {
+    final urls = products
+        .map((p) => p.fotoUrl)
+        .whereType<String>()
+        .map((u) => u.trim())
+        .where((u) => u.isNotEmpty)
+        .take(80)
+        .toList();
+    if (urls.isEmpty) return;
+
+    Future.microtask(() async {
+      for (final url in urls) {
+        try {
+          await FulltechImageCacheManager.instance.downloadFile(url);
+        } catch (_) {
+          // Ignore individual image failures.
+        }
+      }
+    });
+  }
+
+  Future<void> _clearAllProductCache() async {
+    await _clearProductsCache();
+    await FulltechImageCacheManager.clear();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Caché limpiado')),
+    );
+    setState(() {
+      _products = const [];
+      _loadingProducts = true;
+    });
+    await _loadProducts();
   }
 
   Future<void> _pickCategoryFilter() async {
@@ -164,6 +253,20 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                   onPressed: _loadProducts,
                   icon: const Icon(Icons.refresh),
                 ),
+                PopupMenuButton<String>(
+                  tooltip: 'Opciones',
+                  onSelected: (value) {
+                    if (value == 'clear_cache') {
+                      _clearAllProductCache();
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: 'clear_cache',
+                      child: Text('Limpiar caché de productos'),
+                    ),
+                  ],
+                ),
                 SizedBox(
                   width: 320,
                   child: Padding(
@@ -223,6 +326,20 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                   tooltip: 'Recargar productos',
                   onPressed: _loadProducts,
                   icon: const Icon(Icons.refresh),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: 'Opciones',
+                  onSelected: (value) {
+                    if (value == 'clear_cache') {
+                      _clearAllProductCache();
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: 'clear_cache',
+                      child: Text('Limpiar caché de productos'),
+                    ),
+                  ],
                 ),
                 IconButton(
                   tooltip: 'Vender fuera del inventario',
@@ -320,12 +437,12 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
   }
 
   Widget _buildProductGrid({required bool isCompact}) {
-    if (_loadingProducts) {
+    if (_loadingProducts && _products.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
 
     final filtered = _filteredProducts;
-    final visible = filtered.take(_visibleProducts).toList();
+    final visible = filtered;
 
     if (visible.isEmpty) {
       return const Center(child: Text('No hay productos para mostrar'));
@@ -345,26 +462,26 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                   ? 4
                   : 5;
               final compactCard = width < 900;
-              final aspectRatio = compactCard ? 0.92 : 0.96;
+              final aspectRatio = compactCard ? 1.05 : 1.08;
 
               return GridView.builder(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(8),
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: crossAxisCount,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 6,
+                  mainAxisSpacing: 6,
                   childAspectRatio: aspectRatio,
                 ),
                 itemCount: visible.length,
                 itemBuilder: (context, index) {
                   final p = visible[index];
                   return InkWell(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                     onTap: () => _addProduct(p),
                     child: Card(
                       elevation: 0,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(10),
                         side: BorderSide(
                           color: Theme.of(
                             context,
@@ -385,18 +502,28 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                               ),
                             )
                           else
-                            Image.network(
-                              p.fotoUrl!,
+                            CachedNetworkImage(
+                              imageUrl: p.fotoUrl!,
+                              cacheManager: FulltechImageCacheManager.instance,
                               fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) =>
-                                  Container(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.surfaceContainerHighest,
-                                    child: const Center(
-                                      child: Icon(Icons.broken_image_outlined),
-                                    ),
-                                  ),
+                              fadeInDuration: Duration.zero,
+                              fadeOutDuration: Duration.zero,
+                              placeholder: (context, _) => Container(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
+                                child: const Center(
+                                  child: Icon(Icons.inventory_2_outlined),
+                                ),
+                              ),
+                              errorWidget: (context, _, __) => Container(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
+                                child: const Center(
+                                  child: Icon(Icons.broken_image_outlined),
+                                ),
+                              ),
                             ),
                           const Positioned.fill(
                             child: DecoratedBox(
@@ -413,9 +540,9 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                             ),
                           ),
                           Positioned(
-                            left: 8,
-                            right: 8,
-                            bottom: 8,
+                            left: 6,
+                            right: 6,
+                            bottom: 6,
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -426,17 +553,17 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.w700,
-                                    fontSize: compactCard ? 11 : 12,
+                                    fontSize: compactCard ? 10 : 11,
                                   ),
                                 ),
-                                const SizedBox(height: 2),
+                                const SizedBox(height: 1),
                                 Text(
                                   _money(p.precio),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     color: Colors.white,
-                                    fontSize: compactCard ? 10 : 11,
+                                    fontSize: compactCard ? 9 : 10,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -452,15 +579,6 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
             },
           ),
         ),
-        if (filtered.length > _visibleProducts)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: OutlinedButton.icon(
-              onPressed: () => setState(() => _visibleProducts += 24),
-              icon: const Icon(Icons.expand_more),
-              label: const Text('Cargar más'),
-            ),
-          ),
       ],
     );
   }

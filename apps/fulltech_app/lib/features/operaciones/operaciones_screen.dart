@@ -1,14 +1,25 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/errors/api_exception.dart';
+import '../../core/models/punch_model.dart';
+import '../../core/routing/routes.dart';
+import '../../core/utils/string_utils.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../modules/cotizaciones/data/cotizaciones_repository.dart';
+import '../../modules/cotizaciones/cotizacion_models.dart';
+import '../catalogo/catalogo_screen.dart';
+import '../ponche/application/punch_controller.dart';
 import 'application/operations_controller.dart';
-import 'operations_models.dart';
+import 'data/operations_repository.dart';
 import 'operaciones_finalizados_screen.dart';
+import 'operations_models.dart';
 import '../../modules/clientes/cliente_model.dart';
 
 class OperacionesScreen extends ConsumerStatefulWidget {
@@ -19,132 +30,136 @@ class OperacionesScreen extends ConsumerStatefulWidget {
 }
 
 class _OperacionesScreenState extends ConsumerState<OperacionesScreen> {
-  int _topIndex = 0; // 0=Panel, 1=Agenda, 2=Finalizada
   final _searchCtrl = TextEditingController();
-  String? _selectedServiceId;
+  Timer? _autoRefreshTimer;
 
-  static const _statuses = [
-    'reserved',
-    'survey',
-    'scheduled',
-    'in_progress',
-    'completed',
-    'warranty',
-    'closed',
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted) return;
+      ref.read(operationsControllerProvider.notifier).refresh();
+    });
+  }
 
   @override
   void dispose() {
+    _autoRefreshTimer?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
 
+  Future<void> _openCatalogoDialog() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: false,
+      builder: (context) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.sizeOf(context).height * 0.80,
+          child: const CatalogoScreen(modal: true),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPoncheDialog() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: false,
+      builder: (context) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.sizeOf(context).height * 0.60,
+          child: const _PunchOnlySheet(),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final authState = ref.watch(authStateProvider);
     final state = ref.watch(operationsControllerProvider);
     final notifier = ref.read(operationsControllerProvider.notifier);
-    final user = ref.watch(authStateProvider).user;
-    final isSmallMobile = MediaQuery.sizeOf(context).width < 420;
+    final scheme = Theme.of(context).colorScheme;
 
-    Future<void> openReserva() async {
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => _ReservaScreen(onCreate: _handleCreateService),
-        ),
-      );
-    }
+    final gradientTop = Color.alphaBlend(
+      scheme.primary.withValues(alpha: 0.10),
+      scheme.primary,
+    );
+    final gradientMid = Color.alphaBlend(
+      scheme.secondary.withValues(alpha: 0.16),
+      scheme.primary,
+    );
+    final gradientBottom = Color.alphaBlend(
+      scheme.tertiary.withValues(alpha: 0.18),
+      scheme.primary,
+    );
 
     return Scaffold(
-      drawer: AppDrawer(currentUser: user),
+      drawer: AppDrawer(currentUser: authState.user),
       appBar: AppBar(
-        title: const Text('Panel de Operaciones'),
+        title: const FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            'Operaciones',
+            maxLines: 1,
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+          ),
+        ),
+        flexibleSpace: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [gradientTop, gradientMid, gradientBottom],
+              stops: const [0.0, 0.55, 1.0],
+            ),
+          ),
+        ),
         actions: [
-          IconButton(
-            tooltip: 'Nueva reserva',
-            onPressed: openReserva,
-            icon: const Icon(Icons.add_circle_outline),
+          TextButton.icon(
+            onPressed: () => context.go(Routes.operacionesReglas),
+            icon: const Icon(Icons.rule_folder_outlined),
+            label: const Text('Reglas'),
           ),
           IconButton(
-            tooltip: 'Rango de fechas',
-            onPressed: () async {
-              final currentFrom = state.from ?? DateTime.now();
-              final currentTo = state.to ?? currentFrom;
-              final range = await showDateRangePicker(
-                context: context,
-                firstDate: DateTime(2024),
-                lastDate: DateTime(2100),
-                initialDateRange: DateTimeRange(
-                  start: currentFrom,
-                  end: currentTo,
-                ),
-              );
-              if (range == null) return;
-              await notifier.setRange(range.start, range.end);
-            },
-            icon: const Icon(Icons.date_range_outlined),
+            tooltip: 'Agenda',
+            onPressed: () => context.go(Routes.operacionesAgenda),
+            icon: const Icon(Icons.event_note_rounded),
           ),
+          _UserAvatarAction(
+            userName: authState.user?.nombreCompleto,
+            photoUrl: authState.user?.fotoPersonalUrl,
+            onTap: () => context.go(Routes.profile),
+          ),
+          const SizedBox(width: 6),
         ],
       ),
-      body: Column(
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-            child: SegmentedButton<int>(
-              segments: const [
-                ButtonSegment(value: 0, label: Text('Panel')),
-                ButtonSegment(value: 1, label: Text('Agenda')),
-                ButtonSegment(value: 2, label: Text('Finalizada')),
-              ],
-              selected: {_topIndex},
-              showSelectedIcon: false,
-              onSelectionChanged: (next) {
-                setState(() => _topIndex = next.first);
-              },
-              style: ButtonStyle(
-                visualDensity: isSmallMobile
-                    ? VisualDensity.compact
-                    : VisualDensity.standard,
-              ),
-            ),
+          FloatingActionButton.small(
+            heroTag: 'fab-catalogo',
+            tooltip: 'Catálogo',
+            onPressed: _openCatalogoDialog,
+            child: const _CatalogoFabIcon(),
           ),
-          if (_topIndex == 0) _PanelOptions(state: state),
-          if (state.loading) const LinearProgressIndicator(),
-          if (state.error != null)
-            Container(
-              width: double.infinity,
-              color: Theme.of(context).colorScheme.errorContainer,
-              padding: const EdgeInsets.all(10),
-              child: Text(
-                state.error!,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onErrorContainer,
-                ),
-              ),
-            ),
-          Expanded(
-            child: Builder(
-              builder: (context) {
-                switch (_topIndex) {
-                  case 0:
-                    return const SizedBox.shrink();
-                  case 1:
-                    return _AgendaTab(
-                      services: state.services,
-                      onOpenService: _openServiceDetail,
-                      onCreateFromAgenda: _handleCreateFromAgenda,
-                    );
-                  case 2:
-                  default:
-                    return const OperacionesFinalizadosBody(
-                      showHeader: true,
-                      padding: EdgeInsets.fromLTRB(12, 10, 12, 18),
-                    );
-                }
-              },
-            ),
+          const SizedBox(height: 12),
+          FloatingActionButton.small(
+            heroTag: 'fab-ponche',
+            tooltip: 'Ponche',
+            onPressed: _openPoncheDialog,
+            child: const _PoncheFabIcon(),
           ),
         ],
       ),
+      body: state.loading
+          ? const Center(child: CircularProgressIndicator())
+          : _buildBoard(context, state, notifier),
     );
   }
 
@@ -153,125 +168,18 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen> {
     OperationsState state,
     OperationsController notifier,
   ) {
-    final selected = _selectedServiceId == null
-        ? null
-        : state.services
-              .where((item) => item.id == _selectedServiceId)
-              .cast<ServiceModel?>()
-              .firstWhere((_) => true, orElse: () => null);
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final tinyMobile = constraints.maxWidth < 400;
-        final mobile = constraints.maxWidth < 900;
-        final wide = constraints.maxWidth >= 1100;
-
-        Widget buildStatusColumn(
-          String status, {
-          double? width,
-          double height = 300,
-        }) {
-          final items = state.services
-              .where((service) => service.status == status)
-              .toList();
-          return SizedBox(
-            width: width,
-            height: height,
-            child: _KanbanColumn(
-              title: _labelStatus(status),
-              count: items.length,
-              services: items,
-              onOpen: (service) {
-                setState(() => _selectedServiceId = service.id);
-                if (!wide) {
-                  _openServiceDetail(service);
-                }
-              },
-            ),
-          );
-        }
-
-        final board = RefreshIndicator(
-          onRefresh: notifier.refresh,
-          child: ListView(
-            padding: EdgeInsets.fromLTRB(
-              tinyMobile ? 8 : 12,
-              tinyMobile ? 8 : 10,
-              tinyMobile ? 8 : 12,
-              tinyMobile ? 12 : 18,
-            ),
-            children: [
-              _FiltersBar(
-                searchCtrl: _searchCtrl,
-                state: state,
-                compact: mobile,
-                onSearch: notifier.setSearch,
-                onStatus: notifier.setStatus,
-                onType: notifier.setType,
-                onPriority: notifier.setPriority,
-              ),
-              const SizedBox(height: 10),
-              if (mobile)
-                ..._statuses.map(
-                  (status) => Padding(
-                    padding: EdgeInsets.only(bottom: tinyMobile ? 8 : 10),
-                    child: buildStatusColumn(
-                      status,
-                      height: tinyMobile ? 230 : 250,
-                    ),
-                  ),
-                )
-              else
-                SizedBox(
-                  height: wide ? constraints.maxHeight - 90 : 520,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _statuses.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
-                    itemBuilder: (context, index) {
-                      final status = _statuses[index];
-                      return buildStatusColumn(
-                        status,
-                        width: 290,
-                        height: wide ? constraints.maxHeight - 110 : 500,
-                      );
-                    },
-                  ),
-                ),
-            ],
+    return RefreshIndicator(
+      onRefresh: notifier.refresh,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
+        children: [
+          _PanelOptions(
+            state: state,
+            searchCtrl: _searchCtrl,
+            onOpenService: _openServiceDetail,
           ),
-        );
-
-        if (!wide) return board;
-
-        return Row(
-          children: [
-            Expanded(flex: 6, child: board),
-            const VerticalDivider(width: 1),
-            Expanded(
-              flex: 4,
-              child: selected == null
-                  ? const Center(
-                      child: Text('Selecciona un servicio para ver detalle'),
-                    )
-                  : _ServiceDetailPanel(
-                      service: selected,
-                      onChangeStatus: (status) =>
-                          _changeStatus(selected.id, status),
-                      onSchedule: (start, end) =>
-                          _scheduleService(selected.id, start, end),
-                      onCreateWarranty: () => _createWarranty(selected.id),
-                      onAssign: (assignments) =>
-                          _assignTechs(selected.id, assignments),
-                      onToggleStep: (stepId, done) =>
-                          _toggleStep(selected.id, stepId, done),
-                      onAddNote: (message) => _addNote(selected.id, message),
-                      onUploadEvidence: () => _uploadEvidence(selected.id),
-                    ),
-            ),
-          ],
-        );
-      },
+        ],
+      ),
     );
   }
 
@@ -308,10 +216,31 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen> {
 
   Future<void> _handleCreateService(_CreateServiceDraft draft) async {
     try {
-      await _createService(draft);
+      final created = await _createService(draft);
+
+      final reservationAt = draft.reservationAt;
+      if (reservationAt != null) {
+        try {
+          await ref
+              .read(operationsControllerProvider.notifier)
+              .schedule(
+                created.id,
+                reservationAt,
+                reservationAt.add(const Duration(hours: 1)),
+              );
+        } catch (e) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                e is ApiException ? e.message : 'No se pudo agendar la reserva',
+              ),
+            ),
+          );
+        }
+      }
 
       if (!mounted) return;
-      setState(() => _topIndex = 0);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Reserva creada correctamente')),
       );
@@ -320,7 +249,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            e is ApiException ? e.message : 'No se pudo crear la reserva',
+            e is ApiException ? e.message : 'No se pudo registrar el servicio',
           ),
         ),
       );
@@ -328,7 +257,9 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen> {
   }
 
   Future<ServiceModel> _createService(_CreateServiceDraft draft) {
-    return ref.read(operationsControllerProvider.notifier).createReservation(
+    return ref
+        .read(operationsControllerProvider.notifier)
+        .createReservation(
           customerId: draft.customerId,
           serviceType: draft.serviceType,
           category: draft.category,
@@ -362,6 +293,22 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen> {
 
     try {
       final created = await _createService(draft);
+
+      final reservationAt = draft.reservationAt;
+      if (reservationAt != null) {
+        try {
+          await ref
+              .read(operationsControllerProvider.notifier)
+              .schedule(
+                created.id,
+                reservationAt,
+                reservationAt.add(const Duration(hours: 1)),
+              );
+        } catch (_) {
+          // No bloquea la creación desde agenda.
+        }
+      }
+
       if (targetStatus != null && targetStatus != created.status) {
         await ref
             .read(operationsControllerProvider.notifier)
@@ -480,175 +427,1263 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen> {
       );
     }
   }
-
-  String _labelStatus(String status) {
-    const map = {
-      'reserved': 'Reserva',
-      'survey': 'Levantamiento',
-      'scheduled': 'Agendado',
-      'in_progress': 'En proceso',
-      'completed': 'Finalizada',
-      'warranty': 'Garantía',
-      'closed': 'Cerrada',
-      'cancelled': 'Cancelada',
-    };
-    return map[status] ?? status;
-  }
 }
 
-class _PanelOptions extends StatelessWidget {
-  final OperationsState state;
-
-  const _PanelOptions({required this.state});
+class OperacionesAgendaScreen extends ConsumerStatefulWidget {
+  const OperacionesAgendaScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final start = DateTime(now.year, now.month, now.day);
-    final end = DateTime(now.year, now.month, now.day, 23, 59, 59);
+  ConsumerState<OperacionesAgendaScreen> createState() =>
+      _OperacionesAgendaScreenState();
+}
 
-    bool isPendingToday(ServiceModel service) {
-      const pendingStatuses = {
-        'reserved',
-        'survey',
-        'scheduled',
-        'in_progress',
-        'warranty',
-      };
-      if (!pendingStatuses.contains(service.status)) return false;
-      final scheduled = service.scheduledStart;
-      if (scheduled == null) return true;
-      return !scheduled.isBefore(start) && !scheduled.isAfter(end);
+class _OperacionesAgendaScreenState
+    extends ConsumerState<OperacionesAgendaScreen> {
+  Future<bool> _createFromAgenda(_CreateServiceDraft draft, String kind) async {
+    final lower = kind.trim().toLowerCase();
+    final targetStatus = switch (lower) {
+      'levantamiento' => 'survey',
+      'servicio' => 'scheduled',
+      'garantia' => 'warranty',
+      _ => null,
+    };
+    final successLabel = switch (lower) {
+      'reserva' => 'Reserva',
+      'levantamiento' => 'Levantamiento',
+      'servicio' => 'Servicio',
+      'garantia' => 'Garantía',
+      _ => 'Servicio',
+    };
+
+    try {
+      final created = await ref
+          .read(operationsControllerProvider.notifier)
+          .createReservation(
+            customerId: draft.customerId,
+            serviceType: draft.serviceType,
+            category: draft.category,
+            priority: draft.priority,
+            title: draft.title,
+            description: draft.description,
+            addressSnapshot: draft.addressSnapshot,
+            quotedAmount: draft.quotedAmount,
+            depositAmount: draft.depositAmount,
+          );
+
+      final reservationAt = draft.reservationAt;
+      if (reservationAt != null) {
+        try {
+          await ref.read(operationsControllerProvider.notifier).schedule(
+                created.id,
+                reservationAt,
+                reservationAt.add(const Duration(hours: 1)),
+              );
+        } catch (_) {
+          // No bloquea la creación desde agenda.
+        }
+      }
+
+      if (targetStatus != null && targetStatus != created.status) {
+        await ref
+            .read(operationsControllerProvider.notifier)
+            .changeStatus(created.id, targetStatus);
+      }
+
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$successLabel creado correctamente')),
+      );
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e is ApiException ? e.message : 'No se pudo registrar el servicio',
+          ),
+        ),
+      );
+      return false;
+    }
+  }
+
+  Future<void> _openAgendaForm() async {
+    var kind = 'reserva';
+
+    String titleForKind(String k) {
+      final lower = k.trim().toLowerCase();
+      return lower == 'reserva'
+          ? 'Agendar reserva'
+          : lower == 'levantamiento'
+              ? 'Agendar levantamiento'
+              : lower == 'servicio'
+                  ? 'Agendar servicio'
+                  : 'Agendar garantía';
     }
 
-    final pendingToday = state.services.where(isPendingToday).toList();
-    final reservas = pendingToday.where((s) => s.status == 'reserved').length;
-    final levantamientos = pendingToday.where((s) => s.status == 'survey').length;
-    final servicios = pendingToday
-        .where((s) => s.status == 'scheduled' || s.status == 'in_progress')
-        .length;
-    final garantias = pendingToday.where((s) => s.status == 'warranty').length;
+    String submitForKind(String k) {
+      final lower = k.trim().toLowerCase();
+      return lower == 'reserva'
+          ? 'Guardar reserva'
+          : lower == 'levantamiento'
+              ? 'Guardar levantamiento'
+              : lower == 'servicio'
+                  ? 'Guardar servicio'
+                  : 'Guardar garantía';
+    }
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final tinyMobile = constraints.maxWidth < 420;
-        final isNarrow = constraints.maxWidth < 520;
-        const gap = 10.0;
-        final cardWidth = isNarrow
-            ? constraints.maxWidth
-            : (constraints.maxWidth - gap) / 2;
+    String initialServiceTypeForKind(String k) {
+      final lower = k.trim().toLowerCase();
+      return lower == 'garantia' ? 'warranty' : 'installation';
+    }
 
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
-          child: Wrap(
-            spacing: gap,
-            runSpacing: gap,
-            children: [
-              SizedBox(
-                width: cardWidth,
-                child: _optionCard(
-                  context,
-                  icon: Icons.bookmark_add_outlined,
-                  title: 'Reservas',
-                  value: reservas,
-                  tinyMobile: tinyMobile,
-                ),
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: SizedBox(
+              height: MediaQuery.sizeOf(context).height * 0.92,
+              child: StatefulBuilder(
+                builder: (context, setSheetState) {
+                  return Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                titleForKind(kind),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () => Navigator.pop(context),
+                              icon: const Icon(Icons.close),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                        child: DropdownButtonFormField<String>(
+                          value: kind,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            labelText: 'Tipo',
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'reserva',
+                              child: Text('Reserva'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'servicio',
+                              child: Text('Servicio'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'levantamiento',
+                              child: Text('Levantamiento'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'garantia',
+                              child: Text('Garantía'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setSheetState(() => kind = value);
+                          },
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      Expanded(
+                        child: _CreateReservationTab(
+                          key: ValueKey('agenda-form-$kind'),
+                          submitLabel: submitForKind(kind),
+                          initialServiceType: initialServiceTypeForKind(kind),
+                          showServiceTypeField: false,
+                          onCreate: (draft) async {
+                            final ok = await _createFromAgenda(draft, kind);
+                            if (ok && context.mounted) Navigator.pop(context);
+                          },
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
-              SizedBox(
-                width: cardWidth,
-                child: _optionCard(
-                  context,
-                  icon: Icons.fact_check_outlined,
-                  title: 'Levantamientos',
-                  value: levantamientos,
-                  tinyMobile: tinyMobile,
-                ),
-              ),
-              SizedBox(
-                width: cardWidth,
-                child: _optionCard(
-                  context,
-                  icon: Icons.build_circle_outlined,
-                  title: 'Servicio',
-                  value: servicios,
-                  tinyMobile: tinyMobile,
-                ),
-              ),
-              SizedBox(
-                width: cardWidth,
-                child: _optionCard(
-                  context,
-                  icon: Icons.verified_outlined,
-                  title: 'Garantía',
-                  value: garantias,
-                  tinyMobile: tinyMobile,
-                ),
-              ),
-            ],
+            ),
           ),
         );
       },
     );
   }
 
-  Widget _optionCard(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required int value,
-    required bool tinyMobile,
-  }) {
-    final theme = Theme.of(context);
-    return Card(
-      elevation: 1.2,
-      child: Padding(
-        padding: EdgeInsets.all(tinyMobile ? 12 : 14),
-        child: Row(
-          children: [
-            Container(
-              width: tinyMobile ? 38 : 42,
-              height: tinyMobile ? 38 : 42,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: theme.colorScheme.primary),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
+  Future<void> _openHistorialDialog(List<ServiceModel> services) async {
+    final items = [...services];
+    items.sort((a, b) {
+      final ad = a.scheduledStart ?? a.completedAt;
+      final bd = b.scheduledStart ?? b.completedAt;
+      if (ad == null && bd == null) return 0;
+      if (ad == null) return 1;
+      if (bd == null) return -1;
+      return bd.compareTo(ad);
+    });
+
+    final df = DateFormat('dd/MM/yyyy HH:mm', 'es');
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720, maxHeight: 640),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: tinyMobile ? 13 : 14,
-                      fontWeight: FontWeight.w800,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Historial de servicios (${items.length})',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: items.isEmpty
+                        ? const Center(child: Text('Sin servicios para mostrar'))
+                        : ListView.separated(
+                            itemCount: items.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final service = items[index];
+                              final date = service.scheduledStart ?? service.completedAt;
+                              final dateText = date == null ? '—' : df.format(date);
+                              return ListTile(
+                                title: Text(
+                                  '${service.customerName} · ${service.title}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  '$dateText · ${service.status} · ${service.serviceType} · P${service.priority}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: const Icon(Icons.chevron_right_rounded),
+                                onTap: () {
+                                  Navigator.pop(context);
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(operationsControllerProvider);
+    final notifier = ref.read(operationsControllerProvider.notifier);
+
+    final scheduled = state.services
+        .where((s) => s.scheduledStart != null)
+        .toList()
+      ..sort((a, b) => a.scheduledStart!.compareTo(b.scheduledStart!));
+    final dateFormat = DateFormat('EEE dd/MM HH:mm', 'es');
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            'Agenda',
+            maxLines: 1,
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+          ),
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Historial',
+            onPressed: () => _openHistorialDialog(state.services),
+            icon: const Icon(Icons.history),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        tooltip: 'Agendar',
+        onPressed: _openAgendaForm,
+        child: const Icon(Icons.add_rounded),
+      ),
+      body: state.loading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: notifier.refresh,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
+                children: [
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.event_note_rounded),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Text(
+                              'Agenda de servicios',
+                              style: TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                          Text('${scheduled.length}'),
+                        ],
+                      ),
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  if (scheduled.isEmpty)
+                    const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(14),
+                        child: Text('Sin servicios agendados'),
+                      ),
+                    )
+                  else
+                    ...scheduled.map((service) {
+                      final techs = service.assignments
+                          .map((a) => a.userName)
+                          .where((t) => t.trim().isNotEmpty)
+                          .join(', ');
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Card(
+                          child: ListTile(
+                            isThreeLine: true,
+                            title: Text(
+                              '${service.customerName} · ${service.title}',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              '${dateFormat.format(service.scheduledStart!)} · ${service.status}\n'
+                              '${techs.isEmpty ? 'Sin técnicos' : techs}',
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () {
+                              // Por ahora solo visual.
+                            },
+                          ),
+                        ),
+                      );
+                    }),
+                ],
+              ),
+            ),
+    );
+  }
+}
+
+class _UserAvatarAction extends StatelessWidget {
+  final String? userName;
+  final String? photoUrl;
+  final VoidCallback onTap;
+
+  const _UserAvatarAction({
+    required this.userName,
+    required this.photoUrl,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final initials = getInitials((userName ?? 'Usuario').trim());
+    final trimmedUrl = photoUrl?.trim() ?? '';
+
+    Widget avatar;
+    if (trimmedUrl.isNotEmpty) {
+      avatar = ClipOval(
+        child: Image.network(
+          trimmedUrl,
+          width: 34,
+          height: 34,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return _InitialsAvatar(initials: initials);
+          },
+        ),
+      );
+    } else {
+      avatar = _InitialsAvatar(initials: initials);
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Tooltip(
+          message: 'Mi perfil',
+          child: Container(
+            width: 38,
+            height: 38,
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withValues(alpha: 0.10),
+              border: Border.all(
+                color: scheme.onPrimary.withValues(alpha: 0.22),
+              ),
+            ),
+            child: Center(child: avatar),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InitialsAvatar extends StatelessWidget {
+  final String initials;
+
+  const _InitialsAvatar({required this.initials});
+
+  @override
+  Widget build(BuildContext context) {
+    return CircleAvatar(
+      backgroundColor: Colors.white.withValues(alpha: 0.20),
+      child: Text(
+        initials.isEmpty ? 'U' : initials,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: 12,
+          letterSpacing: 0.4,
+        ),
+      ),
+    );
+  }
+}
+
+enum _PanelStatusFilter { todos, pendientes, proceso, completadas }
+
+enum _PanelPriorityFilter { todas, alta, normal }
+
+class _PanelFilterResult {
+  final DateTimeRange range;
+  final _PanelStatusFilter status;
+  final _PanelPriorityFilter priority;
+  final String technicianQuery;
+  final String sellerQuery;
+
+  const _PanelFilterResult({
+    required this.range,
+    required this.status,
+    required this.priority,
+    required this.technicianQuery,
+    required this.sellerQuery,
+  });
+}
+
+class _PanelOptions extends StatefulWidget {
+  final OperationsState state;
+  final TextEditingController searchCtrl;
+  final void Function(ServiceModel) onOpenService;
+
+  const _PanelOptions({
+    required this.state,
+    required this.searchCtrl,
+    required this.onOpenService,
+  });
+
+  @override
+  State<_PanelOptions> createState() => _PanelOptionsState();
+}
+
+class _PanelOptionsState extends State<_PanelOptions> {
+  DateTimeRange? _range;
+  _PanelStatusFilter _statusFilter = _PanelStatusFilter.todos;
+  _PanelPriorityFilter _priorityFilter = _PanelPriorityFilter.todas;
+  String _technicianQuery = '';
+  String _sellerQuery = '';
+
+  DateTimeRange _todayRange() {
+    final now = DateTime.now();
+    return DateTimeRange(
+      start: DateTime(now.year, now.month, now.day),
+      end: DateTime(now.year, now.month, now.day, 23, 59, 59, 999),
+    );
+  }
+
+  DateTimeRange _effectiveRange() => _range ?? _todayRange();
+
+  @override
+  void initState() {
+    super.initState();
+    _range ??= _todayRange();
+    widget.searchCtrl.addListener(_onQueryChange);
+  }
+
+  @override
+  void didUpdateWidget(covariant _PanelOptions oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.searchCtrl != widget.searchCtrl) {
+      oldWidget.searchCtrl.removeListener(_onQueryChange);
+      widget.searchCtrl.addListener(_onQueryChange);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.searchCtrl.removeListener(_onQueryChange);
+    super.dispose();
+  }
+
+  void _onQueryChange() {
+    if (mounted) setState(() {});
+  }
+
+  DateTimeRange _normalizeRange(DateTimeRange raw) {
+    final start = DateTime(raw.start.year, raw.start.month, raw.start.day);
+    final end = DateTime(raw.end.year, raw.end.month, raw.end.day, 23, 59, 59, 999);
+    return DateTimeRange(start: start, end: end);
+  }
+
+  bool _isDefaultTodayRange(DateTimeRange r) {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
+    return r.start == todayStart && r.end == todayEnd;
+  }
+
+  String _rangeLabel(DateTimeRange r) {
+    final df = DateFormat('dd/MM/yyyy', 'es');
+    if (r.start.year == r.end.year &&
+        r.start.month == r.end.month &&
+        r.start.day == r.end.day) {
+      return 'Hoy, ${df.format(r.start)}';
+    }
+    return '${df.format(r.start)} - ${df.format(r.end)}';
+  }
+
+  Future<void> _openFilters() async {
+    DateTimeRange range = _effectiveRange();
+    var status = _statusFilter;
+    var priority = _priorityFilter;
+    var technicianQuery = _technicianQuery;
+    var sellerQuery = _sellerQuery;
+
+    final technicianCtrl = TextEditingController(text: technicianQuery);
+    final sellerCtrl = TextEditingController(text: sellerQuery);
+
+    final result = await showModalBottomSheet<_PanelFilterResult>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: StatefulBuilder(
+              builder: (context, setSheetState) {
+                Widget sectionTitle(String text) {
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 10, bottom: 6),
+                    child: Text(
+                      text,
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(fontWeight: FontWeight.w900),
+                    ),
+                  );
+                }
+
+                Future<void> pickCustomRange() async {
+                  final picked = await showDateRangePicker(
+                    context: context,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime(2100),
+                    initialDateRange: DateTimeRange(
+                      start: range.start,
+                      end: range.end,
+                    ),
+                    helpText: 'Selecciona intervalo de fecha',
+                  );
+                  if (picked == null) return;
+                  setSheetState(() => range = _normalizeRange(picked));
+                }
+
+                void setToday() {
+                  final now = DateTime.now();
+                  setSheetState(
+                    () => range = DateTimeRange(
+                      start: DateTime(now.year, now.month, now.day),
+                      end: DateTime(now.year, now.month, now.day, 23, 59, 59, 999),
+                    ),
+                  );
+                }
+
+                void setThisWeek() {
+                  final now = DateTime.now();
+                  final start = DateTime(now.year, now.month, now.day)
+                      .subtract(Duration(days: now.weekday - 1));
+                  final end = start.add(const Duration(days: 6));
+                  setSheetState(() => range = _normalizeRange(DateTimeRange(start: start, end: end)));
+                }
+
+                void setThisMonth() {
+                  final now = DateTime.now();
+                  final start = DateTime(now.year, now.month, 1);
+                  final end = DateTime(now.year, now.month + 1, 0);
+                  setSheetState(() => range = _normalizeRange(DateTimeRange(start: start, end: end)));
+                }
+
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 6),
+                    Text(
+                      'Filtros',
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w900),
+                    ),
+                    sectionTitle('Técnico / Vendedor'),
+                    TextField(
+                      controller: technicianCtrl,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.person_outline),
+                        hintText: 'Filtrar por técnico (nombre)',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (v) =>
+                          setSheetState(() => technicianQuery = v),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: sellerCtrl,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.storefront_outlined),
+                        hintText: 'Filtrar por vendedor (creado por)',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (v) => setSheetState(() => sellerQuery = v),
+                    ),
+                    sectionTitle('Intervalo de fecha'),
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.date_range_outlined),
+                        title: const Text('Rango'),
+                        subtitle: Text(_rangeLabel(range)),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: pickCustomRange,
+                      ),
+                    ),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        OutlinedButton(
+                          onPressed: setToday,
+                          child: const Text('Hoy'),
+                        ),
+                        OutlinedButton(
+                          onPressed: setThisWeek,
+                          child: const Text('Semana'),
+                        ),
+                        OutlinedButton(
+                          onPressed: setThisMonth,
+                          child: const Text('Mes'),
+                        ),
+                        OutlinedButton(
+                          onPressed: pickCustomRange,
+                          child: const Text('Personalizado'),
+                        ),
+                      ],
+                    ),
+                    sectionTitle('Estado'),
+                    Card(
+                      child: Column(
+                        children: [
+                          RadioListTile<_PanelStatusFilter>(
+                            value: _PanelStatusFilter.todos,
+                            groupValue: status,
+                            onChanged: (v) => setSheetState(() => status = v!),
+                            title: const Text('Todos'),
+                          ),
+                          RadioListTile<_PanelStatusFilter>(
+                            value: _PanelStatusFilter.pendientes,
+                            groupValue: status,
+                            onChanged: (v) => setSheetState(() => status = v!),
+                            title: const Text('Pendientes'),
+                          ),
+                          RadioListTile<_PanelStatusFilter>(
+                            value: _PanelStatusFilter.proceso,
+                            groupValue: status,
+                            onChanged: (v) => setSheetState(() => status = v!),
+                            title: const Text('En proceso'),
+                          ),
+                          RadioListTile<_PanelStatusFilter>(
+                            value: _PanelStatusFilter.completadas,
+                            groupValue: status,
+                            onChanged: (v) => setSheetState(() => status = v!),
+                            title: const Text('Completadas'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    sectionTitle('Prioridad'),
+                    Card(
+                      child: Column(
+                        children: [
+                          RadioListTile<_PanelPriorityFilter>(
+                            value: _PanelPriorityFilter.todas,
+                            groupValue: priority,
+                            onChanged: (v) =>
+                                setSheetState(() => priority = v!),
+                            title: const Text('Todas'),
+                          ),
+                          RadioListTile<_PanelPriorityFilter>(
+                            value: _PanelPriorityFilter.alta,
+                            groupValue: priority,
+                            onChanged: (v) =>
+                                setSheetState(() => priority = v!),
+                            title: const Text('Alta prioridad'),
+                          ),
+                          RadioListTile<_PanelPriorityFilter>(
+                            value: _PanelPriorityFilter.normal,
+                            groupValue: priority,
+                            onChanged: (v) =>
+                                setSheetState(() => priority = v!),
+                            title: const Text('Normal'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        TextButton(
+                          onPressed: () {
+                            final now = DateTime.now();
+                            Navigator.pop(
+                              context,
+                              _PanelFilterResult(
+                                range: DateTimeRange(
+                                  start: DateTime(now.year, now.month, now.day),
+                                  end: DateTime(
+                                    now.year,
+                                    now.month,
+                                    now.day,
+                                    23,
+                                    59,
+                                    59,
+                                    999,
+                                  ),
+                                ),
+                                status: _PanelStatusFilter.todos,
+                                priority: _PanelPriorityFilter.todas,
+                                technicianQuery: '',
+                                sellerQuery: '',
+                              ),
+                            );
+                          },
+                          child: const Text('Limpiar'),
+                        ),
+                        const Spacer(),
+                        FilledButton(
+                          onPressed: () {
+                            Navigator.pop(
+                              context,
+                              _PanelFilterResult(
+                                range: range,
+                                status: status,
+                                priority: priority,
+                                technicianQuery: technicianCtrl.text,
+                                sellerQuery: sellerCtrl.text,
+                              ),
+                            );
+                          },
+                          child: const Text('Aplicar'),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+
+    technicianCtrl.dispose();
+    sellerCtrl.dispose();
+
+    if (!mounted || result == null) return;
+    setState(() {
+      _range = result.range;
+      _statusFilter = result.status;
+      _priorityFilter = result.priority;
+      _technicianQuery = result.technicianQuery.trim();
+      _sellerQuery = result.sellerQuery.trim();
+    });
+  }
+
+  static const _pendingStatuses = {
+    'reserved',
+    'survey',
+    'scheduled',
+    'warranty',
+  };
+  static const _inProgressStatuses = {
+    'in_progress',
+  };
+  static const _completedStatuses = {
+    'completed',
+    'closed',
+  };
+
+  String _statusLabel(String raw) {
+    switch (raw) {
+      case 'reserved':
+        return 'Pendiente';
+      case 'survey':
+        return 'Levantamiento';
+      case 'scheduled':
+        return 'Agendado';
+      case 'in_progress':
+        return 'En proceso';
+      case 'warranty':
+        return 'Garantía';
+      case 'completed':
+        return 'Completado';
+      case 'closed':
+        return 'Cerrado';
+      default:
+        return raw;
+    }
+  }
+
+  String _typeLabel(String raw) {
+    switch (raw) {
+      case 'installation':
+        return 'Instalación';
+      case 'maintenance':
+        return 'Mantenimiento';
+      case 'warranty':
+        return 'Garantía';
+      case 'pos_support':
+        return 'Soporte POS';
+      default:
+        return raw;
+    }
+  }
+
+  IconData _statusIcon(String raw) {
+    switch (raw) {
+      case 'in_progress':
+        return Icons.play_circle_outline;
+      case 'completed':
+      case 'closed':
+        return Icons.check_circle_outline;
+      default:
+        return Icons.pending_outlined;
+    }
+  }
+
+  Color _statusTint(BuildContext context, String raw) {
+    final cs = Theme.of(context).colorScheme;
+    switch (raw) {
+      case 'in_progress':
+        return cs.tertiary;
+      case 'completed':
+      case 'closed':
+        return cs.primary;
+      default:
+        return cs.error;
+    }
+  }
+
+  String _techLabel(ServiceModel s) {
+    if (s.assignments.isEmpty) return 'Sin asignar';
+    final tech = s.assignments
+        .where((a) => a.role == 'technician')
+        .cast<ServiceAssignmentModel?>()
+        .firstOrNull;
+    return (tech ?? s.assignments.first).userName;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final now = DateTime.now();
+    final timeFormat = DateFormat('hh:mm a', 'es');
+    final range = _effectiveRange();
+
+    bool inRange(ServiceModel s) {
+      final scheduled = s.scheduledStart;
+      if (scheduled == null) return false;
+      return !scheduled.isBefore(range.start) && !scheduled.isAfter(range.end);
+    }
+
+    final window = widget.state.services.where(inRange).toList()
+      ..sort((a, b) => a.scheduledStart!.compareTo(b.scheduledStart!));
+
+    int pendingCount(List<ServiceModel> list) =>
+        list.where((s) => _pendingStatuses.contains(s.status)).length;
+    int inProgressCount(List<ServiceModel> list) =>
+        list.where((s) => _inProgressStatuses.contains(s.status)).length;
+    int completedCount(List<ServiceModel> list) =>
+        list.where((s) => _completedStatuses.contains(s.status)).length;
+
+    final pendientesCount = pendingCount(window);
+    final procesoCount = inProgressCount(window);
+    final completadasCount = completedCount(window);
+
+    final atrasadas = window.where((s) {
+      final st = s.scheduledStart;
+      if (st == null) return false;
+      if (!_pendingStatuses.contains(s.status) &&
+          !_inProgressStatuses.contains(s.status)) {
+        return false;
+      }
+      return st.isBefore(now);
+    }).length;
+
+    final query = widget.searchCtrl.text.trim().toLowerCase();
+    bool matchesQuery(ServiceModel s) {
+      if (query.isEmpty) return true;
+      final h = '${s.customerName} ${s.customerPhone} ${s.title}'.toLowerCase();
+      return h.contains(query);
+    }
+
+    bool matchesStatus(ServiceModel s) {
+      switch (_statusFilter) {
+        case _PanelStatusFilter.todos:
+          return true;
+        case _PanelStatusFilter.pendientes:
+          return _pendingStatuses.contains(s.status);
+        case _PanelStatusFilter.proceso:
+          return _inProgressStatuses.contains(s.status);
+        case _PanelStatusFilter.completadas:
+          return _completedStatuses.contains(s.status);
+      }
+    }
+
+    bool matchesPriority(ServiceModel s) {
+      switch (_priorityFilter) {
+        case _PanelPriorityFilter.todas:
+          return true;
+        case _PanelPriorityFilter.alta:
+          return s.priority <= 1;
+        case _PanelPriorityFilter.normal:
+          return s.priority > 1;
+      }
+    }
+
+    bool matchesTechnician(ServiceModel s) {
+      final q = _technicianQuery.trim().toLowerCase();
+      if (q.isEmpty) return true;
+      final names = s.assignments.map((a) => a.userName).join(' ').toLowerCase();
+      return names.contains(q);
+    }
+
+    bool matchesSeller(ServiceModel s) {
+      final q = _sellerQuery.trim().toLowerCase();
+      if (q.isEmpty) return true;
+      return s.createdByName.toLowerCase().contains(q);
+    }
+
+    final filtered = window
+        .where(
+          (s) =>
+              matchesStatus(s) &&
+              matchesPriority(s) &&
+              matchesTechnician(s) &&
+              matchesSeller(s) &&
+              matchesQuery(s),
+        )
+        .toList();
+
+    Widget summaryCard({
+      required String label,
+      required int value,
+      required IconData icon,
+      required Color tint,
+      String? caption,
+    }) {
+      return Expanded(
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: tint.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(icon, color: tint, size: 18),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '$value',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.75),
+                  ),
+                ),
+                if (caption != null) ...[
                   const SizedBox(height: 2),
                   Text(
-                    'Pendientes hoy',
+                    caption,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                      color:
+                          theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: widget.searchCtrl,
+          textInputAction: TextInputAction.search,
+          decoration: InputDecoration(
+            prefixIcon: const Icon(Icons.search),
+            hintText: 'Buscar servicios, clientes, técnicos…',
+            border: const OutlineInputBorder(),
+            suffixIcon: IconButton(
+              tooltip: 'Filtros',
+              onPressed: _openFilters,
+              icon: const Icon(Icons.filter_alt_rounded),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            summaryCard(
+              label: 'Pendientes',
+              value: pendientesCount,
+              icon: Icons.error_outline,
+              tint: theme.colorScheme.error,
+              caption: atrasadas > 0 ? '$atrasadas atrasados' : null,
+            ),
+            const SizedBox(width: 10),
+            summaryCard(
+              label: 'En proceso',
+              value: procesoCount,
+              icon: Icons.play_circle_outline,
+              tint: theme.colorScheme.tertiary,
+              caption: _isDefaultTodayRange(range) ? 'Hoy' : null,
+            ),
+            const SizedBox(width: 10),
+            summaryCard(
+              label: 'Completadas',
+              value: completadasCount,
+              icon: Icons.check_circle_outline,
+              tint: theme.colorScheme.primary,
+              caption: _isDefaultTodayRange(range) ? 'Hoy' : null,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Agenda de Servicios · ${_rangeLabel(range)}',
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(fontWeight: FontWeight.w900),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (filtered.isEmpty)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Icon(Icons.inbox_outlined, color: theme.colorScheme.primary),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Sin servicios para mostrar.',
+                      style: TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            Text(
-              '$value',
-              style: TextStyle(
-                fontSize: tinyMobile ? 20 : 22,
-                fontWeight: FontWeight.w900,
+          )
+        else
+          ...filtered.map((s) {
+            final tint = _statusTint(context, s.status);
+            final time = s.scheduledStart == null
+                ? '—'
+                : timeFormat.format(s.scheduledStart!);
+
+            final priority = s.priority <= 1
+                ? 'Alta Prioridad'
+                : (s.priority >= 3 ? 'Baja Prioridad' : 'Prioridad');
+            final showPriority = s.priority <= 1;
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Card(
+                child: ListTile(
+                  onTap: () => widget.onOpenService(s),
+                  leading: Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: tint.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(_statusIcon(s.status), color: tint, size: 20),
+                  ),
+                  title: Text(
+                    s.customerName,
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${_typeLabel(s.serviceType)} · ${s.title}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: [
+                            _inlineChip(
+                              context,
+                              icon: Icons.schedule,
+                              text: time,
+                            ),
+                            _inlineChip(
+                              context,
+                              icon: Icons.person_outline,
+                              text: 'Técnico: ${_techLabel(s)}',
+                            ),
+                            _inlineChip(
+                              context,
+                              icon: Icons.flag_outlined,
+                              text: _statusLabel(s.status),
+                            ),
+                            if (showPriority)
+                              _inlineChip(
+                                context,
+                                icon: Icons.priority_high,
+                                text: priority,
+                                tint: theme.colorScheme.error,
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                ),
               ),
-            ),
-          ],
-        ),
-      ),
+            );
+          }),
+      ],
     );
   }
+}
+
+Widget _inlineChip(
+  BuildContext context, {
+  required IconData icon,
+  required String text,
+  Color? tint,
+}) {
+  final theme = Theme.of(context);
+  final cs = theme.colorScheme;
+  final color = tint ?? cs.primary;
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(999),
+      border: Border.all(color: cs.outline.withValues(alpha: 0.18)),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 6),
+        Text(
+          text,
+          style: theme.textTheme.bodySmall
+              ?.copyWith(fontWeight: FontWeight.w800),
+        ),
+      ],
+    ),
+  );
 }
 
 class _ReservaScreen extends StatelessWidget {
@@ -661,264 +1696,6 @@ class _ReservaScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Nueva reserva')),
       body: _CreateReservationTab(onCreate: onCreate),
-    );
-  }
-}
-
-class _FiltersBar extends StatelessWidget {
-  final TextEditingController searchCtrl;
-  final OperationsState state;
-  final bool compact;
-  final Future<void> Function(String) onSearch;
-  final Future<void> Function(String?) onStatus;
-  final Future<void> Function(String?) onType;
-  final Future<void> Function(int?) onPriority;
-
-  const _FiltersBar({
-    required this.searchCtrl,
-    required this.state,
-    required this.compact,
-    required this.onSearch,
-    required this.onStatus,
-    required this.onType,
-    required this.onPriority,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final tinyMobile = MediaQuery.sizeOf(context).width < 400;
-
-    InputDecoration decoration(String label) => InputDecoration(
-      labelText: label,
-      border: const OutlineInputBorder(),
-      isDense: true,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-    );
-
-    final searchField = TextField(
-      controller: searchCtrl,
-      decoration: InputDecoration(
-        prefixIcon: const Icon(Icons.search),
-        hintText: tinyMobile
-            ? 'Buscar cliente o ticket'
-            : 'Buscar cliente, teléfono, ticket',
-        border: const OutlineInputBorder(),
-        isDense: true,
-        suffixIcon: IconButton(
-          tooltip: 'Aplicar',
-          onPressed: () => onSearch(searchCtrl.text),
-          icon: const Icon(Icons.check),
-        ),
-      ),
-      onSubmitted: onSearch,
-    );
-
-    final statusField = DropdownButtonFormField<String?>(
-      value: state.statusFilter,
-      decoration: decoration('Estado'),
-      items: const [
-        DropdownMenuItem<String?>(value: null, child: Text('Todos')),
-        DropdownMenuItem(value: 'reserved', child: Text('Reserva')),
-        DropdownMenuItem(value: 'survey', child: Text('Levantamiento')),
-        DropdownMenuItem(value: 'scheduled', child: Text('Agendado')),
-        DropdownMenuItem(value: 'in_progress', child: Text('En proceso')),
-        DropdownMenuItem(value: 'completed', child: Text('Finalizada')),
-        DropdownMenuItem(value: 'warranty', child: Text('Garantía')),
-        DropdownMenuItem(value: 'closed', child: Text('Cerrada')),
-      ],
-      onChanged: (value) => onStatus(value),
-    );
-
-    final typeField = DropdownButtonFormField<String?>(
-      value: state.typeFilter,
-      decoration: decoration('Tipo'),
-      items: const [
-        DropdownMenuItem<String?>(value: null, child: Text('Todos')),
-        DropdownMenuItem(value: 'installation', child: Text('Instalación')),
-        DropdownMenuItem(value: 'maintenance', child: Text('Mantenimiento')),
-        DropdownMenuItem(value: 'warranty', child: Text('Garantía')),
-        DropdownMenuItem(value: 'pos_support', child: Text('Soporte POS')),
-        DropdownMenuItem(value: 'other', child: Text('Otros')),
-      ],
-      onChanged: (value) => onType(value),
-    );
-
-    final priorityField = DropdownButtonFormField<int?>(
-      value: state.priorityFilter,
-      decoration: decoration('Prioridad'),
-      items: const [
-        DropdownMenuItem<int?>(value: null, child: Text('Todas')),
-        DropdownMenuItem(value: 1, child: Text('Alta')),
-        DropdownMenuItem(value: 2, child: Text('Media')),
-        DropdownMenuItem(value: 3, child: Text('Baja')),
-      ],
-      onChanged: (value) => onPriority(value),
-    );
-
-    if (compact) {
-      return Column(
-        children: [
-          searchField,
-          const SizedBox(height: 8),
-          statusField,
-          const SizedBox(height: 8),
-          typeField,
-          const SizedBox(height: 8),
-          priorityField,
-        ],
-      );
-    }
-
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        SizedBox(width: 280, child: searchField),
-        SizedBox(width: 180, child: statusField),
-        SizedBox(width: 180, child: typeField),
-        SizedBox(width: 160, child: priorityField),
-      ],
-    );
-  }
-}
-
-class _KanbanColumn extends StatelessWidget {
-  final String title;
-  final int count;
-  final List<ServiceModel> services;
-  final void Function(ServiceModel) onOpen;
-
-  const _KanbanColumn({
-    required this.title,
-    required this.count,
-    required this.services,
-    required this.onOpen,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final dateFormat = DateFormat('dd/MM HH:mm');
-    final compact = MediaQuery.sizeOf(context).width < 420;
-
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(compact ? 6 : 8),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '$title ($count)',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: services.isEmpty
-                  ? const Center(child: Text('Sin tickets'))
-                  : ListView.separated(
-                      itemCount: services.length,
-                      separatorBuilder: (_, __) =>
-                          SizedBox(height: compact ? 6 : 8),
-                      itemBuilder: (context, index) {
-                        final service = services[index];
-                        return InkWell(
-                          onTap: () => onOpen(service),
-                          child: Container(
-                            padding: EdgeInsets.all(compact ? 8 : 10),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: Theme.of(context).dividerColor,
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  service.customerName,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: compact ? 13 : 14,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  service.customerPhone,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: compact ? 12 : null,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '${service.serviceType} · ${service.category}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: compact ? 12 : null,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 6,
-                                  children: [
-                                    _badge('P${service.priority}'),
-                                    _badge(service.status),
-                                  ],
-                                ),
-                                if (service.scheduledStart != null) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Agenda: ${dateFormat.format(service.scheduledStart!)}',
-                                    style: TextStyle(
-                                      fontSize: compact ? 12 : null,
-                                    ),
-                                  ),
-                                ],
-                                if (service.assignments.isNotEmpty) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    service.assignments
-                                        .map(
-                                          (assignment) => assignment.userName,
-                                        )
-                                        .join(', '),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: compact ? 12 : null,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _badge(String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(width: 0.7),
-      ),
-      child: Text(text, style: const TextStyle(fontSize: 11)),
     );
   }
 }
@@ -1246,6 +2023,417 @@ class _ServiceDetailPanelState extends State<_ServiceDetailPanel> {
   }
 }
 
+class OperacionesHistorialBody extends ConsumerStatefulWidget {
+  const OperacionesHistorialBody({super.key});
+
+  @override
+  ConsumerState<OperacionesHistorialBody> createState() =>
+      OperacionesHistorialBodyState();
+}
+
+class OperacionesHistorialBodyState
+    extends ConsumerState<OperacionesHistorialBody> {
+  bool _loading = false;
+  String? _error;
+  List<ServiceModel> _items = const [];
+  String _query = '';
+
+  static const int _pageSize = 120;
+  static const int _maxPages = 25;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_load);
+  }
+
+  Future<void> refresh() => _load();
+
+  Future<void> _load() async {
+    if (_loading) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final repo = ref.read(operationsRepositoryProvider);
+
+      Future<List<ServiceModel>> listAllByStatus(String status) async {
+        final all = <ServiceModel>[];
+        for (var page = 1; page <= _maxPages; page++) {
+          final res = await repo.listServices(
+            status: status,
+            page: page,
+            pageSize: _pageSize,
+          );
+          all.addAll(res.items);
+          if (res.items.length < _pageSize) break;
+        }
+        return all;
+      }
+
+      final results = await Future.wait([
+        listAllByStatus('completed'),
+        listAllByStatus('closed'),
+      ]);
+
+      final completed = results[0];
+      final closed = results[1];
+
+      final byId = <String, ServiceModel>{
+        for (final item in completed) item.id: item,
+        for (final item in closed) item.id: item,
+      };
+
+      DateTime? lastUpdateAt(ServiceModel s) {
+        final dates = s.updates
+            .map((u) => u.createdAt)
+            .whereType<DateTime>()
+            .toList();
+        if (dates.isEmpty) return null;
+        dates.sort();
+        return dates.last;
+      }
+
+      final merged = byId.values.toList()
+        ..sort((a, b) {
+          final ad = lastUpdateAt(a) ?? a.completedAt;
+          final bd = lastUpdateAt(b) ?? b.completedAt;
+          if (ad == null && bd == null) return 0;
+          if (ad == null) return 1;
+          if (bd == null) return -1;
+          return bd.compareTo(ad);
+        });
+
+      if (!mounted) return;
+      setState(() {
+        _items = merged;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e is ApiException ? e.message : 'No se pudo cargar historial';
+      });
+    }
+  }
+
+  String _statusLabel(String raw) {
+    switch (raw) {
+      case 'completed':
+        return 'Finalizada';
+      case 'closed':
+        return 'Cerrada';
+      case 'cancelled':
+        return 'Cancelada';
+      default:
+        return raw;
+    }
+  }
+
+  String _typeLabel(String raw) {
+    switch (raw) {
+      case 'installation':
+        return 'Instalación';
+      case 'maintenance':
+        return 'Servicio técnico';
+      case 'warranty':
+        return 'Garantía';
+      case 'pos_support':
+        return 'Soporte POS';
+      case 'other':
+        return 'Otro';
+      default:
+        return raw;
+    }
+  }
+
+  IconData _typeIcon(String raw) {
+    switch (raw) {
+      case 'installation':
+        return Icons.handyman_outlined;
+      case 'maintenance':
+        return Icons.build_circle_outlined;
+      case 'warranty':
+        return Icons.verified_outlined;
+      case 'pos_support':
+        return Icons.point_of_sale_outlined;
+      default:
+        return Icons.work_outline;
+    }
+  }
+
+  DateTime? _lastUpdateAt(ServiceModel s) {
+    final dates = s.updates
+        .map((u) => u.createdAt)
+        .whereType<DateTime>()
+        .toList();
+    if (dates.isEmpty) return null;
+    dates.sort();
+    return dates.last;
+  }
+
+  Future<void> _openDetail(ServiceModel service) async {
+    final theme = Theme.of(context);
+    final df = DateFormat('dd/MM/yyyy HH:mm', 'es');
+    final updates = [...service.updates]
+      ..sort((a, b) {
+        final ad = a.createdAt;
+        final bd = b.createdAt;
+        if (ad == null && bd == null) return 0;
+        if (ad == null) return 1;
+        if (bd == null) return -1;
+        return bd.compareTo(ad);
+      });
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        return SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.85,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    service.customerName,
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 4),
+                  Text('${service.customerPhone} · ${service.customerAddress}'),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _pill(context, 'Estado', _statusLabel(service.status)),
+                      _pill(context, 'Tipo', _typeLabel(service.serviceType)),
+                      _pill(context, 'Prioridad', 'P${service.priority}'),
+                      _pill(
+                        context,
+                        'Último',
+                        (_lastUpdateAt(service) ?? service.completedAt) == null
+                            ? '—'
+                            : df.format(
+                                _lastUpdateAt(service) ?? service.completedAt!,
+                              ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    service.title,
+                    style: theme.textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Historial de proceso',
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: updates.isEmpty
+                        ? Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.info_outline,
+                                    color: theme.colorScheme.primary,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  const Expanded(
+                                    child: Text(
+                                      'Sin actualizaciones registradas para este servicio.',
+                                      style:
+                                          TextStyle(fontWeight: FontWeight.w700),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        : ListView.separated(
+                            itemCount: updates.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            itemBuilder: (context, index) {
+                              final u = updates[index];
+                              final stamp = u.createdAt == null
+                                  ? '—'
+                                  : df.format(u.createdAt!);
+                              return Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Text(
+                                        u.message,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text('$stamp · ${u.changedBy}'),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _pill(BuildContext context, String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Text('$label: $value'),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final query = _query.trim().toLowerCase();
+    final filtered = query.isEmpty
+        ? _items
+        : _items.where((s) {
+            final haystack =
+                '${s.customerName} ${s.customerPhone} ${s.title}'.toLowerCase();
+            return haystack.contains(query);
+          }).toList();
+
+    final df = DateFormat('dd/MM/yyyy HH:mm', 'es');
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  const Icon(Icons.history),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Historial por cliente',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                  if (_loading)
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            onChanged: (v) => setState(() => _query = v),
+            textInputAction: TextInputAction.search,
+            decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.search),
+              hintText: 'Buscar cliente o teléfono',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (_error != null) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Icon(Icons.error_outline, color: theme.colorScheme.error),
+                    const SizedBox(width: 10),
+                    Expanded(child: Text(_error!)),
+                    TextButton(onPressed: _load, child: const Text('Reintentar')),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+          if (!_loading && _error == null && filtered.isEmpty)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    Icon(Icons.inbox_outlined, color: theme.colorScheme.primary),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Sin historial para mostrar.',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            ...filtered.map((service) {
+              final last = _lastUpdateAt(service) ?? service.completedAt;
+              final dateText = last == null ? '—' : df.format(last);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Card(
+                  child: ListTile(
+                    leading: Icon(_typeIcon(service.serviceType)),
+                    title: Text(
+                      '${service.customerName} · ${service.title}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      '${_statusLabel(service.status)} · ${_typeLabel(service.serviceType)} · P${service.priority}\nÚltimo: $dateText',
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _openDetail(service),
+                  ),
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+}
+
 class _AgendaTab extends StatelessWidget {
   final List<ServiceModel> services;
   final void Function(ServiceModel) onOpenService;
@@ -1401,19 +2589,21 @@ class _AgendaTab extends StatelessWidget {
     final title = lower == 'reserva'
         ? 'Registrar reserva'
         : lower == 'levantamiento'
-            ? 'Registrar levantamiento'
-            : lower == 'servicio'
-                ? 'Registrar servicio'
-                : 'Registrar garantía';
+        ? 'Registrar levantamiento'
+        : lower == 'servicio'
+        ? 'Registrar servicio'
+        : 'Registrar garantía';
     final submitLabel = lower == 'reserva'
         ? 'Guardar reserva'
         : lower == 'levantamiento'
-            ? 'Guardar levantamiento'
-            : lower == 'servicio'
-                ? 'Guardar servicio'
-                : 'Guardar garantía';
+        ? 'Guardar levantamiento'
+        : lower == 'servicio'
+        ? 'Guardar servicio'
+        : 'Guardar garantía';
 
-    final initialServiceType = lower == 'garantia' ? 'warranty' : 'installation';
+    final initialServiceType = lower == 'garantia'
+        ? 'warranty'
+        : 'installation';
 
     await showModalBottomSheet<void>(
       context: context,
@@ -1457,6 +2647,7 @@ class _AgendaTab extends StatelessWidget {
                     },
                     submitLabel: submitLabel,
                     initialServiceType: initialServiceType,
+                    showServiceTypeField: false,
                   ),
                 ),
               ],
@@ -1511,7 +2702,9 @@ class _AgendaTab extends StatelessWidget {
                   const SizedBox(height: 8),
                   Expanded(
                     child: items.isEmpty
-                        ? const Center(child: Text('Sin servicios para mostrar'))
+                        ? const Center(
+                            child: Text('Sin servicios para mostrar'),
+                          )
                         : ListView.separated(
                             itemCount: items.length,
                             separatorBuilder: (_, __) =>
@@ -1520,8 +2713,9 @@ class _AgendaTab extends StatelessWidget {
                               final service = items[index];
                               final date =
                                   service.scheduledStart ?? service.completedAt;
-                              final dateText =
-                                  date == null ? '—' : df.format(date);
+                              final dateText = date == null
+                                  ? '—'
+                                  : df.format(date);
                               return ListTile(
                                 title: Text(
                                   '${service.customerName} · ${service.title}',
@@ -1533,8 +2727,9 @@ class _AgendaTab extends StatelessWidget {
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
-                                trailing:
-                                    const Icon(Icons.chevron_right_rounded),
+                                trailing: const Icon(
+                                  Icons.chevron_right_rounded,
+                                ),
                                 onTap: () {
                                   Navigator.pop(context);
                                   onOpenService(service);
@@ -1558,6 +2753,7 @@ class _CreateServiceDraft {
   final String serviceType;
   final String category;
   final int priority;
+  final DateTime? reservationAt;
   final String title;
   final String description;
   final String? addressSnapshot;
@@ -1569,6 +2765,7 @@ class _CreateServiceDraft {
     required this.serviceType,
     required this.category,
     required this.priority,
+    required this.reservationAt,
     required this.title,
     required this.description,
     this.addressSnapshot,
@@ -1581,15 +2778,14 @@ class _CreateReservationTab extends ConsumerStatefulWidget {
   final Future<void> Function(_CreateServiceDraft draft) onCreate;
   final String submitLabel;
   final String initialServiceType;
-  final String initialCategory;
-  final int initialPriority;
+  final bool showServiceTypeField;
 
   const _CreateReservationTab({
+    super.key,
     required this.onCreate,
     this.submitLabel = 'Guardar reserva',
     this.initialServiceType = 'installation',
-    this.initialCategory = 'cameras',
-    this.initialPriority = 1,
+    this.showServiceTypeField = true,
   });
 
   @override
@@ -1600,6 +2796,7 @@ class _CreateReservationTab extends ConsumerStatefulWidget {
 class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   final _formKey = GlobalKey<FormState>();
   final _searchClientCtrl = TextEditingController();
+  final _reservationDateCtrl = TextEditingController();
   final _titleCtrl = TextEditingController();
   final _descriptionCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
@@ -1611,21 +2808,25 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   late int _priority;
   String? _customerId;
   String? _customerName;
-  bool _loadingClients = false;
+  String? _customerPhone;
+  DateTime? _reservationAt;
+  bool _checkingCotizaciones = false;
+  bool _hasCotizaciones = false;
+  CotizacionModel? _selectedCotizacion;
   bool _saving = false;
-  List<ClienteModel> _clients = [];
 
   @override
   void initState() {
     super.initState();
     _serviceType = widget.initialServiceType;
-    _category = widget.initialCategory;
-    _priority = widget.initialPriority;
+    _category = 'cameras';
+    _priority = 1;
   }
 
   @override
   void dispose() {
     _searchClientCtrl.dispose();
+    _reservationDateCtrl.dispose();
     _titleCtrl.dispose();
     _descriptionCtrl.dispose();
     _addressCtrl.dispose();
@@ -1636,16 +2837,51 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = ref.watch(authStateProvider);
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 430;
         final formPadding = isCompact ? 10.0 : 14.0;
+
+        String money(double value) =>
+            NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(value);
 
         return Form(
           key: _formKey,
           child: ListView(
             padding: EdgeInsets.all(formPadding),
             children: [
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.verified_user_outlined),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Creado por',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              (auth.user?.nombreCompleto ?? '—').trim().isEmpty
+                                  ? '—'
+                                  : auth.user!.nombreCompleto,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -1667,57 +2903,182 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
+                            if (_customerName != null) ...[
+                              const SizedBox(height: 8),
+                              if (_checkingCotizaciones)
+                                const SizedBox(
+                                  width: 160,
+                                  child: LinearProgressIndicator(minHeight: 2),
+                                )
+                              else if (_hasCotizaciones)
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: OutlinedButton.icon(
+                                    onPressed: () {
+                                      final phone = (_customerPhone ?? '')
+                                          .trim();
+                                      if (phone.isEmpty) return;
+                                      context.push(
+                                        '${Routes.cotizacionesHistorial}?customerPhone=${Uri.encodeQueryComponent(phone)}&pick=0',
+                                      );
+                                    },
+                                    icon: const Icon(
+                                      Icons.receipt_long_outlined,
+                                    ),
+                                    label: const Text('Ver cotizaciones'),
+                                  ),
+                                ),
+                            ],
                           ],
                         ),
                       ),
                       const SizedBox(width: 8),
-                      FilledButton.tonalIcon(
-                        onPressed: _openClientPicker,
-                        icon: const Icon(Icons.person_search_outlined),
-                        label: const Text('Cliente'),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          FilledButton.tonalIcon(
+                            onPressed: _openClientPicker,
+                            icon: const Icon(Icons.person_search_outlined),
+                            label: const Text('Cliente'),
+                          ),
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: (_customerId ?? '').trim().isEmpty
+                                ? null
+                                : () async {
+                                    final id = _customerId!;
+                                    await context.push(Routes.clienteEdit(id));
+                                    if (!mounted) return;
+                                    await _openClientPicker();
+                                  },
+                            icon: const Icon(Icons.edit_outlined, size: 18),
+                            label: const Text('Editar'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ),
               ),
+              if (_customerName != null) ...[
+                const SizedBox(height: 10),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Text(
+                          'Cotización',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _selectedCotizacion == null
+                              ? (_hasCotizaciones
+                                  ? 'Selecciona una cotización o crea una nueva.'
+                              : 'Este cliente no tiene cotizaciones guardadas.')
+                            : 'Seleccionada: ${money(_selectedCotizacion!.total)} · ${DateFormat('dd/MM/yyyy HH:mm').format(_selectedCotizacion!.createdAt)}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: (_customerPhone ?? '').trim().isEmpty
+                                  ? null
+                                  : () async {
+                                      final picked = await _openCotizacionPickerDialog();
+                                      if (!mounted || picked == null) return;
+                                      setState(() {
+                                        _selectedCotizacion = picked;
+                                        _quotedCtrl.text = picked.total.toStringAsFixed(2);
+                                      });
+                                    },
+                              icon: const Icon(Icons.fact_check_outlined),
+                              label: const Text('Seleccionar'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                await context.push(Routes.cotizaciones);
+                                if (!mounted) return;
+                                await _checkCotizacionesForSelectedClient();
+                                final picked =
+                                    await _openCotizacionPickerDialog();
+                                if (!mounted || picked == null) return;
+                                setState(() {
+                                  _selectedCotizacion = picked;
+                                  _quotedCtrl.text =
+                                      picked.total.toStringAsFixed(2);
+                                });
+                              },
+                              icon: const Icon(Icons.add_box_outlined),
+                              label: const Text('Crear'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _reservationDateCtrl,
+                readOnly: true,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Fecha de reserva',
+                  suffixIcon: Icon(Icons.calendar_month_outlined),
+                ),
+                onTap: _pickReservationDate,
+                validator: (_) => _reservationAt == null ? 'Requerido' : null,
+              ),
               const SizedBox(height: 10),
               if (isCompact) ...[
-                DropdownButtonFormField<String>(
-                  initialValue: _serviceType,
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    labelText: 'Tipo de servicio',
+                if (widget.showServiceTypeField) ...[
+                  DropdownButtonFormField<String>(
+                    initialValue: _serviceType,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: 'Tipo de servicio',
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'installation',
+                        child: Text('Instalación'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'maintenance',
+                        child: Text('Mantenimiento'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'warranty',
+                        child: Text('Garantía'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'pos_support',
+                        child: Text('Soporte POS'),
+                      ),
+                      DropdownMenuItem(value: 'other', child: Text('Otro')),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() {
+                        _serviceType = value;
+                        if (value == 'installation') _priority = 1;
+                      });
+                    },
                   ),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'installation',
-                      child: Text('Instalación'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'maintenance',
-                      child: Text('Mantenimiento'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'warranty',
-                      child: Text('Garantía'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'pos_support',
-                      child: Text('Soporte POS'),
-                    ),
-                    DropdownMenuItem(value: 'other', child: Text('Otro')),
-                  ],
-                  onChanged: (value) {
-                    if (value == null) return;
-                    setState(() {
-                      _serviceType = value;
-                      if (value == 'installation') _priority = 1;
-                    });
-                  },
-                ),
-                const SizedBox(height: 8),
+                  const SizedBox(height: 8),
+                ],
                 DropdownButtonFormField<String>(
                   initialValue: _category,
+                  isExpanded: true,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
                     labelText: 'Categoría',
@@ -1726,7 +3087,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                     DropdownMenuItem(value: 'cameras', child: Text('Cámaras')),
                     DropdownMenuItem(
                       value: 'gate_motor',
-                      child: Text('Motor de portón'),
+                      child: Text('Motores de puertones'),
                     ),
                     DropdownMenuItem(value: 'alarm', child: Text('Alarma')),
                     DropdownMenuItem(
@@ -1737,91 +3098,132 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                       value: 'intercom',
                       child: Text('Intercom'),
                     ),
-                    DropdownMenuItem(value: 'pos', child: Text('POS')),
+                    DropdownMenuItem(value: 'pos', child: Text('Punto de ventas')),
                   ],
                   onChanged: (value) {
                     if (value != null) setState(() => _category = value);
                   },
                 ),
-              ] else
-                Row(
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        initialValue: _serviceType,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          labelText: 'Tipo de servicio',
+              ] else ...[
+                if (widget.showServiceTypeField)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          initialValue: _serviceType,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            labelText: 'Tipo de servicio',
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'installation',
+                              child: Text('Instalación'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'maintenance',
+                              child: Text('Mantenimiento'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'warranty',
+                              child: Text('Garantía'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'pos_support',
+                              child: Text('Soporte POS'),
+                            ),
+                            DropdownMenuItem(value: 'other', child: Text('Otro')),
+                          ],
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(() {
+                              _serviceType = value;
+                              if (value == 'installation') _priority = 1;
+                            });
+                          },
                         ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'installation',
-                            child: Text('Instalación'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'maintenance',
-                            child: Text('Mantenimiento'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'warranty',
-                            child: Text('Garantía'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'pos_support',
-                            child: Text('Soporte POS'),
-                          ),
-                          DropdownMenuItem(value: 'other', child: Text('Otro')),
-                        ],
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setState(() {
-                            _serviceType = value;
-                            if (value == 'installation') _priority = 1;
-                          });
-                        },
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        initialValue: _category,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          labelText: 'Categoría',
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          initialValue: _category,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            labelText: 'Categoría',
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'cameras',
+                              child: Text('Cámaras'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'gate_motor',
+                              child: Text('Motores de puertones'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'alarm',
+                              child: Text('Alarma'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'electric_fence',
+                              child: Text('Cerco eléctrico'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'intercom',
+                              child: Text('Intercom'),
+                            ),
+                            DropdownMenuItem(value: 'pos', child: Text('Punto de ventas')),
+                          ],
+                          onChanged: (value) {
+                            if (value != null)
+                              setState(() => _category = value);
+                          },
                         ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'cameras',
-                            child: Text('Cámaras'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'gate_motor',
-                            child: Text('Motor de portón'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'alarm',
-                            child: Text('Alarma'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'electric_fence',
-                            child: Text('Cerco eléctrico'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'intercom',
-                            child: Text('Intercom'),
-                          ),
-                          DropdownMenuItem(value: 'pos', child: Text('POS')),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) setState(() => _category = value);
-                        },
                       ),
+                    ],
+                  )
+                else
+                  DropdownButtonFormField<String>(
+                    initialValue: _category,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: 'Categoría',
                     ),
-                  ],
-                ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'cameras',
+                        child: Text('Cámaras'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'gate_motor',
+                        child: Text('Motores de puertones'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'alarm',
+                        child: Text('Alarma'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'electric_fence',
+                        child: Text('Cerco eléctrico'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'intercom',
+                        child: Text('Intercom'),
+                      ),
+                      DropdownMenuItem(value: 'pos', child: Text('Punto de ventas')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) setState(() => _category = value);
+                    },
+                  ),
+              ],
               const SizedBox(height: 10),
               DropdownButtonFormField<int>(
                 initialValue: _priority,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
                   labelText: 'Prioridad',
@@ -1840,7 +3242,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                 controller: _titleCtrl,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
-                  labelText: 'Título',
+                  labelText: 'Servicio',
                 ),
                 validator: (value) =>
                     (value ?? '').trim().isEmpty ? 'Requerido' : null,
@@ -1852,7 +3254,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                 maxLines: 5,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
-                  labelText: 'Descripción',
+                  labelText: 'Nota',
                 ),
                 validator: (value) =>
                     (value ?? '').trim().isEmpty ? 'Requerido' : null,
@@ -1872,7 +3274,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
-                    labelText: 'Monto cotizado',
+                    labelText: 'Precio vendido',
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -1893,7 +3295,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                         keyboardType: TextInputType.number,
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
-                          labelText: 'Monto cotizado',
+                          labelText: 'Precio vendido',
                         ),
                       ),
                     ),
@@ -1929,8 +3331,218 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     setState(() {
       _customerId = selected.id;
       _customerName = selected.nombre;
+      _customerPhone = selected.telefono;
       _addressCtrl.text = selected.direccion ?? '';
     });
+
+    await _checkCotizacionesForSelectedClient();
+  }
+
+  Future<void> _pickReservationDate() async {
+    final now = DateTime.now();
+    final initial = _reservationAt ?? now;
+
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: DateTime(initial.year, initial.month, initial.day),
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(now.year + 2),
+    );
+    if (!mounted || pickedDate == null) return;
+
+    final timeSource = _reservationAt ?? DateTime.now();
+    final next = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      timeSource.hour,
+      timeSource.minute,
+    );
+
+    setState(() {
+      _reservationAt = next;
+      _reservationDateCtrl.text = DateFormat('dd/MM/yyyy HH:mm').format(next);
+    });
+  }
+
+  Future<CotizacionModel?> _openCotizacionPickerDialog() async {
+    final phone = (_customerPhone ?? '').trim();
+    if (phone.isEmpty) return null;
+
+    return showDialog<CotizacionModel>(
+      context: context,
+      builder: (context) {
+        var loading = true;
+        String? error;
+        List<CotizacionModel> items = const [];
+        var didInit = false;
+
+        String money(double value) =>
+            NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(value);
+
+        Future<void> load(StateSetter setDialogState) async {
+          setDialogState(() {
+            loading = true;
+            error = null;
+          });
+          try {
+            final rows = await ref
+                .read(cotizacionesRepositoryProvider)
+                .list(customerPhone: phone);
+            if (!context.mounted) return;
+            setDialogState(() {
+              items = rows;
+              loading = false;
+            });
+          } catch (e) {
+            if (!context.mounted) return;
+            setDialogState(() {
+              error = e is ApiException ? e.message : '$e';
+              loading = false;
+            });
+          }
+        }
+
+        return Dialog(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720, maxHeight: 640),
+            child: StatefulBuilder(
+              builder: (context, setDialogState) {
+                if (!didInit) {
+                  didInit = true;
+                  Future.microtask(() => load(setDialogState));
+                }
+
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Seleccionar cotización',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Cliente: ${_customerName ?? '—'} · $phone',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed:
+                                loading ? null : () => load(setDialogState),
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Recargar'),
+                          ),
+                        ],
+                      ),
+                      if (loading) const LinearProgressIndicator(),
+                      if (error != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            error!,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: items.isEmpty
+                            ? const Center(
+                                child:
+                                    Text('No hay cotizaciones para mostrar'),
+                              )
+                            : ListView.separated(
+                                itemCount: items.length,
+                                separatorBuilder: (_, __) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (context, index) {
+                                  final item = items[index];
+                                  return ListTile(
+                                    title: Text(
+                                      money(item.total),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      DateFormat('dd/MM/yyyy HH:mm')
+                                          .format(item.createdAt),
+                                    ),
+                                    trailing: const Icon(
+                                      Icons.chevron_right_rounded,
+                                    ),
+                                    onTap: () =>
+                                        Navigator.pop(context, item),
+                                  );
+                                },
+                              ),
+                      ),
+                      const SizedBox(height: 10),
+                      FilledButton.tonalIcon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          context.push(Routes.cotizaciones);
+                        },
+                        icon: const Icon(Icons.add_box_outlined),
+                        label: const Text('Crear nueva cotización'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _checkCotizacionesForSelectedClient() async {
+    final phone = (_customerPhone ?? '').trim();
+    if (phone.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _hasCotizaciones = false;
+        _checkingCotizaciones = false;
+      });
+      return;
+    }
+
+    setState(() => _checkingCotizaciones = true);
+    try {
+      final rows = await ref
+          .read(cotizacionesRepositoryProvider)
+          .list(customerPhone: phone, take: 1);
+      if (!mounted) return;
+      setState(() => _hasCotizaciones = rows.isNotEmpty);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _hasCotizaciones = false);
+    } finally {
+      if (mounted) setState(() => _checkingCotizaciones = false);
+    }
   }
 
   Future<ClienteModel?> _openClientPickerDialog() async {
@@ -2023,8 +3635,9 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                       Align(
                         alignment: Alignment.centerLeft,
                         child: TextButton.icon(
-                          onPressed:
-                              loading ? null : () => addNewClient(setDialogState),
+                          onPressed: loading
+                              ? null
+                              : () => addNewClient(setDialogState),
                           icon: const Icon(Icons.person_add_alt_1),
                           label: const Text('Agregar cliente'),
                         ),
@@ -2034,9 +3647,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                       Expanded(
                         child: items.isEmpty
                             ? const Center(
-                                child: Text(
-                                  'Sin clientes para mostrar',
-                                ),
+                                child: Text('Sin clientes para mostrar'),
                               )
                             : ListView.separated(
                                 itemCount: items.length,
@@ -2134,21 +3745,6 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     }
   }
 
-  Future<void> _searchClients() async {
-    setState(() => _loadingClients = true);
-    try {
-      final results = await ref
-          .read(operationsControllerProvider.notifier)
-          .searchClients(_searchClientCtrl.text.trim());
-      if (!mounted) return;
-      setState(() => _clients = results);
-    } finally {
-      if (mounted) {
-        setState(() => _loadingClients = false);
-      }
-    }
-  }
-
   Future<void> _save() async {
     if (_customerId == null || _customerId!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2167,6 +3763,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           serviceType: _serviceType,
           category: _category,
           priority: _priority,
+          reservationAt: _reservationAt,
           title: _titleCtrl.text.trim(),
           description: _descriptionCtrl.text.trim(),
           addressSnapshot: _addressCtrl.text.trim().isEmpty
@@ -2178,6 +3775,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       );
       if (!mounted) return;
       _formKey.currentState!.reset();
+      _reservationDateCtrl.clear();
+      _reservationAt = null;
       _titleCtrl.clear();
       _descriptionCtrl.clear();
       _addressCtrl.clear();
@@ -2189,4 +3788,232 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   }
 
   // _createQuickClient() eliminado: ahora se maneja desde el diálogo de Cliente.
+}
+
+class _PunchOnlySheet extends ConsumerWidget {
+  const _PunchOnlySheet();
+
+  static IconData _iconFor(PunchType type) {
+    return switch (type) {
+      PunchType.entradaLabor => Icons.login,
+      PunchType.salidaLabor => Icons.exit_to_app,
+      PunchType.salidaPermiso => Icons.meeting_room_outlined,
+      PunchType.entradaPermiso => Icons.door_back_door,
+      PunchType.salidaAlmuerzo => Icons.fastfood,
+      PunchType.entradaAlmuerzo => Icons.restaurant,
+    };
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(punchControllerProvider);
+    final notifier = ref.read(punchControllerProvider.notifier);
+    final theme = Theme.of(context);
+
+    Future<void> handlePunch(PunchType type) async {
+      if (state.creating) return;
+      try {
+        await notifier.register(type);
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ponche "${type.label}" registrado')),
+        );
+        Navigator.of(context).pop();
+      } catch (e) {
+        if (!context.mounted) return;
+        final message = e is ApiException ? e.message : 'No se pudo ponchar';
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      }
+    }
+
+    return Material(
+      color: theme.colorScheme.primary,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Ponchado rápido',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Cerrar',
+                  onPressed: state.creating
+                      ? null
+                      : () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded, color: Colors.white),
+                ),
+              ],
+            ),
+            Text(
+              '¿Qué deseas registrar?',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 10),
+            if (state.error != null)
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.18),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline, color: Colors.white),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        state.error!,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: ListTileTheme(
+                  dense: true,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
+                    itemCount: PunchType.values.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final type = PunchType.values[index];
+                      return ListTile(
+                        enabled: !state.creating,
+                        leading: Icon(
+                          _iconFor(type),
+                          color: theme.colorScheme.primary,
+                        ),
+                        title: Text(type.label),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: state.creating ? null : () => handlePunch(type),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+            if (state.creating)
+              const Padding(
+                padding: EdgeInsets.only(top: 10),
+                child: Center(
+                  child: SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(color: Colors.white),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CatalogoFabIcon extends StatelessWidget {
+  const _CatalogoFabIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final color = IconTheme.of(context).color ?? scheme.onPrimary;
+    return SizedBox(
+      width: 26,
+      height: 26,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
+        children: [
+          Icon(Icons.inventory_2_outlined, size: 24, color: color),
+          Positioned(
+            right: -3,
+            bottom: -3,
+            child: Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: scheme.onPrimary.withValues(alpha: 0.18),
+                border: Border.all(
+                  color: scheme.onPrimary.withValues(alpha: 0.28),
+                  width: 1,
+                ),
+              ),
+              child: Center(
+                child: Icon(Icons.search_rounded, size: 12, color: color),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PoncheFabIcon extends StatelessWidget {
+  const _PoncheFabIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final color = IconTheme.of(context).color ?? scheme.onPrimary;
+    return SizedBox(
+      width: 26,
+      height: 26,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
+        children: [
+          Icon(Icons.meeting_room_outlined, size: 24, color: color),
+          Positioned(
+            right: -2,
+            bottom: -3,
+            child: Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: scheme.onPrimary.withValues(alpha: 0.18),
+                border: Border.all(
+                  color: scheme.onPrimary.withValues(alpha: 0.28),
+                  width: 1,
+                ),
+              ),
+              child: Center(
+                child: Transform.rotate(
+                  angle: -0.12,
+                  child: Icon(Icons.touch_app_outlined, size: 12, color: color),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

@@ -87,6 +87,18 @@ class ProductModel {
     );
   }
 
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'nombre': nombre,
+      'precio': precio,
+      'costo': costo,
+      'categoria': categoria,
+      'fotoUrl': fotoUrl,
+      'createdAt': createdAt?.toIso8601String(),
+    };
+  }
+
   String get categoriaLabel =>
       (categoria == null || categoria!.isEmpty) ? 'Sin categoría' : categoria!;
 }

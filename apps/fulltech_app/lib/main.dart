@@ -53,6 +53,7 @@ class MyApp extends StatelessWidget {
         final router = ref.watch(routerProvider);
         return MaterialApp.router(
           title: 'FullTech',
+          debugShowCheckedModeBanner: false,
           theme: AppTheme.light,
           routerConfig: router,
         );

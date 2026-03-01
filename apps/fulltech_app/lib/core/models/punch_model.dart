@@ -49,9 +49,9 @@ extension PunchTypeX on PunchType {
   String get label {
     switch (this) {
       case PunchType.entradaLabor:
-        return 'Entrada labor';
+        return 'Entrada jornada';
       case PunchType.salidaLabor:
-        return 'Salida labor';
+        return 'Salida jornada';
       case PunchType.salidaPermiso:
         return 'Salida permiso';
       case PunchType.entradaPermiso:

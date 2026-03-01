@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/auth/auth_provider.dart';
@@ -34,14 +35,29 @@ class ProfileScreen extends ConsumerWidget {
                   CircleAvatar(
                     radius: 50,
                     backgroundColor: Theme.of(context).colorScheme.primary,
-                    child: Text(
-                      getInitials(user?.nombreCompleto ?? 'U'),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    backgroundImage: (user?.fotoPersonalUrl != null &&
+                            user!.fotoPersonalUrl!.isNotEmpty)
+                        ? NetworkImage(user.fotoPersonalUrl!)
+                        : null,
+                    child: (user?.fotoPersonalUrl == null ||
+                            user!.fotoPersonalUrl!.isEmpty)
+                        ? Text(
+                            getInitials(user?.nombreCompleto ?? 'U'),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.photo_camera_outlined),
+                    label: const Text('Cambiar foto'),
+                    onPressed: user == null
+                        ? null
+                        : () => _pickAndUploadProfilePhoto(context, ref),
                   ),
                   const SizedBox(height: 16),
                   Text(
@@ -60,13 +76,26 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                     backgroundColor: Theme.of(context).colorScheme.primary,
                   ),
-                  const SizedBox(height: 12),
-                  ElevatedButton.icon(
-                    icon: const Icon(Icons.edit),
-                    label: const Text('Editar mi información'),
-                    onPressed: user == null
-                      ? null
-                      : () => _showEditDialog(context, ref, user),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.edit),
+                        label: const Text('Editar información'),
+                        onPressed: user == null
+                            ? null
+                            : () => _showEditDialog(context, ref, user),
+                      ),
+                      const SizedBox(width: 10),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.lock_outline_rounded),
+                        label: const Text('Contraseña'),
+                        onPressed: user == null
+                            ? null
+                            : () => _showPasswordDialog(context, ref),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -240,6 +269,95 @@ class ProfileScreen extends ConsumerWidget {
               }
             },
             child: const Text('Guardar cambios'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickAndUploadProfilePhoto(BuildContext context, WidgetRef ref) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final picked = result.files.first;
+      final bytes = picked.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo leer la imagen seleccionada')),
+        );
+        return;
+      }
+
+      final repo = ref.read(usersRepositoryProvider);
+      final uploadedUrl = await repo.uploadUserDocument(
+        bytes: bytes,
+        fileName: picked.name,
+      );
+      final updated = await repo.updateMe(fotoPersonalUrl: uploadedUrl);
+      ref.read(authStateProvider.notifier).setUser(updated);
+
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Foto de perfil actualizada')),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo actualizar la foto: $e')),
+      );
+    }
+  }
+
+  Future<void> _showPasswordDialog(BuildContext context, WidgetRef ref) async {
+    final passwordCtrl = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cambiar contraseña'),
+        content: TextField(
+          controller: passwordCtrl,
+          decoration: const InputDecoration(labelText: 'Nueva contraseña'),
+          obscureText: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final password = passwordCtrl.text.trim();
+              if (password.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Ingresa una contraseña válida')),
+                );
+                return;
+              }
+
+              try {
+                final repo = ref.read(usersRepositoryProvider);
+                final updated = await repo.updateMe(password: password);
+                ref.read(authStateProvider.notifier).setUser(updated);
+                if (!context.mounted) return;
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Contraseña actualizada')),
+                );
+              } catch (e) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('No se pudo actualizar la contraseña: $e')),
+                );
+              }
+            },
+            child: const Text('Guardar'),
           ),
         ],
       ),

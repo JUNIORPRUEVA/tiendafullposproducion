@@ -3,10 +3,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import 'cotizacion_models.dart';
-import 'data/cotizaciones_local_repository.dart';
+import 'data/cotizaciones_repository.dart';
 
 class CotizacionesHistorialScreen extends ConsumerStatefulWidget {
-  const CotizacionesHistorialScreen({super.key});
+  final String? customerPhone;
+  final bool pickForEditor;
+
+  const CotizacionesHistorialScreen({
+    super.key,
+    this.customerPhone,
+    this.pickForEditor = true,
+  });
 
   @override
   ConsumerState<CotizacionesHistorialScreen> createState() =>
@@ -34,9 +41,9 @@ class _CotizacionesHistorialScreenState
       _error = null;
     });
     try {
-      final rows = await ref
-          .read(cotizacionesLocalRepositoryProvider)
-          .listAll();
+      final rows = await ref.read(cotizacionesRepositoryProvider).list(
+            customerPhone: widget.customerPhone,
+          );
       if (!mounted) return;
       setState(() {
         _items = rows;
@@ -52,6 +59,8 @@ class _CotizacionesHistorialScreenState
   }
 
   Future<void> _delete(CotizacionModel item) async {
+    if (!widget.pickForEditor) return;
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -71,7 +80,7 @@ class _CotizacionesHistorialScreenState
     );
     if (ok != true) return;
 
-    await ref.read(cotizacionesLocalRepositoryProvider).deleteById(item.id);
+    await ref.read(cotizacionesRepositoryProvider).deleteById(item.id);
     await _load();
   }
 
@@ -163,8 +172,16 @@ class _CotizacionesHistorialScreenState
 
   @override
   Widget build(BuildContext context) {
+    final phone = (widget.customerPhone ?? '').trim();
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Historial cotizaciones')),
+      appBar: AppBar(
+        title: Text(
+          phone.isEmpty
+              ? 'Historial cotizaciones'
+              : 'Cotizaciones · $phone',
+        ),
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -178,7 +195,13 @@ class _CotizacionesHistorialScreenState
               ),
             )
           : _items.isEmpty
-          ? const Center(child: Text('No hay cotizaciones guardadas'))
+          ? Center(
+              child: Text(
+                phone.isEmpty
+                    ? 'No hay cotizaciones guardadas'
+                    : 'Este cliente no tiene cotizaciones',
+              ),
+            )
           : ListView.separated(
               padding: const EdgeInsets.all(12),
               itemCount: _items.length,
@@ -224,33 +247,35 @@ class _CotizacionesHistorialScreenState
                               icon: const Icon(Icons.visibility_outlined),
                               label: const Text('Ver'),
                             ),
-                            OutlinedButton.icon(
-                              onPressed: () => Navigator.pop(
-                                context,
-                                CotizacionEditorPayload(
-                                  source: item,
-                                  duplicate: false,
+                            if (widget.pickForEditor) ...[
+                              OutlinedButton.icon(
+                                onPressed: () => Navigator.pop(
+                                  context,
+                                  CotizacionEditorPayload(
+                                    source: item,
+                                    duplicate: false,
+                                  ),
                                 ),
+                                icon: const Icon(Icons.edit_outlined),
+                                label: const Text('Editar'),
                               ),
-                              icon: const Icon(Icons.edit_outlined),
-                              label: const Text('Editar'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () => Navigator.pop(
-                                context,
-                                CotizacionEditorPayload(
-                                  source: item,
-                                  duplicate: true,
+                              OutlinedButton.icon(
+                                onPressed: () => Navigator.pop(
+                                  context,
+                                  CotizacionEditorPayload(
+                                    source: item,
+                                    duplicate: true,
+                                  ),
                                 ),
+                                icon: const Icon(Icons.copy_all_outlined),
+                                label: const Text('Duplicar'),
                               ),
-                              icon: const Icon(Icons.copy_all_outlined),
-                              label: const Text('Duplicar'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () => _delete(item),
-                              icon: const Icon(Icons.delete_outline),
-                              label: const Text('Eliminar'),
-                            ),
+                              OutlinedButton.icon(
+                                onPressed: () => _delete(item),
+                                icon: const Icon(Icons.delete_outline),
+                                label: const Text('Eliminar'),
+                              ),
+                            ],
                           ],
                         ),
                       ],

@@ -13,6 +13,8 @@ import { OperationsModule } from './operations/operations.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { AdminModule } from './admin/admin.module';
 import { SettingsModule } from './settings/settings.module';
+import { CotizacionesModule } from './cotizaciones/cotizaciones.module';
+import { LocationsModule } from './locations/locations.module';
 
 @Module({
   imports: [
@@ -33,6 +35,8 @@ import { SettingsModule } from './settings/settings.module';
     PayrollModule,
     AdminModule,
     SettingsModule,
+    CotizacionesModule,
+    LocationsModule,
   ]
 })
 export class AppModule {}

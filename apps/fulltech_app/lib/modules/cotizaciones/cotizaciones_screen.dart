@@ -6,13 +6,14 @@ import 'package:printing/printing.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/company/company_settings_repository.dart';
+import '../../core/errors/api_exception.dart';
 import '../../core/models/product_model.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../clientes/cliente_model.dart';
 import '../ventas/data/ventas_repository.dart';
 import 'cotizacion_models.dart';
-import 'data/cotizaciones_local_repository.dart';
+import 'data/cotizaciones_repository.dart';
 import 'utils/cotizacion_pdf_service.dart';
 
 class CotizacionesScreen extends ConsumerStatefulWidget {
@@ -518,6 +519,13 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen> {
       return;
     }
 
+    if ((_selectedClientPhone ?? '').trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El cliente debe tener teléfono')),
+      );
+      return;
+    }
+
     if (_items.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Agrega al menos un producto al ticket')),
@@ -525,8 +533,21 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen> {
       return;
     }
 
+    final wasEditing = (_editingId ?? '').trim().isNotEmpty;
     final cotizacion = _buildDraftCotizacion();
-    await ref.read(cotizacionesLocalRepositoryProvider).upsert(cotizacion);
+    try {
+      if ((_editingId ?? '').trim().isEmpty) {
+        await ref.read(cotizacionesRepositoryProvider).create(cotizacion);
+      } else {
+        await ref.read(cotizacionesRepositoryProvider).update(_editingId!, cotizacion);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e is ApiException ? e.message : '$e')),
+      );
+      return;
+    }
 
     if (!mounted) return;
 
@@ -544,7 +565,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen> {
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Cotización guardada en historial local')),
+      SnackBar(
+        content: Text(
+          wasEditing ? 'Cotización actualizada en nube' : 'Cotización guardada en nube',
+        ),
+      ),
     );
   }
 
@@ -554,19 +579,72 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Cotizaciones'),
-        actions: [
-          IconButton(
-            tooltip: 'Historial',
-            onPressed: _openHistory,
-            icon: const Icon(Icons.history),
+        titleSpacing: 0,
+        title: Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 38,
+                  child: TextField(
+                    controller: _searchCtrl,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      hintText: 'Buscar producto',
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      suffixIcon: IconButton(
+                        tooltip: 'Filtrar por categoría',
+                        onPressed: _pickCategory,
+                        icon: Icon(
+                          _selectedCategory == null
+                              ? Icons.filter_alt_outlined
+                              : Icons.filter_alt,
+                          size: 20,
+                        ),
+                      ),
+                      isDense: true,
+                      filled: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 10,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                tooltip: 'Cliente',
+                onPressed: _openClientDialog,
+                icon: const Icon(Icons.person_outline),
+              ),
+              IconButton(
+                tooltip: 'Nota',
+                onPressed: _openNoteDialog,
+                icon: Icon(
+                  _note.trim().isEmpty
+                      ? Icons.sticky_note_2_outlined
+                      : Icons.sticky_note_2,
+                ),
+              ),
+              IconButton(
+                tooltip: 'PDF',
+                onPressed: _openPdfPreview,
+                icon: const Icon(Icons.picture_as_pdf_outlined),
+              ),
+              IconButton(
+                tooltip: 'Historial',
+                onPressed: _openHistory,
+                icon: const Icon(Icons.history),
+              ),
+            ],
           ),
-          IconButton(
-            tooltip: 'Recargar productos',
-            onPressed: _loadProducts,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
+        ),
       ),
       drawer: AppDrawer(currentUser: user),
       body: SafeArea(
@@ -574,78 +652,26 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen> {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-              child: Column(
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 6,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _searchCtrl,
-                          onChanged: (_) => setState(() {}),
-                          decoration: InputDecoration(
-                            labelText: 'Buscar producto',
-                            prefixIcon: const Icon(Icons.search),
-                            suffixIcon: IconButton(
-                              tooltip: 'Filtrar por categoría',
-                              onPressed: _pickCategory,
-                              icon: Icon(
-                                _selectedCategory == null
-                                    ? Icons.filter_alt_outlined
-                                    : Icons.filter_alt,
-                              ),
-                            ),
-                            isDense: true,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton.filledTonal(
-                        tooltip: 'Seleccionar o crear cliente',
-                        onPressed: _openClientDialog,
-                        icon: const Icon(Icons.person_outline),
-                      ),
-                      const SizedBox(width: 6),
-                      IconButton.filledTonal(
-                        tooltip: 'Agregar nota',
-                        onPressed: _openNoteDialog,
-                        icon: Icon(
-                          _note.trim().isEmpty
-                              ? Icons.sticky_note_2_outlined
-                              : Icons.sticky_note_2,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      IconButton.filledTonal(
-                        tooltip: 'Ver PDF',
-                        onPressed: _openPdfPreview,
-                        icon: const Icon(Icons.picture_as_pdf_outlined),
-                      ),
-                    ],
+                  Chip(
+                    avatar: const Icon(Icons.person, size: 16),
+                    label: Text(_selectedClientName),
                   ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: [
-                      Chip(
-                        avatar: const Icon(Icons.person, size: 16),
-                        label: Text(_selectedClientName),
-                      ),
-                      if (_selectedCategory != null)
-                        Chip(
-                          avatar: const Icon(Icons.category_outlined, size: 16),
-                          label: Text(_selectedCategory!),
-                          onDeleted: () =>
-                              setState(() => _selectedCategory = null),
-                        ),
-                      if (_note.trim().isNotEmpty)
-                        Chip(
-                          avatar: const Icon(Icons.note_alt_outlined, size: 16),
-                          label: Text(_note, overflow: TextOverflow.ellipsis),
-                          onDeleted: () => setState(() => _note = ''),
-                        ),
-                    ],
-                  ),
+                  if (_selectedCategory != null)
+                    Chip(
+                      avatar: const Icon(Icons.category_outlined, size: 16),
+                      label: Text(_selectedCategory!),
+                      onDeleted: () => setState(() => _selectedCategory = null),
+                    ),
+                  if (_note.trim().isNotEmpty)
+                    Chip(
+                      avatar: const Icon(Icons.note_alt_outlined, size: 16),
+                      label: Text(_note, overflow: TextOverflow.ellipsis),
+                      onDeleted: () => setState(() => _note = ''),
+                    ),
                 ],
               ),
             ),
@@ -730,10 +756,10 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen> {
                               ),
                             )
                           : ListView.separated(
-                              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                              padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
                               itemCount: _items.length,
                               separatorBuilder: (context, index) =>
-                                  const SizedBox(height: 6),
+                                  const SizedBox(height: 4),
                               itemBuilder: (context, index) {
                                 final item = _items[index];
                                 return _TicketCompactItem(
@@ -953,78 +979,84 @@ class _TicketCompactItemState extends State<_TicketCompactItem> {
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
+    final qtyText = item.qty % 1 == 0
+        ? item.qty.toStringAsFixed(0)
+        : item.qty.toStringAsFixed(2);
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
       ),
-      child: Column(
+      child: Row(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  item.nombre,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                ),
+          Expanded(
+            child: Text(
+              item.nombre,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 11,
               ),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                onPressed: widget.onRemove,
-                icon: const Icon(Icons.close, size: 18),
-              ),
-            ],
+            ),
           ),
-          Row(
-            children: [
-              SizedBox(
-                width: 110,
-                child: TextField(
-                  controller: _priceCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(
-                    labelText: 'Precio',
-                    isDense: true,
-                  ),
-                  onSubmitted: (value) {
-                    final next = double.tryParse(value.trim());
-                    if (next != null) widget.onChangePrice(next);
-                  },
-                ),
+          const SizedBox(width: 6),
+          SizedBox(
+            width: 86,
+            child: TextField(
+              controller: _priceCtrl,
+              style: const TextStyle(fontSize: 11),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                isDense: true,
+                hintText: 'Precio',
+                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                border: OutlineInputBorder(),
               ),
-              const SizedBox(width: 8),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                onPressed: widget.onMinus,
-                icon: const Icon(Icons.remove_circle_outline, size: 20),
-              ),
-              Text(
-                item.qty % 1 == 0
-                    ? item.qty.toStringAsFixed(0)
-                    : item.qty.toStringAsFixed(2),
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                onPressed: widget.onPlus,
-                icon: const Icon(Icons.add_circle_outline, size: 20),
-              ),
-              const Spacer(),
-              Text(
-                widget.money(item.total),
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ],
+              onSubmitted: (value) {
+                final next = double.tryParse(value.trim());
+                if (next != null) widget.onChangePrice(next);
+              },
+            ),
+          ),
+          const SizedBox(width: 6),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minHeight: 28, minWidth: 28),
+            splashRadius: 14,
+            onPressed: widget.onMinus,
+            icon: const Icon(Icons.remove_circle_outline, size: 18),
+          ),
+          Text(
+            qtyText,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minHeight: 28, minWidth: 28),
+            splashRadius: 14,
+            onPressed: widget.onPlus,
+            icon: const Icon(Icons.add_circle_outline, size: 18),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            widget.money(item.total),
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minHeight: 28, minWidth: 28),
+            splashRadius: 14,
+            onPressed: widget.onRemove,
+            icon: const Icon(Icons.close, size: 16),
           ),
         ],
       ),

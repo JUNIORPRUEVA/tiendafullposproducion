@@ -9,6 +9,7 @@ import '../../features/user/profile_screen.dart';
 import '../../features/user/users_screen.dart';
 import '../../features/ponche/ponche_screen.dart';
 import '../../features/operaciones/operaciones_screen.dart';
+import '../../features/operaciones/operaciones_reglas_screen.dart';
 import '../../features/contabilidad/contabilidad_screen.dart';
 import '../../features/contabilidad/cierres_diarios_screen.dart';
 import '../../features/contabilidad/factura_fiscal_screen.dart';
@@ -98,6 +99,14 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const OperacionesScreen(),
           ),
           GoRoute(
+            path: Routes.operacionesAgenda,
+            builder: (context, state) => const OperacionesAgendaScreen(),
+          ),
+          GoRoute(
+            path: Routes.operacionesReglas,
+            builder: (context, state) => const OperacionesReglasScreen(),
+          ),
+          GoRoute(
             path: Routes.catalogo,
             builder: (context, state) => const CatalogoScreen(),
           ),
@@ -135,7 +144,15 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: Routes.cotizacionesHistorial,
-            builder: (context, state) => const CotizacionesHistorialScreen(),
+            builder: (context, state) {
+              final phone = (state.uri.queryParameters['customerPhone'] ?? '').trim();
+              final pick = (state.uri.queryParameters['pick'] ?? '').trim();
+              final pickForEditor = pick != '0';
+              return CotizacionesHistorialScreen(
+                customerPhone: phone.isEmpty ? null : phone,
+                pickForEditor: pickForEditor,
+              );
+            },
           ),
           GoRoute(
             path: Routes.configuracion,

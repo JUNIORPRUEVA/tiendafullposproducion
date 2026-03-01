@@ -218,6 +218,7 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
           const SectionTitle(title: 'Nueva factura fiscal'),
           const SizedBox(height: 10),
           SegmentedButton<FiscalInvoiceKind>(
+              showSelectedIcon: false,
             segments: const [
               ButtonSegment(value: FiscalInvoiceKind.purchase, label: Text('Compra')),
               ButtonSegment(value: FiscalInvoiceKind.sale, label: Text('Venta')),

@@ -1,17 +1,24 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_drawer.dart';
+import 'data/admin_locations_repository.dart';
 import 'data/administracion_repository.dart';
+import 'models/admin_locations_models.dart';
 import 'models/admin_panel_models.dart';
 
 class AdministracionScreen extends ConsumerStatefulWidget {
   const AdministracionScreen({super.key});
 
   @override
-  ConsumerState<AdministracionScreen> createState() => _AdministracionScreenState();
+  ConsumerState<AdministracionScreen> createState() =>
+      _AdministracionScreenState();
 }
 
 class _AdministracionScreenState extends ConsumerState<AdministracionScreen> {
@@ -108,99 +115,262 @@ class _AdministracionScreenState extends ConsumerState<AdministracionScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          _error!,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Theme.of(context).colorScheme.error),
-                        ),
-                        const SizedBox(height: 12),
-                        FilledButton.icon(
-                          onPressed: _loadAll,
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Reintentar'),
-                        ),
-                      ],
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
-                  ),
-                )
-              : isDesktop
-                  ? Row(
-                      children: [
-                        NavigationRail(
-                          selectedIndex: _index,
-                          onDestinationSelected: (next) => setState(() => _index = next),
-                          labelType: NavigationRailLabelType.all,
-                          destinations: const [
-                            NavigationRailDestination(
-                              icon: Icon(Icons.smart_toy_outlined),
-                              label: Text('IA'),
-                            ),
-                            NavigationRailDestination(
-                              icon: Icon(Icons.fact_check_outlined),
-                              label: Text('Ponches'),
-                            ),
-                            NavigationRailDestination(
-                              icon: Icon(Icons.point_of_sale_outlined),
-                              label: Text('Ventas'),
-                            ),
-                            NavigationRailDestination(
-                              icon: Icon(Icons.dashboard_outlined),
-                              label: Text('Resumen'),
-                            ),
-                          ],
-                        ),
-                        const VerticalDivider(width: 1),
-                        Expanded(child: _buildPage()),
-                      ],
-                    )
-                  : Column(
-                      children: [
-                        Expanded(child: _buildPage()),
-                        NavigationBar(
-                          selectedIndex: _index,
-                          onDestinationSelected: (next) => setState(() => _index = next),
-                          destinations: const [
-                            NavigationDestination(
-                              icon: Icon(Icons.smart_toy_outlined),
-                              label: 'IA',
-                            ),
-                            NavigationDestination(
-                              icon: Icon(Icons.fact_check_outlined),
-                              label: 'Ponches',
-                            ),
-                            NavigationDestination(
-                              icon: Icon(Icons.point_of_sale_outlined),
-                              label: 'Ventas',
-                            ),
-                            NavigationDestination(
-                              icon: Icon(Icons.dashboard_outlined),
-                              label: 'Resumen',
-                            ),
-                          ],
-                        ),
-                      ],
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: _loadAll,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reintentar'),
                     ),
+                  ],
+                ),
+              ),
+            )
+          : isDesktop
+          ? Row(
+              children: [
+                NavigationRail(
+                  selectedIndex: _index,
+                  onDestinationSelected: (next) =>
+                      setState(() => _index = next),
+                  labelType: NavigationRailLabelType.all,
+                  destinations: const [
+                    NavigationRailDestination(
+                      icon: Icon(Icons.smart_toy_outlined),
+                      label: Text('IA'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.fact_check_outlined),
+                      label: Text('Ponches'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.point_of_sale_outlined),
+                      label: Text('Ventas'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.dashboard_outlined),
+                      label: Text('Resumen'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.location_on_outlined),
+                      label: Text('Ubicaciones'),
+                    ),
+                  ],
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(child: _buildPage()),
+              ],
+            )
+          : Column(
+              children: [
+                Expanded(child: _buildPage()),
+                NavigationBar(
+                  selectedIndex: _index,
+                  onDestinationSelected: (next) =>
+                      setState(() => _index = next),
+                  destinations: const [
+                    NavigationDestination(
+                      icon: Icon(Icons.smart_toy_outlined),
+                      label: 'IA',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.fact_check_outlined),
+                      label: 'Ponches',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.point_of_sale_outlined),
+                      label: 'Ventas',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.dashboard_outlined),
+                      label: 'Resumen',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.location_on_outlined),
+                      label: 'Ubicaciones',
+                    ),
+                  ],
+                ),
+              ],
+            ),
     );
   }
 
   Widget _buildPage() {
     switch (_index) {
       case 0:
-        return _AdminIaPage(insights: _insights!, fallbackAlerts: _overview!.alerts);
+        return _AdminIaPage(
+          insights: _insights!,
+          fallbackAlerts: _overview!.alerts,
+        );
       case 1:
         return _AdminAttendancePage(data: _attendance!);
       case 2:
         return _AdminSalesPage(data: _sales!);
       case 3:
+        return _AdminOverviewPage(data: _overview!);
+      case 4:
+        return const _AdminLocationsPage();
       default:
         return _AdminOverviewPage(data: _overview!);
     }
+  }
+}
+
+class _AdminLocationsPage extends ConsumerStatefulWidget {
+  const _AdminLocationsPage();
+
+  @override
+  ConsumerState<_AdminLocationsPage> createState() =>
+      _AdminLocationsPageState();
+}
+
+class _AdminLocationsPageState extends ConsumerState<_AdminLocationsPage> {
+  static const _refreshInterval = Duration(seconds: 15);
+
+  final MapController _mapController = MapController();
+  Timer? _timer;
+  bool _loading = true;
+  String? _error;
+  List<AdminUserLocation> _items = const [];
+  bool _didMoveToFirst = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _timer = Timer.periodic(_refreshInterval, (_) => _load(silent: true));
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+
+    try {
+      final repo = ref.read(adminLocationsRepositoryProvider);
+      final next = await repo.latest();
+      if (!mounted) return;
+
+      setState(() {
+        _items = next;
+        _loading = false;
+        _error = null;
+      });
+
+      if (!_didMoveToFirst && next.isNotEmpty) {
+        _didMoveToFirst = true;
+        final first = next.first;
+        _mapController.move(LatLng(first.latitude, first.longitude), 14);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '$e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: _load,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Reintentar'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_items.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'Aún no hay ubicaciones reportadas.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          ),
+        ),
+      );
+    }
+
+    final markers = _items
+        .where((item) => item.blocked != true)
+        .map(
+          (item) => Marker(
+            width: 48,
+            height: 48,
+            point: LatLng(item.latitude, item.longitude),
+            child: Tooltip(
+              message: item.nombreCompleto.isNotEmpty
+                  ? item.nombreCompleto
+                  : item.email,
+              child: Icon(
+                Icons.location_on,
+                color: Theme.of(context).colorScheme.primary,
+                size: 42,
+              ),
+            ),
+          ),
+        )
+        .toList();
+
+    final first = _items.first;
+    final initial = LatLng(first.latitude, first.longitude);
+
+    return FlutterMap(
+      mapController: _mapController,
+      options: MapOptions(initialCenter: initial, initialZoom: 13),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'fulltech_app',
+        ),
+        MarkerLayer(markers: markers),
+      ],
+    );
   }
 }
 
@@ -229,7 +399,10 @@ class _AdminIaPage extends StatelessWidget {
                     const Expanded(
                       child: Text(
                         'Asistente IA de Administración',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                     Chip(label: Text(insights.source.toUpperCase())),
@@ -242,7 +415,10 @@ class _AdminIaPage extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 10),
-        const Text('Novedades detectadas', style: TextStyle(fontWeight: FontWeight.w800)),
+        const Text(
+          'Novedades detectadas',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
         const SizedBox(height: 8),
         ...alerts.map(
           (item) => Card(
@@ -251,8 +427,8 @@ class _AdminIaPage extends StatelessWidget {
                 item.severity == 'high'
                     ? Icons.priority_high
                     : item.severity == 'medium'
-                        ? Icons.report_problem_outlined
-                        : Icons.info_outline,
+                    ? Icons.report_problem_outlined
+                    : Icons.info_outline,
               ),
               title: Text(item.title),
               subtitle: Text(item.detail),
@@ -297,9 +473,18 @@ class _AdminOverviewPage extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(entry.key, style: const TextStyle(fontWeight: FontWeight.w700)),
+                          Text(
+                            entry.key,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
                           const SizedBox(height: 6),
-                          Text('${entry.value}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+                          Text(
+                            '${entry.value}',
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -349,7 +534,9 @@ class _AdminAttendancePage extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         ...users.map((item) {
-          final row = item is Map ? item.cast<String, dynamic>() : <String, dynamic>{};
+          final row = item is Map
+              ? item.cast<String, dynamic>()
+              : <String, dynamic>{};
           final user = (row['user'] is Map)
               ? (row['user'] as Map).cast<String, dynamic>()
               : <String, dynamic>{};
@@ -358,7 +545,9 @@ class _AdminAttendancePage extends StatelessWidget {
               : <String, dynamic>{};
           return Card(
             child: ListTile(
-              title: Text('${user['nombreCompleto'] ?? 'Usuario'} (${user['role'] ?? ''})'),
+              title: Text(
+                '${user['nombreCompleto'] ?? 'Usuario'} (${user['role'] ?? ''})',
+              ),
               subtitle: Text(
                 'Incidentes: ${aggregate['incidentsCount'] ?? 0} · Tardanza(min): ${aggregate['tardinessMinutes'] ?? 0} · No laborado(min): ${aggregate['notWorkedMinutes'] ?? 0}',
               ),
@@ -395,7 +584,9 @@ class _AdminSalesPage extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         ...items.map((item) {
-          final row = item is Map ? item.cast<String, dynamic>() : <String, dynamic>{};
+          final row = item is Map
+              ? item.cast<String, dynamic>()
+              : <String, dynamic>{};
           return Card(
             child: ListTile(
               title: Text((row['userName'] ?? 'Usuario').toString()),
