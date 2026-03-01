@@ -7,7 +7,9 @@ import '../../core/widgets/custom_app_bar.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/utils/string_utils.dart';
 import '../../core/models/user_model.dart';
+import '../../core/company/company_settings_repository.dart';
 import '../user/data/users_repository.dart';
+import 'utils/work_contract_pdf_service.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -97,6 +99,45 @@ class ProfileScreen extends ConsumerWidget {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: 240,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.picture_as_pdf_outlined),
+                      label: const Text('Contrato (PDF)'),
+                      onPressed: user == null
+                          ? null
+                          : () async {
+                              try {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Generando contrato...'),
+                                  ),
+                                );
+                                final settingsRepo =
+                                    ref.read(companySettingsRepositoryProvider);
+                                final company = await settingsRepo.getSettings();
+                                final bytes = await buildWorkContractPdf(
+                                  employee: user,
+                                  company: company,
+                                );
+                                await shareWorkContractPdf(
+                                  bytes: bytes,
+                                  employee: user,
+                                );
+                              } catch (e) {
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'No se pudo generar el contrato: $e',
+                                    ),
+                                  ),
+                                );
+                              }
+                            },
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -122,8 +163,75 @@ class ProfileScreen extends ConsumerWidget {
                     _InfoRow('Cédula', user?.cedula ?? '—'),
                     _Divider(),
                     _InfoRow('Experiencia Laboral', user?.experienciaLaboral ?? '—'),
+                    _Divider(),
+                    _InfoRow(
+                      'Fecha de ingreso',
+                      user?.fechaIngreso != null
+                          ? DateFormat('dd/MM/yyyy').format(user!.fechaIngreso!)
+                          : '—',
+                    ),
+                    _Divider(),
+                    _InfoRow(
+                      'Días en la empresa',
+                      user?.diasEnEmpresa?.toString() ?? '—',
+                    ),
+                    _Divider(),
+                    _InfoRow(
+                      'Fecha de nacimiento',
+                      user?.fechaNacimiento != null
+                          ? DateFormat('dd/MM/yyyy').format(user!.fechaNacimiento!)
+                          : '—',
+                    ),
                   ],
                 ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Nómina
+            Text(
+              'Nómina',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    _InfoRow(
+                      'Cuenta preferencial',
+                      (user?.cuentaNominaPreferencial ?? '').trim().isEmpty
+                          ? '—'
+                          : user!.cuentaNominaPreferencial!.trim(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Habilidades
+            Text(
+              'Habilidades',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: user == null || user.habilidades.isEmpty
+                    ? _InfoRow('Listado', '—')
+                    : Align(
+                        alignment: Alignment.centerLeft,
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: user.habilidades
+                              .map((h) => Chip(label: Text(h)))
+                              .toList(growable: false),
+                        ),
+                      ),
               ),
             ),
             const SizedBox(height: 24),

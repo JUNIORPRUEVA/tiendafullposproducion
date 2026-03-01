@@ -69,6 +69,12 @@ export class UsersController {
     return this.users.findAll();
   }
 
+  @Get(':id/birthday-greeting')
+  @Roles(Role.ADMIN)
+  birthdayGreeting(@Param('id') id: string) {
+    return this.users.generateBirthdayGreeting(id);
+  }
+
   @Get('me')
   me(@Req() req: Request) {
     const user = req.user as { id?: string } | undefined;

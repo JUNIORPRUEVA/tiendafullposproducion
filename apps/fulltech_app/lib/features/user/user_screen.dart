@@ -90,8 +90,72 @@ class UserScreen extends ConsumerWidget {
                       'Experiencia Laboral',
                       user?.experienciaLaboral ?? '—',
                     ),
+                    _InfoRow(
+                      'Fecha de ingreso',
+                      user?.fechaIngreso != null
+                          ? DateFormat('dd/MM/yyyy').format(user!.fechaIngreso!)
+                          : '—',
+                    ),
+                    _InfoRow(
+                      'Días en la empresa',
+                      user?.diasEnEmpresa?.toString() ?? '—',
+                    ),
+                    _InfoRow(
+                      'Fecha de nacimiento',
+                      user?.fechaNacimiento != null
+                          ? DateFormat('dd/MM/yyyy').format(user!.fechaNacimiento!)
+                          : '—',
+                    ),
                   ],
                 ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Nómina
+            Text(
+              'Nómina',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    _InfoRow(
+                      'Cuenta preferencial',
+                      (user?.cuentaNominaPreferencial ?? '').trim().isEmpty
+                          ? '—'
+                          : user!.cuentaNominaPreferencial!.trim(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Habilidades
+            Text(
+              'Habilidades',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: user == null || user.habilidades.isEmpty
+                    ? const Text('—')
+                    : Align(
+                        alignment: Alignment.centerLeft,
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: user.habilidades
+                              .map((h) => Chip(label: Text(h)))
+                              .toList(growable: false),
+                        ),
+                      ),
               ),
             ),
             const SizedBox(height: 24),

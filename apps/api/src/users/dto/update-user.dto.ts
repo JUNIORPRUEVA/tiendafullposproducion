@@ -1,5 +1,5 @@
 import { Role } from '@prisma/client';
-import { IsBoolean, IsEmail, IsEnum, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class UpdateUserDto {
   @IsOptional()
@@ -42,6 +42,23 @@ export class UpdateUserDto {
   @IsOptional()
   @IsInt()
   edad?: number;
+
+  @IsOptional()
+  @IsDateString()
+  fechaIngreso?: string;
+
+  @IsOptional()
+  @IsDateString()
+  fechaNacimiento?: string;
+
+  @IsOptional()
+  @IsString()
+  cuentaNominaPreferencial?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  habilidades?: string[];
 
   @IsOptional()
   @IsBoolean()

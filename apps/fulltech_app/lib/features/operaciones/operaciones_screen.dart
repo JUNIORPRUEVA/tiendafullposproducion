@@ -723,6 +723,18 @@ class _OperacionesAgendaScreenState
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Regresar',
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () {
+            final router = GoRouter.of(context);
+            if (router.canPop()) {
+              router.pop();
+              return;
+            }
+            context.go(Routes.operaciones);
+          },
+        ),
         title: const FittedBox(
           fit: BoxFit.scaleDown,
           alignment: Alignment.centerLeft,

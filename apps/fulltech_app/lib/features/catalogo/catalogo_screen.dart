@@ -969,6 +969,18 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
                     height: 64,
                     width: 64,
                     fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      height: 64,
+                      width: 64,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest,
+                      alignment: Alignment.center,
+                      child: Icon(
+                        Icons.broken_image_outlined,
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                    ),
                   ),
                 ),
             ],

@@ -121,6 +121,10 @@ model User {
   casaPropia       Boolean  @default(false)
   vehiculo         Boolean  @default(false)
   licenciaConducir Boolean  @default(false)
+  fechaIngreso     DateTime?
+  fechaNacimiento  DateTime?
+  cuentaNominaPreferencial String?
+  habilidades      Json?
   role             Role
   blocked          Boolean  @default(false)
   createdAt        DateTime @default(now())

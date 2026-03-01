@@ -2,7 +2,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class Env {
   static const String _defaultApiBaseUrl =
-      'https://fulltech-tienda-fulltechapppwa.gcdndd.easypanel.host';
+  'http://localhost:4000';
 
   static String get apiBaseUrl {
     final raw = (dotenv.env['API_BASE_URL'] ?? '').trim();

@@ -5,10 +5,130 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcryptjs';
 import { SelfUpdateUserDto } from './dto/self-update-user.dto';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService
+  ) {}
+
+  private async getOpenAiRuntimeConfig() {
+    const envKey = (this.config.get<string>('OPENAI_API_KEY') ?? process.env.OPENAI_API_KEY ?? '').trim();
+    const envModel = (this.config.get<string>('OPENAI_MODEL') ?? process.env.OPENAI_MODEL ?? '').trim();
+
+    let appConfig: { openAiApiKey: string | null; openAiModel: string | null; companyName: string | null } | null = null;
+    try {
+      appConfig = await this.prisma.appConfig.findUnique({
+        where: { id: 'global' },
+        select: { openAiApiKey: true, openAiModel: true, companyName: true }
+      });
+    } catch {
+      // ignore missing table/rows, fallback to env vars only
+    }
+
+    const apiKey = envKey.length > 0 ? envKey : (appConfig?.openAiApiKey ?? '').trim();
+    const model = envModel.length > 0
+      ? envModel
+      : ((appConfig?.openAiModel ?? '').trim() || 'gpt-4o-mini');
+    const companyName = (appConfig?.companyName ?? '').trim();
+    return { apiKey, model, companyName };
+  }
+
+  private isBirthdayToday(birthDate: Date) {
+    const now = new Date();
+    return now.getMonth() === birthDate.getMonth() && now.getDate() === birthDate.getDate();
+  }
+
+  async generateBirthdayGreeting(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, nombreCompleto: true, fechaNacimiento: true }
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    if (!user.fechaNacimiento) {
+      return {
+        userId: user.id,
+        isBirthdayToday: false,
+        birthdayKnown: false,
+        message: 'No hay fecha de nacimiento registrada para este usuario.'
+      };
+    }
+
+    const isToday = this.isBirthdayToday(user.fechaNacimiento);
+    const birthdayFmt = user.fechaNacimiento.toISOString().slice(0, 10);
+    if (!isToday) {
+      return {
+        userId: user.id,
+        isBirthdayToday: false,
+        birthdayKnown: true,
+        birthday: birthdayFmt,
+        message: 'Hoy no es su cumpleaños.'
+      };
+    }
+
+    const { apiKey, model, companyName } = await this.getOpenAiRuntimeConfig();
+    const employeeName = (user.nombreCompleto ?? '').trim() || 'nuestro colaborador';
+
+    if (!apiKey) {
+      const from = companyName.length > 0 ? companyName : 'el equipo';
+      return {
+        userId: user.id,
+        isBirthdayToday: true,
+        birthdayKnown: true,
+        birthday: birthdayFmt,
+        source: 'template',
+        message: `Feliz cumpleaños, ${employeeName}. ¡Te deseamos un día excelente! — ${from}`
+      };
+    }
+
+    const prompt = `Genera un mensaje corto (1-2 frases), profesional y cálido en español para felicitar el cumpleaños de un empleado.
+Empleado: ${employeeName}
+Empresa: ${companyName || 'FULLTECH'}
+Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no proporcionada.`;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: 'Eres un asistente que redacta mensajes corporativos breves.' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.7,
+      }),
+    });
+
+    if (!response.ok) {
+      const from = companyName.length > 0 ? companyName : 'el equipo';
+      return {
+        userId: user.id,
+        isBirthdayToday: true,
+        birthdayKnown: true,
+        birthday: birthdayFmt,
+        source: 'template',
+        message: `Feliz cumpleaños, ${employeeName}. ¡Te deseamos un día excelente! — ${from}`,
+      };
+    }
+
+    const data = (await response.json()) as any;
+    const content = (data?.choices?.[0]?.message?.content ?? '').toString().trim();
+
+    return {
+      userId: user.id,
+      isBirthdayToday: true,
+      birthdayKnown: true,
+      birthday: birthdayFmt,
+      source: 'openai',
+      message: content.length > 0 ? content : `Feliz cumpleaños, ${employeeName}.`,
+    };
+  }
 
   private isMissingUserTable(error: unknown) {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -48,6 +168,10 @@ export class UsersService {
       casaPropia: false,
       vehiculo: false,
       licenciaConducir: false,
+      fechaIngreso: null,
+      fechaNacimiento: null,
+      cuentaNominaPreferencial: null,
+      habilidades: null,
       role: row.role,
       blocked: false,
       createdAt: row.createdAt,
@@ -77,6 +201,10 @@ export class UsersService {
           casaPropia: true,
           vehiculo: true,
           licenciaConducir: true,
+          fechaIngreso: true,
+          fechaNacimiento: true,
+          cuentaNominaPreferencial: true,
+          habilidades: true,
           role: true,
           blocked: true,
           createdAt: true,
@@ -129,6 +257,10 @@ export class UsersService {
         casaPropia: dto.casaPropia ?? false,
         vehiculo: dto.vehiculo ?? false,
         licenciaConducir: dto.licenciaConducir ?? false,
+        fechaIngreso: dto.fechaIngreso ? new Date(dto.fechaIngreso) : undefined,
+        fechaNacimiento: dto.fechaNacimiento ? new Date(dto.fechaNacimiento) : undefined,
+        cuentaNominaPreferencial: dto.cuentaNominaPreferencial,
+        habilidades: dto.habilidades,
         role: dto.role,
         blocked: dto.blocked ?? false
       },
@@ -148,6 +280,10 @@ export class UsersService {
         casaPropia: true,
         vehiculo: true,
         licenciaConducir: true,
+        fechaIngreso: true,
+        fechaNacimiento: true,
+        cuentaNominaPreferencial: true,
+        habilidades: true,
         role: true,
         blocked: true,
         createdAt: true,
@@ -175,6 +311,10 @@ export class UsersService {
         casaPropia: true,
         vehiculo: true,
         licenciaConducir: true,
+        fechaIngreso: true,
+        fechaNacimiento: true,
+        cuentaNominaPreferencial: true,
+        habilidades: true,
         role: true,
         blocked: true,
         createdAt: true,
@@ -226,6 +366,10 @@ export class UsersService {
         casaPropia: dto.casaPropia,
         vehiculo: dto.vehiculo,
         licenciaConducir: dto.licenciaConducir,
+        fechaIngreso: dto.fechaIngreso ? new Date(dto.fechaIngreso) : undefined,
+        fechaNacimiento: dto.fechaNacimiento ? new Date(dto.fechaNacimiento) : undefined,
+        cuentaNominaPreferencial: dto.cuentaNominaPreferencial,
+        habilidades: dto.habilidades,
         role: dto.role,
         blocked: dto.blocked
       },
@@ -245,6 +389,10 @@ export class UsersService {
         casaPropia: true,
         vehiculo: true,
         licenciaConducir: true,
+        fechaIngreso: true,
+        fechaNacimiento: true,
+        cuentaNominaPreferencial: true,
+        habilidades: true,
         role: true,
         blocked: true,
         createdAt: true,
@@ -287,6 +435,10 @@ export class UsersService {
         casaPropia: true,
         vehiculo: true,
         licenciaConducir: true,
+        fechaIngreso: true,
+        fechaNacimiento: true,
+        cuentaNominaPreferencial: true,
+        habilidades: true,
         role: true,
         blocked: true,
         createdAt: true,

@@ -5,12 +5,14 @@ import 'package:intl/intl.dart';
 
 import '../../core/api/env.dart';
 import '../../core/auth/auth_provider.dart';
+import '../../core/company/company_settings_repository.dart';
 import '../../core/models/user_model.dart';
 import '../../core/utils/string_utils.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../user/application/users_controller.dart';
 import './profile_screen.dart';
+import 'utils/work_contract_pdf_service.dart';
 
 String? _resolveUserDocUrl(String? url) {
   if (url == null || url.isEmpty) return null;
@@ -296,7 +298,11 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
       text: user?.telefonoFamiliar ?? '',
     );
     final edadCtrl = TextEditingController(text: user?.edad?.toString() ?? '');
+    final cuentaNominaCtrl = TextEditingController(
+      text: user?.cuentaNominaPreferencial ?? '',
+    );
     final passwordCtrl = TextEditingController();
+    final habilidadCtrl = TextEditingController();
     String selectedRole = user?.role ?? 'ASISTENTE';
     bool blocked = user?.blocked ?? false;
     bool tieneHijos = user?.tieneHijos ?? false;
@@ -304,6 +310,9 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
     bool casaPropia = user?.casaPropia ?? false;
     bool vehiculo = user?.vehiculo ?? false;
     bool licenciaConducir = user?.licenciaConducir ?? false;
+    DateTime? fechaIngreso = user?.fechaIngreso;
+    DateTime? fechaNacimiento = user?.fechaNacimiento;
+    final habilidades = [...user?.habilidades ?? const <String>[]];
     String? fotoCedulaUrl = user?.fotoCedulaUrl;
     String? fotoLicenciaUrl = user?.fotoLicenciaUrl;
     String? fotoPersonalUrl = user?.fotoPersonalUrl;
@@ -353,6 +362,128 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                   controller: edadCtrl,
                   decoration: const InputDecoration(labelText: 'Edad'),
                   keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Fecha de ingreso (opcional)'),
+                  subtitle: Text(
+                    fechaIngreso == null
+                        ? 'Seleccionar fecha'
+                        : DateFormat('dd/MM/yyyy').format(fechaIngreso!),
+                  ),
+                  trailing: const Icon(Icons.calendar_today_outlined),
+                  onTap: () async {
+                    final now = DateTime.now();
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: fechaIngreso ?? now,
+                      firstDate: DateTime(1990),
+                      lastDate: DateTime(now.year + 5),
+                    );
+                    if (picked != null) {
+                      setModalState(() => fechaIngreso = picked);
+                    }
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Fecha de nacimiento (opcional)'),
+                  subtitle: Text(
+                    fechaNacimiento == null
+                        ? 'Seleccionar fecha'
+                        : DateFormat('dd/MM/yyyy').format(fechaNacimiento!),
+                  ),
+                  trailing: const Icon(Icons.cake_outlined),
+                  onTap: () async {
+                    final now = DateTime.now();
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: fechaNacimiento ?? DateTime(now.year - 18),
+                      firstDate: DateTime(1940),
+                      lastDate: now,
+                    );
+                    if (picked != null) {
+                      setModalState(() => fechaNacimiento = picked);
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: cuentaNominaCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Cuenta preferencial para nómina (opcional)',
+                    hintText: 'Ej: Banco, tipo, # cuenta o # IBAN',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Habilidades (opcional)',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (habilidades.isNotEmpty)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: habilidades
+                          .map(
+                            (h) => Chip(
+                              label: Text(h),
+                              onDeleted: () => setModalState(
+                                () => habilidades.remove(h),
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                    ),
+                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: habilidadCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Agregar habilidad',
+                        ),
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (value) {
+                          final skill = value.trim();
+                          if (skill.isEmpty) return;
+                          if (habilidades.contains(skill)) {
+                            habilidadCtrl.clear();
+                            return;
+                          }
+                          setModalState(() {
+                            habilidades.add(skill);
+                            habilidadCtrl.clear();
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: () {
+                        final skill = habilidadCtrl.text.trim();
+                        if (skill.isEmpty) return;
+                        if (habilidades.contains(skill)) {
+                          habilidadCtrl.clear();
+                          return;
+                        }
+                        setModalState(() {
+                          habilidades.add(skill);
+                          habilidadCtrl.clear();
+                        });
+                      },
+                      icon: const Icon(Icons.add_circle_outline),
+                      tooltip: 'Agregar',
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -494,6 +625,10 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                   'fotoLicenciaUrl': fotoLicenciaUrl,
                   'fotoPersonalUrl': fotoPersonalUrl,
                   'edad': edad,
+                  'fechaIngreso': fechaIngreso?.toIso8601String(),
+                  'fechaNacimiento': fechaNacimiento?.toIso8601String(),
+                  'cuentaNominaPreferencial': cuentaNominaCtrl.text.trim(),
+                  'habilidades': habilidades,
                   'tieneHijos': tieneHijos,
                   'estaCasado': estaCasado,
                   'casaPropia': casaPropia,
@@ -631,6 +766,34 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                 children: [
                   Text('Detalle de usuario', style: theme.textTheme.titleLarge),
                   const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.picture_as_pdf_outlined),
+                      label: const Text('Contrato (PDF)'),
+                      onPressed: () async {
+                        try {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Generando contrato...')),
+                          );
+                          final settingsRepo =
+                              ref.read(companySettingsRepositoryProvider);
+                          final company = await settingsRepo.getSettings();
+                          final bytes = await buildWorkContractPdf(
+                            employee: user,
+                            company: company,
+                          );
+                          await shareWorkContractPdf(bytes: bytes, employee: user);
+                        } catch (e) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('No se pudo generar: $e')),
+                          );
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(14),
@@ -676,6 +839,28 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                           _DetailRow(
                             'Licencia',
                             user.licenciaConducir ? 'Sí' : 'No',
+                          ),
+                          _DetailRow(
+                            'Fecha de ingreso',
+                            user.fechaIngreso != null
+                                ? DateFormat('dd/MM/yyyy').format(user.fechaIngreso!)
+                                : '—',
+                          ),
+                          _DetailRow(
+                            'Días en la empresa',
+                            user.diasEnEmpresa?.toString() ?? '—',
+                          ),
+                          _DetailRow(
+                            'Cuenta nómina preferencial',
+                            (user.cuentaNominaPreferencial ?? '').trim().isEmpty
+                                ? '—'
+                                : user.cuentaNominaPreferencial!.trim(),
+                          ),
+                          _DetailRow(
+                            'Habilidades',
+                            user.habilidades.isEmpty
+                                ? '—'
+                                : user.habilidades.join(', '),
                           ),
                           _DetailRow(
                             'Creado',

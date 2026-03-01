@@ -9,6 +9,10 @@ class UserModel {
   final String? fotoLicenciaUrl;
   final String? fotoPersonalUrl;
   final String? experienciaLaboral;
+  final DateTime? fechaIngreso;
+  final DateTime? fechaNacimiento;
+  final String? cuentaNominaPreferencial;
+  final List<String> habilidades;
   final String? role;
   final bool blocked;
   final int? edad;
@@ -30,6 +34,10 @@ class UserModel {
     this.fotoLicenciaUrl,
     this.fotoPersonalUrl,
     this.experienciaLaboral,
+    this.fechaIngreso,
+    this.fechaNacimiento,
+    this.cuentaNominaPreferencial,
+    this.habilidades = const [],
     this.role,
     this.blocked = false,
     this.edad,
@@ -42,6 +50,15 @@ class UserModel {
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
+    final habilidadesRaw = json['habilidades'];
+    final habilidades = habilidadesRaw is List
+        ? habilidadesRaw
+            .whereType<String>()
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList(growable: false)
+        : const <String>[];
+
     return UserModel(
       id: json['id'] ?? '',
       email: json['email'] ?? '',
@@ -53,6 +70,14 @@ class UserModel {
       fotoLicenciaUrl: json['fotoLicenciaUrl'],
       fotoPersonalUrl: json['fotoPersonalUrl'],
       experienciaLaboral: json['experienciaLaboral'],
+      fechaIngreso: json['fechaIngreso'] != null
+          ? DateTime.tryParse(json['fechaIngreso'])
+          : null,
+      fechaNacimiento: json['fechaNacimiento'] != null
+          ? DateTime.tryParse(json['fechaNacimiento'])
+          : null,
+      cuentaNominaPreferencial: json['cuentaNominaPreferencial'],
+      habilidades: habilidades,
       role: json['role'] ?? json['rol'] ?? 'ASISTENTE',
       blocked: json['blocked'] ?? false,
       edad: json['edad'],
@@ -67,6 +92,19 @@ class UserModel {
     );
   }
 
+  int? get diasEnEmpresa {
+    if (fechaIngreso == null) return null;
+    final start = DateTime(
+      fechaIngreso!.year,
+      fechaIngreso!.month,
+      fechaIngreso!.day,
+    );
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final diff = today.difference(start).inDays;
+    return diff < 0 ? 0 : diff;
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -79,6 +117,10 @@ class UserModel {
       'fotoLicenciaUrl': fotoLicenciaUrl,
       'fotoPersonalUrl': fotoPersonalUrl,
       'experienciaLaboral': experienciaLaboral,
+      'fechaIngreso': fechaIngreso?.toIso8601String(),
+      'fechaNacimiento': fechaNacimiento?.toIso8601String(),
+      'cuentaNominaPreferencial': cuentaNominaPreferencial,
+      'habilidades': habilidades,
       'role': role,
       'blocked': blocked,
       'edad': edad,

@@ -898,12 +898,28 @@ class _ProductThumbCard extends StatelessWidget {
               children: [
                 CircleAvatar(
                   radius: 19,
-                  foregroundImage: product.fotoUrl != null
-                      ? NetworkImage(product.fotoUrl!)
-                      : null,
-                  child: product.fotoUrl == null
+                  backgroundColor:
+                      Theme.of(context).colorScheme.surfaceContainerHighest,
+                  child: (product.fotoUrl ?? '').trim().isEmpty
                       ? const Icon(Icons.inventory_2_outlined, size: 17)
-                      : null,
+                      : ClipOval(
+                          child: Image.network(
+                            product.fotoUrl!,
+                            width: 38,
+                            height: 38,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Center(
+                                child: Icon(
+                                  Icons.broken_image_outlined,
+                                  size: 18,
+                                  color:
+                                      Theme.of(context).colorScheme.outline,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
                 ),
                 const SizedBox(height: 5),
                 Text(
