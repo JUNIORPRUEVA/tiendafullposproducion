@@ -17,7 +17,8 @@ class ServiceAssignmentModel {
       id: (json['id'] ?? '').toString(),
       userId: (json['userId'] ?? '').toString(),
       role: (json['role'] ?? 'assistant').toString(),
-      userName: (user['nombreCompleto'] ?? user['email'] ?? 'Técnico').toString(),
+      userName: (user['nombreCompleto'] ?? user['email'] ?? 'Técnico')
+          .toString(),
     );
   }
 }
@@ -43,7 +44,9 @@ class ServiceStepModel {
       stepKey: (json['stepKey'] ?? '').toString(),
       stepLabel: (json['stepLabel'] ?? '').toString(),
       isDone: json['isDone'] == true,
-      doneAt: json['doneAt'] == null ? null : DateTime.tryParse(json['doneAt'].toString()),
+      doneAt: json['doneAt'] == null
+          ? null
+          : DateTime.tryParse(json['doneAt'].toString()),
     );
   }
 }
@@ -174,6 +177,63 @@ class ServiceModel {
     this.completedAt,
   });
 
+  ServiceModel copyWith({
+    String? title,
+    String? description,
+    String? serviceType,
+    String? category,
+    String? status,
+    String? orderType,
+    String? orderState,
+    String? technicianId,
+    int? priority,
+    double? quotedAmount,
+    double? depositAmount,
+    List<String>? tags,
+    DateTime? scheduledStart,
+    DateTime? scheduledEnd,
+    DateTime? completedAt,
+    String? customerId,
+    String? customerName,
+    String? customerPhone,
+    String? customerAddress,
+    String? createdByUserId,
+    String? createdByName,
+    List<ServiceAssignmentModel>? assignments,
+    List<ServiceStepModel>? steps,
+    List<ServiceFileModel>? files,
+    List<ServiceUpdateModel>? updates,
+  }) {
+    return ServiceModel(
+      id: id,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      serviceType: serviceType ?? this.serviceType,
+      category: category ?? this.category,
+      status: status ?? this.status,
+      orderType: orderType ?? this.orderType,
+      orderState: orderState ?? this.orderState,
+      technicianId: technicianId ?? this.technicianId,
+      priority: priority ?? this.priority,
+      quotedAmount: quotedAmount ?? this.quotedAmount,
+      depositAmount: depositAmount ?? this.depositAmount,
+      tags: tags ?? this.tags,
+      scheduledStart: scheduledStart ?? this.scheduledStart,
+      scheduledEnd: scheduledEnd ?? this.scheduledEnd,
+      completedAt: completedAt ?? this.completedAt,
+      customerId: customerId ?? this.customerId,
+      customerName: customerName ?? this.customerName,
+      customerPhone: customerPhone ?? this.customerPhone,
+      customerAddress: customerAddress ?? this.customerAddress,
+      createdByUserId: createdByUserId ?? this.createdByUserId,
+      createdByName: createdByName ?? this.createdByName,
+      assignments: assignments ?? this.assignments,
+      steps: steps ?? this.steps,
+      files: files ?? this.files,
+      updates: updates ?? this.updates,
+    );
+  }
+
   bool get isSeguro {
     final deposit = depositAmount ?? 0;
     if (deposit > 0) return true;
@@ -181,8 +241,10 @@ class ServiceModel {
   }
 
   factory ServiceModel.fromJson(Map<String, dynamic> json) {
-    final customer = (json['customer'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final createdBy = (json['createdBy'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final customer =
+        (json['customer'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final createdBy =
+        (json['createdBy'] as Map?)?.cast<String, dynamic>() ?? const {};
 
     double? parseMoney(dynamic raw) {
       if (raw == null) return null;
@@ -193,7 +255,10 @@ class ServiceModel {
 
     List<String> parseStringList(dynamic raw) {
       if (raw is! List) return const [];
-      return raw.map((e) => (e ?? '').toString()).where((s) => s.trim().isNotEmpty).toList();
+      return raw
+          .map((e) => (e ?? '').toString())
+          .where((s) => s.trim().isNotEmpty)
+          .toList();
     }
 
     List<T> parseList<T>(dynamic raw, T Function(Map<String, dynamic>) parser) {
@@ -214,8 +279,8 @@ class ServiceModel {
       orderType: (json['orderType'] ?? 'reserva').toString(),
       orderState: (json['orderState'] ?? 'pending').toString(),
       technicianId: json['technicianId'] == null
-        ? null
-        : (json['technicianId'] ?? '').toString(),
+          ? null
+          : (json['technicianId'] ?? '').toString(),
       priority: (json['priority'] is int)
           ? json['priority'] as int
           : int.tryParse('${json['priority']}') ?? 2,
@@ -234,10 +299,14 @@ class ServiceModel {
       customerId: (customer['id'] ?? '').toString(),
       customerName: (customer['nombre'] ?? '').toString(),
       customerPhone: (customer['telefono'] ?? '').toString(),
-      customerAddress: (json['addressSnapshot'] ?? customer['direccion'] ?? '').toString(),
+      customerAddress: (json['addressSnapshot'] ?? customer['direccion'] ?? '')
+          .toString(),
       createdByUserId: (json['createdByUserId'] ?? '').toString(),
       createdByName: (createdBy['nombreCompleto'] ?? '').toString(),
-      assignments: parseList(json['assignments'], ServiceAssignmentModel.fromJson),
+      assignments: parseList(
+        json['assignments'],
+        ServiceAssignmentModel.fromJson,
+      ),
       steps: parseList(json['steps'], ServiceStepModel.fromJson),
       files: parseList(json['files'], ServiceFileModel.fromJson),
       updates: parseList(json['updates'], ServiceUpdateModel.fromJson),
@@ -261,12 +330,12 @@ class OperationsDashboardModel {
   });
 
   factory OperationsDashboardModel.empty() => OperationsDashboardModel(
-        installationsPendingToday: 0,
-        warrantiesOpen: 0,
-        averageHoursByLifecycle: 0,
-        activeByStatus: const {},
-        technicianPerformance: const [],
-      );
+    installationsPendingToday: 0,
+    warrantiesOpen: 0,
+    averageHoursByLifecycle: 0,
+    activeByStatus: const {},
+    technicianPerformance: const [],
+  );
 
   factory OperationsDashboardModel.fromJson(Map<String, dynamic> json) {
     final byStatusRaw = json['activeByStatus'];
@@ -281,7 +350,10 @@ class OperationsDashboardModel {
 
     final perfRaw = json['technicianPerformance'];
     final perf = perfRaw is List
-        ? perfRaw.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList()
+        ? perfRaw
+              .whereType<Map>()
+              .map((e) => e.cast<String, dynamic>())
+              .toList()
         : <Map<String, dynamic>>[];
 
     return OperationsDashboardModel(
@@ -313,9 +385,9 @@ class ServicesPageModel {
     final listRaw = json['items'];
     final items = listRaw is List
         ? listRaw
-            .whereType<Map>()
-            .map((row) => ServiceModel.fromJson(row.cast<String, dynamic>()))
-            .toList()
+              .whereType<Map>()
+              .map((row) => ServiceModel.fromJson(row.cast<String, dynamic>()))
+              .toList()
         : <ServiceModel>[];
 
     return ServicesPageModel(

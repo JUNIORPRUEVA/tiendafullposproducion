@@ -81,11 +81,21 @@ class OperationsState {
       search: search ?? this.search,
       statusFilter: clearStatus ? null : (statusFilter ?? this.statusFilter),
       typeFilter: clearType ? null : (typeFilter ?? this.typeFilter),
-      orderTypeFilter: clearOrderType ? null : (orderTypeFilter ?? this.orderTypeFilter),
-      orderStateFilter: clearOrderState ? null : (orderStateFilter ?? this.orderStateFilter),
-      technicianIdFilter: clearTechnician ? null : (technicianIdFilter ?? this.technicianIdFilter),
-      priorityFilter: clearPriority ? null : (priorityFilter ?? this.priorityFilter),
-      customerIdFilter: clearCustomer ? null : (customerIdFilter ?? this.customerIdFilter),
+      orderTypeFilter: clearOrderType
+          ? null
+          : (orderTypeFilter ?? this.orderTypeFilter),
+      orderStateFilter: clearOrderState
+          ? null
+          : (orderStateFilter ?? this.orderStateFilter),
+      technicianIdFilter: clearTechnician
+          ? null
+          : (technicianIdFilter ?? this.technicianIdFilter),
+      priorityFilter: clearPriority
+          ? null
+          : (priorityFilter ?? this.priorityFilter),
+      customerIdFilter: clearCustomer
+          ? null
+          : (customerIdFilter ?? this.customerIdFilter),
       from: from ?? this.from,
       to: to ?? this.to,
     );
@@ -94,8 +104,8 @@ class OperationsState {
 
 final operationsControllerProvider =
     StateNotifierProvider<OperationsController, OperationsState>((ref) {
-  return OperationsController(ref);
-});
+      return OperationsController(ref);
+    });
 
 class OperationsController extends StateNotifier<OperationsState> {
   final Ref ref;
@@ -226,7 +236,9 @@ class OperationsController extends StateNotifier<OperationsState> {
     double? finalCost,
     List<String>? tags,
   }) async {
-    final service = await ref.read(operationsRepositoryProvider).createService(
+    final service = await ref
+        .read(operationsRepositoryProvider)
+        .createService(
           customerId: customerId,
           serviceType: serviceType,
           category: category,
@@ -256,14 +268,61 @@ class OperationsController extends StateNotifier<OperationsState> {
     await load();
   }
 
-  Future<void> schedule(String id, DateTime start, DateTime end,
-      {String? message}) async {
-    await ref.read(operationsRepositoryProvider).schedule(
-          serviceId: id,
-          start: start,
-          end: end,
-          message: message,
-        );
+  Future<void> changeOrderStateOptimistic(
+    String id,
+    String orderState, {
+    String? message,
+  }) async {
+    final next = orderState.trim().toLowerCase();
+    if (next.isEmpty) return;
+
+    final before = state.services;
+    final index = before.indexWhere((s) => s.id == id);
+
+    if (index < 0) {
+      await ref
+          .read(operationsRepositoryProvider)
+          .changeOrderState(serviceId: id, orderState: next, message: message);
+      await load();
+      return;
+    }
+
+    final current = before[index];
+    if (current.orderState.trim().toLowerCase() == next) return;
+
+    final optimistic = current.copyWith(orderState: next);
+    final optimisticList = [...before];
+    optimisticList[index] = optimistic;
+    state = state.copyWith(services: optimisticList);
+
+    try {
+      final updated = await ref
+          .read(operationsRepositoryProvider)
+          .changeOrderState(serviceId: id, orderState: next, message: message);
+
+      final after = [...state.services];
+      final idx = after.indexWhere((s) => s.id == id);
+      if (idx >= 0) {
+        after[idx] = updated;
+        state = state.copyWith(services: after);
+      } else {
+        await load();
+      }
+    } catch (e) {
+      state = state.copyWith(services: before);
+      rethrow;
+    }
+  }
+
+  Future<void> schedule(
+    String id,
+    DateTime start,
+    DateTime end, {
+    String? message,
+  }) async {
+    await ref
+        .read(operationsRepositoryProvider)
+        .schedule(serviceId: id, start: start, end: end, message: message);
     await load();
   }
 
@@ -275,16 +334,16 @@ class OperationsController extends StateNotifier<OperationsState> {
   }
 
   Future<void> addNote(String id, String message) async {
-    await ref.read(operationsRepositoryProvider).addUpdate(
-          serviceId: id,
-          type: 'note',
-          message: message,
-        );
+    await ref
+        .read(operationsRepositoryProvider)
+        .addUpdate(serviceId: id, type: 'note', message: message);
     await load();
   }
 
   Future<void> toggleStep(String id, String stepId, bool done) async {
-    await ref.read(operationsRepositoryProvider).addUpdate(
+    await ref
+        .read(operationsRepositoryProvider)
+        .addUpdate(
           serviceId: id,
           type: 'step_update',
           stepId: stepId,
@@ -293,12 +352,14 @@ class OperationsController extends StateNotifier<OperationsState> {
     await load();
   }
 
-  Future<void> createWarranty(String id, {String? title, String? description}) async {
-    await ref.read(operationsRepositoryProvider).createWarranty(
-          serviceId: id,
-          title: title,
-          description: description,
-        );
+  Future<void> createWarranty(
+    String id, {
+    String? title,
+    String? description,
+  }) async {
+    await ref
+        .read(operationsRepositoryProvider)
+        .createWarranty(serviceId: id, title: title, description: description);
     await load();
   }
 
@@ -326,9 +387,8 @@ class OperationsController extends StateNotifier<OperationsState> {
     required String nombre,
     required String telefono,
   }) {
-    return ref.read(operationsRepositoryProvider).createQuickClient(
-          nombre: nombre,
-          telefono: telefono,
-        );
+    return ref
+        .read(operationsRepositoryProvider)
+        .createQuickClient(nombre: nombre, telefono: telefono);
   }
 }

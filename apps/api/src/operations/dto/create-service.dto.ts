@@ -2,7 +2,7 @@ import { Transform, Type } from 'class-transformer';
 import { IsArray, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
 const serviceTypes = ['installation', 'maintenance', 'warranty', 'pos_support', 'other'] as const;
-const orderTypes = ['reserva', 'servicio', 'levantamiento', 'garantia'] as const;
+const orderTypes = ['reserva', 'servicio', 'levantamiento', 'garantia', 'mantenimiento', 'instalacion'] as const;
 const orderStates = ['pending', 'confirmed', 'assigned', 'in_progress', 'finalized', 'cancelled', 'rescheduled'] as const;
 
 export class CreateServiceDto {

@@ -7,7 +7,7 @@ class ApiRoutes {
 
   // Usuarios
   static const users = '/users';
-    static const usersMe = '/users/me';
+  static const usersMe = '/users/me';
   static String userDetail(String id) => '/users/$id';
   static String updateUser(String id) => '/users/$id';
   static String deleteUser(String id) => '/users/$id';
@@ -66,9 +66,10 @@ class ApiRoutes {
 
   // Operaciones
   static const services = '/services';
-    static const technicians = '/technicians';
+  static const technicians = '/technicians';
   static String serviceDetail(String id) => '/services/$id';
   static String serviceStatus(String id) => '/services/$id/status';
+  static String serviceOrderState(String id) => '/services/$id/order-state';
   static String serviceSchedule(String id) => '/services/$id/schedule';
   static String serviceAssign(String id) => '/services/$id/assign';
   static String serviceUpdate(String id) => '/services/$id/update';

@@ -28,6 +28,7 @@ import { OperationsService } from './operations-main.service';
 import { ServicesQueryDto } from './dto/services-query.dto';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { ChangeServiceStatusDto } from './dto/change-service-status.dto';
+import { ChangeServiceOrderStateDto } from './dto/change-service-order-state.dto';
 import { ScheduleServiceDto } from './dto/schedule-service.dto';
 import { AssignServiceDto } from './dto/assign-service.dto';
 import { ServiceUpdateDto } from './dto/service-update.dto';
@@ -83,6 +84,17 @@ export class OperationsController {
   changeStatus(@Req() req: Request, @Param('id') id: string, @Body() dto: ChangeServiceStatusDto) {
     const user = req.user as { id: string; role: Role };
     return this.operations.changeStatus(user, id, dto);
+  }
+
+  @Patch('services/:id/order-state')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  changeOrderState(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: ChangeServiceOrderStateDto,
+  ) {
+    const user = req.user as { id: string; role: Role };
+    return this.operations.changeOrderState(user, id, dto);
   }
 
   @Patch('services/:id/schedule')

@@ -16,6 +16,48 @@
 5) El contenedor corre `npx prisma migrate deploy` antes de iniciar `node dist/main.js`.
 6) Opcional: para crear/resetear el usuario ADMIN al desplegar, define `RUN_SEED=true` y `ADMIN_PASSWORD` en el entorno (EasyPanel / .env.docker). Esto ejecuta `npx prisma db seed` en el arranque.
 
+## Troubleshooting: Prisma P3009 (migración fallida en producción)
+
+### Síntoma
+- En EasyPanel el contenedor entra en loop y `npx prisma migrate deploy` falla con **P3009**.
+
+### Causa típica
+- Existe una migración marcada como *failed* en la tabla `_prisma_migrations` de la DB.
+
+### Ver el error real guardado por Prisma
+Prisma no imprime el contenido de `logs` por CLI. Usa el script:
+
+```bash
+cd apps/api
+node scripts/print-prisma-migration-log.cjs <migration_name>
+```
+
+### Resolver el bloqueo sin borrar la DB
+1) Verifica si la migración aplicó algo (mira `applied_steps_count` y/o revisa si las columnas/índices existen).
+2) Marca correctamente:
+
+```bash
+cd apps/api
+
+# Si NO aplicó cambios útiles (applied_steps_count = 0):
+npx prisma migrate resolve --rolled-back <migration_name>
+
+# Si SÍ aplicó (o dejó los cambios ya presentes en DB):
+npx prisma migrate resolve --applied <migration_name>
+```
+
+3) Reintenta deploy:
+
+```bash
+cd apps/api
+npx prisma migrate deploy
+```
+
+### Nota sobre "User" vs "users"
+- Algunas migraciones legacy usan la tabla `"User"` porque al inicio del proyecto esa era la tabla creada.
+- Más adelante se migra/normaliza a `users` en `prisma/migrations/20260225000000_users_table_compat/migration.sql`.
+- Importante: **no edites migraciones ya aplicadas** en una base existente (rompe checksums). Si necesitas mejorar el bootstrap de una DB desde cero, se hace con un baseline/squash planificado.
+
 ## Subida de imágenes de productos
 - Endpoint: `POST /products/upload` (roles ADMIN/ASISTENTE, header Authorization Bearer).
 - Campo: `file` (multipart/form-data), formatos permitidos: PNG/JPG/WEBP, límite 5 MB.

@@ -18,6 +18,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ServicesQueryDto } from './dto/services-query.dto';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { ChangeServiceStatusDto } from './dto/change-service-status.dto';
+import { ChangeServiceOrderStateDto } from './dto/change-service-order-state.dto';
 import { ScheduleServiceDto } from './dto/schedule-service.dto';
 import { AssignServiceDto } from './dto/assign-service.dto';
 import { ServiceUpdateDto } from './dto/service-update.dto';
@@ -67,7 +68,7 @@ export class OperationsService {
       ...(query.includeDeleted ? {} : { isDeleted: false }),
       ...(query.status ? { status: this.parseStatus(query.status) } : {}),
       ...(query.type ? { serviceType: this.parseType(query.type) } : {}),
-      ...(query.orderType ? { orderType: this.parseOrderType(query.orderType) } : {}),
+      ...(query.orderType ? this.orderTypeWhere(query.orderType) : {}),
       ...(query.orderState ? { orderState: this.parseOrderState(query.orderState) } : {}),
       ...(query.technicianId ? { technicianId: query.technicianId } : {}),
       ...(query.priority ? { priority: query.priority } : {}),
@@ -291,6 +292,25 @@ export class OperationsService {
       });
 
       return row;
+    });
+
+    return this.normalizeService(updated);
+  }
+
+  async changeOrderState(user: AuthUser, id: string, dto: ChangeServiceOrderStateDto) {
+    const service = await this.prisma.service.findFirst({
+      where: { id, isDeleted: false },
+      include: { assignments: true },
+    });
+
+    if (!service) throw new NotFoundException('Servicio no encontrado');
+    this.assertCanOperate(user, service.createdByUserId, service.assignments.map((a) => a.userId));
+
+    const nextOrderState = this.parseOrderState(dto.orderState);
+    const updated = await this.prisma.service.update({
+      where: { id },
+      data: { orderState: nextOrderState },
+      include: this.serviceInclude(),
     });
 
     return this.normalizeService(updated);
@@ -832,13 +852,25 @@ export class OperationsService {
     const key = value.trim().toLowerCase();
     const map: Record<string, OrderType> = {
       reserva: OrderType.RESERVA,
-      servicio: OrderType.SERVICIO,
+      servicio: OrderType.MANTENIMIENTO, // legacy
       levantamiento: OrderType.LEVANTAMIENTO,
       garantia: OrderType.GARANTIA,
+      mantenimiento: OrderType.MANTENIMIENTO,
+      instalacion: OrderType.INSTALACION,
     };
     const parsed = map[key];
     if (!parsed) throw new BadRequestException('Tipo de orden inválido');
     return parsed;
+  }
+
+  private orderTypeWhere(value: string): Prisma.ServiceWhereInput {
+    const key = value.trim().toLowerCase();
+
+    if (key === 'mantenimiento' || key === 'servicio') {
+      return { orderType: { in: [OrderType.MANTENIMIENTO, OrderType.SERVICIO] } };
+    }
+
+    return { orderType: this.parseOrderType(key) };
   }
 
   private parseOrderState(value: string): OrderState {
@@ -921,9 +953,11 @@ export class OperationsService {
   private toApiOrderType(value: OrderType): string {
     const map: Record<OrderType, string> = {
       [OrderType.RESERVA]: 'reserva',
-      [OrderType.SERVICIO]: 'servicio',
+      [OrderType.SERVICIO]: 'mantenimiento',
       [OrderType.LEVANTAMIENTO]: 'levantamiento',
       [OrderType.GARANTIA]: 'garantia',
+      [OrderType.MANTENIMIENTO]: 'mantenimiento',
+      [OrderType.INSTALACION]: 'instalacion',
     };
     return map[value];
   }

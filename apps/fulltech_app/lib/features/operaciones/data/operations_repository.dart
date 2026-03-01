@@ -204,6 +204,28 @@ class OperationsRepository {
     }
   }
 
+  Future<ServiceModel> changeOrderState({
+    required String serviceId,
+    required String orderState,
+    String? message,
+  }) async {
+    try {
+      final res = await _dio.patch(
+        ApiRoutes.serviceOrderState(serviceId),
+        data: {
+          'orderState': orderState,
+          if (message != null && message.trim().isNotEmpty) 'message': message,
+        },
+      );
+      return ServiceModel.fromJson((res.data as Map).cast<String, dynamic>());
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo cambiar el estado'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
   Future<ServiceModel> schedule({
     required String serviceId,
     required DateTime start,

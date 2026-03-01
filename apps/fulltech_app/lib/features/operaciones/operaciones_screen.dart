@@ -28,6 +28,12 @@ import '../ponche/application/punch_controller.dart';
 import 'application/operations_controller.dart';
 import 'data/operations_repository.dart';
 import 'operations_models.dart';
+import 'presentation/service_agenda_card.dart';
+import 'presentation/info_card.dart';
+import 'presentation/service_actions_sheet.dart';
+import 'presentation/service_header.dart';
+import 'presentation/service_location_helpers.dart';
+import 'presentation/status_picker_sheet.dart';
 import '../../modules/clientes/cliente_model.dart';
 
 class OperacionesScreen extends ConsumerStatefulWidget {
@@ -40,6 +46,80 @@ class OperacionesScreen extends ConsumerStatefulWidget {
 class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     with WidgetsBindingObserver {
   final _searchCtrl = TextEditingController();
+
+  Future<void> _openQuickCreateFromAppBar() async {
+    const kind = 'reserva';
+    const title = 'Registrar reserva';
+    const submitLabel = 'Guardar reserva';
+    const initialServiceType = 'installation';
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.92,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          title,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: _CreateReservationTab(
+                    onCreate: (draft) async {
+                      final ok = await _handleCreateFromAgenda(draft, kind);
+                      if (ok && context.mounted) Navigator.pop(context);
+                    },
+                    agendaKind: kind,
+                    submitLabel: submitLabel,
+                    initialServiceType: initialServiceType,
+                    showServiceTypeField: false,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _agendaPlusIcon() {
+    return const Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(Icons.event_note_rounded),
+        Positioned(
+          right: -2,
+          top: -2,
+          child: Icon(Icons.add_circle_outline, size: 14),
+        ),
+      ],
+    );
+  }
 
   @override
   void initState() {
@@ -230,9 +310,9 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
             label: const Text('Reglas'),
           ),
           IconButton(
-            tooltip: 'Agenda',
-            onPressed: () => context.go(Routes.operacionesAgenda),
-            icon: const Icon(Icons.event_note_rounded),
+            tooltip: 'Agregar orden',
+            onPressed: _openQuickCreateFromAppBar,
+            icon: _agendaPlusIcon(),
           ),
           IconButton(
             tooltip: 'Mapa clientes',
@@ -287,6 +367,8 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
             searchCtrl: _searchCtrl,
             onOpenService: _openServiceDetail,
             onChangeStatus: _changeStatusWithConfirm,
+            onChangeOrderState: (serviceId, orderState) =>
+                notifier.changeOrderStateOptimistic(serviceId, orderState),
           ),
         ],
       ),
@@ -415,13 +497,17 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     final targetStatus = switch (lower) {
       'levantamiento' => 'survey',
       'servicio' => 'scheduled',
+      'mantenimiento' => 'scheduled',
+      'instalacion' => 'scheduled',
       'garantia' => 'warranty',
       _ => null,
     };
     final successLabel = switch (lower) {
       'reserva' => 'Reserva',
       'levantamiento' => 'Levantamiento',
-      'servicio' => 'Servicio',
+      'servicio' => 'Mantenimiento',
+      'mantenimiento' => 'Mantenimiento',
+      'instalacion' => 'Instalación',
       'garantia' => 'Garantía',
       _ => 'Servicio',
     };
@@ -619,6 +705,25 @@ class _OperacionesAgendaScreenState
         return 'Garantía';
       default:
         return raw;
+    }
+  }
+
+  String _categoryLabel(String raw) {
+    switch (raw.trim().toLowerCase()) {
+      case 'cameras':
+        return 'Cámaras';
+      case 'gate_motor':
+        return 'Motores de puertones';
+      case 'alarm':
+        return 'Alarma';
+      case 'electric_fence':
+        return 'Cerco eléctrico';
+      case 'intercom':
+        return 'Intercom';
+      case 'pos':
+        return 'Punto de ventas';
+      default:
+        return raw.trim().isEmpty ? 'General' : raw.trim();
     }
   }
 
@@ -929,7 +1034,9 @@ class _OperacionesAgendaScreenState
       final lower = k.trim().toLowerCase();
       final label = switch (lower) {
         'reserva' => 'Reserva',
-        'servicio' => 'Servicio',
+        'servicio' => 'Mantenimiento',
+        'mantenimiento' => 'Mantenimiento',
+        'instalacion' => 'Instalación',
         'levantamiento' => 'Levantamiento',
         'garantia' => 'Garantía',
         _ => 'Orden',
@@ -939,7 +1046,14 @@ class _OperacionesAgendaScreenState
 
     String initialServiceTypeForKind(String k) {
       final lower = k.trim().toLowerCase();
-      return lower == 'garantia' ? 'warranty' : 'installation';
+      return switch (lower) {
+        'garantia' => 'warranty',
+        'mantenimiento' => 'maintenance',
+        'servicio' => 'maintenance',
+        'levantamiento' => 'maintenance',
+        'instalacion' => 'installation',
+        _ => 'installation',
+      };
     }
 
     await showModalBottomSheet<void>(
@@ -985,7 +1099,7 @@ class _OperacionesAgendaScreenState
                           isExpanded: true,
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
-                            labelText: 'Tipo de orden',
+                            labelText: 'Tipo de servicio',
                           ),
                           items: const [
                             DropdownMenuItem(
@@ -993,16 +1107,20 @@ class _OperacionesAgendaScreenState
                               child: Text('Reserva'),
                             ),
                             DropdownMenuItem(
-                              value: 'servicio',
-                              child: Text('Servicio'),
+                              value: 'garantia',
+                              child: Text('Garantía'),
                             ),
                             DropdownMenuItem(
                               value: 'levantamiento',
                               child: Text('Levantamiento'),
                             ),
                             DropdownMenuItem(
-                              value: 'garantia',
-                              child: Text('Garantía'),
+                              value: 'mantenimiento',
+                              child: Text('Mantenimiento'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'instalacion',
+                              child: Text('Instalación'),
                             ),
                           ],
                           onChanged: (value) {
@@ -1017,7 +1135,7 @@ class _OperacionesAgendaScreenState
                           agendaKind: kind,
                           submitLabel: submitForKind(kind),
                           initialServiceType: initialServiceTypeForKind(kind),
-                          showServiceTypeField: kind == 'servicio',
+                          showServiceTypeField: false,
                           onCreate: (draft) async {
                             final ok = await _createFromAgenda(draft, kind);
                             if (ok && context.mounted) Navigator.pop(context);
@@ -1142,7 +1260,6 @@ class _OperacionesAgendaScreenState
         state.services.where((s) => s.scheduledStart != null).toList()
           ..sort((a, b) => a.scheduledStart!.compareTo(b.scheduledStart!));
 
-
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -1215,7 +1332,7 @@ class _OperacionesAgendaScreenState
                   else
                     ...scheduled.map((service) {
                       final typeText = _serviceTypeLabel(service.serviceType);
-                      final categoryText = service.category.trim();
+                      final categoryText = _categoryLabel(service.category);
                       final address = service.customerAddress.trim();
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 8),
@@ -1449,12 +1566,15 @@ class _PanelOptions extends StatefulWidget {
   final TextEditingController searchCtrl;
   final void Function(ServiceModel) onOpenService;
   final Future<void> Function(ServiceModel service) onChangeStatus;
+  final Future<void> Function(String serviceId, String orderState)
+  onChangeOrderState;
 
   const _PanelOptions({
     required this.state,
     required this.searchCtrl,
     required this.onOpenService,
     required this.onChangeStatus,
+    required this.onChangeOrderState,
   });
 
   @override
@@ -1765,13 +1885,30 @@ class _PanelOptionsState extends State<_PanelOptions> {
                         ),
                         items: const [
                           DropdownMenuItem(value: '', child: Text('Todos')),
-                          DropdownMenuItem(value: 'reserva', child: Text('Reserva')),
-                          DropdownMenuItem(value: 'servicio', child: Text('Servicio')),
-                          DropdownMenuItem(value: 'levantamiento', child: Text('Levantamiento')),
-                          DropdownMenuItem(value: 'garantia', child: Text('Garantía')),
+                          DropdownMenuItem(
+                            value: 'reserva',
+                            child: Text('Reserva'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'garantia',
+                            child: Text('Garantía'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'levantamiento',
+                            child: Text('Levantamiento'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'mantenimiento',
+                            child: Text('Mantenimiento'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'instalacion',
+                            child: Text('Instalación'),
+                          ),
                         ],
-                        onChanged: (v) =>
-                            setSheetState(() => orderType = (v ?? '').trim().isEmpty ? null : v),
+                        onChanged: (v) => setSheetState(
+                          () => orderType = (v ?? '').trim().isEmpty ? null : v,
+                        ),
                       ),
                       const SizedBox(height: 10),
                       DropdownButtonFormField<String>(
@@ -1783,16 +1920,39 @@ class _PanelOptionsState extends State<_PanelOptions> {
                         ),
                         items: const [
                           DropdownMenuItem(value: '', child: Text('Todos')),
-                          DropdownMenuItem(value: 'pending', child: Text('Pendiente')),
-                          DropdownMenuItem(value: 'confirmed', child: Text('Confirmada')),
-                          DropdownMenuItem(value: 'assigned', child: Text('Asignada')),
-                          DropdownMenuItem(value: 'in_progress', child: Text('En progreso')),
-                          DropdownMenuItem(value: 'finalized', child: Text('Finalizada')),
-                          DropdownMenuItem(value: 'cancelled', child: Text('Cancelada')),
-                          DropdownMenuItem(value: 'rescheduled', child: Text('Reagendada')),
+                          DropdownMenuItem(
+                            value: 'pending',
+                            child: Text('Pendiente'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'confirmed',
+                            child: Text('Confirmada'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'assigned',
+                            child: Text('Asignada'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'in_progress',
+                            child: Text('En progreso'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'finalized',
+                            child: Text('Finalizada'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'cancelled',
+                            child: Text('Cancelada'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'rescheduled',
+                            child: Text('Reagendada'),
+                          ),
                         ],
-                        onChanged: (v) =>
-                            setSheetState(() => orderState = (v ?? '').trim().isEmpty ? null : v),
+                        onChanged: (v) => setSheetState(
+                          () =>
+                              orderState = (v ?? '').trim().isEmpty ? null : v,
+                        ),
                       ),
                     ] else
                       Row(
@@ -1806,14 +1966,35 @@ class _PanelOptionsState extends State<_PanelOptions> {
                                 labelText: 'Tipo de orden',
                               ),
                               items: const [
-                                DropdownMenuItem(value: '', child: Text('Todos')),
-                                DropdownMenuItem(value: 'reserva', child: Text('Reserva')),
-                                DropdownMenuItem(value: 'servicio', child: Text('Servicio')),
-                                DropdownMenuItem(value: 'levantamiento', child: Text('Levantamiento')),
-                                DropdownMenuItem(value: 'garantia', child: Text('Garantía')),
+                                DropdownMenuItem(
+                                  value: '',
+                                  child: Text('Todos'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'reserva',
+                                  child: Text('Reserva'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'garantia',
+                                  child: Text('Garantía'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'levantamiento',
+                                  child: Text('Levantamiento'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'mantenimiento',
+                                  child: Text('Mantenimiento'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'instalacion',
+                                  child: Text('Instalación'),
+                                ),
                               ],
                               onChanged: (v) => setSheetState(
-                                () => orderType = (v ?? '').trim().isEmpty ? null : v,
+                                () => orderType = (v ?? '').trim().isEmpty
+                                    ? null
+                                    : v,
                               ),
                             ),
                           ),
@@ -1827,17 +2008,43 @@ class _PanelOptionsState extends State<_PanelOptions> {
                                 labelText: 'Estado de orden',
                               ),
                               items: const [
-                                DropdownMenuItem(value: '', child: Text('Todos')),
-                                DropdownMenuItem(value: 'pending', child: Text('Pendiente')),
-                                DropdownMenuItem(value: 'confirmed', child: Text('Confirmada')),
-                                DropdownMenuItem(value: 'assigned', child: Text('Asignada')),
-                                DropdownMenuItem(value: 'in_progress', child: Text('En progreso')),
-                                DropdownMenuItem(value: 'finalized', child: Text('Finalizada')),
-                                DropdownMenuItem(value: 'cancelled', child: Text('Cancelada')),
-                                DropdownMenuItem(value: 'rescheduled', child: Text('Reagendada')),
+                                DropdownMenuItem(
+                                  value: '',
+                                  child: Text('Todos'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'pending',
+                                  child: Text('Pendiente'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'confirmed',
+                                  child: Text('Confirmada'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'assigned',
+                                  child: Text('Asignada'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'in_progress',
+                                  child: Text('En progreso'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'finalized',
+                                  child: Text('Finalizada'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'cancelled',
+                                  child: Text('Cancelada'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'rescheduled',
+                                  child: Text('Reagendada'),
+                                ),
                               ],
                               onChanged: (v) => setSheetState(
-                                () => orderState = (v ?? '').trim().isEmpty ? null : v,
+                                () => orderState = (v ?? '').trim().isEmpty
+                                    ? null
+                                    : v,
                               ),
                             ),
                           ),
@@ -1965,31 +2172,6 @@ class _PanelOptionsState extends State<_PanelOptions> {
     }
   }
 
-  IconData _statusIcon(String raw) {
-    switch (raw) {
-      case 'in_progress':
-        return Icons.play_circle_outline;
-      case 'completed':
-      case 'closed':
-        return Icons.check_circle_outline;
-      default:
-        return Icons.pending_outlined;
-    }
-  }
-
-  Color _statusTint(BuildContext context, String raw) {
-    final cs = Theme.of(context).colorScheme;
-    switch (raw) {
-      case 'in_progress':
-        return cs.tertiary;
-      case 'completed':
-      case 'closed':
-        return cs.primary;
-      default:
-        return cs.error;
-    }
-  }
-
   // ignore: unused_element
   String _techLabel(ServiceModel s) {
     if (s.assignments.isEmpty) return 'Sin asignar';
@@ -1998,6 +2180,32 @@ class _PanelOptionsState extends State<_PanelOptions> {
         .cast<ServiceAssignmentModel?>()
         .firstOrNull;
     return (tech ?? s.assignments.first).userName;
+  }
+
+  Future<void> _pickAndChangeOrderState(ServiceModel service) async {
+    final current = service.orderState.trim().toLowerCase();
+    final picked = await StatusPickerSheet.show(context, current: current);
+    if (!mounted || picked == null) return;
+
+    final next = picked.trim().toLowerCase();
+    if (next.isEmpty || next == current) return;
+
+    try {
+      await widget.onChangeOrderState(service.id, next);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Estado: ${StatusPickerSheet.label(next)}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e is ApiException ? e.message : 'No se pudo cambiar el estado',
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -2245,74 +2453,25 @@ class _PanelOptionsState extends State<_PanelOptions> {
           )
         else
           ...filtered.map((s) {
-            final tint = _statusTint(context, s.status);
             final type = _typeLabel(s.serviceType);
             final category = s.category.trim();
-            final address = s.customerAddress.trim();
+            final subtitle = category.isEmpty ? type : '$type · $category';
+            final tech = _techLabel(s);
+
+            final scheduled = s.scheduledStart;
+            final scheduledText = scheduled == null
+                ? null
+                : DateFormat('EEE dd/MM HH:mm', 'es').format(scheduled);
 
             return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Card(
-                child: ListTile(
-                  onTap: () => widget.onOpenService(s),
-                  leading: Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: tint.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(_statusIcon(s.status), color: tint, size: 20),
-                  ),
-                  title: Text(
-                    s.customerName,
-                    style: const TextStyle(fontWeight: FontWeight.w900),
-                  ),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          category.isEmpty ? type : '$type · $category',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.place_outlined,
-                              size: 16,
-                              color: theme.colorScheme.onSurface.withValues(
-                                alpha: 0.65,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                address.isEmpty ? 'Sin dirección' : address,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurface.withValues(
-                                    alpha: 0.70,
-                                  ),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  trailing: IconButton(
-                    tooltip: 'Cambiar estado',
-                    icon: const Icon(Icons.swap_horiz_rounded),
-                    onPressed: () => widget.onChangeStatus(s),
-                  ),
-                ),
+              padding: const EdgeInsets.only(bottom: 10),
+              child: ServiceAgendaCard(
+                service: s,
+                subtitle: subtitle,
+                technicianText: tech,
+                scheduledText: scheduledText,
+                onView: () => widget.onOpenService(s),
+                onChangeState: () => _pickAndChangeOrderState(s),
               ),
             );
           }),
@@ -2402,6 +2561,25 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     }
   }
 
+  String _categoryLabel(String raw) {
+    switch (raw.trim().toLowerCase()) {
+      case 'cameras':
+        return 'Cámaras';
+      case 'gate_motor':
+        return 'Motores de puertones';
+      case 'alarm':
+        return 'Alarma';
+      case 'electric_fence':
+        return 'Cerco eléctrico';
+      case 'intercom':
+        return 'Intercom';
+      case 'pos':
+        return 'Punto de ventas';
+      default:
+        return raw.trim().isEmpty ? 'General' : raw.trim();
+    }
+  }
+
   Future<void> _setStatusWithConfirm(String targetStatus) async {
     final service = widget.service;
     if (targetStatus == service.status) return;
@@ -2438,6 +2616,53 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
 
     // Cierra el panel para evitar mostrar info desactualizada.
     Navigator.pop(context);
+  }
+
+  Future<void> _pickScheduleFlow(ServiceModel service) async {
+    final now = DateTime.now();
+    final startInitial = service.scheduledStart ?? now;
+    final start = await _pickDateTime(
+      helpText: 'Selecciona inicio',
+      initial: startInitial,
+    );
+    if (start == null) return;
+
+    final endInitial =
+        service.scheduledEnd ?? start.add(const Duration(hours: 2));
+    final end = await _pickDateTime(
+      helpText: 'Selecciona fin',
+      initial: endInitial,
+    );
+    if (end == null) return;
+
+    if (!end.isAfter(start)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El fin debe ser posterior al inicio')),
+      );
+      return;
+    }
+
+    await widget.onSchedule(start, end);
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Agenda actualizada')));
+
+    Navigator.pop(context);
+  }
+
+  Future<void> _assignTechsFlow() async {
+    final ids = await _askTechIds(context);
+    if (ids == null || ids.isEmpty) return;
+    await widget.onAssign(
+      ids
+          .map((id) => <String, String>{'userId': id, 'role': 'assistant'})
+          .toList(),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Técnicos asignados')));
   }
 
   Future<DateTime?> _pickDateTime({
@@ -2542,56 +2767,8 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     final canChangeStatus = canOperate || isAssignedTech;
     final canDelete = role == 'admin';
 
-    Widget infoRow({
-      required IconData icon,
-      required String label,
-      required String value,
-    }) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              icon,
-              size: 18,
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.70),
-            ),
-            const SizedBox(width: 10),
-            SizedBox(
-              width: 92,
-              child: Text(
-                label,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: 0.75),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                value,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final statusText = _statusLabel(service.status);
     final typeText = _serviceTypeLabel(service.serviceType);
-    final categoryText = service.category.trim();
-    final titleText = service.title.trim().isEmpty
-        ? 'Servicio'
-        : service.title.trim();
+    final categoryText = _categoryLabel(service.category);
     final descText = service.description.trim();
     final customerName = service.customerName.trim().isEmpty
         ? 'Cliente'
@@ -2615,420 +2792,238 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
       return 'RD\$${safe.toStringAsFixed(2)}';
     }
 
+    final headerTitle = categoryText.isEmpty
+        ? typeText
+        : '$typeText · $categoryText';
+    final headerSubtitle = customerPhone.isEmpty
+        ? customerName
+        : '$customerName · $customerPhone';
+
+    final statusChipValue = service.orderState.trim().isNotEmpty
+        ? service.orderState.trim()
+        : service.status.trim();
+
+    final location = buildServiceLocationInfo(addressOrText: addressText);
+
+    Future<void> openActions() async {
+      await ServiceActionsSheet.show(
+        context,
+        service: service,
+        canOperate: canOperate,
+        canChangeStatus: canChangeStatus,
+        canDelete: canDelete,
+        onChangeStatus: (status) => _setStatusWithConfirm(status),
+        onPickSchedule: () => _pickScheduleFlow(service),
+        onAssignTechs: _assignTechsFlow,
+        onUploadEvidence: widget.onUploadEvidence,
+        onCreateWarranty: widget.onCreateWarranty,
+        onDelete: () => _deleteWithConfirm(service),
+        onAddNote: (message) async {
+          await widget.onAddNote(message);
+          if (!mounted) return;
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Marcado en historial')));
+        },
+        onMarkPendingBy: (reason) async {
+          await widget.onAddNote('Pendiente por: $reason');
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Marcado como pendiente')),
+          );
+        },
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    titleText,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    customerPhone.isEmpty
-                        ? customerName
-                        : '$customerName · $customerPhone',
-                  ),
-                ],
-              ),
+        ServiceHeader(
+          title: headerTitle,
+          subtitle: headerSubtitle,
+          status: statusChipValue,
+          onActions: openActions,
+        ),
+        if (descText.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Text(
+            descText,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.78),
+              fontWeight: FontWeight.w600,
             ),
-            const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
+          ),
+        ],
+        const SizedBox(height: 12),
+        InfoCard(
+          title: 'Resumen',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _kv(context, 'Tipo', headerTitle),
+              _kv(context, 'Prioridad', 'P${service.priority}'),
+              _kv(context, 'Estado', _statusLabel(service.status)),
+              if (service.orderState.trim().isNotEmpty)
+                _kv(context, 'Orden', service.orderState.trim()),
+              if (service.scheduledStart != null)
+                _kv(
+                  context,
+                  'Inicio',
+                  dateFormat.format(service.scheduledStart!),
+                ),
+              if (service.scheduledEnd != null)
+                _kv(context, 'Fin', dateFormat.format(service.scheduledEnd!)),
+              if (service.completedAt != null)
+                _kv(
+                  context,
+                  'Completado',
+                  dateFormat.format(service.completedAt!),
+                ),
+              _kv(
+                context,
+                'Técnicos',
+                techNames.isEmpty ? 'Sin asignar' : techNames.join(', '),
+              ),
+              if (service.isSeguro) _kv(context, 'Seguro', 'Sí'),
+              if (tags.isNotEmpty) _kv(context, 'Tags', tags.join(', ')),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        InfoCard(
+          title: 'Ubicación',
+          trailing: IconButton(
+            tooltip: 'Abrir Maps',
+            onPressed: location.canOpenMaps
+                ? () async {
+                    final uri = location.mapsUri;
+                    if (uri == null) return;
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                : null,
+            icon: const Icon(Icons.map_outlined),
+          ),
+          child: Text(
+            location.label,
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ),
+        const SizedBox(height: 10),
+        InfoCard(
+          title: 'Finanzas',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _kv(context, 'Cotizado', money(service.quotedAmount)),
+              _kv(context, 'Abono', money(service.depositAmount)),
+              _kv(
+                context,
+                'Total',
+                money(service.quotedAmount ?? service.depositAmount),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        InfoCard(
+          title: 'Checklist',
+          child: service.steps.isEmpty
+              ? const Text('Sin checklist')
+              : Column(
                   children: [
-                    Icon(
-                      Icons.flag_outlined,
-                      size: 16,
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.70),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      statusText,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w800,
+                    for (final step in service.steps)
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(step.stepLabel),
+                        subtitle: step.doneAt == null
+                            ? null
+                            : Text(
+                                'Completado ${dateFormat.format(step.doneAt!)}',
+                              ),
+                        value: step.isDone,
+                        onChanged: (value) {
+                          if (!canOperate) return;
+                          if (value == null) return;
+                          widget.onToggleStep(step.id, value);
+                        },
                       ),
-                    ),
                   ],
                 ),
-                if (service.isSeguro) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Seguro',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.70),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ],
         ),
         const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            OutlinedButton.icon(
-              onPressed: service.customerId.trim().isEmpty
-                  ? null
-                  : () => context.push(
-                      Routes.clienteDetail(service.customerId.trim()),
-                    ),
-              icon: const Icon(Icons.person_outline),
-              label: const Text('Cliente'),
-            ),
-            OutlinedButton.icon(
-              onPressed: customerPhone.isEmpty
-                  ? null
-                  : () => context.push(
-                      '${Routes.cotizacionesHistorial}?customerPhone=${Uri.encodeQueryComponent(customerPhone)}&pick=0',
-                    ),
-              icon: const Icon(Icons.receipt_long_outlined),
-              label: const Text('Cotizaciones'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        _sectionTitle('Resumen'),
-        infoRow(
-          icon: Icons.build_outlined,
-          label: 'Tipo',
-          value: categoryText.isEmpty ? typeText : '$typeText · $categoryText',
-        ),
-        infoRow(
-          icon: Icons.priority_high_rounded,
-          label: 'Prioridad',
-          value: 'P${service.priority}',
-        ),
-        if (service.scheduledStart != null)
-          infoRow(
-            icon: Icons.event_outlined,
-            label: 'Inicio',
-            value: dateFormat.format(service.scheduledStart!),
-          ),
-        if (service.scheduledEnd != null)
-          infoRow(
-            icon: Icons.event_busy_outlined,
-            label: 'Fin',
-            value: dateFormat.format(service.scheduledEnd!),
-          ),
-        if (service.completedAt != null)
-          infoRow(
-            icon: Icons.check_circle_outline,
-            label: 'Completado',
-            value: dateFormat.format(service.completedAt!),
-          ),
-        if (service.createdByName.trim().isNotEmpty)
-          infoRow(
-            icon: Icons.badge_outlined,
-            label: 'Creado por',
-            value: service.createdByName.trim(),
-          ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            OutlinedButton.icon(
-              onPressed: !canChangeStatus || service.status == 'in_progress'
-                  ? null
-                  : () => _setStatusWithConfirm('in_progress'),
-              icon: const Icon(Icons.play_circle_outline),
-              label: const Text('En proceso'),
-            ),
-            FilledButton.icon(
-              onPressed: !canChangeStatus || service.status == 'completed'
-                  ? null
-                  : () => _setStatusWithConfirm('completed'),
-              icon: const Icon(Icons.check_circle_outline),
-              label: const Text('Finalizado'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            OutlinedButton.icon(
-              onPressed: canOperate
-                  ? () async {
-                      final now = DateTime.now();
-                      final startInitial = service.scheduledStart ?? now;
-                      final start = await _pickDateTime(
-                        helpText: 'Selecciona inicio',
-                        initial: startInitial,
-                      );
-                      if (start == null) return;
-
-                      final endInitial =
-                          service.scheduledEnd ??
-                          start.add(const Duration(hours: 2));
-                      final end = await _pickDateTime(
-                        helpText: 'Selecciona fin',
-                        initial: endInitial,
-                      );
-                      if (end == null) return;
-
-                      if (!end.isAfter(start)) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'El fin debe ser posterior al inicio',
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-
-                      await widget.onSchedule(start, end);
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Agenda actualizada')),
-                      );
-
-                      // Cierra el panel para evitar mostrar info desactualizada.
-                      Navigator.pop(context);
-                    }
-                  : null,
-              icon: const Icon(Icons.event_available_outlined),
-              label: const Text('Agendar/Reagendar'),
-            ),
-            OutlinedButton.icon(
-              onPressed: canOperate
-                  ? () async {
-                      final ids = await _askTechIds(context);
-                      if (ids == null || ids.isEmpty) return;
-                      await widget.onAssign(
-                        ids
-                            .map(
-                              (id) => <String, String>{
-                                'userId': id,
-                                'role': 'assistant',
-                              },
-                            )
-                            .toList(),
-                      );
-                    }
-                  : null,
-              icon: const Icon(Icons.groups_outlined),
-              label: const Text('Asignar técnicos'),
-            ),
-            if (service.status == 'completed' || service.status == 'closed')
-              FilledButton.icon(
-                onPressed: canOperate ? widget.onCreateWarranty : null,
-                icon: const Icon(Icons.verified_outlined),
-                label: const Text('Crear garantía'),
-              ),
-            if (canDelete)
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.error,
-                ),
-                onPressed: () => _deleteWithConfirm(service),
-                icon: const Icon(Icons.delete_outline),
-                label: const Text('Eliminar'),
-              ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        _sectionTitle('Información del servicio'),
-        if (descText.isNotEmpty) ...[
-          Text(descText),
-          const SizedBox(height: 10),
-        ],
-        infoRow(
-          icon: Icons.request_quote_outlined,
-          label: 'Cotizado',
-          value: money(service.quotedAmount),
-        ),
-        infoRow(
-          icon: Icons.payments_outlined,
-          label: 'Depósito',
-          value: money(service.depositAmount),
-        ),
-        if (service.createdByName.trim().isNotEmpty)
-          infoRow(
-            icon: Icons.person_outline,
-            label: 'Creado por',
-            value: service.createdByName.trim(),
-          ),
-        if (tags.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          _sectionTitle('Tags'),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final t in tags)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text('• $t'),
-                ),
-            ],
-          ),
-        ],
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            OutlinedButton(
-              onPressed: canOperate
-                  ? () => widget.onAddNote('Llegué al sitio')
-                  : null,
-              child: const Text('Llegué al sitio'),
-            ),
-            OutlinedButton(
-              onPressed: canOperate
-                  ? () => widget.onAddNote('Inicié trabajo')
-                  : null,
-              child: const Text('Inicié'),
-            ),
-            OutlinedButton(
-              onPressed: canOperate
-                  ? () => widget.onAddNote('Finalicé trabajo')
-                  : null,
-              child: const Text('Finalicé'),
-            ),
-            OutlinedButton(
-              onPressed: canOperate
-                  ? () async {
-                      final reason = await _askReason(context);
-                      if (reason == null || reason.trim().isEmpty) return;
-                      await widget.onAddNote('Pendiente por: ${reason.trim()}');
-                    }
-                  : null,
-              child: const Text('Pendiente por X'),
-            ),
-            FilledButton.icon(
-              onPressed: canOperate ? widget.onUploadEvidence : null,
-              icon: const Icon(Icons.attach_file),
-              label: const Text('Subir evidencia'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        _sectionTitle('Datos del cliente'),
-        if (addressText.isEmpty)
-          const Text('Sin dirección')
-        else
-          Text(addressText),
-        const SizedBox(height: 10),
-        _sectionTitle('Técnicos asignados'),
-        if (techNames.isEmpty)
-          const Text('Sin técnicos asignados')
-        else
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final name in techNames)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                        Icons.engineering_outlined,
-                        size: 16,
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withValues(alpha: 0.70),
+        InfoCard(
+          title: 'Evidencias',
+          child: service.files.isEmpty
+              ? const Text('Sin evidencias todavía')
+              : Column(
+                  children: [
+                    for (final file in service.files)
+                      ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.insert_drive_file_outlined),
+                        title: Text(file.fileType),
+                        subtitle: Text(file.fileUrl),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(child: Text(name)),
-                    ],
-                  ),
+                  ],
                 ),
-            ],
-          ),
-        const SizedBox(height: 10),
-        _sectionTitle('Checklist'),
-        ...service.steps.map(
-          (step) => CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(step.stepLabel),
-            subtitle: step.doneAt == null
-                ? null
-                : Text('Completado ${dateFormat.format(step.doneAt!)}'),
-            value: step.isDone,
-            onChanged: (value) {
-              if (!canOperate) return;
-              if (value == null) return;
-              widget.onToggleStep(step.id, value);
-            },
-          ),
         ),
         const SizedBox(height: 10),
-        _sectionTitle('Evidencias'),
-        if (service.files.isEmpty)
-          const Text('Sin evidencias todavía')
-        else
-          ...service.files.map(
-            (file) => ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              title: Text(file.fileType),
-              subtitle: Text(file.fileUrl),
-            ),
-          ),
+        InfoCard(
+          title: 'Historial',
+          child: service.updates.isEmpty
+              ? const Text('Sin movimientos')
+              : Column(
+                  children: [
+                    for (final update in service.updates.take(10))
+                      ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.history_rounded),
+                        title: Text(
+                          update.message.isEmpty ? update.type : update.message,
+                        ),
+                        subtitle: Text(
+                          '${update.changedBy} · ${update.createdAt == null ? '-' : dateFormat.format(update.createdAt!)}',
+                        ),
+                      ),
+                  ],
+                ),
+        ),
         const SizedBox(height: 10),
-        _sectionTitle('Historial'),
-        if (service.updates.isEmpty)
-          const Text('Sin movimientos')
-        else
-          ...service.updates
-              .take(8)
-              .map(
-                (update) => ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(
-                    update.message.isEmpty ? update.type : update.message,
-                  ),
-                  subtitle: Text(
-                    '${update.changedBy} · ${update.createdAt == null ? '-' : dateFormat.format(update.createdAt!)}',
-                  ),
+        InfoCard(
+          title: 'Notas internas',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: _noteCtrl,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: 'Escribe una nota interna…',
                 ),
               ),
-        const SizedBox(height: 10),
-        _sectionTitle('Notas internas'),
-        TextField(
-          controller: _noteCtrl,
-          minLines: 2,
-          maxLines: 4,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            hintText: 'Escribe una nota interna...',
-          ),
-        ),
-        const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerRight,
-          child: FilledButton.icon(
-            onPressed: () {
-              final note = _noteCtrl.text.trim();
-              if (note.isEmpty) return;
-              widget.onAddNote(note);
-              _noteCtrl.clear();
-            },
-            icon: const Icon(Icons.note_add_outlined),
-            label: const Text('Guardar nota'),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.icon(
+                  onPressed: () {
+                    final note = _noteCtrl.text.trim();
+                    if (note.isEmpty) return;
+                    widget.onAddNote(note);
+                    _noteCtrl.clear();
+                  },
+                  icon: const Icon(Icons.note_add_outlined),
+                  label: const Text('Guardar nota'),
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -3105,6 +3100,39 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
       child: Text(text, style: const TextStyle(fontWeight: FontWeight.w700)),
     );
   }
+}
+
+Widget _kv(BuildContext context, String label, String value) {
+  final theme = Theme.of(context);
+  final scheme = theme.colorScheme;
+
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 92,
+          child: Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: scheme.onSurface.withValues(alpha: 0.75),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            value,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class OperacionesHistorialBody extends ConsumerStatefulWidget {
@@ -3593,9 +3621,9 @@ class _AgendaTab extends StatelessWidget {
                   ),
                   _quickCreateButton(
                     context,
-                    label: 'Servicio',
+                    label: 'Mantenimiento',
                     icon: Icons.build_circle_outlined,
-                    kind: 'servicio',
+                    kind: 'mantenimiento',
                   ),
                   _quickCreateButton(
                     context,
@@ -3693,19 +3721,27 @@ class _AgendaTab extends StatelessWidget {
         ? 'Registrar reserva'
         : lower == 'levantamiento'
         ? 'Registrar levantamiento'
-        : lower == 'servicio'
-        ? 'Registrar servicio'
+        : lower == 'mantenimiento' || lower == 'servicio'
+        ? 'Registrar mantenimiento'
+        : lower == 'instalacion'
+        ? 'Registrar instalación'
         : 'Registrar garantía';
     final submitLabel = lower == 'reserva'
         ? 'Guardar reserva'
         : lower == 'levantamiento'
         ? 'Guardar levantamiento'
-        : lower == 'servicio'
-        ? 'Guardar servicio'
+        : lower == 'mantenimiento' || lower == 'servicio'
+        ? 'Guardar mantenimiento'
+        : lower == 'instalacion'
+        ? 'Guardar instalación'
         : 'Guardar garantía';
 
     final initialServiceType = lower == 'garantia'
         ? 'warranty'
+        : lower == 'mantenimiento' ||
+              lower == 'servicio' ||
+              lower == 'levantamiento'
+        ? 'maintenance'
         : 'installation';
 
     await showModalBottomSheet<void>(
@@ -4006,13 +4042,11 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       _applyDefaultsForKind(widget.agendaKind, kindChanged: true);
     }
 
-    if (oldWidget.showServiceTypeField != widget.showServiceTypeField) {
-      if (!widget.showServiceTypeField) {
-        final lower = (widget.agendaKind ?? '').trim().toLowerCase();
-        final next = lower == 'garantia' ? 'warranty' : 'installation';
-        if (_serviceType != next) {
-          setState(() => _serviceType = next);
-        }
+    if (!widget.showServiceTypeField &&
+        oldWidget.initialServiceType != widget.initialServiceType) {
+      final next = widget.initialServiceType;
+      if (_serviceType != next) {
+        setState(() => _serviceType = next);
       }
     }
   }
@@ -4039,8 +4073,13 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
 
     final hasTech = (_technicianId ?? '').trim().isNotEmpty;
     final nextState = !_orderStateTouched
-      ? (lower == 'servicio' && hasTech ? 'assigned' : 'pending')
-      : _orderState;
+        ? ((lower == 'mantenimiento' ||
+                      lower == 'instalacion' ||
+                      lower == 'servicio') &&
+                  hasTech
+              ? 'assigned'
+              : 'pending')
+        : _orderState;
 
     final nextPriority = (!_priorityTouched && lower == 'garantia')
         ? 1
@@ -4165,8 +4204,10 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     }
   }
 
-  Future<void> _resolveAndSetGpsPoint(String raw,
-      {bool showSnackOnFail = false}) async {
+  Future<void> _resolveAndSetGpsPoint(
+    String raw, {
+    bool showSnackOnFail = false,
+  }) async {
     final text = raw.trim();
     if (text.isEmpty) return;
 
@@ -4189,7 +4230,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-              'No pude detectar coordenadas. Prueba pegar un link que incluya lat,lng (o pega "lat,lng" directamente).'),
+            'No pude detectar coordenadas. Prueba pegar un link que incluya lat,lng (o pega "lat,lng" directamente).',
+          ),
         ),
       );
     }
@@ -4698,12 +4740,27 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                 ),
                 items: const [
                   DropdownMenuItem(value: 'pending', child: Text('Pendiente')),
-                  DropdownMenuItem(value: 'confirmed', child: Text('Confirmada')),
+                  DropdownMenuItem(
+                    value: 'confirmed',
+                    child: Text('Confirmada'),
+                  ),
                   DropdownMenuItem(value: 'assigned', child: Text('Asignada')),
-                  DropdownMenuItem(value: 'in_progress', child: Text('En progreso')),
-                  DropdownMenuItem(value: 'finalized', child: Text('Finalizada')),
-                  DropdownMenuItem(value: 'cancelled', child: Text('Cancelada')),
-                  DropdownMenuItem(value: 'rescheduled', child: Text('Reagendada')),
+                  DropdownMenuItem(
+                    value: 'in_progress',
+                    child: Text('En progreso'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'finalized',
+                    child: Text('Finalizada'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'cancelled',
+                    child: Text('Cancelada'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'rescheduled',
+                    child: Text('Reagendada'),
+                  ),
                 ],
                 onChanged: (value) {
                   if (value == null) return;
@@ -4728,19 +4785,13 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                   helperText: _loadingTechnicians
                       ? 'Cargando técnicos...'
                       : (_technicians.isEmpty
-                          ? 'No tienes técnicos registrados. Puedes guardar sin asignar.'
-                          : null),
+                            ? 'No tienes técnicos registrados. Puedes guardar sin asignar.'
+                            : null),
                 ),
                 items: [
-                  const DropdownMenuItem(
-                    value: '',
-                    child: Text('Sin asignar'),
-                  ),
+                  const DropdownMenuItem(value: '', child: Text('Sin asignar')),
                   ..._technicians.map(
-                    (t) => DropdownMenuItem(
-                      value: t.id,
-                      child: Text(t.name),
-                    ),
+                    (t) => DropdownMenuItem(value: t.id, child: Text(t.name)),
                   ),
                 ],
                 onChanged: _loadingTechnicians
@@ -4752,10 +4803,13 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                           setState(() => _technicianId = value);
                         }
 
-                        final kind = (widget.agendaKind ?? '').trim().toLowerCase();
+                        final kind = (widget.agendaKind ?? '')
+                            .trim()
+                            .toLowerCase();
                         if (kind == 'servicio' && !_orderStateTouched) {
                           setState(() {
-                            _orderState = (_technicianId ?? '').trim().isNotEmpty
+                            _orderState =
+                                (_technicianId ?? '').trim().isNotEmpty
                                 ? 'assigned'
                                 : 'pending';
                           });
@@ -4773,7 +4827,9 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                       ),
                     ),
                     OutlinedButton.icon(
-                      onPressed: _saving ? null : () => context.push(Routes.users),
+                      onPressed: _saving
+                          ? null
+                          : () => context.push(Routes.users),
                       icon: const Icon(Icons.person_add_alt_1_outlined),
                       label: const Text('Crear técnico'),
                     ),
@@ -4929,6 +4985,15 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
               ),
               const SizedBox(height: 10),
               TextFormField(
+                controller: _addressCtrl,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Dirección (ciudad/sector)',
+                  helperText: 'Ej: Higüey, Otra Banda, Miches',
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
                 controller: _gpsCtrl,
                 decoration: InputDecoration(
                   border: const OutlineInputBorder(),
@@ -4936,8 +5001,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                   helperText: _resolvingGps
                       ? 'Detectando ubicación desde el link...'
                       : (_gpsPoint == null
-                          ? 'Pega un link de Google Maps o "lat,lng"'
-                          : 'Detectado: ${formatLatLng(_gpsPoint!)}'),
+                            ? 'Pega un link de Google Maps o "lat,lng"'
+                            : 'Detectado: ${formatLatLng(_gpsPoint!)}'),
                   suffixIcon: SizedBox(
                     width: 96,
                     child: Row(
@@ -4950,8 +5015,9 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                         ),
                         IconButton(
                           tooltip: 'Ver mapa',
-                          onPressed:
-                              _gpsCtrl.text.trim().isEmpty ? null : _openGpsInApp,
+                          onPressed: _gpsCtrl.text.trim().isEmpty
+                              ? null
+                              : _openGpsInApp,
                           icon: const Icon(Icons.map_outlined),
                         ),
                       ],
@@ -5559,13 +5625,17 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     if ((deposit ?? 0) > 0) {
       if (quoted == null || quoted <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Si hay abono, el precio vendido es requerido')),
+          const SnackBar(
+            content: Text('Si hay abono, el precio vendido es requerido'),
+          ),
         );
         return;
       }
       if (deposit! > quoted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('El abono no puede ser mayor que el precio vendido')),
+          const SnackBar(
+            content: Text('El abono no puede ser mayor que el precio vendido'),
+          ),
         );
         return;
       }
@@ -6002,13 +6072,14 @@ Future<void> _openBestNavigation(BuildContext context, LatLng point) async {
 
   void showFail(String appName) {
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('No se pudo abrir $appName')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('No se pudo abrir $appName')));
   }
 
   final platform = defaultTargetPlatform;
-  final isDesktop = platform == TargetPlatform.windows ||
+  final isDesktop =
+      platform == TargetPlatform.windows ||
       platform == TargetPlatform.linux ||
       platform == TargetPlatform.macOS;
 
@@ -6036,7 +6107,8 @@ class _AgendaGpsFullMapScreen extends StatefulWidget {
   const _AgendaGpsFullMapScreen({required this.point, required this.title});
 
   @override
-  State<_AgendaGpsFullMapScreen> createState() => _AgendaGpsFullMapScreenState();
+  State<_AgendaGpsFullMapScreen> createState() =>
+      _AgendaGpsFullMapScreenState();
 }
 
 class _AgendaGpsFullMapScreenState extends State<_AgendaGpsFullMapScreen> {
@@ -6053,9 +6125,9 @@ class _AgendaGpsFullMapScreenState extends State<_AgendaGpsFullMapScreen> {
   Future<void> _copyCoords() async {
     await Clipboard.setData(ClipboardData(text: _coordsText));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Copiado: $_coordsText')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Copiado: $_coordsText')));
   }
 
   Future<void> _copyDirectionsLink() async {
@@ -6064,9 +6136,9 @@ class _AgendaGpsFullMapScreenState extends State<_AgendaGpsFullMapScreen> {
     ).toString();
     await Clipboard.setData(ClipboardData(text: url));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Link de navegación copiado')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Link de navegación copiado')));
   }
 
   void _centerOnDestination() {
@@ -6132,11 +6204,7 @@ class _AgendaGpsFullMapScreenState extends State<_AgendaGpsFullMapScreen> {
             color: scheme.onSurface.withValues(alpha: 0.35),
             size: 58,
           ),
-          Icon(
-            Icons.location_on,
-            color: scheme.primary,
-            size: 52,
-          ),
+          Icon(Icons.location_on, color: scheme.primary, size: 52),
         ],
       ),
     );
@@ -6151,10 +6219,7 @@ class _AgendaGpsFullMapScreenState extends State<_AgendaGpsFullMapScreen> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: scheme.secondary,
-                border: Border.all(
-                  color: scheme.onSecondary,
-                  width: 2,
-                ),
+                border: Border.all(color: scheme.onSecondary, width: 2),
               ),
             ),
           );
@@ -6185,22 +6250,15 @@ class _AgendaGpsFullMapScreenState extends State<_AgendaGpsFullMapScreen> {
           children: [
             FlutterMap(
               mapController: _mapController,
-              options: MapOptions(
-                initialCenter: widget.point,
-                initialZoom: 16,
-              ),
+              options: MapOptions(initialCenter: widget.point, initialZoom: 16),
               children: [
                 TileLayer(
-                  urlTemplate:
-                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName: 'fulltech_app',
                   tileProvider: NetworkTileProvider(),
                 ),
                 MarkerLayer(
-                  markers: [
-                    destinationMarker,
-                    if (myMarker != null) myMarker,
-                  ],
+                  markers: [destinationMarker, if (myMarker != null) myMarker],
                 ),
               ],
             ),
