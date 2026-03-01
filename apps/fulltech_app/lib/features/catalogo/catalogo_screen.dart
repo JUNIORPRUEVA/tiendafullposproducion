@@ -3,9 +3,12 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/models/product_model.dart';
+import '../../core/routing/routes.dart';
+import '../../core/utils/string_utils.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import 'application/catalog_controller.dart';
@@ -180,6 +183,33 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
                       ),
                     ]
                   : null,
+              trailing: user == null
+                  ? null
+                  : Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(999),
+                        onTap: () => context.push(Routes.user),
+                        child: CircleAvatar(
+                          radius: 16,
+                          backgroundColor: Colors.white24,
+                          backgroundImage:
+                              (user.fotoPersonalUrl ?? '').trim().isEmpty
+                                  ? null
+                                  : NetworkImage(user.fotoPersonalUrl!),
+                          child: (user.fotoPersonalUrl ?? '').trim().isEmpty
+                              ? Text(
+                                  getInitials(user.nombreCompleto ?? 'U'),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 12,
+                                  ),
+                                )
+                              : null,
+                        ),
+                      ),
+                    ),
             ),
       drawer: isModal ? null : AppDrawer(currentUser: user),
       floatingActionButton: null,

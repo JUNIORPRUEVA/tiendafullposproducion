@@ -3,11 +3,14 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/routing/routes.dart';
+import '../../core/utils/string_utils.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import 'data/nomina_repository.dart';
@@ -127,6 +130,33 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
             icon: const Icon(Icons.refresh),
           ),
         ],
+        trailing: currentUser == null
+            ? null
+            : Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(999),
+                  onTap: () => context.push(Routes.user),
+                  child: CircleAvatar(
+                    radius: 16,
+                    backgroundColor: Colors.white24,
+                    backgroundImage:
+                        (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
+                            ? null
+                            : NetworkImage(currentUser.fotoPersonalUrl!),
+                    child: (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
+                        ? Text(
+                            getInitials(currentUser.nombreCompleto ?? 'U'),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                          )
+                        : null,
+                  ),
+                ),
+              ),
       ),
       drawer: AppDrawer(currentUser: currentUser),
       body: RefreshIndicator(

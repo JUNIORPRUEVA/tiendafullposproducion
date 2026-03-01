@@ -15,6 +15,10 @@ export class SelfUpdateUserDto {
 
   @IsOptional()
   @IsString()
+  fotoPersonalUrl?: string;
+
+  @IsOptional()
+  @IsString()
   @MinLength(8)
   password?: string;
 }

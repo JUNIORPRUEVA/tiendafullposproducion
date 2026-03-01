@@ -417,6 +417,7 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         email: dto.email,
         nombreCompleto: dto.nombreCompleto,
         telefono: dto.telefono,
+        fotoPersonalUrl: dto.fotoPersonalUrl,
         passwordHash
       },
       select: {

@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/api/env.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../../core/models/user_model.dart';
+import '../../core/routing/routes.dart';
 import '../../core/utils/string_utils.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
@@ -63,7 +65,37 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
 
     if (currentUser?.role != 'ADMIN') {
       return Scaffold(
-        appBar: CustomAppBar(title: 'FullTech', showLogo: true),
+        appBar: CustomAppBar(
+          title: 'FullTech',
+          showLogo: true,
+          trailing: currentUser == null
+              ? null
+              : Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: () => context.push(Routes.user),
+                    child: CircleAvatar(
+                      radius: 16,
+                      backgroundColor: Colors.white24,
+                      backgroundImage:
+                          (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
+                              ? null
+                              : NetworkImage(currentUser.fotoPersonalUrl!),
+                      child: (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
+                          ? Text(
+                              getInitials(currentUser.nombreCompleto ?? 'U'),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                            )
+                          : null,
+                    ),
+                  ),
+                ),
+        ),
         drawer: AppDrawer(currentUser: currentUser),
         body: Center(
           child: Padding(
@@ -99,6 +131,33 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
       appBar: CustomAppBar(
         title: 'Gestión de Usuarios',
         showLogo: false,
+        trailing: currentUser == null
+            ? null
+            : Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(999),
+                  onTap: () => context.push(Routes.user),
+                  child: CircleAvatar(
+                    radius: 16,
+                    backgroundColor: Colors.white24,
+                    backgroundImage:
+                        (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
+                            ? null
+                            : NetworkImage(currentUser.fotoPersonalUrl!),
+                    child: (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
+                        ? Text(
+                            getInitials(currentUser.nombreCompleto ?? 'U'),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                          )
+                        : null,
+                  ),
+                ),
+              ),
         titleWidget: _searching
             ? TextField(
                 controller: _searchCtrl,

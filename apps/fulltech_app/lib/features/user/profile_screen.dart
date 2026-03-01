@@ -18,6 +18,7 @@ class ProfileScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(authStateProvider);
     final user = state.user;
+    final isAdmin = (user?.role ?? '').trim().toUpperCase() == 'ADMIN';
 
     return Scaffold(
       appBar: CustomAppBar(
@@ -152,36 +153,36 @@ class ProfileScreen extends ConsumerWidget {
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Column(
+                child: _InfoList(
                   children: [
-                    _InfoRow('Nombre Completo', user?.nombreCompleto ?? '—'),
-                    _Divider(),
-                    _InfoRow('Email', user?.email ?? '—'),
-                    _Divider(),
-                    _InfoRow('Teléfono', user?.telefono ?? '—'),
-                    _Divider(),
-                    _InfoRow('Cédula', user?.cedula ?? '—'),
-                    _Divider(),
-                    _InfoRow('Experiencia Laboral', user?.experienciaLaboral ?? '—'),
-                    _Divider(),
-                    _InfoRow(
-                      'Fecha de ingreso',
-                      user?.fechaIngreso != null
-                          ? DateFormat('dd/MM/yyyy').format(user!.fechaIngreso!)
-                          : '—',
-                    ),
-                    _Divider(),
-                    _InfoRow(
-                      'Días en la empresa',
-                      user?.diasEnEmpresa?.toString() ?? '—',
-                    ),
-                    _Divider(),
-                    _InfoRow(
-                      'Fecha de nacimiento',
-                      user?.fechaNacimiento != null
-                          ? DateFormat('dd/MM/yyyy').format(user!.fechaNacimiento!)
-                          : '—',
-                    ),
+                    if ((user?.nombreCompleto ?? '').trim().isNotEmpty)
+                      _InfoRow('Nombre Completo', user!.nombreCompleto!.trim()),
+                    if ((user?.email ?? '').trim().isNotEmpty)
+                      _InfoRow('Email', user!.email!.trim()),
+                    if ((user?.telefono ?? '').trim().isNotEmpty)
+                      _InfoRow('Teléfono', user!.telefono!.trim()),
+                    if ((user?.cedula ?? '').trim().isNotEmpty)
+                      _InfoRow('Cédula', user!.cedula!.trim()),
+                    if ((user?.experienciaLaboral ?? '').trim().isNotEmpty)
+                      _InfoRow(
+                        'Experiencia Laboral',
+                        user!.experienciaLaboral!.trim(),
+                      ),
+                    if (user?.fechaIngreso != null) ...[
+                      _InfoRow(
+                        'Fecha de ingreso',
+                        DateFormat('dd/MM/yyyy').format(user!.fechaIngreso!),
+                      ),
+                      _InfoRow(
+                        'Días en la empresa',
+                        (user.diasEnEmpresa ?? 0).toString(),
+                      ),
+                    ],
+                    if (user?.fechaNacimiento != null)
+                      _InfoRow(
+                        'Fecha de nacimiento',
+                        DateFormat('dd/MM/yyyy').format(user!.fechaNacimiento!),
+                      ),
                   ],
                 ),
               ),
@@ -189,52 +190,52 @@ class ProfileScreen extends ConsumerWidget {
             const SizedBox(height: 24),
 
             // Nómina
-            Text(
-              'Nómina',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    _InfoRow(
-                      'Cuenta preferencial',
-                      (user?.cuentaNominaPreferencial ?? '').trim().isEmpty
-                          ? '—'
-                          : user!.cuentaNominaPreferencial!.trim(),
-                    ),
-                  ],
+            if ((user?.cuentaNominaPreferencial ?? '').trim().isNotEmpty) ...[
+              Text(
+                'Nómina',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: _InfoList(
+                    children: [
+                      _InfoRow(
+                        'Cuenta preferencial',
+                        user!.cuentaNominaPreferencial!.trim(),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
+            ],
 
             // Habilidades
-            Text(
-              'Habilidades',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: user == null || user.habilidades.isEmpty
-                    ? _InfoRow('Listado', '—')
-                    : Align(
-                        alignment: Alignment.centerLeft,
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: user.habilidades
-                              .map((h) => Chip(label: Text(h)))
-                              .toList(growable: false),
-                        ),
-                      ),
+            if (user != null && user.habilidades.isNotEmpty) ...[
+              Text(
+                'Habilidades',
+                style: Theme.of(context).textTheme.titleLarge,
               ),
-            ),
-            const SizedBox(height: 24),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: user.habilidades
+                          .map((h) => Chip(label: Text(h)))
+                          .toList(growable: false),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
 
             // Información de cuenta
             Text(
@@ -304,9 +305,9 @@ class ProfileScreen extends ConsumerWidget {
   }
 
   void _showEditDialog(BuildContext context, WidgetRef ref, UserModel user) {
+    final isAdmin = (user.role ?? '').trim().toUpperCase() == 'ADMIN';
     final nameCtrl = TextEditingController(text: user.nombreCompleto);
     final emailCtrl = TextEditingController(text: user.email);
-    final passwordCtrl = TextEditingController();
     final phoneCtrl = TextEditingController(text: user.telefono);
 
     showDialog(
@@ -322,22 +323,18 @@ class ProfileScreen extends ConsumerWidget {
                 decoration: const InputDecoration(labelText: 'Nombre completo'),
               ),
               const SizedBox(height: 12),
-              TextField(
-                controller: emailCtrl,
-                decoration: const InputDecoration(labelText: 'Correo'),
-                keyboardType: TextInputType.emailAddress,
-              ),
-              const SizedBox(height: 12),
+              if (isAdmin) ...[
+                TextField(
+                  controller: emailCtrl,
+                  decoration: const InputDecoration(labelText: 'Correo'),
+                  keyboardType: TextInputType.emailAddress,
+                ),
+                const SizedBox(height: 12),
+              ],
               TextField(
                 controller: phoneCtrl,
                 decoration: const InputDecoration(labelText: 'Teléfono'),
                 keyboardType: TextInputType.phone,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: passwordCtrl,
-                decoration: const InputDecoration(labelText: 'Nueva contraseña (opcional)'),
-                obscureText: true,
               ),
             ],
           ),
@@ -351,19 +348,17 @@ class ProfileScreen extends ConsumerWidget {
             onPressed: () async {
               final payload = <String, dynamic>{
                 'nombreCompleto': nameCtrl.text.trim(),
-                'email': emailCtrl.text.trim(),
+                if (isAdmin) 'email': emailCtrl.text.trim(),
                 'telefono': phoneCtrl.text.trim(),
-                'password': passwordCtrl.text.isEmpty ? null : passwordCtrl.text,
               };
               payload.removeWhere((key, value) => value == null || (value is String && value.isEmpty));
 
               try {
                 final repo = ref.read(usersRepositoryProvider);
                 final updated = await repo.updateMe(
-                  email: payload['email'] as String?,
+                  email: isAdmin ? payload['email'] as String? : null,
                   nombreCompleto: payload['nombreCompleto'] as String?,
                   telefono: payload['telefono'] as String?,
-                  password: payload['password'] as String?,
                 );
                 ref.read(authStateProvider.notifier).setUser(updated);
                 if (!context.mounted) return;
@@ -502,6 +497,27 @@ class _InfoRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _InfoList extends StatelessWidget {
+  final List<Widget> children;
+
+  const _InfoList({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = children.whereType<Widget>().toList(growable: false);
+    if (visible.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      children: [
+        for (var i = 0; i < visible.length; i++) ...[
+          if (i > 0) const _Divider(),
+          visible[i],
+        ],
+      ],
     );
   }
 }

@@ -31,29 +31,50 @@ export class UsersController {
   }
 
   @Post('upload')
-  @Roles(Role.ADMIN)
+  // Any authenticated user can upload a profile/document image.
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.MARKETING, Role.VENDEDOR, Role.TECNICO)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
-        destination: (_req: Express.Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) =>
-          cb(null, process.env.UPLOAD_DIR?.trim() || join(process.cwd(), 'uploads')),
+        destination: (_req: Express.Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
+          const fromEnv = (process.env.UPLOAD_DIR ?? '').trim();
+          const volumeDir = '/uploads';
+          const volumeExists = fs.existsSync(volumeDir);
+          const dir = fromEnv.length > 0
+            ? ((fromEnv == './uploads' || fromEnv == 'uploads') && volumeExists ? volumeDir : fromEnv)
+            : (volumeExists ? volumeDir : join(process.cwd(), 'uploads'));
+          fs.mkdirSync(dir, { recursive: true });
+          cb(null, dir);
+        },
         filename: (_req: Express.Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
           const unique = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
           cb(null, `${unique}${extname(file.originalname)}`);
         }
       }),
       fileFilter: (_req: Express.Request, file: Express.Multer.File, cb: (error: Error | null, acceptFile: boolean) => void) => {
-        const isImage = /^image\/(png|jpe?g|webp)$/.test(file.mimetype);
-        if (!isImage) return cb(new BadRequestException('Solo se permiten imágenes PNG/JPG/WEBP'), false);
-        cb(null, true);
+        const mimetype = (file.mimetype ?? '').toLowerCase().trim();
+        const isImageMime = /^image\/(png|jpe?g|webp)$/.test(mimetype);
+        if (isImageMime) return cb(null, true);
+
+        // Some clients (desktop/web) may send empty/unknown mimetype. Fallback to file extension.
+        const original = (file.originalname ?? '').toLowerCase();
+        const hasAllowedExt = /\.(png|jpe?g|webp)$/.test(original);
+        const isUnknownMime = mimetype.length === 0 || mimetype === 'application/octet-stream';
+        if (isUnknownMime && hasAllowedExt) return cb(null, true);
+
+        return cb(new BadRequestException('Solo se permiten imágenes PNG/JPG/WEBP'), false);
       },
-      limits: { fileSize: 5 * 1024 * 1024 }
+      limits: { fileSize: 10 * 1024 * 1024 }
     })
   )
-  upload(@UploadedFile() file?: Express.Multer.File) {
+  upload(@Req() req: Request, @UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('No se subió ningún archivo');
     const relativePath = `/uploads/${file.filename}`;
-    const url = this.publicBaseUrl ? `${this.publicBaseUrl}${relativePath}` : relativePath;
+    const proto = (req.get('x-forwarded-proto') ?? req.protocol ?? 'http').split(',')[0].trim();
+    const host = (req.get('x-forwarded-host') ?? req.get('host') ?? '').split(',')[0].trim();
+    const requestBase = host ? `${proto}://${host}` : '';
+    const baseUrl = this.publicBaseUrl || requestBase;
+    const url = baseUrl ? `${baseUrl}${relativePath}` : relativePath;
     return { filename: file.filename, path: relativePath, url };
   }
 

@@ -5,6 +5,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   final Widget? titleWidget;
   final VoidCallback? onMenuPressed;
   final List<Widget>? actions;
+  final Widget? trailing;
   final bool showLogo;
 
   const CustomAppBar({
@@ -13,6 +14,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.titleWidget,
     this.onMenuPressed,
     this.actions,
+    this.trailing,
     this.showLogo = true,
   });
 
@@ -21,6 +23,11 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     final scaffold = Scaffold.maybeOf(context);
     final canPop = Navigator.of(context).canPop();
     final hasDrawer = scaffold?.hasDrawer ?? false;
+
+    final resolvedActions = <Widget>[
+      ...?actions,
+      if (trailing != null) trailing!,
+    ];
 
     return AppBar(
       leading: canPop
@@ -70,7 +77,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
               ),
             ],
           ),
-      actions: actions,
+      actions: resolvedActions.isEmpty ? null : resolvedActions,
       elevation: 0,
       backgroundColor: Theme.of(context).colorScheme.primary,
       foregroundColor: Colors.white,

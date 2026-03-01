@@ -28,7 +28,36 @@ class UserScreen extends ConsumerWidget {
     final user = state.user;
 
     return Scaffold(
-      appBar: CustomAppBar(title: 'FullTech', showLogo: true),
+      appBar: CustomAppBar(
+        title: 'FullTech',
+        showLogo: true,
+        trailing: user == null
+            ? null
+            : Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(999),
+                  onTap: () => context.push(Routes.profile),
+                  child: CircleAvatar(
+                    radius: 16,
+                    backgroundColor: Colors.white24,
+                    backgroundImage: (user.fotoPersonalUrl ?? '').trim().isEmpty
+                        ? null
+                        : NetworkImage(user.fotoPersonalUrl!),
+                    child: (user.fotoPersonalUrl ?? '').trim().isEmpty
+                        ? Text(
+                            _getInitials(user.nombreCompleto ?? 'U'),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                          )
+                        : null,
+                  ),
+                ),
+              ),
+      ),
       drawer: AppDrawer(currentUser: user),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -42,14 +71,20 @@ class UserScreen extends ConsumerWidget {
                   CircleAvatar(
                     radius: 50,
                     backgroundColor: Theme.of(context).colorScheme.primary,
-                    child: Text(
-                      _getInitials(user?.nombreCompleto ?? 'U'),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    backgroundImage:
+                        (user?.fotoPersonalUrl ?? '').trim().isEmpty
+                            ? null
+                            : NetworkImage(user!.fotoPersonalUrl!),
+                    child: (user?.fotoPersonalUrl ?? '').trim().isEmpty
+                        ? Text(
+                            _getInitials(user?.nombreCompleto ?? 'U'),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          )
+                        : null,
                   ),
                   const SizedBox(height: 16),
                   Text(
@@ -80,32 +115,36 @@ class UserScreen extends ConsumerWidget {
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Column(
+                child: _InfoList(
                   children: [
-                    _InfoRow('Nombre Completo', user?.nombreCompleto ?? '—'),
-                    _InfoRow('Email', user?.email ?? '—'),
-                    _InfoRow('Teléfono', user?.telefono ?? '—'),
-                    _InfoRow('Cédula', user?.cedula ?? '—'),
-                    _InfoRow(
-                      'Experiencia Laboral',
-                      user?.experienciaLaboral ?? '—',
-                    ),
-                    _InfoRow(
-                      'Fecha de ingreso',
-                      user?.fechaIngreso != null
-                          ? DateFormat('dd/MM/yyyy').format(user!.fechaIngreso!)
-                          : '—',
-                    ),
-                    _InfoRow(
-                      'Días en la empresa',
-                      user?.diasEnEmpresa?.toString() ?? '—',
-                    ),
-                    _InfoRow(
-                      'Fecha de nacimiento',
-                      user?.fechaNacimiento != null
-                          ? DateFormat('dd/MM/yyyy').format(user!.fechaNacimiento!)
-                          : '—',
-                    ),
+                    if ((user?.nombreCompleto ?? '').trim().isNotEmpty)
+                      _InfoRow('Nombre Completo', user!.nombreCompleto!.trim()),
+                    if ((user?.email ?? '').trim().isNotEmpty)
+                      _InfoRow('Email', user!.email!.trim()),
+                    if ((user?.telefono ?? '').trim().isNotEmpty)
+                      _InfoRow('Teléfono', user!.telefono!.trim()),
+                    if ((user?.cedula ?? '').trim().isNotEmpty)
+                      _InfoRow('Cédula', user!.cedula!.trim()),
+                    if ((user?.experienciaLaboral ?? '').trim().isNotEmpty)
+                      _InfoRow(
+                        'Experiencia Laboral',
+                        user!.experienciaLaboral!.trim(),
+                      ),
+                    if (user?.fechaIngreso != null) ...[
+                      _InfoRow(
+                        'Fecha de ingreso',
+                        DateFormat('dd/MM/yyyy').format(user!.fechaIngreso!),
+                      ),
+                      _InfoRow(
+                        'Días en la empresa',
+                        (user.diasEnEmpresa ?? 0).toString(),
+                      ),
+                    ],
+                    if (user?.fechaNacimiento != null)
+                      _InfoRow(
+                        'Fecha de nacimiento',
+                        DateFormat('dd/MM/yyyy').format(user!.fechaNacimiento!),
+                      ),
                   ],
                 ),
               ),
@@ -113,52 +152,52 @@ class UserScreen extends ConsumerWidget {
             const SizedBox(height: 24),
 
             // Nómina
-            Text(
-              'Nómina',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    _InfoRow(
-                      'Cuenta preferencial',
-                      (user?.cuentaNominaPreferencial ?? '').trim().isEmpty
-                          ? '—'
-                          : user!.cuentaNominaPreferencial!.trim(),
-                    ),
-                  ],
+            if ((user?.cuentaNominaPreferencial ?? '').trim().isNotEmpty) ...[
+              Text(
+                'Nómina',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: _InfoList(
+                    children: [
+                      _InfoRow(
+                        'Cuenta preferencial',
+                        user!.cuentaNominaPreferencial!.trim(),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
+            ],
 
             // Habilidades
-            Text(
-              'Habilidades',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: user == null || user.habilidades.isEmpty
-                    ? const Text('—')
-                    : Align(
-                        alignment: Alignment.centerLeft,
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: user.habilidades
-                              .map((h) => Chip(label: Text(h)))
-                              .toList(growable: false),
-                        ),
-                      ),
+            if (user != null && user.habilidades.isNotEmpty) ...[
+              Text(
+                'Habilidades',
+                style: Theme.of(context).textTheme.titleLarge,
               ),
-            ),
-            const SizedBox(height: 24),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: user.habilidades
+                          .map((h) => Chip(label: Text(h)))
+                          .toList(growable: false),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
 
             // Información de cuenta
             Text(
@@ -197,12 +236,7 @@ class UserScreen extends ConsumerWidget {
                 icon: const Icon(Icons.edit),
                 label: const Text('Editar Perfil'),
                 onPressed: () {
-                  // Implementar edición de perfil
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Edición de perfil en desarrollo'),
-                    ),
-                  );
+                  context.push(Routes.profile);
                 },
               ),
             ),
@@ -272,6 +306,42 @@ class _InfoRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _Divider extends StatelessWidget {
+  const _Divider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Divider(
+        color: Theme.of(context).dividerColor,
+        height: 16,
+      ),
+    );
+  }
+}
+
+class _InfoList extends StatelessWidget {
+  final List<Widget> children;
+
+  const _InfoList({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = children.whereType<Widget>().toList(growable: false);
+    if (visible.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      children: [
+        for (var i = 0; i < visible.length; i++) ...[
+          if (i > 0) const _Divider(),
+          visible[i],
+        ],
+      ],
     );
   }
 }
