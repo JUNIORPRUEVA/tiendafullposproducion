@@ -528,18 +528,14 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
       final created = await _createService(draft);
 
       final reservationAt = draft.reservationAt;
-      if (reservationAt != null) {
-        try {
-          await ref
-              .read(operationsControllerProvider.notifier)
-              .schedule(
-                created.id,
-                reservationAt,
-                reservationAt.add(const Duration(hours: 1)),
-              );
-        } catch (_) {
-          // No bloquea la creación desde agenda.
-        }
+      try {
+        await ref.read(operationsControllerProvider.notifier).schedule(
+              created.id,
+              reservationAt,
+              reservationAt.add(const Duration(hours: 1)),
+            );
+      } catch (_) {
+        // No bloquea la creación desde agenda.
       }
 
       final referencePhoto = draft.referencePhoto;
@@ -4037,7 +4033,7 @@ class _CreateServiceDraft {
   final String serviceType;
   final String category;
   final int priority;
-  final DateTime? reservationAt;
+  final DateTime reservationAt;
   final String title;
   final String description;
   final String? addressSnapshot;
@@ -5266,7 +5262,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                 ),
               const SizedBox(height: 12),
               FilledButton.icon(
-                onPressed: _saving ? null : _save,
+                onPressed: (_saving || _reservationAt == null) ? null : _save,
                 icon: const Icon(Icons.save_outlined),
                 label: Text(_saving ? 'Guardando...' : widget.submitLabel),
               ),
@@ -5724,6 +5720,13 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   }
 
   Future<void> _save() async {
+    if (_reservationAt == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona la fecha y hora de reserva')),
+      );
+      return;
+    }
+
     if (_customerId == null || _customerId!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selecciona un cliente primero')),
@@ -5794,6 +5797,10 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           '${_serviceTypeLabel(_serviceType)} · ${_categoryLabel(_category)}';
       final note = _descriptionCtrl.text.trim();
       final description = note.isEmpty ? 'Sin nota' : note;
+      final reservationAt = _reservationAt;
+      if (reservationAt == null) {
+        throw ApiException('Selecciona la fecha y hora de reserva', 400);
+      }
 
       await widget.onCreate(
         _CreateServiceDraft(
@@ -5801,7 +5808,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           serviceType: _serviceType,
           category: _category,
           priority: _priority,
-          reservationAt: _reservationAt,
+          reservationAt: reservationAt,
           title: title,
           description: description,
           orderState: _orderState,

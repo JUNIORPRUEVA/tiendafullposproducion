@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+
+import '../../../core/utils/safe_url_launcher.dart';
 
 class MapPreviewCard extends StatelessWidget {
   final double latitude;
@@ -62,17 +63,7 @@ class MapPreviewCard extends StatelessWidget {
   Future<void> _openMaps(BuildContext context) async {
     final uri = _googleMapsSearchUri();
 
-    try {
-      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (ok) return;
-    } catch (_) {
-      // ignore
-    }
-
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('No se pudo abrir Google Maps')),
-    );
+    await safeOpenUrl(context, uri, copiedMessage: 'Link copiado');
   }
 
   @override

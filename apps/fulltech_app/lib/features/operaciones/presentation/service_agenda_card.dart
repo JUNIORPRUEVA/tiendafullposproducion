@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+
+import '../../../core/utils/safe_url_launcher.dart';
 
 import '../operations_models.dart';
 import '../../../core/utils/geo_utils.dart';
-import 'map_preview_card.dart';
+import 'map_preview.dart';
+import 'photo_preview.dart';
 import 'service_location_helpers.dart';
 import 'status_chip.dart';
 
@@ -26,27 +28,14 @@ class ServiceAgendaCard extends StatelessWidget {
     this.scheduledText,
   });
 
-  Future<void> _safeLaunch(BuildContext context, Uri uri) async {
-    try {
-      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (ok) return;
-    } catch (_) {
-      // ignore
-    }
-
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('No se pudo abrir el enlace')));
-  }
-
   Future<void> _openMaps(BuildContext context) async {
     final location = buildServiceLocationInfo(
       addressOrText: service.customerAddress,
     );
     final uri = location.mapsUri;
     if (uri == null) return;
-    await _safeLaunch(context, uri);
+
+    await safeOpenUrl(context, uri, copiedMessage: 'Link copiado');
   }
 
   Future<void> _openWhatsApp(BuildContext context) async {
@@ -55,7 +44,7 @@ class ServiceAgendaCard extends StatelessWidget {
 
     final digits = phone.replaceAll(RegExp(r'[^0-9+]'), '');
     final uri = Uri.parse('https://wa.me/$digits');
-    await _safeLaunch(context, uri);
+    await safeOpenUrl(context, uri, copiedMessage: 'Link copiado');
   }
 
   Future<void> _callPhone(BuildContext context) async {
@@ -63,7 +52,26 @@ class ServiceAgendaCard extends StatelessWidget {
     if (phone.isEmpty) return;
     final digits = phone.replaceAll(RegExp(r'[^0-9+]'), '');
     final uri = Uri(scheme: 'tel', path: digits);
-    await _safeLaunch(context, uri);
+    await safeOpenUrl(context, uri, copiedMessage: 'Link copiado');
+  }
+
+  String? _firstPhotoUrlOrPath() {
+    bool looksLikeImageUrl(String value) {
+      final s = value.trim().toLowerCase();
+      return s.endsWith('.png') ||
+          s.endsWith('.jpg') ||
+          s.endsWith('.jpeg') ||
+          s.endsWith('.webp');
+    }
+
+    for (final f in service.files) {
+      final url = f.fileUrl.trim();
+      if (url.isEmpty) continue;
+      final type = f.fileType.trim().toLowerCase();
+      if (type.startsWith('image/')) return url;
+      if (looksLikeImageUrl(url)) return url;
+    }
+    return null;
   }
 
   @override
@@ -80,6 +88,16 @@ class ServiceAgendaCard extends StatelessWidget {
     );
 
     final point = parseLatLngFromText(service.customerAddress);
+
+    final photo = _firstPhotoUrlOrPath();
+
+    final hasExplicitMapsUrl = RegExp(
+      r'https?://',
+      caseSensitive: false,
+    ).hasMatch(service.customerAddress);
+
+    final hasMapPreview = point != null || hasExplicitMapsUrl;
+    final hasPhotoPreview = (photo ?? '').trim().isNotEmpty;
 
     final hasPhone = service.customerPhone.trim().isNotEmpty;
 
@@ -182,12 +200,41 @@ class ServiceAgendaCard extends StatelessWidget {
                   ),
                 ],
               ),
-              if (point != null) ...[
+              if (hasMapPreview && hasPhotoPreview) ...[
                 const SizedBox(height: 10),
-                MapPreviewCard(
-                  latitude: point.latitude,
-                  longitude: point.longitude,
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: MapPreview(
+                        latitude: point?.latitude,
+                        longitude: point?.longitude,
+                        mapsUrl: hasExplicitMapsUrl
+                            ? location.mapsUri?.toString()
+                            : null,
+                        height: 120,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 1,
+                      child: PhotoPreview(source: photo!, height: 120),
+                    ),
+                  ],
                 ),
+              ] else if (hasMapPreview) ...[
+                const SizedBox(height: 10),
+                MapPreview(
+                  latitude: point?.latitude,
+                  longitude: point?.longitude,
+                  mapsUrl: hasExplicitMapsUrl
+                      ? location.mapsUri?.toString()
+                      : null,
+                  height: 120,
+                ),
+              ] else if (!hasMapPreview && hasPhotoPreview) ...[
+                const SizedBox(height: 10),
+                PhotoPreview(source: photo!, height: 120),
               ],
               const SizedBox(height: 6),
               Row(
