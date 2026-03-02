@@ -119,7 +119,7 @@ export class OperationsController {
   }
 
   @Post('services/:id/files')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
@@ -154,7 +154,7 @@ export class OperationsController {
   }
 
   @Delete('services/:id')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
   remove(@Req() req: Request, @Param('id') id: string) {
     const user = req.user as { id: string; role: Role };
     return this.operations.remove(user, id);

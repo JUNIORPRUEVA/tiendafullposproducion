@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 
+import '../../../core/auth/auth_provider.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../modules/clientes/cliente_model.dart';
 import '../data/operations_repository.dart';
@@ -42,10 +43,11 @@ class OperationsState {
   factory OperationsState.initial() {
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day);
+    final end = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
     return OperationsState(
       dashboard: OperationsDashboardModel.empty(),
       from: start,
-      to: start.add(const Duration(days: 7)),
+      to: end,
     );
   }
 
@@ -194,6 +196,19 @@ class OperationsController extends StateNotifier<OperationsState> {
     await load();
   }
 
+  Future<void> applyRangeAndTechnician({
+    required DateTime from,
+    required DateTime to,
+    required String? technicianId,
+  }) async {
+    var next = state.copyWith(from: from, to: to);
+    next = (technicianId == null || technicianId.trim().isEmpty)
+        ? next.copyWith(clearTechnician: true)
+        : next.copyWith(technicianIdFilter: technicianId);
+    state = next;
+    await load();
+  }
+
   Future<void> setPriority(int? value) async {
     state = value == null
         ? state.copyWith(clearPriority: true)
@@ -236,6 +251,14 @@ class OperationsController extends StateNotifier<OperationsState> {
     double? finalCost,
     List<String>? tags,
   }) async {
+    final userId = (ref.read(authStateProvider).user?.id ?? '').trim();
+    if (userId.isEmpty) {
+      throw ApiException(
+        'Debes iniciar sesión para crear una orden/servicio (firma requerida).',
+        401,
+      );
+    }
+
     final service = await ref
         .read(operationsRepositoryProvider)
         .createService(

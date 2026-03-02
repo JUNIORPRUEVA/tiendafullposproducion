@@ -17,6 +17,10 @@ class OperationsRepository {
 
   OperationsRepository(this._dio);
 
+  List<TechnicianModel>? _techniciansCache;
+  DateTime? _techniciansCacheAt;
+  static const Duration _techniciansCacheTtl = Duration(minutes: 5);
+
   String _extractMessage(dynamic data, String fallback) {
     if (data is Map) {
       final message = data['message'];
@@ -178,6 +182,22 @@ class OperationsRepository {
         e.response?.statusCode,
       );
     }
+  }
+
+  Future<List<TechnicianModel>> getTechnicians({
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh &&
+        _techniciansCache != null &&
+        _techniciansCacheAt != null) {
+      final age = DateTime.now().difference(_techniciansCacheAt!);
+      if (age < _techniciansCacheTtl) return _techniciansCache!;
+    }
+
+    final items = await listTechnicians();
+    _techniciansCache = items;
+    _techniciansCacheAt = DateTime.now();
+    return items;
   }
 
   Future<ServiceModel> changeStatus({

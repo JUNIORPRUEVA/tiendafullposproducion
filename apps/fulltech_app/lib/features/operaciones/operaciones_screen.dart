@@ -15,6 +15,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/errors/api_exception.dart';
+import '../../core/models/user_model.dart';
 import '../../core/models/punch_model.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/geo_utils.dart';
@@ -25,11 +26,14 @@ import '../../modules/cotizaciones/data/cotizaciones_repository.dart';
 import '../../modules/cotizaciones/cotizacion_models.dart';
 import '../catalogo/catalogo_screen.dart';
 import '../ponche/application/punch_controller.dart';
+import '../user/data/users_repository.dart';
 import 'application/operations_controller.dart';
 import 'data/operations_repository.dart';
 import 'operations_models.dart';
 import 'presentation/service_agenda_card.dart';
 import 'presentation/info_card.dart';
+import 'presentation/operations_filters.dart';
+import 'presentation/operations_permissions.dart';
 import 'presentation/service_actions_sheet.dart';
 import 'presentation/service_header.dart';
 import 'presentation/service_location_helpers.dart';
@@ -365,6 +369,14 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
           _PanelOptions(
             state: state,
             searchCtrl: _searchCtrl,
+            loadUsers: () => ref.read(usersRepositoryProvider).getAllUsers(),
+            loadTechnicians: () =>
+                ref.read(operationsRepositoryProvider).getTechnicians(),
+            onApplyRemote: (range, techId) => notifier.applyRangeAndTechnician(
+              from: range.start,
+              to: range.end,
+              technicianId: (techId ?? '').trim().isEmpty ? null : techId,
+            ),
             onOpenService: _openServiceDetail,
             onChangeStatus: _changeStatusWithConfirm,
             onChangeOrderState: (serviceId, orderState) =>
@@ -1537,33 +1549,15 @@ class _SeguroBadge extends StatelessWidget {
   }
 }
 
-enum _PanelStatusFilter { todos, pendientes, proceso, completadas }
-
-enum _PanelPriorityFilter { todas, alta, normal }
-
-class _PanelFilterResult {
-  final DateTimeRange range;
-  final _PanelStatusFilter status;
-  final _PanelPriorityFilter priority;
-  final String? orderType;
-  final String? orderState;
-  final String technicianQuery;
-  final String sellerQuery;
-
-  const _PanelFilterResult({
-    required this.range,
-    required this.status,
-    required this.priority,
-    required this.orderType,
-    required this.orderState,
-    required this.technicianQuery,
-    required this.sellerQuery,
-  });
-}
-
 class _PanelOptions extends StatefulWidget {
   final OperationsState state;
   final TextEditingController searchCtrl;
+
+  final Future<List<UserModel>> Function() loadUsers;
+  final Future<List<TechnicianModel>> Function() loadTechnicians;
+  final Future<void> Function(DateTimeRange range, String? technicianId)
+  onApplyRemote;
+
   final void Function(ServiceModel) onOpenService;
   final Future<void> Function(ServiceModel service) onChangeStatus;
   final Future<void> Function(String serviceId, String orderState)
@@ -1572,6 +1566,9 @@ class _PanelOptions extends StatefulWidget {
   const _PanelOptions({
     required this.state,
     required this.searchCtrl,
+    required this.loadUsers,
+    required this.loadTechnicians,
+    required this.onApplyRemote,
     required this.onOpenService,
     required this.onChangeStatus,
     required this.onChangeOrderState,
@@ -1582,28 +1579,15 @@ class _PanelOptions extends StatefulWidget {
 }
 
 class _PanelOptionsState extends State<_PanelOptions> {
-  DateTimeRange? _range;
-  _PanelStatusFilter _statusFilter = _PanelStatusFilter.todos;
-  _PanelPriorityFilter _priorityFilter = _PanelPriorityFilter.todas;
-  String? _orderTypeFilter;
-  String? _orderStateFilter;
-  String _technicianQuery = '';
-  String _sellerQuery = '';
+  OperationsFilters _filters = OperationsFilters.todayDefault();
 
-  DateTimeRange _todayRange() {
-    final now = DateTime.now();
-    return DateTimeRange(
-      start: DateTime(now.year, now.month, now.day),
-      end: DateTime(now.year, now.month, now.day, 23, 59, 59, 999),
-    );
-  }
-
-  DateTimeRange _effectiveRange() => _range ?? _todayRange();
+  Future<List<UserModel>>? _usersFuture;
+  Future<List<TechnicianModel>>? _techsFuture;
 
   @override
   void initState() {
     super.initState();
-    _range ??= _todayRange();
+    _filters = OperationsFilters.todayDefault();
     widget.searchCtrl.addListener(_onQueryChange);
   }
 
@@ -1626,27 +1610,6 @@ class _PanelOptionsState extends State<_PanelOptions> {
     if (mounted) setState(() {});
   }
 
-  DateTimeRange _normalizeRange(DateTimeRange raw) {
-    final start = DateTime(raw.start.year, raw.start.month, raw.start.day);
-    final end = DateTime(
-      raw.end.year,
-      raw.end.month,
-      raw.end.day,
-      23,
-      59,
-      59,
-      999,
-    );
-    return DateTimeRange(start: start, end: end);
-  }
-
-  bool _isDefaultTodayRange(DateTimeRange r) {
-    final now = DateTime.now();
-    final todayStart = DateTime(now.year, now.month, now.day);
-    final todayEnd = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
-    return r.start == todayStart && r.end == todayEnd;
-  }
-
   String _rangeLabel(DateTimeRange r) {
     final df = DateFormat('dd/MM/yyyy', 'es');
     if (r.start.year == r.end.year &&
@@ -1657,452 +1620,179 @@ class _PanelOptionsState extends State<_PanelOptions> {
     return '${df.format(r.start)} - ${df.format(r.end)}';
   }
 
-  Future<void> _openFilters() async {
-    DateTimeRange range = _effectiveRange();
-    var status = _statusFilter;
-    var priority = _priorityFilter;
-    var orderType = _orderTypeFilter;
-    var orderState = _orderStateFilter;
-    var technicianQuery = _technicianQuery;
-    var sellerQuery = _sellerQuery;
+  bool _isDefaultTodayRange(DateTimeRange r) {
+    final today = OperationsFilters.todayDefault().range;
+    return r.start == today.start && r.end == today.end;
+  }
 
-    final technicianCtrl = TextEditingController(text: technicianQuery);
-    final sellerCtrl = TextEditingController(text: sellerQuery);
+  InputDecoration _denseDecoration({
+    required String hint,
+    required IconData icon,
+  }) {
+    return InputDecoration(
+      isDense: true,
+      prefixIcon: Icon(icon),
+      hintText: hint,
+      border: const OutlineInputBorder(),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    );
+  }
 
-    final result = await showModalBottomSheet<_PanelFilterResult>(
+  Widget _sectionCard({required String title, required Widget child}) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              title,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 10),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _choiceChips<T>({
+    required T value,
+    required List<(T, String)> items,
+    required void Function(T next) onChanged,
+  }) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final it in items)
+          ChoiceChip(
+            label: Text(it.$2),
+            selected: value == it.$1,
+            onSelected: (_) => onChanged(it.$1),
+          ),
+      ],
+    );
+  }
+
+  Future<String?> _pickFromListSheet({
+    required String title,
+    required List<(String id, String label)> items,
+    required String? selectedId,
+  }) {
+    return showModalBottomSheet<String?>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
       builder: (context) {
+        String query = '';
+
         final theme = Theme.of(context);
+        final scheme = theme.colorScheme;
+
+        List<(String id, String label)> filtered() {
+          final q = query.trim().toLowerCase();
+          if (q.isEmpty) return items;
+          return items.where((e) => e.$2.toLowerCase().contains(q)).toList();
+        }
+
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(context).bottom,
+            ),
             child: StatefulBuilder(
-              builder: (context, setSheetState) {
-                Widget sectionTitle(String text) {
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 10, bottom: 6),
-                    child: Text(
-                      text,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  );
-                }
+              builder: (context, setInner) {
+                final list = filtered();
 
-                Future<void> pickCustomRange() async {
-                  final picked = await showDateRangePicker(
-                    context: context,
-                    firstDate: DateTime(2020),
-                    lastDate: DateTime(2100),
-                    initialDateRange: DateTimeRange(
-                      start: range.start,
-                      end: range.end,
-                    ),
-                    helpText: 'Selecciona intervalo de fecha',
-                  );
-                  if (picked == null) return;
-                  setSheetState(() => range = _normalizeRange(picked));
-                }
-
-                void setToday() {
-                  final now = DateTime.now();
-                  setSheetState(
-                    () => range = DateTimeRange(
-                      start: DateTime(now.year, now.month, now.day),
-                      end: DateTime(
-                        now.year,
-                        now.month,
-                        now.day,
-                        23,
-                        59,
-                        59,
-                        999,
-                      ),
-                    ),
-                  );
-                }
-
-                void setThisWeek() {
-                  final now = DateTime.now();
-                  final start = DateTime(
-                    now.year,
-                    now.month,
-                    now.day,
-                  ).subtract(Duration(days: now.weekday - 1));
-                  final end = start.add(const Duration(days: 6));
-                  setSheetState(
-                    () => range = _normalizeRange(
-                      DateTimeRange(start: start, end: end),
-                    ),
-                  );
-                }
-
-                void setThisMonth() {
-                  final now = DateTime.now();
-                  final start = DateTime(now.year, now.month, 1);
-                  final end = DateTime(now.year, now.month + 1, 0);
-                  setSheetState(
-                    () => range = _normalizeRange(
-                      DateTimeRange(start: start, end: end),
-                    ),
-                  );
-                }
-
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: 6),
-                    Text(
-                      'Filtros',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    sectionTitle('Técnico / Vendedor'),
-                    TextField(
-                      controller: technicianCtrl,
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.person_outline),
-                        hintText: 'Filtrar por técnico (nombre)',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (v) =>
-                          setSheetState(() => technicianQuery = v),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: sellerCtrl,
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.storefront_outlined),
-                        hintText: 'Filtrar por vendedor (creado por)',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (v) => setSheetState(() => sellerQuery = v),
-                    ),
-                    sectionTitle('Intervalo de fecha'),
-                    Card(
-                      child: ListTile(
-                        leading: const Icon(Icons.date_range_outlined),
-                        title: const Text('Rango'),
-                        subtitle: Text(_rangeLabel(range)),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: pickCustomRange,
-                      ),
-                    ),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        OutlinedButton(
-                          onPressed: setToday,
-                          child: const Text('Hoy'),
-                        ),
-                        OutlinedButton(
-                          onPressed: setThisWeek,
-                          child: const Text('Semana'),
-                        ),
-                        OutlinedButton(
-                          onPressed: setThisMonth,
-                          child: const Text('Mes'),
-                        ),
-                        OutlinedButton(
-                          onPressed: pickCustomRange,
-                          child: const Text('Personalizado'),
-                        ),
-                      ],
-                    ),
-                    sectionTitle('Estado'),
-                    Card(
-                      child: Column(
-                        children: [
-                          RadioListTile<_PanelStatusFilter>(
-                            value: _PanelStatusFilter.todos,
-                            groupValue: status,
-                            onChanged: (v) => setSheetState(() => status = v!),
-                            title: const Text('Todos'),
-                          ),
-                          RadioListTile<_PanelStatusFilter>(
-                            value: _PanelStatusFilter.pendientes,
-                            groupValue: status,
-                            onChanged: (v) => setSheetState(() => status = v!),
-                            title: const Text('Pendientes'),
-                          ),
-                          RadioListTile<_PanelStatusFilter>(
-                            value: _PanelStatusFilter.proceso,
-                            groupValue: status,
-                            onChanged: (v) => setSheetState(() => status = v!),
-                            title: const Text('En proceso'),
-                          ),
-                          RadioListTile<_PanelStatusFilter>(
-                            value: _PanelStatusFilter.completadas,
-                            groupValue: status,
-                            onChanged: (v) => setSheetState(() => status = v!),
-                            title: const Text('Completadas'),
-                          ),
-                        ],
-                      ),
-                    ),
-                    sectionTitle('Prioridad'),
-                    Card(
-                      child: Column(
-                        children: [
-                          RadioListTile<_PanelPriorityFilter>(
-                            value: _PanelPriorityFilter.todas,
-                            groupValue: priority,
-                            onChanged: (v) =>
-                                setSheetState(() => priority = v!),
-                            title: const Text('Todas'),
-                          ),
-                          RadioListTile<_PanelPriorityFilter>(
-                            value: _PanelPriorityFilter.alta,
-                            groupValue: priority,
-                            onChanged: (v) =>
-                                setSheetState(() => priority = v!),
-                            title: const Text('Alta prioridad'),
-                          ),
-                          RadioListTile<_PanelPriorityFilter>(
-                            value: _PanelPriorityFilter.normal,
-                            groupValue: priority,
-                            onChanged: (v) =>
-                                setSheetState(() => priority = v!),
-                            title: const Text('Normal'),
-                          ),
-                        ],
-                      ),
-                    ),
-                    sectionTitle('Orden de servicio'),
-                    if (MediaQuery.sizeOf(context).width < 430) ...[
-                      DropdownButtonFormField<String>(
-                        value: orderType ?? '',
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          labelText: 'Tipo de orden',
-                        ),
-                        items: const [
-                          DropdownMenuItem(value: '', child: Text('Todos')),
-                          DropdownMenuItem(
-                            value: 'reserva',
-                            child: Text('Reserva'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'garantia',
-                            child: Text('Garantía'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'levantamiento',
-                            child: Text('Levantamiento'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'mantenimiento',
-                            child: Text('Mantenimiento'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'instalacion',
-                            child: Text('Instalación'),
-                          ),
-                        ],
-                        onChanged: (v) => setSheetState(
-                          () => orderType = (v ?? '').trim().isEmpty ? null : v,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      DropdownButtonFormField<String>(
-                        value: orderState ?? '',
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          labelText: 'Estado de orden',
-                        ),
-                        items: const [
-                          DropdownMenuItem(value: '', child: Text('Todos')),
-                          DropdownMenuItem(
-                            value: 'pending',
-                            child: Text('Pendiente'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'confirmed',
-                            child: Text('Confirmada'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'assigned',
-                            child: Text('Asignada'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'in_progress',
-                            child: Text('En progreso'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'finalized',
-                            child: Text('Finalizada'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'cancelled',
-                            child: Text('Cancelada'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'rescheduled',
-                            child: Text('Reagendada'),
-                          ),
-                        ],
-                        onChanged: (v) => setSheetState(
-                          () =>
-                              orderState = (v ?? '').trim().isEmpty ? null : v,
-                        ),
-                      ),
-                    ] else
-                      Row(
-                        children: [
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              value: orderType ?? '',
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                border: OutlineInputBorder(),
-                                labelText: 'Tipo de orden',
-                              ),
-                              items: const [
-                                DropdownMenuItem(
-                                  value: '',
-                                  child: Text('Todos'),
+                return ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+                  ),
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 6, 8, 0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                title,
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w900,
                                 ),
-                                DropdownMenuItem(
-                                  value: 'reserva',
-                                  child: Text('Reserva'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'garantia',
-                                  child: Text('Garantía'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'levantamiento',
-                                  child: Text('Levantamiento'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'mantenimiento',
-                                  child: Text('Mantenimiento'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'instalacion',
-                                  child: Text('Instalación'),
-                                ),
-                              ],
-                              onChanged: (v) => setSheetState(
-                                () => orderType = (v ?? '').trim().isEmpty
-                                    ? null
-                                    : v,
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              value: orderState ?? '',
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                border: OutlineInputBorder(),
-                                labelText: 'Estado de orden',
-                              ),
-                              items: const [
-                                DropdownMenuItem(
-                                  value: '',
-                                  child: Text('Todos'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'pending',
-                                  child: Text('Pendiente'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'confirmed',
-                                  child: Text('Confirmada'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'assigned',
-                                  child: Text('Asignada'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'in_progress',
-                                  child: Text('En progreso'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'finalized',
-                                  child: Text('Finalizada'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'cancelled',
-                                  child: Text('Cancelada'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'rescheduled',
-                                  child: Text('Reagendada'),
-                                ),
-                              ],
-                              onChanged: (v) => setSheetState(
-                                () => orderState = (v ?? '').trim().isEmpty
-                                    ? null
-                                    : v,
-                              ),
+                            IconButton(
+                              tooltip: 'Cerrar',
+                              onPressed: () => Navigator.pop(context),
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                        child: TextField(
+                          decoration: InputDecoration(
+                            isDense: true,
+                            prefixIcon: const Icon(Icons.search_rounded),
+                            hintText: 'Buscar…',
+                            border: const OutlineInputBorder(),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
                             ),
                           ),
-                        ],
+                          onChanged: (v) => setInner(() => query = v),
+                        ),
                       ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        TextButton(
-                          onPressed: () {
-                            final now = DateTime.now();
-                            Navigator.pop(
-                              context,
-                              _PanelFilterResult(
-                                range: DateTimeRange(
-                                  start: DateTime(now.year, now.month, now.day),
-                                  end: DateTime(
-                                    now.year,
-                                    now.month,
-                                    now.day,
-                                    23,
-                                    59,
-                                    59,
-                                    999,
+                      Expanded(
+                        child: ListView(
+                          children: [
+                            ListTile(
+                              leading: Icon(
+                                Icons.all_inclusive,
+                                color: scheme.primary,
+                              ),
+                              title: const Text(
+                                'Todos',
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                              trailing: selectedId == null
+                                  ? Icon(
+                                      Icons.check_rounded,
+                                      color: scheme.primary,
+                                    )
+                                  : null,
+                              onTap: () => Navigator.pop(context, null),
+                            ),
+                            const Divider(height: 1),
+                            for (final e in list)
+                              ListTile(
+                                title: Text(
+                                  e.$2,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
-                                status: _PanelStatusFilter.todos,
-                                priority: _PanelPriorityFilter.todas,
-                                orderType: null,
-                                orderState: null,
-                                technicianQuery: '',
-                                sellerQuery: '',
+                                trailing: selectedId == e.$1
+                                    ? Icon(
+                                        Icons.check_rounded,
+                                        color: scheme.primary,
+                                      )
+                                    : null,
+                                onTap: () => Navigator.pop(context, e.$1),
                               ),
-                            );
-                          },
-                          child: const Text('Limpiar'),
+                          ],
                         ),
-                        const Spacer(),
-                        FilledButton(
-                          onPressed: () {
-                            Navigator.pop(
-                              context,
-                              _PanelFilterResult(
-                                range: range,
-                                status: status,
-                                priority: priority,
-                                orderType: orderType,
-                                orderState: orderState,
-                                technicianQuery: technicianCtrl.text,
-                                sellerQuery: sellerCtrl.text,
-                              ),
-                            );
-                          },
-                          child: const Text('Aplicar'),
-                        ),
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 );
               },
             ),
@@ -2110,20 +1800,465 @@ class _PanelOptionsState extends State<_PanelOptions> {
         );
       },
     );
+  }
 
-    technicianCtrl.dispose();
-    sellerCtrl.dispose();
+  Future<void> _openFilters() async {
+    _usersFuture ??= widget.loadUsers();
+    _techsFuture ??= widget.loadTechnicians();
+
+    OperationsFilters draft = _filters;
+    final hasCancelled = widget.state.services.any(
+      (s) => s.status.trim().toLowerCase() == 'cancelled',
+    );
+    final hasLowPriority = widget.state.services.any((s) => s.priority >= 3);
+
+    final result = await showModalBottomSheet<OperationsFilters>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return SafeArea(
+          child: DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.80,
+            minChildSize: 0.70,
+            maxChildSize: 0.95,
+            builder: (context, scrollController) {
+              return StatefulBuilder(
+                builder: (context, setSheetState) {
+                  Future<void> pickCustomRange() async {
+                    final picked = await showDateRangePicker(
+                      context: context,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2100),
+                      initialDateRange: draft.range,
+                      helpText: 'Selecciona intervalo de fecha',
+                    );
+                    if (picked == null) return;
+                    setSheetState(() => draft = draft.withCustomRange(picked));
+                  }
+
+                  Widget header() {
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Filtros',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Cerrar',
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  Widget footer() {
+                    final scheme = theme.colorScheme;
+                    return Container(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                      decoration: BoxDecoration(
+                        color: scheme.surface,
+                        border: Border(
+                          top: BorderSide(
+                            color: scheme.outlineVariant.withValues(
+                              alpha: 0.55,
+                            ),
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () {
+                                setSheetState(
+                                  () =>
+                                      draft = OperationsFilters.todayDefault(),
+                                );
+                              },
+                              child: const Text('Limpiar'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () => Navigator.pop(context, draft),
+                              child: const Text('Aplicar'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return Material(
+                    color: theme.colorScheme.surface,
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 6),
+                        header(),
+                        const SizedBox(height: 6),
+                        Expanded(
+                          child: ListView(
+                            controller: scrollController,
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                            children: [
+                              _sectionCard(
+                                title: 'Usuario creador',
+                                child: FutureBuilder<List<UserModel>>(
+                                  future: _usersFuture,
+                                  builder: (context, snap) {
+                                    if (snap.connectionState !=
+                                        ConnectionState.done) {
+                                      return const LinearProgressIndicator();
+                                    }
+                                    if (snap.hasError) {
+                                      return Row(
+                                        children: [
+                                          const Expanded(
+                                            child: Text(
+                                              'No se pudieron cargar usuarios',
+                                            ),
+                                          ),
+                                          TextButton(
+                                            onPressed: () {
+                                              setSheetState(() {
+                                                _usersFuture = widget
+                                                    .loadUsers();
+                                              });
+                                            },
+                                            child: const Text('Reintentar'),
+                                          ),
+                                        ],
+                                      );
+                                    }
+
+                                    final users =
+                                        (snap.data ?? const [])
+                                            .where(
+                                              (u) =>
+                                                  (u.blocked) == false &&
+                                                  u.id.trim().isNotEmpty,
+                                            )
+                                            .toList()
+                                          ..sort(
+                                            (a, b) => a.nombreCompleto
+                                                .toLowerCase()
+                                                .compareTo(
+                                                  b.nombreCompleto
+                                                      .toLowerCase(),
+                                                ),
+                                          );
+
+                                    final selectedId = draft.createdByUserId;
+                                    final selectedLabel = selectedId == null
+                                        ? 'Todos'
+                                        : (users
+                                                  .firstWhere(
+                                                    (u) => u.id == selectedId,
+                                                    orElse: () => users.first,
+                                                  )
+                                                  .nombreCompleto)
+                                              .trim();
+
+                                    return ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: const Icon(Icons.badge_outlined),
+                                      title: Text(
+                                        selectedLabel.isEmpty
+                                            ? 'Todos'
+                                            : selectedLabel,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      trailing: const Icon(
+                                        Icons.chevron_right_rounded,
+                                      ),
+                                      onTap: () async {
+                                        final items = users
+                                            .map(
+                                              (u) => (
+                                                u.id,
+                                                u.nombreCompleto.trim().isEmpty
+                                                    ? (u.email.trim().isEmpty
+                                                          ? 'Usuario'
+                                                          : u.email.trim())
+                                                    : u.nombreCompleto.trim(),
+                                              ),
+                                            )
+                                            .toList(growable: false);
+
+                                        final picked = await _pickFromListSheet(
+                                          title: 'Usuario creador',
+                                          items: items,
+                                          selectedId: selectedId,
+                                        );
+                                        if (picked == null) {
+                                          setSheetState(
+                                            () => draft = draft.copyWith(
+                                              clearCreatedBy: true,
+                                            ),
+                                          );
+                                          return;
+                                        }
+
+                                        setSheetState(
+                                          () => draft = draft.copyWith(
+                                            createdByUserId: picked,
+                                          ),
+                                        );
+                                      },
+                                    );
+                                  },
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              _sectionCard(
+                                title: 'Técnico asignado',
+                                child: FutureBuilder<List<TechnicianModel>>(
+                                  future: _techsFuture,
+                                  builder: (context, snap) {
+                                    if (snap.connectionState !=
+                                        ConnectionState.done) {
+                                      return const LinearProgressIndicator();
+                                    }
+                                    if (snap.hasError) {
+                                      return Row(
+                                        children: [
+                                          const Expanded(
+                                            child: Text(
+                                              'No se pudieron cargar técnicos',
+                                            ),
+                                          ),
+                                          TextButton(
+                                            onPressed: () {
+                                              setSheetState(() {
+                                                _techsFuture = widget
+                                                    .loadTechnicians();
+                                              });
+                                            },
+                                            child: const Text('Reintentar'),
+                                          ),
+                                        ],
+                                      );
+                                    }
+
+                                    final techs =
+                                        (snap.data ?? const [])
+                                            .where(
+                                              (t) => t.id.trim().isNotEmpty,
+                                            )
+                                            .toList()
+                                          ..sort(
+                                            (a, b) =>
+                                                a.name.toLowerCase().compareTo(
+                                                  b.name.toLowerCase(),
+                                                ),
+                                          );
+
+                                    final selectedId = draft.technicianId;
+                                    final selectedLabel = selectedId == null
+                                        ? 'Todos'
+                                        : (techs
+                                                  .firstWhere(
+                                                    (t) => t.id == selectedId,
+                                                    orElse: () => techs.first,
+                                                  )
+                                                  .name)
+                                              .trim();
+
+                                    return ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: const Icon(
+                                        Icons.engineering_outlined,
+                                      ),
+                                      title: Text(
+                                        selectedLabel.isEmpty
+                                            ? 'Todos'
+                                            : selectedLabel,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      trailing: const Icon(
+                                        Icons.chevron_right_rounded,
+                                      ),
+                                      onTap: () async {
+                                        final items = techs
+                                            .map(
+                                              (t) => (
+                                                t.id,
+                                                t.name.trim().isEmpty
+                                                    ? 'Técnico'
+                                                    : t.name.trim(),
+                                              ),
+                                            )
+                                            .toList(growable: false);
+
+                                        final picked = await _pickFromListSheet(
+                                          title: 'Técnico asignado',
+                                          items: items,
+                                          selectedId: selectedId,
+                                        );
+                                        if (picked == null) {
+                                          setSheetState(
+                                            () => draft = draft.copyWith(
+                                              clearTechnician: true,
+                                            ),
+                                          );
+                                          return;
+                                        }
+
+                                        setSheetState(
+                                          () => draft = draft.copyWith(
+                                            technicianId: picked,
+                                          ),
+                                        );
+                                      },
+                                    );
+                                  },
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              _sectionCard(
+                                title: 'Rango de fechas',
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    _choiceChips<OperationsDatePreset>(
+                                      value: draft.datePreset,
+                                      items: const [
+                                        (OperationsDatePreset.today, 'Hoy'),
+                                        (OperationsDatePreset.week, 'Semana'),
+                                        (OperationsDatePreset.month, 'Mes'),
+                                        (
+                                          OperationsDatePreset.custom,
+                                          'Personalizado',
+                                        ),
+                                      ],
+                                      onChanged: (next) {
+                                        setSheetState(() {
+                                          draft = switch (next) {
+                                            OperationsDatePreset.today =>
+                                              draft.withTodayRange(),
+                                            OperationsDatePreset.week =>
+                                              draft.withWeekRange(),
+                                            OperationsDatePreset.month =>
+                                              draft.withMonthRange(),
+                                            OperationsDatePreset.custom =>
+                                              draft.copyWith(
+                                                datePreset:
+                                                    OperationsDatePreset.custom,
+                                              ),
+                                          };
+                                        });
+                                      },
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Card(
+                                      margin: EdgeInsets.zero,
+                                      child: ListTile(
+                                        dense: true,
+                                        leading: const Icon(
+                                          Icons.date_range_outlined,
+                                        ),
+                                        title: const Text('Intervalo'),
+                                        subtitle: Text(
+                                          _rangeLabel(draft.range),
+                                        ),
+                                        trailing: const Icon(
+                                          Icons.chevron_right_rounded,
+                                        ),
+                                        onTap:
+                                            draft.datePreset ==
+                                                OperationsDatePreset.custom
+                                            ? pickCustomRange
+                                            : null,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              _sectionCard(
+                                title: 'Estado',
+                                child: _choiceChips<OperationsStatusFilter>(
+                                  value: draft.status,
+                                  items: [
+                                    (OperationsStatusFilter.all, 'Todos'),
+                                    (
+                                      OperationsStatusFilter.pending,
+                                      'Pendientes',
+                                    ),
+                                    (
+                                      OperationsStatusFilter.inProgress,
+                                      'En proceso',
+                                    ),
+                                    (
+                                      OperationsStatusFilter.completed,
+                                      'Completadas',
+                                    ),
+                                    if (hasCancelled)
+                                      (
+                                        OperationsStatusFilter.cancelled,
+                                        'Canceladas',
+                                      ),
+                                  ],
+                                  onChanged: (next) => setSheetState(
+                                    () => draft = draft.copyWith(status: next),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              _sectionCard(
+                                title: 'Prioridad',
+                                child: _choiceChips<OperationsPriorityFilter>(
+                                  value: draft.priority,
+                                  items: [
+                                    (OperationsPriorityFilter.all, 'Todas'),
+                                    (OperationsPriorityFilter.high, 'Alta'),
+                                    (OperationsPriorityFilter.normal, 'Normal'),
+                                    if (hasLowPriority)
+                                      (OperationsPriorityFilter.low, 'Baja'),
+                                  ],
+                                  onChanged: (next) => setSheetState(
+                                    () =>
+                                        draft = draft.copyWith(priority: next),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        footer(),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        );
+      },
+    );
 
     if (!mounted || result == null) return;
-    setState(() {
-      _range = result.range;
-      _statusFilter = result.status;
-      _priorityFilter = result.priority;
-      _orderTypeFilter = result.orderType;
-      _orderStateFilter = result.orderState;
-      _technicianQuery = result.technicianQuery.trim();
-      _sellerQuery = result.sellerQuery.trim();
-    });
+    setState(() => _filters = result);
+
+    // Optimiza el fetch remoto: rango y técnico.
+    await widget.onApplyRemote(result.range, result.technicianId);
   }
 
   static const _pendingStatuses = {
@@ -2172,6 +2307,25 @@ class _PanelOptionsState extends State<_PanelOptions> {
     }
   }
 
+  String _categoryLabel(String raw) {
+    switch (raw.trim().toLowerCase()) {
+      case 'cameras':
+        return 'Cámaras';
+      case 'gate_motor':
+        return 'Motores de puertones';
+      case 'alarm':
+        return 'Alarma';
+      case 'electric_fence':
+        return 'Cerco eléctrico';
+      case 'intercom':
+        return 'Intercom';
+      case 'pos':
+        return 'Punto de ventas';
+      default:
+        return raw.trim().isEmpty ? 'General' : raw.trim();
+    }
+  }
+
   // ignore: unused_element
   String _techLabel(ServiceModel s) {
     if (s.assignments.isEmpty) return 'Sin asignar';
@@ -2212,7 +2366,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final now = DateTime.now();
-    final range = _effectiveRange();
+    final range = _filters.range;
 
     bool inRange(ServiceModel s) {
       final scheduled = s.scheduledStart;
@@ -2252,55 +2406,44 @@ class _PanelOptionsState extends State<_PanelOptions> {
     }
 
     bool matchesStatus(ServiceModel s) {
-      switch (_statusFilter) {
-        case _PanelStatusFilter.todos:
+      switch (_filters.status) {
+        case OperationsStatusFilter.all:
           return true;
-        case _PanelStatusFilter.pendientes:
+        case OperationsStatusFilter.pending:
           return _pendingStatuses.contains(s.status);
-        case _PanelStatusFilter.proceso:
+        case OperationsStatusFilter.inProgress:
           return _inProgressStatuses.contains(s.status);
-        case _PanelStatusFilter.completadas:
+        case OperationsStatusFilter.completed:
           return _completedStatuses.contains(s.status);
+        case OperationsStatusFilter.cancelled:
+          return s.status.trim().toLowerCase() == 'cancelled';
       }
     }
 
     bool matchesPriority(ServiceModel s) {
-      switch (_priorityFilter) {
-        case _PanelPriorityFilter.todas:
+      switch (_filters.priority) {
+        case OperationsPriorityFilter.all:
           return true;
-        case _PanelPriorityFilter.alta:
+        case OperationsPriorityFilter.high:
           return s.priority <= 1;
-        case _PanelPriorityFilter.normal:
-          return s.priority > 1;
+        case OperationsPriorityFilter.normal:
+          return s.priority == 2;
+        case OperationsPriorityFilter.low:
+          return s.priority >= 3;
       }
     }
 
     bool matchesTechnician(ServiceModel s) {
-      final q = _technicianQuery.trim().toLowerCase();
-      if (q.isEmpty) return true;
-      final names = s.assignments
-          .map((a) => a.userName)
-          .join(' ')
-          .toLowerCase();
-      return names.contains(q);
+      final techId = (_filters.technicianId ?? '').trim();
+      if (techId.isEmpty) return true;
+      if ((s.technicianId ?? '').trim() == techId) return true;
+      return s.assignments.any((a) => a.userId == techId);
     }
 
-    bool matchesSeller(ServiceModel s) {
-      final q = _sellerQuery.trim().toLowerCase();
-      if (q.isEmpty) return true;
-      return s.createdByName.toLowerCase().contains(q);
-    }
-
-    bool matchesOrderType(ServiceModel s) {
-      final v = (_orderTypeFilter ?? '').trim().toLowerCase();
-      if (v.isEmpty) return true;
-      return s.orderType.trim().toLowerCase() == v;
-    }
-
-    bool matchesOrderState(ServiceModel s) {
-      final v = (_orderStateFilter ?? '').trim().toLowerCase();
-      if (v.isEmpty) return true;
-      return s.orderState.trim().toLowerCase() == v;
+    bool matchesCreator(ServiceModel s) {
+      final createdBy = (_filters.createdByUserId ?? '').trim();
+      if (createdBy.isEmpty) return true;
+      return s.createdByUserId.trim() == createdBy;
     }
 
     final filtered = window
@@ -2308,10 +2451,8 @@ class _PanelOptionsState extends State<_PanelOptions> {
           (s) =>
               matchesStatus(s) &&
               matchesPriority(s) &&
-              matchesOrderType(s) &&
-              matchesOrderState(s) &&
               matchesTechnician(s) &&
-              matchesSeller(s) &&
+              matchesCreator(s) &&
               matchesQuery(s),
         )
         .toList();
@@ -2454,7 +2595,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
         else
           ...filtered.map((s) {
             final type = _typeLabel(s.serviceType);
-            final category = s.category.trim();
+            final category = _categoryLabel(s.category);
             final subtitle = category.isEmpty ? type : '$type · $category';
             final tech = _techLabel(s);
 
@@ -2523,7 +2664,6 @@ class _ServiceDetailPanel extends ConsumerStatefulWidget {
 
 class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
   final _noteCtrl = TextEditingController();
-  final _techCtrl = TextEditingController();
 
   String _statusLabel(String raw) {
     switch (raw) {
@@ -2741,7 +2881,6 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
   @override
   void dispose() {
     _noteCtrl.dispose();
-    _techCtrl.dispose();
     super.dispose();
   }
 
@@ -2752,20 +2891,11 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
 
     final auth = ref.watch(authStateProvider);
     final user = auth.user;
-    final userId = (user?.id ?? '').trim();
-    final role = (user?.role ?? '').trim().toLowerCase();
 
-    final isAdmin = role == 'admin' || role == 'asistente';
-    final isOwner = userId.isNotEmpty && userId == service.createdByUserId;
-    final isTech = role == 'tecnico';
-    final isAssignedTech =
-        isTech &&
-        userId.isNotEmpty &&
-        service.assignments.any((a) => a.userId == userId);
-
-    final canOperate = isAdmin || isOwner;
-    final canChangeStatus = canOperate || isAssignedTech;
-    final canDelete = role == 'admin';
+    final perms = OperationsPermissions(user: user, service: service);
+    final canOperate = perms.canOperate;
+    final canDelete = perms.canDelete;
+    final allowedStatusTargets = perms.allowedNextStatuses();
 
     final typeText = _serviceTypeLabel(service.serviceType);
     final categoryText = _categoryLabel(service.category);
@@ -2810,8 +2940,10 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         context,
         service: service,
         canOperate: canOperate,
-        canChangeStatus: canChangeStatus,
+        operateDeniedReason: perms.operateDeniedReason,
+        allowedStatusTargets: allowedStatusTargets,
         canDelete: canDelete,
+        deleteDeniedReason: perms.criticalDeniedReason,
         onChangeStatus: (status) => _setStatusWithConfirm(status),
         onPickSchedule: () => _pickScheduleFlow(service),
         onAssignTechs: _assignTechsFlow,
@@ -2865,6 +2997,13 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
               _kv(context, 'Tipo', headerTitle),
               _kv(context, 'Prioridad', 'P${service.priority}'),
               _kv(context, 'Estado', _statusLabel(service.status)),
+              _kv(
+                context,
+                'Creado por',
+                service.createdByName.trim().isEmpty
+                    ? '—'
+                    : service.createdByName.trim(),
+              ),
               if (service.orderState.trim().isNotEmpty)
                 _kv(context, 'Orden', service.orderState.trim()),
               if (service.scheduledStart != null)
@@ -3031,38 +3170,43 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
   }
 
   Future<List<String>?> _askTechIds(BuildContext context) async {
-    _techCtrl.clear();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Asignar técnicos'),
-        content: TextField(
-          controller: _techCtrl,
-          decoration: const InputDecoration(
-            hintText: 'UUID1, UUID2, UUID3',
-            border: OutlineInputBorder(),
+    final ctrl = TextEditingController();
+    try {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Asignar técnicos'),
+          content: TextField(
+            controller: ctrl,
+            decoration: const InputDecoration(
+              hintText: 'UUID1, UUID2, UUID3',
+              border: OutlineInputBorder(),
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Asignar'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Asignar'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return null;
-    final value = _techCtrl.text.trim();
-    if (value.isEmpty) return null;
-    return value
-        .split(',')
-        .map((item) => item.trim())
-        .where((item) => item.isNotEmpty)
-        .toList();
+      );
+      if (ok != true) return null;
+
+      final value = ctrl.text.trim();
+      if (value.isEmpty) return null;
+      return value
+          .split(',')
+          .map((item) => item.trim())
+          .where((item) => item.isNotEmpty)
+          .toList();
+    } finally {
+      ctrl.dispose();
+    }
   }
 
   Future<String?> _askReason(BuildContext context) async {

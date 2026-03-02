@@ -10,8 +10,10 @@ class ServiceActionsSheet {
     BuildContext context, {
     required ServiceModel service,
     required bool canOperate,
-    required bool canChangeStatus,
+    String? operateDeniedReason,
+    required List<String> allowedStatusTargets,
     required bool canDelete,
+    String? deleteDeniedReason,
     required Future<void> Function(String status) onChangeStatus,
     required Future<void> Function() onPickSchedule,
     required Future<void> Function() onAssignTechs,
@@ -34,9 +36,9 @@ class ServiceActionsSheet {
             child: Text(
               text,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    color: scheme.onSurface.withValues(alpha: 0.70),
-                  ),
+                fontWeight: FontWeight.w900,
+                color: scheme.onSurface.withValues(alpha: 0.70),
+              ),
             ),
           );
         }
@@ -45,21 +47,36 @@ class ServiceActionsSheet {
           required IconData icon,
           required String title,
           String? subtitle,
-          required VoidCallback? onTap,
+          required Future<void> Function()? onTap,
+          bool enabled = true,
+          String? disabledReason,
           Color? color,
         }) {
           final effectiveColor = color ?? scheme.onSurface;
+          final disabled = !enabled;
+          final paint = disabled
+              ? effectiveColor.withValues(alpha: 0.42)
+              : effectiveColor;
           return ListTile(
-            leading: Icon(icon, color: effectiveColor),
+            leading: Icon(icon, color: paint),
             title: Text(
               title,
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                color: effectiveColor,
-              ),
+              style: TextStyle(fontWeight: FontWeight.w800, color: paint),
             ),
             subtitle: subtitle == null ? null : Text(subtitle),
-            onTap: onTap,
+            onTap: () async {
+              if (disabled) {
+                final msg = (disabledReason ?? '').trim();
+                if (msg.isNotEmpty) {
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text(msg)));
+                }
+                return;
+              }
+              if (onTap == null) return;
+              await onTap();
+            },
           );
         }
 
@@ -67,6 +84,8 @@ class ServiceActionsSheet {
           Navigator.pop(context);
           await action();
         }
+
+        final canChangeStatus = allowedStatusTargets.isNotEmpty;
 
         return SafeArea(
           child: ConstrainedBox(
@@ -81,8 +100,8 @@ class ServiceActionsSheet {
                   child: Text(
                     'Acciones',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
 
@@ -91,12 +110,17 @@ class ServiceActionsSheet {
                   icon: Icons.swap_horiz_rounded,
                   title: 'Cambiar estado',
                   subtitle: 'Actual: ${service.status}',
+                  enabled: canChangeStatus,
+                  disabledReason: canOperate
+                      ? 'No hay transiciones disponibles'
+                      : (operateDeniedReason ?? 'No autorizado'),
                   onTap: !canChangeStatus
                       ? null
                       : () async {
                           final next = await _pickServiceStatus(
                             context,
                             current: service.status,
+                            allowed: allowedStatusTargets,
                           );
                           if (next == null) return;
                           await closeAnd(() => onChangeStatus(next));
@@ -105,64 +129,76 @@ class ServiceActionsSheet {
                 item(
                   icon: Icons.location_on_outlined,
                   title: 'Marcar: Llegué al sitio',
-                  onTap: !canOperate
-                      ? null
-                      : () => closeAnd(() => onAddNote('Llegué al sitio')),
+                  enabled: canOperate,
+                  disabledReason: operateDeniedReason,
+                  onTap: () => closeAnd(() => onAddNote('Llegué al sitio')),
                 ),
                 item(
                   icon: Icons.play_circle_outline,
                   title: 'Marcar: Inicié',
-                  onTap:
-                      !canOperate ? null : () => closeAnd(() => onAddNote('Inicié trabajo')),
+                  enabled: canOperate,
+                  disabledReason: operateDeniedReason,
+                  onTap: () => closeAnd(() => onAddNote('Inicié trabajo')),
                 ),
                 item(
                   icon: Icons.check_circle_outline,
                   title: 'Marcar: Finalicé',
-                  onTap:
-                      !canOperate ? null : () => closeAnd(() => onAddNote('Finalicé trabajo')),
+                  enabled: canOperate,
+                  disabledReason: operateDeniedReason,
+                  onTap: () => closeAnd(() => onAddNote('Finalicé trabajo')),
                 ),
                 item(
                   icon: Icons.pending_actions_outlined,
                   title: 'Marcar: Pendiente por…',
-                  onTap: !canOperate
-                      ? null
-                      : () async {
-                          final reason = await _askReason(context);
-                          if (reason == null || reason.trim().isEmpty) return;
-                          await closeAnd(() => onMarkPendingBy(reason.trim()));
-                        },
+                  enabled: canOperate,
+                  disabledReason: operateDeniedReason,
+                  onTap: () async {
+                    final reason = await _askReason(context);
+                    if (reason == null || reason.trim().isEmpty) return;
+                    await closeAnd(() => onMarkPendingBy(reason.trim()));
+                  },
                 ),
 
                 groupTitle('Gestión'),
                 item(
                   icon: Icons.event_available_outlined,
                   title: 'Agendar / Reagendar',
-                  onTap: !canOperate ? null : () => closeAnd(onPickSchedule),
+                  enabled: canOperate,
+                  disabledReason: operateDeniedReason,
+                  onTap: () => closeAnd(onPickSchedule),
                 ),
                 item(
                   icon: Icons.groups_outlined,
                   title: 'Asignar técnicos',
-                  onTap: !canOperate ? null : () => closeAnd(onAssignTechs),
+                  enabled: canOperate,
+                  disabledReason: operateDeniedReason,
+                  onTap: () => closeAnd(onAssignTechs),
                 ),
                 item(
                   icon: Icons.attach_file,
                   title: 'Subir evidencia',
-                  onTap: !canOperate ? null : () => closeAnd(onUploadEvidence),
+                  enabled: canOperate,
+                  disabledReason: operateDeniedReason,
+                  onTap: () => closeAnd(onUploadEvidence),
                 ),
                 if (service.status == 'completed' || service.status == 'closed')
                   item(
                     icon: Icons.verified_outlined,
                     title: 'Crear garantía',
-                    onTap: !canOperate ? null : () => closeAnd(onCreateWarranty),
+                    enabled: canOperate,
+                    disabledReason: operateDeniedReason,
+                    onTap: () => closeAnd(onCreateWarranty),
                   ),
                 item(
                   icon: Icons.person_outline,
                   title: 'Ver cliente',
                   onTap: service.customerId.trim().isEmpty
                       ? null
-                      : () {
+                      : () async {
                           Navigator.pop(context);
-                          context.push(Routes.clienteDetail(service.customerId.trim()));
+                          context.push(
+                            Routes.clienteDetail(service.customerId.trim()),
+                          );
                         },
                 ),
                 item(
@@ -170,7 +206,7 @@ class ServiceActionsSheet {
                   title: 'Ver cotizaciones',
                   onTap: service.customerPhone.trim().isEmpty
                       ? null
-                      : () {
+                      : () async {
                           final phone = service.customerPhone.trim();
                           Navigator.pop(context);
                           context.push(
@@ -192,14 +228,18 @@ class ServiceActionsSheet {
                   },
                 ),
 
-                groupTitle('Peligro'),
-                item(
-                  icon: Icons.delete_outline,
-                  title: 'Eliminar',
-                  subtitle: 'Esta acción no se puede deshacer',
-                  color: scheme.error,
-                  onTap: !canDelete ? null : () => closeAnd(onDelete),
-                ),
+                if (canDelete) ...[
+                  groupTitle('Peligro'),
+                  item(
+                    icon: Icons.delete_outline,
+                    title: 'Eliminar',
+                    subtitle: 'Esta acción no se puede deshacer',
+                    color: scheme.error,
+                    enabled: canDelete,
+                    disabledReason: deleteDeniedReason,
+                    onTap: () => closeAnd(onDelete),
+                  ),
+                ],
 
                 const SizedBox(height: 8),
               ],
@@ -247,8 +287,10 @@ class ServiceActionsSheet {
   static Future<String?> _pickServiceStatus(
     BuildContext context, {
     required String current,
+    required List<String> allowed,
   }) {
     final normalized = current.trim().toLowerCase();
+    final allowedSet = allowed.map((e) => e.trim().toLowerCase()).toSet();
 
     return showModalBottomSheet<String>(
       context: context,
@@ -271,12 +313,11 @@ class ServiceActionsSheet {
                     Text(
                       _serviceStatusLabel(normalized),
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withValues(alpha: 0.70),
-                          ),
+                        fontWeight: FontWeight.w800,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.70),
+                      ),
                     ),
                   ],
                 ),
@@ -292,7 +333,10 @@ class ServiceActionsSheet {
                         trailing: s == normalized
                             ? const Icon(Icons.check_rounded)
                             : null,
-                        onTap: () => Navigator.pop(context, s),
+                        enabled: allowedSet.contains(s),
+                        onTap: allowedSet.contains(s)
+                            ? () => Navigator.pop(context, s)
+                            : null,
                       ),
                   ],
                 ),

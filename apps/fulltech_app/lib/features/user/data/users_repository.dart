@@ -15,12 +15,28 @@ class UsersRepository {
 
   final Dio _dio;
 
+  List<UserModel>? _usersCache;
+  DateTime? _usersCacheAt;
+  static const Duration _usersCacheTtl = Duration(minutes: 5);
+
   Future<List<UserModel>> fetchUsers() async {
     final res = await _dio.get(ApiRoutes.users);
     final data = res.data as List<dynamic>;
     return data
         .map((e) => UserModel.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  Future<List<UserModel>> getAllUsers({bool forceRefresh = false}) async {
+    if (!forceRefresh && _usersCache != null && _usersCacheAt != null) {
+      final age = DateTime.now().difference(_usersCacheAt!);
+      if (age < _usersCacheTtl) return _usersCache!;
+    }
+
+    final users = await fetchUsers();
+    _usersCache = users;
+    _usersCacheAt = DateTime.now();
+    return users;
   }
 
   Future<UserModel> createUser(Map<String, dynamic> payload) async {
@@ -70,10 +86,7 @@ class UsersRepository {
       return false;
     });
 
-    final res = await _dio.patch(
-      ApiRoutes.usersMe,
-      data: payload,
-    );
+    final res = await _dio.patch(ApiRoutes.usersMe, data: payload);
     return UserModel.fromJson(res.data as Map<String, dynamic>);
   }
 

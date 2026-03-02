@@ -255,9 +255,14 @@ export class OperationsService {
     });
 
     if (!service) throw new NotFoundException('Servicio no encontrado');
-    this.assertCanOperate(user, service.createdByUserId, service.assignments.map((a) => a.userId));
-
     const nextStatus = this.parseStatus(dto.status);
+
+    if (nextStatus === ServiceStatus.CANCELLED) {
+      this.assertCanCritical(user, service.createdByUserId);
+    } else {
+      this.assertCanOperate(user, service.createdByUserId, service.assignments.map((a) => a.userId));
+    }
+
     const force = Boolean(dto.force) && this.canForce(user);
 
     if (!force && !this.isValidTransition(service.status, nextStatus)) {
@@ -614,6 +619,8 @@ export class OperationsService {
     const service = await this.prisma.service.findFirst({ where: { id, isDeleted: false } });
     if (!service) throw new NotFoundException('Servicio no encontrado');
 
+    this.assertCanCritical(user, service.createdByUserId);
+
     await this.prisma.$transaction(async (tx) => {
       await tx.service.update({ where: { id }, data: { isDeleted: true } });
       await tx.serviceUpdate.create({
@@ -796,6 +803,12 @@ export class OperationsService {
     if (user.role === Role.TECNICO && assignedIds.includes(user.id)) return;
     if (user.role === Role.VENDEDOR && user.id === sellerId) return;
     throw new ForbiddenException('No autorizado para modificar este servicio');
+  }
+
+  private assertCanCritical(user: AuthUser, sellerId: string) {
+    if (user.role === Role.ADMIN || user.role === Role.ASISTENTE) return;
+    if (user.role === Role.VENDEDOR && user.id === sellerId) return;
+    throw new ForbiddenException('No autorizado para esta acción');
   }
 
   private canForce(user: AuthUser) {

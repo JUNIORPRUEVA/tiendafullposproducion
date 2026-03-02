@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../operations_models.dart';
+import '../../../core/utils/geo_utils.dart';
+import 'map_preview_card.dart';
 import 'service_location_helpers.dart';
 import 'status_chip.dart';
 
@@ -77,6 +79,8 @@ class ServiceAgendaCard extends StatelessWidget {
       addressOrText: service.customerAddress,
     );
 
+    final point = parseLatLngFromText(service.customerAddress);
+
     final hasPhone = service.customerPhone.trim().isNotEmpty;
 
     return Card(
@@ -125,6 +129,30 @@ class ServiceAgendaCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
+              if (service.createdByName.trim().isNotEmpty) ...[
+                Row(
+                  children: [
+                    Icon(
+                      Icons.person_outline,
+                      size: 18,
+                      color: scheme.onSurface.withValues(alpha: 0.65),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Creado por: ${service.createdByName.trim()}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurface.withValues(alpha: 0.75),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+              ],
               Row(
                 children: [
                   Icon(
@@ -154,6 +182,13 @@ class ServiceAgendaCard extends StatelessWidget {
                   ),
                 ],
               ),
+              if (point != null) ...[
+                const SizedBox(height: 10),
+                MapPreviewCard(
+                  latitude: point.latitude,
+                  longitude: point.longitude,
+                ),
+              ],
               const SizedBox(height: 6),
               Row(
                 children: [
