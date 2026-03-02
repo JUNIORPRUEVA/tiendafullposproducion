@@ -17,6 +17,18 @@ class VentasRepository {
 
   VentasRepository(this._dio);
 
+  List<dynamic> _extractRows(dynamic data) {
+    if (data is List) return data;
+    if (data is Map) {
+      const keys = ['items', 'data', 'products', 'rows'];
+      for (final key in keys) {
+        final candidate = data[key];
+        if (candidate is List) return candidate;
+      }
+    }
+    return const [];
+  }
+
   String _extractMessage(dynamic data, String fallback) {
     if (data is Map) {
       final message = data['message'];
@@ -115,12 +127,19 @@ class VentasRepository {
   Future<List<ProductModel>> fetchProducts() async {
     try {
       final res = await _dio.get(ApiRoutes.products);
-      final data = res.data;
-      if (data is! List) return [];
-      return data
+      final rows = _extractRows(res.data);
+      final parsed = rows
           .whereType<Map>()
           .map((row) => ProductModel.fromJson(row.cast<String, dynamic>()))
           .toList();
+
+      final raw = res.data;
+      final rawLooksInvalid = raw != null && raw is! List && raw is! Map;
+      if (rawLooksInvalid) {
+        throw ApiException('Respuesta inválida al cargar productos');
+      }
+
+      return parsed;
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(

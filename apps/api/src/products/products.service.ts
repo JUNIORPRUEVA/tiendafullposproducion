@@ -33,6 +33,7 @@ export class ProductsService {
   private readonly fullposBaseUrl: string;
   private readonly fullposIntegrationToken: string;
   private readonly fullposTimeoutMs: number;
+  private readonly allowLocalFallback: boolean;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -41,14 +42,33 @@ export class ProductsService {
     const base = config.get<string>('PUBLIC_BASE_URL') ?? config.get<string>('API_BASE_URL') ?? '';
     this.publicBaseUrl = base.trim().replace(/\/$/, '');
 
-    const rawSource = (config.get<string>('PRODUCTS_SOURCE') ?? '').trim().toUpperCase();
-    const nodeEnv = (config.get<string>('NODE_ENV') ?? process.env.NODE_ENV ?? 'development').toLowerCase();
-    const defaultSource: ProductsSource = nodeEnv === 'production' ? 'LOCAL' : 'FULLPOS';
-    this.productsSource = rawSource === 'LOCAL' || rawSource === 'FULLPOS' ? (rawSource as ProductsSource) : defaultSource;
-
     this.fullposBaseUrl = (config.get<string>('FULLPOS_INTEGRATION_BASE_URL') ?? '').trim().replace(/\/$/, '');
     this.fullposIntegrationToken = (config.get<string>('FULLPOS_INTEGRATION_TOKEN') ?? '').trim();
     this.fullposTimeoutMs = Number(config.get<string>('FULLPOS_INTEGRATION_TIMEOUT_MS') ?? 8000);
+
+    const rawFallback = (config.get<string>('PRODUCTS_ALLOW_LOCAL_FALLBACK') ?? '').trim().toLowerCase();
+    this.allowLocalFallback = rawFallback === '1' || rawFallback === 'true' || rawFallback === 'yes';
+
+    const rawSource = (config.get<string>('PRODUCTS_SOURCE') ?? '').trim().toUpperCase();
+    const nodeEnv = (config.get<string>('NODE_ENV') ?? process.env.NODE_ENV ?? 'development').toLowerCase();
+
+    const fullposConfigured = this.fullposBaseUrl.length > 0 && this.fullposIntegrationToken.length > 0;
+
+    // Backwards-compatible default: use LOCAL unless FULLPOS is explicitly selected
+    // or is fully configured (so dev environments don't break /products).
+    let computed: ProductsSource = 'LOCAL';
+    if (rawSource === 'FULLPOS' || rawSource === 'LOCAL') {
+      computed = rawSource as ProductsSource;
+    } else {
+      // If FULLPOS is configured, allow using it in non-prod.
+      if (nodeEnv !== 'production' && fullposConfigured) {
+        computed = 'FULLPOS';
+      } else {
+        computed = 'LOCAL';
+      }
+    }
+
+    this.productsSource = computed;
   }
 
   isReadOnly() {
@@ -177,7 +197,19 @@ export class ProductsService {
 
   async findAll(): Promise<any[]> {
     if (this.productsSource === 'FULLPOS') {
-      return this.fetchFullposProducts();
+      try {
+        return await this.fetchFullposProducts();
+      } catch (error) {
+        if (!this.allowLocalFallback) {
+          throw error;
+        }
+
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `FULLPOS products failed; falling back to LOCAL because PRODUCTS_ALLOW_LOCAL_FALLBACK=true. error=${message}`,
+        );
+        // fall through to LOCAL
+      }
     }
 
     try {
@@ -192,10 +224,22 @@ export class ProductsService {
 
   async findOne(id: string): Promise<any> {
     if (this.productsSource === 'FULLPOS') {
-      const items = await this.fetchFullposProducts();
-      const found = items.find((p) => `${p.id}` === `${id}`);
-      if (!found) throw new NotFoundException('Product not found');
-      return found;
+      try {
+        const items = await this.fetchFullposProducts();
+        const found = items.find((p) => `${p.id}` === `${id}`);
+        if (!found) throw new NotFoundException('Product not found');
+        return found;
+      } catch (error) {
+        if (!this.allowLocalFallback) {
+          throw error;
+        }
+
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `FULLPOS product lookup failed; falling back to LOCAL because PRODUCTS_ALLOW_LOCAL_FALLBACK=true. id=${id} error=${message}`,
+        );
+        // fall through to LOCAL
+      }
     }
 
     let product: Product | null = null;

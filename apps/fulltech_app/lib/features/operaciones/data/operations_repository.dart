@@ -95,6 +95,36 @@ class OperationsRepository {
     }
   }
 
+  Future<ServiceModel> updateService({
+    required String serviceId,
+    String? description,
+    String? addressSnapshot,
+  }) async {
+    try {
+      final payload = <String, dynamic>{
+        if (description != null && description.trim().isNotEmpty)
+          'description': description.trim(),
+        if (addressSnapshot != null && addressSnapshot.trim().isNotEmpty)
+          'addressSnapshot': addressSnapshot.trim(),
+      };
+
+      if (payload.isEmpty) {
+        throw ApiException('No hay cambios para guardar', 400);
+      }
+
+      final res = await _dio.patch(
+        ApiRoutes.serviceDetail(serviceId),
+        data: payload,
+      );
+      return ServiceModel.fromJson((res.data as Map).cast<String, dynamic>());
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo actualizar el servicio'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
   Future<void> deleteService(String id) async {
     try {
       await _dio.delete(ApiRoutes.serviceDetail(id));
@@ -246,6 +276,56 @@ class OperationsRepository {
     }
   }
 
+  Future<ServiceModel> changePhase({
+    required String serviceId,
+    required String phase,
+    required DateTime scheduledAt,
+    String? note,
+  }) async {
+    try {
+      final res = await _dio.patch(
+        ApiRoutes.servicePhase(serviceId),
+        data: {
+          'phase': phase,
+          'scheduledAt': scheduledAt.toIso8601String(),
+          if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+        },
+      );
+      return ServiceModel.fromJson((res.data as Map).cast<String, dynamic>());
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo cambiar la fase'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<List<ServicePhaseHistoryModel>> listServicePhases(
+    String serviceId,
+  ) async {
+    try {
+      final res = await _dio.get(ApiRoutes.servicePhases(serviceId));
+      final raw = res.data;
+      if (raw is! List) return const [];
+      return raw
+          .whereType<Map>()
+          .map(
+            (row) =>
+                ServicePhaseHistoryModel.fromJson(row.cast<String, dynamic>()),
+          )
+          .where((h) => h.id.trim().isNotEmpty)
+          .toList();
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(
+          e.response?.data,
+          'No se pudo cargar historial de fases',
+        ),
+        e.response?.statusCode,
+      );
+    }
+  }
+
   Future<ServiceModel> schedule({
     required String serviceId,
     required DateTime start,
@@ -318,9 +398,19 @@ class OperationsRepository {
     required PlatformFile file,
   }) async {
     try {
-      final form = FormData.fromMap({
-        'file': MultipartFile.fromBytes(file.bytes!, filename: file.name),
-      });
+      final MultipartFile multipart;
+      if (file.bytes != null) {
+        multipart = MultipartFile.fromBytes(file.bytes!, filename: file.name);
+      } else if (file.path != null && file.path!.trim().isNotEmpty) {
+        multipart = await MultipartFile.fromFile(
+          file.path!,
+          filename: file.name,
+        );
+      } else {
+        throw ApiException('Archivo inválido para subir evidencia');
+      }
+
+      final form = FormData.fromMap({'file': multipart});
       await _dio.post(ApiRoutes.serviceFiles(serviceId), data: form);
     } on DioException catch (e) {
       throw ApiException(

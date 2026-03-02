@@ -6,14 +6,33 @@ import '../operations_models.dart';
 import 'service_pdf_exporter.dart';
 
 class ServiceActionsSheet {
+  static Future<Map<String, String?>?> pickChangePhaseDraft(
+    BuildContext context, {
+    required String current,
+    DateTime? initialScheduledAt,
+  }) {
+    return _pickServicePhaseWithScheduleAndNote(
+      context,
+      current: current,
+      initialScheduledAt: initialScheduledAt,
+    );
+  }
+
   static Future<void> show(
     BuildContext context, {
     required ServiceModel service,
     required bool canOperate,
     String? operateDeniedReason,
+    required bool canEdit,
+    String? editDeniedReason,
+    bool canChangePhase = false,
+    String? changePhaseDeniedReason,
+    Future<void> Function(String phase, DateTime scheduledAt, String? note)?
+    onChangePhase,
     required List<String> allowedStatusTargets,
     required bool canDelete,
     String? deleteDeniedReason,
+    required Future<void> Function() onEdit,
     required Future<void> Function(String status) onChangeStatus,
     required Future<void> Function() onPickSchedule,
     required Future<void> Function() onAssignTechs,
@@ -86,6 +105,7 @@ class ServiceActionsSheet {
         }
 
         final canChangeStatus = allowedStatusTargets.isNotEmpty;
+        final canChangePhaseEffective = onChangePhase != null && canChangePhase;
 
         return SafeArea(
           child: ConstrainedBox(
@@ -127,6 +147,35 @@ class ServiceActionsSheet {
                         },
                 ),
                 item(
+                  icon: Icons.flag_outlined,
+                  title: 'Cambiar fase',
+                  subtitle: 'Actual: ${phaseLabel(service.currentPhase)}',
+                  enabled: canChangePhaseEffective,
+                  disabledReason:
+                      (changePhaseDeniedReason ?? 'Solo creador o admin'),
+                  onTap: onChangePhase == null
+                      ? null
+                      : () async {
+                          final draft =
+                              await _pickServicePhaseWithScheduleAndNote(
+                                context,
+                                current: service.currentPhase,
+                                initialScheduledAt: service.scheduledStart,
+                              );
+                          if (draft == null) return;
+                          final next = (draft['phase'] ?? '').trim();
+                          final scheduledAtRaw = (draft['scheduledAt'] ?? '')
+                              .trim();
+                          if (next.isEmpty) return;
+                          final scheduledAt = DateTime.tryParse(scheduledAtRaw);
+                          if (scheduledAt == null) return;
+                          await closeAnd(
+                            () =>
+                                onChangePhase(next, scheduledAt, draft['note']),
+                          );
+                        },
+                ),
+                item(
                   icon: Icons.location_on_outlined,
                   title: 'Marcar: Llegué al sitio',
                   enabled: canOperate,
@@ -160,6 +209,13 @@ class ServiceActionsSheet {
                 ),
 
                 groupTitle('Gestión'),
+                item(
+                  icon: Icons.edit_outlined,
+                  title: 'Editar',
+                  enabled: canEdit,
+                  disabledReason: editDeniedReason ?? 'Solo creador o admin',
+                  onTap: () => closeAnd(onEdit),
+                ),
                 item(
                   icon: Icons.event_available_outlined,
                   title: 'Agendar / Reagendar',
@@ -282,6 +338,205 @@ class ServiceActionsSheet {
       default:
         return raw;
     }
+  }
+
+  static const _servicePhases = <String>[
+    'instalacion',
+    'mantenimiento',
+    'garantia',
+    'levantamiento',
+  ];
+
+  static Future<DateTime?> _pickDateTime(
+    BuildContext context, {
+    DateTime? initial,
+  }) async {
+    final now = DateTime.now();
+    final base = initial ?? now;
+
+    final date = await showDatePicker(
+      context: context,
+      initialDate: base,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 3),
+    );
+    if (date == null) return null;
+
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(base),
+    );
+    if (time == null) return null;
+
+    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  }
+
+  static Future<Map<String, String?>?> _pickServicePhaseWithScheduleAndNote(
+    BuildContext context, {
+    required String current,
+    DateTime? initialScheduledAt,
+  }) {
+    final normalized = current.trim().toLowerCase();
+
+    return showModalBottomSheet<Map<String, String?>>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        final initialPhase = _servicePhases.contains(normalized)
+            ? normalized
+            : _servicePhases.first;
+        var selected = initialPhase;
+        DateTime? scheduledAt = initialScheduledAt;
+        final noteCtrl = TextEditingController();
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(context).bottom,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+                      child: Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Cambiar fase',
+                              style: TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                          Text(
+                            phaseLabel(normalized),
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: Theme.of(context).colorScheme.onSurface
+                                      .withValues(alpha: 0.70),
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Flexible(
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: [
+                          for (final p in _servicePhases)
+                            RadioListTile<String>(
+                              value: p,
+                              groupValue: selected,
+                              title: Text(phaseLabel(p)),
+                              onChanged: (value) {
+                                if (value == null) return;
+                                setState(() => selected = value);
+                              },
+                            ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () async {
+                                final picked = await _pickDateTime(
+                                  context,
+                                  initial: scheduledAt,
+                                );
+                                if (picked == null) return;
+                                setState(() => scheduledAt = picked);
+                              },
+                              child: InputDecorator(
+                                decoration: const InputDecoration(
+                                  labelText: 'Nueva fecha y hora (obligatorio)',
+                                  border: OutlineInputBorder(),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        scheduledAt == null
+                                            ? 'Seleccionar…'
+                                            : MaterialLocalizations.of(context)
+                                                      .formatFullDate(
+                                                        scheduledAt!,
+                                                      )
+                                                      .toString()
+                                                      .replaceAll(',', '') +
+                                                  '  ' +
+                                                  TimeOfDay.fromDateTime(
+                                                    scheduledAt!,
+                                                  ).format(context),
+                                      ),
+                                    ),
+                                    const Icon(Icons.schedule_outlined),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+                            child: TextField(
+                              controller: noteCtrl,
+                              minLines: 2,
+                              maxLines: 4,
+                              decoration: const InputDecoration(
+                                labelText: 'Nota (opcional)',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: () {
+                                      noteCtrl.dispose();
+                                      Navigator.pop(context);
+                                    },
+                                    child: const Text('Cancelar'),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: FilledButton(
+                                    onPressed: scheduledAt == null
+                                        ? null
+                                        : () {
+                                            final note = noteCtrl.text.trim();
+                                            noteCtrl.dispose();
+                                            Navigator.pop(context, {
+                                              'phase': selected,
+                                              'scheduledAt': scheduledAt!
+                                                  .toIso8601String(),
+                                              'note': note.isEmpty
+                                                  ? null
+                                                  : note,
+                                            });
+                                          },
+                                    child: const Text('Aplicar'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   static Future<String?> _pickServiceStatus(

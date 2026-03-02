@@ -123,6 +123,14 @@ enum ServiceUpdateType {
   WARRANTY_CREATED
 }
 
+enum ServicePhaseType {
+  RESERVA
+  LEVANTAMIENTO
+  INSTALACION
+  MANTENIMIENTO
+  GARANTIA
+}
+
 model User {
   id               String   @id @default(uuid()) @db.Uuid
   email            String   @unique
@@ -162,6 +170,7 @@ model User {
   technicianServices Service[] @relation("ServiceTechnician")
   serviceStepsDone ServiceStep[] @relation("ServiceStepDoneBy")
   serviceUpdates ServiceUpdate[]
+  servicePhaseHistory ServicePhaseHistory[]
   uploadedServiceFiles ServiceFile[]
   cotizaciones Cotizacion[]
   location UserLocation?
@@ -488,6 +497,7 @@ model Service {
   serviceType             ServiceType
   category                String
   status                  ServiceStatus @default(RESERVED)
+  currentPhase             ServicePhaseType @default(RESERVA)
   orderType               OrderType     @default(RESERVA)
   orderState              OrderState    @default(PENDING)
   technicianId            String?       @db.Uuid
@@ -517,17 +527,36 @@ model Service {
   steps ServiceStep[]
   updates ServiceUpdate[]
   files ServiceFile[]
+  phaseHistory ServicePhaseHistory[]
 
   @@index([customerId])
   @@index([createdByUserId])
   @@index([serviceType])
   @@index([status])
+  @@index([currentPhase])
   @@index([orderType])
   @@index([orderState])
   @@index([technicianId])
   @@index([priority])
   @@index([scheduledStart])
   @@index([isDeleted])
+}
+
+model ServicePhaseHistory {
+  id              String           @id @default(uuid()) @db.Uuid
+  serviceId       String           @db.Uuid
+  phase           ServicePhaseType
+  note            String?
+  changedByUserId String           @db.Uuid
+  changedAt       DateTime         @default(now())
+  fromPhase       ServicePhaseType?
+  toPhase         ServicePhaseType?
+
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  changedBy User    @relation(fields: [changedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([serviceId, changedAt])
+  @@index([changedByUserId])
 }
 
 model ServiceAssignment {

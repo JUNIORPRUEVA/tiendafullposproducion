@@ -23,6 +23,93 @@ class ServiceAssignmentModel {
   }
 }
 
+enum ServiceStatus {
+  reserved,
+  survey,
+  scheduled,
+  inProgress,
+  completed,
+  warranty,
+  closed,
+  cancelled,
+  unknown,
+}
+
+ServiceStatus parseStatus(dynamic raw) {
+  if (raw == null) return ServiceStatus.unknown;
+  var value = raw.toString().trim();
+  if (value.isEmpty) return ServiceStatus.unknown;
+
+  value = value.toLowerCase();
+  value = value.replaceAll(' ', '_').replaceAll('-', '_');
+
+  switch (value) {
+    case 'reserved':
+    case 'reserva':
+    case 'pending':
+    case 'pendiente':
+    case 'confirmed':
+    case 'confirmado':
+    case 'assigned':
+    case 'asignado':
+    case 'rescheduled':
+    case 'reagendado':
+      return ServiceStatus.reserved;
+    case 'survey':
+    case 'levantamiento':
+      return ServiceStatus.survey;
+    case 'scheduled':
+    case 'agendado':
+      return ServiceStatus.scheduled;
+    case 'in_progress':
+    case 'en_proceso':
+    case 'enproceso':
+      return ServiceStatus.inProgress;
+    case 'completed':
+    case 'completado':
+    case 'finalizado':
+    case 'finalized':
+    case 'finalizada':
+      return ServiceStatus.completed;
+    case 'warranty':
+    case 'garantia':
+      return ServiceStatus.warranty;
+    case 'closed':
+    case 'cerrado':
+      return ServiceStatus.closed;
+    case 'cancelled':
+    case 'canceled':
+    case 'cancelado':
+      return ServiceStatus.cancelled;
+    default:
+      return ServiceStatus.unknown;
+  }
+}
+
+String phaseLabel(dynamic raw) {
+  if (raw == null) return '—';
+  var value = raw.toString().trim();
+  if (value.isEmpty) return '—';
+
+  value = value.toLowerCase();
+  value = value.replaceAll(' ', '_').replaceAll('-', '_');
+
+  switch (value) {
+    case 'reserva':
+      return 'Reserva';
+    case 'levantamiento':
+      return 'Levantamiento';
+    case 'instalacion':
+      return 'Instalación';
+    case 'mantenimiento':
+      return 'Mantenimiento';
+    case 'garantia':
+      return 'Garantía';
+    default:
+      return value;
+  }
+}
+
 class ServiceStepModel {
   final String id;
   final String stepKey;
@@ -106,6 +193,49 @@ class ServiceUpdateModel {
   }
 }
 
+class ServicePhaseHistoryModel {
+  final String id;
+  final String phase;
+  final String? note;
+  final String changedBy;
+  final DateTime? changedAt;
+  final String? fromPhase;
+  final String? toPhase;
+
+  ServicePhaseHistoryModel({
+    required this.id,
+    required this.phase,
+    required this.changedBy,
+    this.note,
+    this.changedAt,
+    this.fromPhase,
+    this.toPhase,
+  });
+
+  factory ServicePhaseHistoryModel.fromJson(Map<String, dynamic> json) {
+    final changedBy =
+        (json['changedBy'] as Map?)?.cast<String, dynamic>() ?? const {};
+
+    String? parseNullableString(dynamic raw) {
+      if (raw == null) return null;
+      final text = raw.toString();
+      return text.trim().isEmpty ? null : text;
+    }
+
+    return ServicePhaseHistoryModel(
+      id: (json['id'] ?? '').toString(),
+      phase: (json['phase'] ?? 'reserva').toString(),
+      note: parseNullableString(json['note']),
+      changedBy: (changedBy['nombreCompleto'] ?? 'Sistema').toString(),
+      changedAt: json['changedAt'] == null
+          ? null
+          : DateTime.tryParse(json['changedAt'].toString()),
+      fromPhase: parseNullableString(json['fromPhase']),
+      toPhase: parseNullableString(json['toPhase']),
+    );
+  }
+}
+
 class TechnicianModel {
   final String id;
   final String name;
@@ -127,12 +257,14 @@ class ServiceModel {
   final String serviceType;
   final String category;
   final String status;
+  final String currentPhase;
   final String orderType;
   final String orderState;
   final String? technicianId;
   final int priority;
   final double? quotedAmount;
   final double? depositAmount;
+  final double? finalCost;
   final List<String> tags;
   final DateTime? scheduledStart;
   final DateTime? scheduledEnd;
@@ -155,6 +287,7 @@ class ServiceModel {
     required this.serviceType,
     required this.category,
     required this.status,
+    required this.currentPhase,
     required this.orderType,
     required this.orderState,
     required this.priority,
@@ -172,6 +305,7 @@ class ServiceModel {
     this.technicianId,
     this.quotedAmount,
     this.depositAmount,
+    this.finalCost,
     this.scheduledStart,
     this.scheduledEnd,
     this.completedAt,
@@ -183,12 +317,14 @@ class ServiceModel {
     String? serviceType,
     String? category,
     String? status,
+    String? currentPhase,
     String? orderType,
     String? orderState,
     String? technicianId,
     int? priority,
     double? quotedAmount,
     double? depositAmount,
+    double? finalCost,
     List<String>? tags,
     DateTime? scheduledStart,
     DateTime? scheduledEnd,
@@ -211,12 +347,14 @@ class ServiceModel {
       serviceType: serviceType ?? this.serviceType,
       category: category ?? this.category,
       status: status ?? this.status,
+      currentPhase: currentPhase ?? this.currentPhase,
       orderType: orderType ?? this.orderType,
       orderState: orderState ?? this.orderState,
       technicianId: technicianId ?? this.technicianId,
       priority: priority ?? this.priority,
       quotedAmount: quotedAmount ?? this.quotedAmount,
       depositAmount: depositAmount ?? this.depositAmount,
+      finalCost: finalCost ?? this.finalCost,
       tags: tags ?? this.tags,
       scheduledStart: scheduledStart ?? this.scheduledStart,
       scheduledEnd: scheduledEnd ?? this.scheduledEnd,
@@ -253,6 +391,14 @@ class ServiceModel {
       return double.tryParse(raw.toString());
     }
 
+    double? parseFinalCost(dynamic raw) {
+      if (raw == null) return null;
+      if (raw is Map) {
+        return parseMoney(raw['finalCost']);
+      }
+      return null;
+    }
+
     List<String> parseStringList(dynamic raw) {
       if (raw is! List) return const [];
       return raw
@@ -276,6 +422,8 @@ class ServiceModel {
       serviceType: (json['serviceType'] ?? 'other').toString(),
       category: (json['category'] ?? '').toString(),
       status: (json['status'] ?? 'reserved').toString(),
+      currentPhase: (json['currentPhase'] ?? json['phase'] ?? 'reserva')
+          .toString(),
       orderType: (json['orderType'] ?? 'reserva').toString(),
       orderState: (json['orderState'] ?? 'pending').toString(),
       technicianId: json['technicianId'] == null
@@ -286,6 +434,7 @@ class ServiceModel {
           : int.tryParse('${json['priority']}') ?? 2,
       quotedAmount: parseMoney(json['quotedAmount']),
       depositAmount: parseMoney(json['depositAmount']),
+      finalCost: parseFinalCost(json['orderExtras']),
       tags: parseStringList(json['tags']),
       scheduledStart: json['scheduledStart'] == null
           ? null

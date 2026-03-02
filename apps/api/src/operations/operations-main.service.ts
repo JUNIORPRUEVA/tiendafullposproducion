@@ -9,6 +9,7 @@ import {
   OrderState,
   OrderType,
   Role,
+  ServicePhaseType,
   ServiceAssignmentRole,
   ServiceStatus,
   ServiceType,
@@ -19,10 +20,12 @@ import { ServicesQueryDto } from './dto/services-query.dto';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { ChangeServiceStatusDto } from './dto/change-service-status.dto';
 import { ChangeServiceOrderStateDto } from './dto/change-service-order-state.dto';
+import { ChangeServicePhaseDto } from './dto/change-service-phase.dto';
 import { ScheduleServiceDto } from './dto/schedule-service.dto';
 import { AssignServiceDto } from './dto/assign-service.dto';
 import { ServiceUpdateDto } from './dto/service-update.dto';
 import { CreateWarrantyDto } from './dto/create-warranty.dto';
+import { UpdateServiceDto } from './dto/update-service.dto';
 
 type AuthUser = { id: string; role: Role };
 
@@ -225,6 +228,21 @@ export class OperationsService {
         });
       }
 
+      try {
+        await tx.servicePhaseHistory.create({
+          data: {
+            serviceId: service.id,
+            phase: ServicePhaseType.RESERVA,
+            note: 'Fase inicial automática',
+            changedByUserId: user.id,
+            fromPhase: null,
+            toPhase: ServicePhaseType.RESERVA,
+          },
+        });
+      } catch (error) {
+        if (!this.isSchemaMismatch(error)) throw error;
+      }
+
       if (technicianId) {
         await tx.serviceAssignment.create({
           data: {
@@ -244,6 +262,286 @@ export class OperationsService {
     });
 
     return this.normalizeService(created);
+  }
+
+  async changePhase(user: AuthUser, id: string, dto: ChangeServicePhaseDto) {
+    const scheduledAtRaw = (dto.scheduledAt ?? '').trim();
+    if (!scheduledAtRaw) {
+      throw new BadRequestException('scheduledAt es requerido');
+    }
+
+    const scheduledAt = new Date(scheduledAtRaw);
+    if (Number.isNaN(scheduledAt.getTime())) {
+      throw new BadRequestException('scheduledAt inválido');
+    }
+
+    const service = await this.prisma.service.findFirst({
+      where: { id, isDeleted: false },
+      include: {
+        customer: { select: { id: true, direccion: true } },
+      },
+    });
+
+    if (!service) throw new NotFoundException('Servicio no encontrado');
+    if (user.role !== Role.ADMIN && user.role !== Role.ASISTENTE && user.id !== service.createdByUserId) {
+      throw new ForbiddenException('No autorizado para cambiar la fase');
+    }
+
+    const nextPhase = this.parsePhase(dto.phase);
+    if (nextPhase === ServicePhaseType.RESERVA) {
+      throw new BadRequestException('Reserva es solo fase inicial');
+    }
+    if (service.currentPhase === nextPhase) {
+      throw new BadRequestException('La fase seleccionada ya es la actual');
+    }
+
+    const extractMoney = (value: unknown): number | null => {
+      if (value == null) return null;
+      if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+      if (typeof value === 'string') {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      if (typeof value === 'object') {
+        // Prisma Decimal and other numeric-like objects.
+        const asAny = value as { toNumber?: () => number; toString?: () => string };
+        if (typeof asAny.toNumber === 'function') {
+          const n = asAny.toNumber();
+          return Number.isFinite(n) ? n : null;
+        }
+        if (typeof asAny.toString === 'function') {
+          const parsed = Number(asAny.toString());
+          return Number.isFinite(parsed) ? parsed : null;
+        }
+      }
+      return null;
+    };
+
+    const orderExtras = (service as any).orderExtras as any;
+    const finalCost = extractMoney(orderExtras?.finalCost);
+
+    const locationText = [service.addressSnapshot, service.customer?.direccion]
+      .map((v) => (v ?? '').toString().trim())
+      .find((v) => v.length > 0);
+
+    const locationOk = (text: string | undefined) => {
+      const raw = (text ?? '').trim();
+      if (!raw) return false;
+      // Either a non-empty address, or GPS, or an URL.
+      if (/https?:\/\//i.test(raw)) return true;
+      if (/(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/.test(raw)) return true;
+      return raw.length >= 5;
+    };
+
+    const missing: string[] = [];
+
+    const requiresAmountsAndLocation =
+      nextPhase === ServicePhaseType.INSTALACION ||
+      nextPhase === ServicePhaseType.MANTENIMIENTO ||
+      nextPhase === ServicePhaseType.LEVANTAMIENTO;
+
+    if (requiresAmountsAndLocation) {
+      const quoted = extractMoney((service as any).quotedAmount);
+      if (!quoted || quoted <= 0) missing.push('Monto cotizado (quotedAmount)');
+      if (!finalCost || finalCost <= 0) missing.push('Monto total (orderExtras.finalCost)');
+      if (!locationOk(locationText)) missing.push('Ubicación (dirección / GPS / Maps)');
+
+      if (missing.length > 0) {
+        throw new BadRequestException({
+          message: missing.map((m) => `Falta: ${m}`),
+          code: 'PHASE_VALIDATION',
+        });
+      }
+    }
+
+    if (nextPhase === ServicePhaseType.GARANTIA) {
+      const isFinalized =
+        service.orderState === OrderState.FINALIZED ||
+        service.status === ServiceStatus.COMPLETED ||
+        service.status === ServiceStatus.CLOSED;
+
+      if (!isFinalized) {
+        throw new BadRequestException({
+          message: [
+            'Primero finaliza la orden y luego cambia a Garantía.',
+            'No puedes marcar Garantía si la orden no está FINALIZADA.',
+          ],
+          code: 'PHASE_WARRANTY_STATE',
+        });
+      }
+
+      const hasInstallThisOrder =
+        (await this.prisma.servicePhaseHistory.findFirst({
+          where: {
+            serviceId: id,
+            OR: [{ phase: ServicePhaseType.INSTALACION }, { toPhase: ServicePhaseType.INSTALACION }],
+          },
+          select: { id: true },
+        })) != null;
+
+      let ok = hasInstallThisOrder;
+      if (!ok) {
+        const prior = await this.prisma.service.findFirst({
+          where: {
+            isDeleted: false,
+            id: { not: id },
+            customerId: service.customerId,
+            category: service.category,
+            AND: [
+              {
+                OR: [
+                  { orderState: OrderState.FINALIZED },
+                  { status: ServiceStatus.COMPLETED },
+                  { status: ServiceStatus.CLOSED },
+                ],
+              },
+              {
+                OR: [
+                  { currentPhase: ServicePhaseType.INSTALACION },
+                  {
+                    phaseHistory: {
+                      some: {
+                        OR: [
+                          { phase: ServicePhaseType.INSTALACION },
+                          { toPhase: ServicePhaseType.INSTALACION },
+                        ],
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+          select: { id: true },
+        });
+        ok = prior != null;
+      }
+
+      if (!ok) {
+        throw new BadRequestException({
+          message: ['No puedes marcar Garantía sin una instalación finalizada del cliente.'],
+          code: 'PHASE_WARRANTY_INSTALL',
+        });
+      }
+    }
+
+    const durationMs =
+      service.scheduledStart && service.scheduledEnd
+        ? Math.max(15 * 60 * 1000, service.scheduledEnd.getTime() - service.scheduledStart.getTime())
+        : 60 * 60 * 1000;
+
+    const nextEnd = new Date(scheduledAt.getTime() + durationMs);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.service.update({
+        where: { id },
+        data: {
+          currentPhase: nextPhase,
+          scheduledStart: scheduledAt,
+          scheduledEnd: nextEnd,
+        },
+        include: this.serviceInclude(),
+      });
+
+      await tx.servicePhaseHistory.create({
+        data: {
+          serviceId: id,
+          phase: nextPhase,
+          note: dto.note?.trim() || null,
+          changedByUserId: user.id,
+          fromPhase: service.currentPhase,
+          toPhase: nextPhase,
+        },
+      });
+
+      return row;
+    });
+
+    return this.normalizeService(updated);
+  }
+
+  async listPhases(user: AuthUser, id: string) {
+    const service = await this.prisma.service.findFirst({
+      where: { id, isDeleted: false },
+      include: { assignments: true },
+    });
+
+    if (!service) throw new NotFoundException('Servicio no encontrado');
+    this.assertCanView(user, service.createdByUserId, service.assignments.map((a) => a.userId));
+
+    const history = await this.prisma.servicePhaseHistory.findMany({
+      where: { serviceId: id },
+      include: {
+        changedBy: { select: { id: true, nombreCompleto: true, role: true } },
+      },
+      orderBy: { changedAt: 'desc' },
+    });
+
+    return history.map((item) => ({
+      ...item,
+      phase: this.toApiPhase(item.phase),
+      fromPhase: item.fromPhase ? this.toApiPhase(item.fromPhase) : null,
+      toPhase: item.toPhase ? this.toApiPhase(item.toPhase) : null,
+    }));
+  }
+
+  async update(user: AuthUser, id: string, dto: UpdateServiceDto) {
+    const service = await this.prisma.service.findFirst({
+      where: { id, isDeleted: false },
+      include: { assignments: true },
+    });
+
+    if (!service) throw new NotFoundException('Servicio no encontrado');
+
+    // Editar: solo creador o admin-like.
+    this.assertCanCritical(user, service.createdByUserId);
+
+    let technicianId: string | null | undefined = undefined;
+    if (dto.technicianId !== undefined) {
+      if (!dto.technicianId) {
+        technicianId = null;
+      } else {
+        const tech = await this.prisma.user.findFirst({
+          where: { id: dto.technicianId, role: Role.TECNICO, blocked: false },
+          select: { id: true },
+        });
+        if (!tech) throw new BadRequestException('Técnico inválido');
+        technicianId = tech.id;
+      }
+    }
+
+    const data: Prisma.ServiceUpdateInput = {
+      ...(dto.serviceType ? { serviceType: this.parseType(dto.serviceType) } : {}),
+      ...(dto.category ? { category: dto.category.trim() } : {}),
+      ...(dto.priority != null ? { priority: dto.priority } : {}),
+      ...(dto.title ? { title: dto.title.trim() } : {}),
+      ...(dto.description ? { description: dto.description.trim() } : {}),
+      ...(dto.quotedAmount != null ? { quotedAmount: dto.quotedAmount } : {}),
+      ...(dto.depositAmount != null ? { depositAmount: dto.depositAmount } : {}),
+      ...(dto.addressSnapshot !== undefined
+        ? { addressSnapshot: dto.addressSnapshot?.trim() || null }
+        : {}),
+      ...(dto.orderType ? { orderType: this.parseOrderType(dto.orderType) } : {}),
+      ...(dto.orderState ? { orderState: this.parseOrderState(dto.orderState) } : {}),
+      ...(technicianId !== undefined
+        ? technicianId
+          ? { technician: { connect: { id: technicianId } } }
+          : { technician: { disconnect: true } }
+        : {}),
+      ...(dto.tags ? { tags: dto.tags } : {}),
+    };
+
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException('No hay cambios para guardar');
+    }
+
+    const updated = await this.prisma.service.update({
+      where: { id },
+      data,
+      include: this.serviceInclude(),
+    });
+
+    return this.normalizeService(updated);
   }
 
   async changeStatus(user: AuthUser, id: string, dto: ChangeServiceStatusDto) {
@@ -771,6 +1069,7 @@ export class OperationsService {
       ...service,
       serviceType: this.toApiType(service.serviceType),
       status: this.toApiStatus(service.status),
+      currentPhase: service.currentPhase ? this.toApiPhase(service.currentPhase) : 'reserva',
       orderType: service.orderType ? this.toApiOrderType(service.orderType) : 'reserva',
       orderState: service.orderState ? this.toApiOrderState(service.orderState) : 'pending',
       assignments: (service.assignments ?? []).map((item: any) => ({
@@ -876,6 +1175,20 @@ export class OperationsService {
     return parsed;
   }
 
+  private parsePhase(value: string): ServicePhaseType {
+    const key = value.trim().toLowerCase();
+    const map: Record<string, ServicePhaseType> = {
+      reserva: ServicePhaseType.RESERVA,
+      levantamiento: ServicePhaseType.LEVANTAMIENTO,
+      instalacion: ServicePhaseType.INSTALACION,
+      mantenimiento: ServicePhaseType.MANTENIMIENTO,
+      garantia: ServicePhaseType.GARANTIA,
+    };
+    const parsed = map[key];
+    if (!parsed) throw new BadRequestException('Fase inválida');
+    return parsed;
+  }
+
   private orderTypeWhere(value: string): Prisma.ServiceWhereInput {
     const key = value.trim().toLowerCase();
 
@@ -971,6 +1284,17 @@ export class OperationsService {
       [OrderType.GARANTIA]: 'garantia',
       [OrderType.MANTENIMIENTO]: 'mantenimiento',
       [OrderType.INSTALACION]: 'instalacion',
+    };
+    return map[value];
+  }
+
+  private toApiPhase(value: ServicePhaseType): string {
+    const map: Record<ServicePhaseType, string> = {
+      [ServicePhaseType.RESERVA]: 'reserva',
+      [ServicePhaseType.LEVANTAMIENTO]: 'levantamiento',
+      [ServicePhaseType.INSTALACION]: 'instalacion',
+      [ServicePhaseType.MANTENIMIENTO]: 'mantenimiento',
+      [ServicePhaseType.GARANTIA]: 'garantia',
     };
     return map[value];
   }

@@ -232,6 +232,22 @@ class OperationsController extends StateNotifier<OperationsState> {
     return ref.read(operationsRepositoryProvider).getService(id);
   }
 
+  Future<ServiceModel> updateService({
+    required String serviceId,
+    String? description,
+    String? addressSnapshot,
+  }) async {
+    final updated = await ref
+        .read(operationsRepositoryProvider)
+        .updateService(
+          serviceId: serviceId,
+          description: description,
+          addressSnapshot: addressSnapshot,
+        );
+    await load();
+    return updated;
+  }
+
   Future<ServiceModel> createReservation({
     required String customerId,
     required String serviceType,
@@ -331,6 +347,70 @@ class OperationsController extends StateNotifier<OperationsState> {
       } else {
         await load();
       }
+    } catch (e) {
+      state = state.copyWith(services: before);
+      rethrow;
+    }
+  }
+
+  Future<ServiceModel> changePhaseOptimistic(
+    String id,
+    String phase, {
+    required DateTime scheduledAt,
+    String? note,
+  }) async {
+    final next = phase.trim().toLowerCase();
+    if (next.isEmpty) {
+      throw ApiException('Fase inválida', 400);
+    }
+
+    final before = state.services;
+    final index = before.indexWhere((s) => s.id == id);
+
+    if (index < 0) {
+      final updated = await ref
+          .read(operationsRepositoryProvider)
+          .changePhase(
+            serviceId: id,
+            phase: next,
+            scheduledAt: scheduledAt,
+            note: note,
+          );
+      await load();
+      return updated;
+    }
+
+    final current = before[index];
+    if (current.currentPhase.trim().toLowerCase() == next) return current;
+
+    final optimistic = current.copyWith(
+      currentPhase: next,
+      scheduledStart: scheduledAt,
+    );
+    final optimisticList = [...before];
+    optimisticList[index] = optimistic;
+    state = state.copyWith(services: optimisticList);
+
+    try {
+      final updated = await ref
+          .read(operationsRepositoryProvider)
+          .changePhase(
+            serviceId: id,
+            phase: next,
+            scheduledAt: scheduledAt,
+            note: note,
+          );
+
+      final after = [...state.services];
+      final idx = after.indexWhere((s) => s.id == id);
+      if (idx >= 0) {
+        after[idx] = updated;
+        state = state.copyWith(services: after);
+      }
+
+      // Ensure filters/counters reflect the new schedule.
+      await load();
+      return updated;
     } catch (e) {
       state = state.copyWith(services: before);
       rethrow;

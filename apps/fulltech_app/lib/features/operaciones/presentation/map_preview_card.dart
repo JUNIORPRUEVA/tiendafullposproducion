@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../../core/utils/safe_url_launcher.dart';
 
@@ -73,13 +75,7 @@ class MapPreviewCard extends StatelessWidget {
 
     final borderRadius = BorderRadius.circular(14);
 
-    final staticUri = _googleStaticMapsApiKey.trim().isNotEmpty
-        ? _googleStaticMapUri()
-        : _osmStaticMapUri();
-
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    final cacheWidth = (600 * dpr / 2).round().clamp(300, 1200);
-    final cacheHeight = (300 * dpr / 2).round().clamp(150, 800);
+    final point = LatLng(latitude, longitude);
 
     return Container(
       decoration: BoxDecoration(
@@ -97,34 +93,66 @@ class MapPreviewCard extends StatelessWidget {
             child: SizedBox(
               height: height,
               width: double.infinity,
-              child: Image.network(
-                staticUri.toString(),
-                fit: BoxFit.cover,
-                cacheWidth: cacheWidth,
-                cacheHeight: cacheHeight,
-                filterQuality: FilterQuality.low,
-                errorBuilder: (context, error, stackTrace) {
-                  return Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.map_outlined,
-                          color: scheme.onSurface.withValues(alpha: 0.65),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Ver en Maps',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: scheme.onSurface.withValues(alpha: 0.75),
+              child: kIsWeb
+                  ? Image.network(
+                      (_googleStaticMapsApiKey.trim().isNotEmpty
+                              ? _googleStaticMapUri()
+                              : _osmStaticMapUri())
+                          .toString(),
+                      fit: BoxFit.cover,
+                      filterQuality: FilterQuality.low,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.map_outlined,
+                                color: scheme.onSurface.withValues(alpha: 0.65),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Ver en Maps',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: scheme.onSurface.withValues(alpha: 0.75),
+                                ),
+                              ),
+                            ],
                           ),
+                        );
+                      },
+                    )
+                  : FlutterMap(
+                      options: MapOptions(
+                        initialCenter: point,
+                        initialZoom: 15,
+                        interactionOptions: const InteractionOptions(
+                          flags: InteractiveFlag.none,
+                        ),
+                      ),
+                      children: [
+                        TileLayer(
+                          urlTemplate:
+                              'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          userAgentPackageName: 'fulltech_app',
+                        ),
+                        MarkerLayer(
+                          markers: [
+                            Marker(
+                              point: point,
+                              width: 40,
+                              height: 40,
+                              child: Icon(
+                                Icons.location_pin,
+                                color: theme.colorScheme.error,
+                                size: 34,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  );
-                },
-              ),
             ),
           ),
         ),

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'features/contabilidad/contabilidad_init.dart';
+import 'core/api/env.dart';
 import 'core/routing/app_router.dart';
 import 'core/theme/app_theme.dart';
 
@@ -40,6 +41,15 @@ Future<void> _ensureEnvLoaded() async {
     } on Object catch (fallbackError) {
       debugPrint('Could not load $fallbackFile either: $fallbackError');
     }
+  }
+
+  // Validate and log the selected API base URL.
+  try {
+    final baseUrl = Env.apiBaseUrl;
+    debugPrint('API_BASE_URL: $baseUrl');
+  } on Object catch (error) {
+    debugPrint('Invalid API_BASE_URL configuration: $error');
+    rethrow;
   }
 }
 

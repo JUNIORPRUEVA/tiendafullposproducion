@@ -14,6 +14,13 @@ class OperationsPermissions {
   bool get isTechnician => _role == 'tecnico';
   bool get isOwner => _userId.isNotEmpty && _userId == service.createdByUserId;
 
+  bool get canChangePhase => isAdminLike || isOwner;
+
+  String? get changePhaseDeniedReason {
+    if (canChangePhase) return null;
+    return 'Solo creador o admin';
+  }
+
   bool get isAssignedTechnician {
     if (!isTechnician) return false;
     if (_userId.isEmpty) return false;

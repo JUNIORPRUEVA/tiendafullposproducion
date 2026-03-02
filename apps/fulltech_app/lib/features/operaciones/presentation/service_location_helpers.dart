@@ -19,6 +19,54 @@ ServiceLocationInfo buildServiceLocationInfo({
   final address = addressOrText.trim();
   final maps = (mapsUrl ?? '').trim();
 
+  String bestLabelFromText(String text) {
+    String? gps;
+    String? maps;
+    for (final line in text.split('\n')) {
+      final v = line.trim();
+      if (v.isEmpty) continue;
+
+      final lower = v.toLowerCase();
+      if (lower.startsWith('gps:')) {
+        gps = v;
+        continue;
+      }
+      if (lower.startsWith('maps:')) {
+        maps = v;
+        continue;
+      }
+
+      // Prefer a real address/label line.
+      return v;
+    }
+
+    // Fallbacks when the snapshot only contains GPS/MAPS.
+    if (gps != null) return gps;
+    if (maps != null) return maps;
+    return 'Ubicación disponible';
+  }
+
+  Uri? extractMapsUriFromText(String text) {
+    for (final line in text.split('\n')) {
+      final v = line.trim();
+      if (v.isEmpty) continue;
+
+      if (v.toLowerCase().startsWith('maps:')) {
+        final candidate = v.substring(5).trim();
+        final parsed = Uri.tryParse(candidate);
+        if (parsed != null) return parsed;
+      }
+
+      final match = RegExp(r'https?://\S+', caseSensitive: false).firstMatch(v);
+      if (match != null) {
+        final candidate = match.group(0) ?? '';
+        final parsed = Uri.tryParse(candidate);
+        if (parsed != null) return parsed;
+      }
+    }
+    return null;
+  }
+
   Uri? uriFromLatLng(LatLng point) {
     return Uri.parse(buildGoogleMapsSearchUrl(point));
   }
@@ -34,10 +82,19 @@ ServiceLocationInfo buildServiceLocationInfo({
     final parsed = Uri.tryParse(maps);
     if (parsed != null) {
       return ServiceLocationInfo(
-        label: 'Ubicación disponible',
+        label: bestLabelFromText(address),
         mapsUri: parsed,
       );
     }
+  }
+
+  // 1b) Embedded URL (e.g. "MAPS: https://..." inside address snapshot).
+  final embedded = extractMapsUriFromText(address);
+  if (embedded != null) {
+    return ServiceLocationInfo(
+      label: bestLabelFromText(address),
+      mapsUri: embedded,
+    );
   }
 
   // 2) Explicit lat/lng.
@@ -60,7 +117,7 @@ ServiceLocationInfo buildServiceLocationInfo({
   // 4) Plain address.
   if (address.isNotEmpty) {
     return ServiceLocationInfo(
-      label: address,
+      label: bestLabelFromText(address),
       mapsUri: uriFromAddress(address),
     );
   }

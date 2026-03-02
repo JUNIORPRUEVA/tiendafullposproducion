@@ -29,10 +29,12 @@ import { ServicesQueryDto } from './dto/services-query.dto';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { ChangeServiceStatusDto } from './dto/change-service-status.dto';
 import { ChangeServiceOrderStateDto } from './dto/change-service-order-state.dto';
+import { ChangeServicePhaseDto } from './dto/change-service-phase.dto';
 import { ScheduleServiceDto } from './dto/schedule-service.dto';
 import { AssignServiceDto } from './dto/assign-service.dto';
 import { ServiceUpdateDto } from './dto/service-update.dto';
 import { CreateWarrantyDto } from './dto/create-warranty.dto';
+import { UpdateServiceDto } from './dto/update-service.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller()
@@ -79,6 +81,13 @@ export class OperationsController {
     return this.operations.create(user, dto);
   }
 
+  @Patch('services/:id')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  update(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateServiceDto) {
+    const user = req.user as { id: string; role: Role };
+    return this.operations.update(user, id, dto);
+  }
+
   @Patch('services/:id/status')
   @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
   changeStatus(@Req() req: Request, @Param('id') id: string, @Body() dto: ChangeServiceStatusDto) {
@@ -95,6 +104,20 @@ export class OperationsController {
   ) {
     const user = req.user as { id: string; role: Role };
     return this.operations.changeOrderState(user, id, dto);
+  }
+
+  @Patch('services/:id/phase')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  changePhase(@Req() req: Request, @Param('id') id: string, @Body() dto: ChangeServicePhaseDto) {
+    const user = req.user as { id: string; role: Role };
+    return this.operations.changePhase(user, id, dto);
+  }
+
+  @Get('services/:id/phases')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  listPhases(@Req() req: Request, @Param('id') id: string) {
+    const user = req.user as { id: string; role: Role };
+    return this.operations.listPhases(user, id);
   }
 
   @Patch('services/:id/schedule')

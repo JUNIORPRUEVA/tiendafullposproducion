@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/errors/api_exception.dart';
 import '../../../core/models/product_model.dart';
@@ -37,24 +40,66 @@ class CatalogState {
   }
 }
 
-final catalogControllerProvider = StateNotifierProvider<CatalogController, CatalogState>((ref) {
-  return CatalogController(ref);
-});
+final catalogControllerProvider =
+    StateNotifierProvider<CatalogController, CatalogState>((ref) {
+      return CatalogController(ref);
+    });
 
 class CatalogController extends StateNotifier<CatalogState> {
   final Ref ref;
+  static const _cacheKey = 'catalog_products_cache_v1';
+
   CatalogController(this.ref) : super(const CatalogState()) {
     load();
   }
 
+  Future<List<ProductModel>> _loadFromCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_cacheKey);
+      if (raw == null || raw.trim().isEmpty) return const [];
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const [];
+      return decoded
+          .whereType<Map>()
+          .map((row) => ProductModel.fromJson(row.cast<String, dynamic>()))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _saveToCache(List<ProductModel> items) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final payload = jsonEncode(items.map((p) => p.toJson()).toList());
+      await prefs.setString(_cacheKey, payload);
+    } catch (_) {
+      // Ignore cache failures.
+    }
+  }
+
   Future<void> load() async {
-    state = state.copyWith(loading: true, clearError: true);
+    if (state.items.isEmpty) {
+      final cached = await _loadFromCache();
+      if (cached.isNotEmpty) {
+        state = state.copyWith(items: cached, loading: true, clearError: true);
+      } else {
+        state = state.copyWith(loading: true, clearError: true);
+      }
+    } else {
+      state = state.copyWith(loading: true, clearError: true);
+    }
     try {
       final repo = ref.read(catalogRepositoryProvider);
       final items = await repo.fetchProducts();
       state = state.copyWith(items: items, loading: false);
+      await _saveToCache(items);
     } catch (e) {
-      final message = e is ApiException ? e.message : 'No se pudieron cargar los productos';
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudieron cargar los productos';
+      // Keep cached/previous items (if any) so UI doesn't go blank.
       state = state.copyWith(loading: false, error: message);
     }
   }
@@ -70,12 +115,23 @@ class CatalogController extends StateNotifier<CatalogState> {
     state = state.copyWith(saving: true, actionError: null);
     try {
       final repo = ref.read(catalogRepositoryProvider);
-      final path = await repo.uploadImage(bytes: imageBytes, filename: filename);
-      final created = await repo.createProduct(nombre: nombre, precio: precio, costo: costo, fotoUrl: path, categoria: categoria);
+      final path = await repo.uploadImage(
+        bytes: imageBytes,
+        filename: filename,
+      );
+      final created = await repo.createProduct(
+        nombre: nombre,
+        precio: precio,
+        costo: costo,
+        fotoUrl: path,
+        categoria: categoria,
+      );
       final updated = [created, ...state.items];
       state = state.copyWith(items: updated, saving: false);
     } catch (e) {
-      final message = e is ApiException ? e.message : 'No se pudo crear el producto';
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudo crear el producto';
       state = state.copyWith(saving: false, actionError: message);
       rethrow;
     }
@@ -95,7 +151,10 @@ class CatalogController extends StateNotifier<CatalogState> {
       final repo = ref.read(catalogRepositoryProvider);
       String? fotoUrl;
       if (newImageBytes != null && newFilename != null) {
-        fotoUrl = await repo.uploadImage(bytes: newImageBytes, filename: newFilename);
+        fotoUrl = await repo.uploadImage(
+          bytes: newImageBytes,
+          filename: newFilename,
+        );
       }
       final updated = await repo.updateProduct(
         id: id,
@@ -108,7 +167,9 @@ class CatalogController extends StateNotifier<CatalogState> {
       final list = state.items.map((p) => p.id == id ? updated : p).toList();
       state = state.copyWith(items: list, saving: false);
     } catch (e) {
-      final message = e is ApiException ? e.message : 'No se pudo actualizar el producto';
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudo actualizar el producto';
       state = state.copyWith(saving: false, actionError: message);
       rethrow;
     }
@@ -119,9 +180,14 @@ class CatalogController extends StateNotifier<CatalogState> {
     try {
       final repo = ref.read(catalogRepositoryProvider);
       await repo.deleteProduct(id);
-      state = state.copyWith(items: state.items.where((p) => p.id != id).toList(), saving: false);
+      state = state.copyWith(
+        items: state.items.where((p) => p.id != id).toList(),
+        saving: false,
+      );
     } catch (e) {
-      final message = e is ApiException ? e.message : 'No se pudo eliminar el producto';
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudo eliminar el producto';
       state = state.copyWith(saving: false, actionError: message);
       rethrow;
     }

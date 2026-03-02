@@ -8,7 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:dio/dio.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:geolocator/geolocator.dart' hide ServiceStatus;
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -20,6 +20,7 @@ import '../../core/models/punch_model.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/geo_utils.dart';
 import '../../core/utils/external_launcher.dart';
+import '../../core/utils/safe_url_launcher.dart';
 import '../../core/utils/string_utils.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../modules/cotizaciones/data/cotizaciones_repository.dart';
@@ -29,7 +30,8 @@ import '../ponche/application/punch_controller.dart';
 import '../user/data/users_repository.dart';
 import 'application/operations_controller.dart';
 import 'data/operations_repository.dart';
-import 'operations_models.dart';
+import 'operations_models.dart' hide ServiceStatus;
+import 'operations_models.dart' as ops show ServiceStatus, parseStatus;
 import 'presentation/service_agenda_card.dart';
 import 'presentation/info_card.dart';
 import 'presentation/operations_filters.dart';
@@ -52,60 +54,69 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
   final _searchCtrl = TextEditingController();
 
   Future<void> _openQuickCreateFromAppBar() async {
-    const kind = 'reserva';
-    const title = 'Registrar reserva';
-    const submitLabel = 'Guardar reserva';
-    const initialServiceType = 'installation';
+    const title = 'Crear orden de servicio';
+    const submitLabel = 'Guardar orden';
+    const initialServiceType = 'maintenance';
 
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (_) => SafeArea(
-        child: Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(context).bottom,
-          ),
-          child: SizedBox(
-            height: MediaQuery.sizeOf(context).height * 0.92,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
-                  child: Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          title,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 16,
+        child: StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              child: SizedBox(
+                height: MediaQuery.sizeOf(context).height * 0.92,
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 16,
+                              ),
+                            ),
                           ),
-                        ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
                       ),
-                      IconButton(
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                      child: Text(
+                        'Crea una orden genérica. La etapa se puede ajustar luego en Detalles.',
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
-                    ],
-                  ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: _CreateReservationTab(
+                        onCreate: (draft) async {
+                          final ok = await _handleCreateGenericOrder(draft);
+                          if (ok && context.mounted) Navigator.pop(context);
+                        },
+                        submitLabel: submitLabel,
+                        initialServiceType: initialServiceType,
+                        showServiceTypeField: false,
+                      ),
+                    ),
+                  ],
                 ),
-                const Divider(height: 1),
-                Expanded(
-                  child: _CreateReservationTab(
-                    onCreate: (draft) async {
-                      final ok = await _handleCreateFromAgenda(draft, kind);
-                      if (ok && context.mounted) Navigator.pop(context);
-                    },
-                    agendaKind: kind,
-                    submitLabel: submitLabel,
-                    initialServiceType: initialServiceType,
-                    showServiceTypeField: false,
-                  ),
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -350,39 +361,52 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
           ),
         ],
       ),
-      body: state.loading
-          ? const Center(child: CircularProgressIndicator())
-          : _buildBoard(context, state, notifier),
+      body: Stack(
+        children: [
+          _buildBoard(context, authState.user, state, notifier),
+          if (state.loading)
+            const Positioned.fill(
+              child: IgnorePointer(
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
   Widget _buildBoard(
     BuildContext context,
+    UserModel? currentUser,
     OperationsState state,
     OperationsController notifier,
   ) {
-    return RefreshIndicator(
-      onRefresh: notifier.refresh,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
-        children: [
-          _PanelOptions(
-            state: state,
-            searchCtrl: _searchCtrl,
-            loadUsers: () => ref.read(usersRepositoryProvider).getAllUsers(),
-            loadTechnicians: () =>
-                ref.read(operationsRepositoryProvider).getTechnicians(),
-            onApplyRemote: (range, techId) => notifier.applyRangeAndTechnician(
-              from: range.start,
-              to: range.end,
-              technicianId: (techId ?? '').trim().isEmpty ? null : techId,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
+      child: _PanelOptions(
+        currentUser: currentUser,
+        state: state,
+        searchCtrl: _searchCtrl,
+        onRefresh: notifier.refresh,
+        loadUsers: () => ref.read(usersRepositoryProvider).getAllUsers(),
+        loadTechnicians: () =>
+            ref.read(operationsRepositoryProvider).getTechnicians(),
+        onApplyRemote: (range, techId) => notifier.applyRangeAndTechnician(
+          from: range.start,
+          to: range.end,
+          technicianId: (techId ?? '').trim().isEmpty ? null : techId,
+        ),
+        onOpenService: _openServiceDetail,
+        onChangeStatus: _changeStatusWithConfirm,
+        onChangeOrderState: (serviceId, orderState) =>
+            notifier.changeOrderStateOptimistic(serviceId, orderState),
+        onChangePhase: (service, phase, scheduledAt, note) =>
+            notifier.changePhaseOptimistic(
+              service.id,
+              phase,
+              scheduledAt: scheduledAt,
+              note: note,
             ),
-            onOpenService: _openServiceDetail,
-            onChangeStatus: _changeStatusWithConfirm,
-            onChangeOrderState: (serviceId, orderState) =>
-                notifier.changeOrderStateOptimistic(serviceId, orderState),
-          ),
-        ],
       ),
     );
   }
@@ -403,6 +427,9 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
             child: _ServiceDetailPanel(
               service: service,
               onChangeStatus: (status) => _changeStatus(service.id, status),
+              onChangeOrderState: (orderState) => ref
+                  .read(operationsControllerProvider.notifier)
+                  .changeOrderStateOptimistic(service.id, orderState),
               onSchedule: (start, end) =>
                   _scheduleService(service.id, start, end),
               onCreateWarranty: () => _createWarranty(service.id),
@@ -481,9 +508,10 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     }
   }
 
-  Future<ServiceModel> _createService(_CreateServiceDraft draft) {
-    final deposit = draft.depositAmount ?? 0;
-    final tags = deposit > 0 ? const ['SEGURO'] : const <String>[];
+  Future<ServiceModel> _createService(
+    _CreateServiceDraft draft, {
+    String? orderType,
+  }) {
     return ref
         .read(operationsControllerProvider.notifier)
         .createReservation(
@@ -496,8 +524,76 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
           addressSnapshot: draft.addressSnapshot,
           quotedAmount: draft.quotedAmount,
           depositAmount: draft.depositAmount,
-          tags: tags,
+          orderType: orderType,
+          orderState: draft.orderState,
+          technicianId: draft.technicianId,
+          warrantyParentServiceId: draft.relatedServiceId,
+          surveyResult: draft.surveyResult,
+          materialsUsed: draft.materialsUsed,
+          finalCost: draft.finalCost,
+          tags: draft.tags,
         );
+  }
+
+  Future<bool> _handleCreateGenericOrder(_CreateServiceDraft draft) async {
+    const orderType = 'mantenimiento';
+
+    try {
+      final created = await _createService(draft, orderType: orderType);
+
+      final reservationAt = draft.reservationAt;
+      if (reservationAt != null) {
+        try {
+          await ref
+              .read(operationsControllerProvider.notifier)
+              .schedule(
+                created.id,
+                reservationAt,
+                reservationAt.add(const Duration(hours: 1)),
+              );
+        } catch (_) {
+          // No bloquea la creación.
+        }
+
+        // Si está agendada, por defecto marca la etapa como agendada.
+        if (created.status.trim().toLowerCase() != 'scheduled') {
+          try {
+            await ref
+                .read(operationsControllerProvider.notifier)
+                .changeStatus(created.id, 'scheduled');
+          } catch (_) {
+            // No bloquea la creación.
+          }
+        }
+      }
+
+      final referencePhoto = draft.referencePhoto;
+      if (referencePhoto != null) {
+        try {
+          await ref
+              .read(operationsControllerProvider.notifier)
+              .uploadEvidence(created.id, referencePhoto);
+        } catch (_) {
+          // No bloquea la creación.
+        }
+      }
+
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Orden creada correctamente')),
+      );
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e is ApiException ? e.message : 'No se pudo registrar la orden',
+          ),
+        ),
+      );
+      return false;
+    }
   }
 
   // ignore: unused_element
@@ -525,17 +621,21 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     };
 
     try {
-      final created = await _createService(draft);
+      final created = await _createService(draft, orderType: lower);
 
       final reservationAt = draft.reservationAt;
-      try {
-        await ref.read(operationsControllerProvider.notifier).schedule(
-              created.id,
-              reservationAt,
-              reservationAt.add(const Duration(hours: 1)),
-            );
-      } catch (_) {
-        // No bloquea la creación desde agenda.
+      if (reservationAt != null) {
+        try {
+          await ref
+              .read(operationsControllerProvider.notifier)
+              .schedule(
+                created.id,
+                reservationAt,
+                reservationAt.add(const Duration(hours: 1)),
+              );
+        } catch (_) {
+          // No bloquea la creación desde agenda.
+        }
       }
 
       final referencePhoto = draft.referencePhoto;
@@ -683,13 +783,13 @@ class _OperacionesAgendaScreenState
   String _statusLabel(String raw) {
     switch (raw) {
       case 'reserved':
-        return 'Reserva';
+        return 'Sin etapa';
       case 'survey':
         return 'Levantamiento';
       case 'scheduled':
-        return 'Servicio (agendado)';
+        return 'Agendado';
       case 'in_progress':
-        return 'Servicio (en proceso)';
+        return 'En proceso';
       case 'warranty':
         return 'Garantía';
       case 'completed':
@@ -751,6 +851,9 @@ class _OperacionesAgendaScreenState
             child: _ServiceDetailPanel(
               service: service,
               onChangeStatus: (status) => _changeStatus(service.id, status),
+              onChangeOrderState: (orderState) => ref
+                  .read(operationsControllerProvider.notifier)
+                  .changeOrderStateOptimistic(service.id, orderState),
               onSchedule: (start, end) =>
                   _scheduleService(service.id, start, end),
               onCreateWarranty: () => _createWarranty(service.id),
@@ -1007,6 +1110,26 @@ class _OperacionesAgendaScreenState
         }
       }
 
+      final referencePhoto = draft.referencePhoto;
+      if (referencePhoto != null) {
+        try {
+          await ref
+              .read(operationsControllerProvider.notifier)
+              .uploadEvidence(created.id, referencePhoto);
+        } catch (e) {
+          if (!mounted) return false;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                e is ApiException
+                    ? e.message
+                    : 'No se pudo subir la foto de referencia',
+              ),
+            ),
+          );
+        }
+      }
+
       if (targetStatus != null && targetStatus != created.status) {
         await ref
             .read(operationsControllerProvider.notifier)
@@ -1031,38 +1154,99 @@ class _OperacionesAgendaScreenState
     }
   }
 
+  Future<bool> _createGenericFromAgenda(_CreateServiceDraft draft) async {
+    const orderType = 'mantenimiento';
+
+    try {
+      final created = await ref
+          .read(operationsControllerProvider.notifier)
+          .createReservation(
+            customerId: draft.customerId,
+            serviceType: draft.serviceType,
+            category: draft.category,
+            priority: draft.priority,
+            title: draft.title,
+            description: draft.description,
+            addressSnapshot: draft.addressSnapshot,
+            quotedAmount: draft.quotedAmount,
+            depositAmount: draft.depositAmount,
+            orderType: orderType,
+            orderState: draft.orderState,
+            technicianId: draft.technicianId,
+            warrantyParentServiceId: draft.relatedServiceId,
+            surveyResult: draft.surveyResult,
+            materialsUsed: draft.materialsUsed,
+            finalCost: draft.finalCost,
+            tags: draft.tags,
+          );
+
+      final reservationAt = draft.reservationAt;
+      if (reservationAt != null) {
+        try {
+          await ref
+              .read(operationsControllerProvider.notifier)
+              .schedule(
+                created.id,
+                reservationAt,
+                reservationAt.add(const Duration(hours: 1)),
+              );
+        } catch (_) {
+          // No bloquea la creación desde agenda.
+        }
+
+        if (created.status.trim().toLowerCase() != 'scheduled') {
+          try {
+            await ref
+                .read(operationsControllerProvider.notifier)
+                .changeStatus(created.id, 'scheduled');
+          } catch (_) {
+            // No bloquea la creación desde agenda.
+          }
+        }
+      }
+
+      final referencePhoto = draft.referencePhoto;
+      if (referencePhoto != null) {
+        try {
+          await ref
+              .read(operationsControllerProvider.notifier)
+              .uploadEvidence(created.id, referencePhoto);
+        } catch (e) {
+          if (!mounted) return false;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                e is ApiException
+                    ? e.message
+                    : 'No se pudo subir la foto de referencia',
+              ),
+            ),
+          );
+        }
+      }
+
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Orden creada correctamente')),
+      );
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e is ApiException ? e.message : 'No se pudo registrar la orden',
+          ),
+        ),
+      );
+      return false;
+    }
+  }
+
   Future<void> _openAgendaForm() async {
-    var kind = 'reserva';
-
-    String titleForKind(String k) {
-      return 'Crear orden de servicio';
-    }
-
-    String submitForKind(String k) {
-      final lower = k.trim().toLowerCase();
-      final label = switch (lower) {
-        'reserva' => 'Reserva',
-        'servicio' => 'Mantenimiento',
-        'mantenimiento' => 'Mantenimiento',
-        'instalacion' => 'Instalación',
-        'levantamiento' => 'Levantamiento',
-        'garantia' => 'Garantía',
-        _ => 'Orden',
-      };
-      return 'Guardar orden ($label)';
-    }
-
-    String initialServiceTypeForKind(String k) {
-      final lower = k.trim().toLowerCase();
-      return switch (lower) {
-        'garantia' => 'warranty',
-        'mantenimiento' => 'maintenance',
-        'servicio' => 'maintenance',
-        'levantamiento' => 'maintenance',
-        'instalacion' => 'installation',
-        _ => 'installation',
-      };
-    }
+    const title = 'Crear orden de servicio';
+    const submitLabel = 'Guardar orden';
+    const initialServiceType = 'maintenance';
 
     await showModalBottomSheet<void>(
       context: context,
@@ -1086,7 +1270,7 @@ class _OperacionesAgendaScreenState
                           children: [
                             Expanded(
                               child: Text(
-                                titleForKind(kind),
+                                title,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w900,
                                   fontSize: 16,
@@ -1102,50 +1286,19 @@ class _OperacionesAgendaScreenState
                       ),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                        child: DropdownButtonFormField<String>(
-                          value: kind,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            labelText: 'Tipo de servicio',
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'reserva',
-                              child: Text('Reserva'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'garantia',
-                              child: Text('Garantía'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'levantamiento',
-                              child: Text('Levantamiento'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'mantenimiento',
-                              child: Text('Mantenimiento'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'instalacion',
-                              child: Text('Instalación'),
-                            ),
-                          ],
-                          onChanged: (value) {
-                            if (value == null) return;
-                            setSheetState(() => kind = value);
-                          },
+                        child: Text(
+                          'Crea una orden genérica. La etapa se puede ajustar luego en Detalles.',
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),
                       const Divider(height: 1),
                       Expanded(
                         child: _CreateReservationTab(
-                          agendaKind: kind,
-                          submitLabel: submitForKind(kind),
-                          initialServiceType: initialServiceTypeForKind(kind),
+                          submitLabel: submitLabel,
+                          initialServiceType: initialServiceType,
                           showServiceTypeField: false,
                           onCreate: (draft) async {
-                            final ok = await _createFromAgenda(draft, kind);
+                            final ok = await _createGenericFromAgenda(draft);
                             if (ok && context.mounted) Navigator.pop(context);
                           },
                         ),
@@ -1545,9 +1698,51 @@ class _SeguroBadge extends StatelessWidget {
   }
 }
 
+bool _looksLikeValidLocationText(String value) {
+  final v = value.trim();
+  if (v.isEmpty) return false;
+  if (RegExp(r'https?://', caseSensitive: false).hasMatch(v)) return true;
+  if (parseLatLngFromText(v) != null) return true;
+  final compact = v.replaceAll(RegExp(r'\s+'), ' ').trim();
+  return compact.length >= 8;
+}
+
+bool _isFinalizedService(ServiceModel s) {
+  final orderState = s.orderState.trim().toLowerCase();
+  final status = s.status.trim().toLowerCase();
+  if (orderState == 'finalized') return true;
+  if (status == 'completed' || status == 'closed') return true;
+  return false;
+}
+
+List<String> _missingPhaseRequirements(ServiceModel s, String phase) {
+  final p = phase.trim().toLowerCase();
+
+  if (p == 'instalacion' || p == 'mantenimiento' || p == 'levantamiento') {
+    final missing = <String>[];
+    final quoted = (s.quotedAmount ?? 0);
+    final total = (s.finalCost ?? 0);
+    if (quoted <= 0) missing.add('Cotización');
+    if (total <= 0) missing.add('Monto total');
+    if (!_looksLikeValidLocationText(s.customerAddress))
+      missing.add('Ubicación');
+    return missing;
+  }
+
+  if (p == 'garantia') {
+    final missing = <String>[];
+    if (!_isFinalizedService(s)) missing.add('Orden finalizada');
+    return missing;
+  }
+
+  return const [];
+}
+
 class _PanelOptions extends StatefulWidget {
+  final UserModel? currentUser;
   final OperationsState state;
   final TextEditingController searchCtrl;
+  final Future<void> Function() onRefresh;
 
   final Future<List<UserModel>> Function() loadUsers;
   final Future<List<TechnicianModel>> Function() loadTechnicians;
@@ -1558,16 +1753,26 @@ class _PanelOptions extends StatefulWidget {
   final Future<void> Function(ServiceModel service) onChangeStatus;
   final Future<void> Function(String serviceId, String orderState)
   onChangeOrderState;
+  final Future<void> Function(
+    ServiceModel service,
+    String phase,
+    DateTime scheduledAt,
+    String? note,
+  )
+  onChangePhase;
 
   const _PanelOptions({
+    required this.currentUser,
     required this.state,
     required this.searchCtrl,
+    required this.onRefresh,
     required this.loadUsers,
     required this.loadTechnicians,
     required this.onApplyRemote,
     required this.onOpenService,
     required this.onChangeStatus,
     required this.onChangeOrderState,
+    required this.onChangePhase,
   });
 
   @override
@@ -2251,20 +2456,20 @@ class _PanelOptionsState extends State<_PanelOptions> {
     );
 
     if (!mounted || result == null) return;
+
+    final before = _filters;
     setState(() => _filters = result);
 
-    // Optimiza el fetch remoto: rango y técnico.
-    await widget.onApplyRemote(result.range, result.technicianId);
-  }
+    // Optimiza el fetch remoto: solo cuando cambian rango o técnico.
+    final beforeTech = (before.technicianId ?? '').trim();
+    final nextTech = (result.technicianId ?? '').trim();
+    final shouldFetchRemote =
+        before.range != result.range || beforeTech != nextTech;
 
-  static const _pendingStatuses = {
-    'reserved',
-    'survey',
-    'scheduled',
-    'warranty',
-  };
-  static const _inProgressStatuses = {'in_progress'};
-  static const _completedStatuses = {'completed', 'closed'};
+    if (shouldFetchRemote) {
+      await widget.onApplyRemote(result.range, result.technicianId);
+    }
+  }
 
   // ignore: unused_element
   String _statusLabel(String raw) {
@@ -2364,6 +2569,11 @@ class _PanelOptionsState extends State<_PanelOptions> {
     final now = DateTime.now();
     final range = _filters.range;
 
+    ops.ServiceStatus effectiveStatus(ServiceModel s) {
+      final raw = s.orderState.trim().isNotEmpty ? s.orderState : s.status;
+      return ops.parseStatus(raw);
+    }
+
     bool inRange(ServiceModel s) {
       final scheduled = s.scheduledStart;
       if (scheduled == null) return false;
@@ -2373,26 +2583,30 @@ class _PanelOptionsState extends State<_PanelOptions> {
     final window = widget.state.services.where(inRange).toList()
       ..sort((a, b) => a.scheduledStart!.compareTo(b.scheduledStart!));
 
-    int pendingCount(List<ServiceModel> list) =>
-        list.where((s) => _pendingStatuses.contains(s.status)).length;
-    int inProgressCount(List<ServiceModel> list) =>
-        list.where((s) => _inProgressStatuses.contains(s.status)).length;
-    int completedCount(List<ServiceModel> list) =>
-        list.where((s) => _completedStatuses.contains(s.status)).length;
-
-    final pendientesCount = pendingCount(window);
-    final procesoCount = inProgressCount(window);
-    final completadasCount = completedCount(window);
-
-    final atrasadas = window.where((s) {
-      final st = s.scheduledStart;
-      if (st == null) return false;
-      if (!_pendingStatuses.contains(s.status) &&
-          !_inProgressStatuses.contains(s.status)) {
-        return false;
+    bool isPending(ops.ServiceStatus st) {
+      switch (st) {
+        case ops.ServiceStatus.reserved:
+        case ops.ServiceStatus.survey:
+        case ops.ServiceStatus.scheduled:
+        case ops.ServiceStatus.warranty:
+          return true;
+        default:
+          return false;
       }
-      return st.isBefore(now);
-    }).length;
+    }
+
+    bool isInProgress(ops.ServiceStatus st) =>
+        st == ops.ServiceStatus.inProgress;
+
+    bool isCompleted(ops.ServiceStatus st) {
+      switch (st) {
+        case ops.ServiceStatus.completed:
+        case ops.ServiceStatus.closed:
+          return true;
+        default:
+          return false;
+      }
+    }
 
     final query = widget.searchCtrl.text.trim().toLowerCase();
     bool matchesQuery(ServiceModel s) {
@@ -2402,17 +2616,18 @@ class _PanelOptionsState extends State<_PanelOptions> {
     }
 
     bool matchesStatus(ServiceModel s) {
+      final st = effectiveStatus(s);
       switch (_filters.status) {
         case OperationsStatusFilter.all:
           return true;
         case OperationsStatusFilter.pending:
-          return _pendingStatuses.contains(s.status);
+          return isPending(st);
         case OperationsStatusFilter.inProgress:
-          return _inProgressStatuses.contains(s.status);
+          return isInProgress(st);
         case OperationsStatusFilter.completed:
-          return _completedStatuses.contains(s.status);
+          return isCompleted(st);
         case OperationsStatusFilter.cancelled:
-          return s.status.trim().toLowerCase() == 'cancelled';
+          return st == ops.ServiceStatus.cancelled;
       }
     }
 
@@ -2442,16 +2657,53 @@ class _PanelOptionsState extends State<_PanelOptions> {
       return s.createdByUserId.trim() == createdBy;
     }
 
-    final filtered = window
+    // Orden requerido:
+    // a) lista original (window ya está recortada por rango)
+    // b) filtros
+    // c) búsqueda
+    final filteredOrders = window
         .where(
           (s) =>
               matchesStatus(s) &&
               matchesPriority(s) &&
               matchesTechnician(s) &&
-              matchesCreator(s) &&
-              matchesQuery(s),
+              matchesCreator(s),
         )
-        .toList();
+        .toList(growable: false);
+
+    final visibleOrders = filteredOrders
+        .where(matchesQuery)
+        .toList(growable: false);
+
+    int pendingCount(List<ServiceModel> list) =>
+        list.where((s) => isPending(effectiveStatus(s))).length;
+    int inProgressCount(List<ServiceModel> list) =>
+        list.where((s) => isInProgress(effectiveStatus(s))).length;
+    int completedCount(List<ServiceModel> list) =>
+        list.where((s) => isCompleted(effectiveStatus(s))).length;
+
+    final pendientesCount = pendingCount(visibleOrders);
+    final procesoCount = inProgressCount(visibleOrders);
+    final completadasCount = completedCount(visibleOrders);
+
+    final atrasadas = visibleOrders.where((s) {
+      final st = effectiveStatus(s);
+      if (isCompleted(st)) return false;
+      final due = s.scheduledStart;
+      if (due == null) return false;
+      return due.isBefore(now);
+    }).length;
+
+    assert(() {
+      final rawStatuses = visibleOrders
+          .map((s) => '${s.status}|${s.orderState}')
+          .toSet()
+          .toList(growable: false);
+      debugPrint(
+        '[operations] totalOrders=${widget.state.services.length} window=${window.length} filtered=${filteredOrders.length} visible=${visibleOrders.length} pend=$pendientesCount prog=$procesoCount comp=$completadasCount late=$atrasadas statuses=$rawStatuses',
+      );
+      return true;
+    }());
 
     Widget summaryCard({
       required String label,
@@ -2570,48 +2822,140 @@ class _PanelOptionsState extends State<_PanelOptions> {
           ],
         ),
         const SizedBox(height: 10),
-        if (filtered.isEmpty)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  Icon(Icons.inbox_outlined, color: theme.colorScheme.primary),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text(
-                      'Sin servicios para mostrar.',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: widget.onRefresh,
+            child: visibleOrders.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.inbox_outlined,
+                                color: theme.colorScheme.primary,
+                              ),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Text(
+                                  'Sin servicios para mostrar.',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : ListView.separated(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount: visibleOrders.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final s = visibleOrders[index];
+
+                      final type = _typeLabel(s.serviceType);
+                      final category = _categoryLabel(s.category);
+                      final subtitle = category.isEmpty
+                          ? type
+                          : '$type · $category';
+                      final tech = _techLabel(s);
+
+                      final scheduled = s.scheduledStart;
+                      final scheduledText = scheduled == null
+                          ? null
+                          : DateFormat(
+                              'EEE dd/MM HH:mm',
+                              'es',
+                            ).format(scheduled);
+
+                      final perms = OperationsPermissions(
+                        user: widget.currentUser,
+                        service: s,
+                      );
+                      final canChangePhase = perms.canChangePhase;
+
+                      return ServiceAgendaCard(
+                        service: s,
+                        subtitle: subtitle,
+                        technicianText: tech,
+                        scheduledText: scheduledText,
+                        onView: () => widget.onOpenService(s),
+                        onChangeState: () => _pickAndChangeOrderState(s),
+                        onChangePhase: !canChangePhase
+                            ? null
+                            : () {
+                                unawaited(() async {
+                                  final draft =
+                                      await ServiceActionsSheet.pickChangePhaseDraft(
+                                        context,
+                                        current: s.currentPhase,
+                                        initialScheduledAt: s.scheduledStart,
+                                      );
+                                  if (!mounted || draft == null) return;
+
+                                  final phase = (draft['phase'] ?? '').trim();
+                                  final scheduledAtRaw =
+                                      (draft['scheduledAt'] ?? '').trim();
+                                  final note = draft['note'];
+                                  final scheduledAt = DateTime.tryParse(
+                                    scheduledAtRaw,
+                                  );
+                                  if (phase.isEmpty || scheduledAt == null) {
+                                    return;
+                                  }
+
+                                  final missing = _missingPhaseRequirements(
+                                    s,
+                                    phase,
+                                  );
+                                  if (missing.isNotEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'No se puede cambiar a ${phaseLabel(phase)}. Falta: ${missing.join(', ')}',
+                                        ),
+                                      ),
+                                    );
+                                    return;
+                                  }
+
+                                  try {
+                                    await widget.onChangePhase(
+                                      s,
+                                      phase,
+                                      scheduledAt,
+                                      note,
+                                    );
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Fase: ${phaseLabel(phase)}',
+                                        ),
+                                      ),
+                                    );
+                                  } catch (e) {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          e is ApiException ? e.message : '$e',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                }());
+                              },
+                      );
+                    },
                   ),
-                ],
-              ),
-            ),
-          )
-        else
-          ...filtered.map((s) {
-            final type = _typeLabel(s.serviceType);
-            final category = _categoryLabel(s.category);
-            final subtitle = category.isEmpty ? type : '$type · $category';
-            final tech = _techLabel(s);
-
-            final scheduled = s.scheduledStart;
-            final scheduledText = scheduled == null
-                ? null
-                : DateFormat('EEE dd/MM HH:mm', 'es').format(scheduled);
-
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: ServiceAgendaCard(
-                service: s,
-                subtitle: subtitle,
-                technicianText: tech,
-                scheduledText: scheduledText,
-                onView: () => widget.onOpenService(s),
-                onChangeState: () => _pickAndChangeOrderState(s),
-              ),
-            );
-          }),
+          ),
+        ),
       ],
     );
   }
@@ -2635,6 +2979,7 @@ class _ReservaScreen extends StatelessWidget {
 class _ServiceDetailPanel extends ConsumerStatefulWidget {
   final ServiceModel service;
   final Future<void> Function(String status) onChangeStatus;
+  final Future<void> Function(String orderState) onChangeOrderState;
   final Future<void> Function(DateTime start, DateTime end) onSchedule;
   final Future<void> Function() onCreateWarranty;
   final Future<void> Function(List<Map<String, String>> assignments) onAssign;
@@ -2645,6 +2990,7 @@ class _ServiceDetailPanel extends ConsumerStatefulWidget {
   const _ServiceDetailPanel({
     required this.service,
     required this.onChangeStatus,
+    required this.onChangeOrderState,
     required this.onSchedule,
     required this.onCreateWarranty,
     required this.onAssign,
@@ -2660,6 +3006,60 @@ class _ServiceDetailPanel extends ConsumerStatefulWidget {
 
 class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
   final _noteCtrl = TextEditingController();
+
+  late ServiceModel _service;
+
+  List<ServicePhaseHistoryModel> _phaseHistory = const [];
+  bool _phaseHistoryLoading = false;
+  String? _phaseHistoryError;
+
+  @override
+  void initState() {
+    super.initState();
+    _service = widget.service;
+    _loadPhaseHistory();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ServiceDetailPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.service.id != widget.service.id) {
+      _service = widget.service;
+      _phaseHistory = const [];
+      _phaseHistoryError = null;
+      _phaseHistoryLoading = false;
+      _loadPhaseHistory();
+    }
+  }
+
+  Future<void> _loadPhaseHistory() async {
+    final serviceId = _service.id.trim();
+    if (serviceId.isEmpty) return;
+
+    setState(() {
+      _phaseHistoryLoading = true;
+      _phaseHistoryError = null;
+    });
+
+    try {
+      final items = await ref
+          .read(operationsRepositoryProvider)
+          .listServicePhases(serviceId);
+      if (!mounted) return;
+      setState(() {
+        _phaseHistory = items;
+        _phaseHistoryLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _phaseHistoryLoading = false;
+        _phaseHistoryError = e is ApiException
+            ? e.message
+            : 'No se pudo cargar historial de fases';
+      });
+    }
+  }
 
   String _statusLabel(String raw) {
     switch (raw) {
@@ -2716,8 +3116,48 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     }
   }
 
-  Future<void> _setStatusWithConfirm(String targetStatus) async {
-    final service = widget.service;
+  String _orderStateLabel(String raw) {
+    switch (raw.trim().toLowerCase()) {
+      case 'pending':
+        return 'Pendiente';
+      case 'confirmed':
+        return 'Confirmada';
+      case 'assigned':
+        return 'Asignada';
+      case 'in_progress':
+        return 'En progreso';
+      case 'finalized':
+        return 'Finalizada';
+      case 'cancelled':
+        return 'Cancelada';
+      case 'rescheduled':
+        return 'Reagendada';
+      default:
+        return raw;
+    }
+  }
+
+  String? _suggestOrderStateForStatus(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'scheduled':
+        return 'confirmed';
+      case 'in_progress':
+        return 'in_progress';
+      case 'completed':
+      case 'closed':
+        return 'finalized';
+      case 'cancelled':
+        return 'cancelled';
+      default:
+        return null;
+    }
+  }
+
+  Future<void> _setStatusWithConfirm(
+    String targetStatus, {
+    bool closePanel = true,
+  }) async {
+    final service = _service;
     if (targetStatus == service.status) return;
 
     final ok = await showDialog<bool>(
@@ -2726,7 +3166,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         return AlertDialog(
           title: const Text('Confirmar cambio'),
           content: Text(
-            'Vas a cambiar el estado de "${_statusLabel(service.status)}" a "${_statusLabel(targetStatus)}".\n\n¿Seguro que deseas hacerlo?',
+            'Vas a cambiar la etapa de "${_statusLabel(service.status)}" a "${_statusLabel(targetStatus)}".\n\n¿Seguro que deseas hacerlo?',
           ),
           actions: [
             TextButton(
@@ -2746,12 +3186,105 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
 
     await widget.onChangeStatus(targetStatus);
     if (!mounted) return;
+
+    setState(() {
+      _service = _service.copyWith(status: targetStatus);
+    });
+
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Estado: ${_statusLabel(targetStatus)}')),
+      SnackBar(content: Text('Etapa: ${_statusLabel(targetStatus)}')),
     );
 
-    // Cierra el panel para evitar mostrar info desactualizada.
-    Navigator.pop(context);
+    if (closePanel) {
+      // Mantiene el comportamiento anterior cuando se cambia desde Acciones.
+      Navigator.pop(context);
+    }
+  }
+
+  Future<void> _pickStageFlow({
+    required bool canOperate,
+    required List<String> allowedTargets,
+  }) async {
+    if (!canOperate) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No autorizado')));
+      return;
+    }
+
+    if (allowedTargets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No hay etapas disponibles')),
+      );
+      return;
+    }
+
+    final service = _service;
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return SimpleDialog(
+          title: const Text('Cambiar etapa'),
+          children: allowedTargets
+              .map(
+                (s) => SimpleDialogOption(
+                  onPressed: () => Navigator.pop(context, s),
+                  child: Row(
+                    children: [
+                      Expanded(child: Text(_statusLabel(s))),
+                      if (s == service.status)
+                        const Icon(Icons.check_rounded, size: 18),
+                    ],
+                  ),
+                ),
+              )
+              .toList(growable: false),
+        );
+      },
+    );
+
+    if (!mounted || picked == null) return;
+    final target = picked.trim().toLowerCase();
+    if (target.isEmpty || target == service.status.trim().toLowerCase()) return;
+
+    await _setStatusWithConfirm(target, closePanel: false);
+
+    final suggestion = _suggestOrderStateForStatus(target);
+    final currentOrderState = service.orderState.trim().toLowerCase();
+    if (!mounted || suggestion == null || suggestion == currentOrderState) {
+      return;
+    }
+
+    final applySuggested = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Sugerencia'),
+          content: Text(
+            'Esta etapa normalmente usa el estado de orden "${_orderStateLabel(suggestion)}". ¿Deseas aplicarlo también?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('No'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Aplicar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || applySuggested != true) return;
+
+    await widget.onChangeOrderState(suggestion);
+    if (!mounted) return;
+
+    setState(() {
+      _service = _service.copyWith(orderState: suggestion);
+    });
   }
 
   Future<void> _pickScheduleFlow(ServiceModel service) async {
@@ -2882,7 +3415,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final service = widget.service;
+    final service = _service;
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
     final auth = ref.watch(authStateProvider);
@@ -2891,6 +3424,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     final perms = OperationsPermissions(user: user, service: service);
     final canOperate = perms.canOperate;
     final canDelete = perms.canDelete;
+    final canEdit = perms.canCritical;
     final allowedStatusTargets = perms.allowedNextStatuses();
 
     final typeText = _serviceTypeLabel(service.serviceType);
@@ -2931,15 +3465,235 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
 
     final location = buildServiceLocationInfo(addressOrText: addressText);
 
+    Future<void> editFlow() async {
+      if (!canEdit) {
+        final reason = perms.criticalDeniedReason ?? 'No autorizado';
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(reason)));
+        return;
+      }
+
+      String? addressLine;
+      String? gpsLine;
+      String? mapsLine;
+      for (final line in addressText.split('\n')) {
+        final v = line.trim();
+        if (v.isEmpty) continue;
+        final lower = v.toLowerCase();
+        if (lower.startsWith('gps:')) {
+          gpsLine = v.substring(4).trim();
+          continue;
+        }
+        if (lower.startsWith('maps:')) {
+          mapsLine = v.substring(5).trim();
+          continue;
+        }
+        addressLine ??= v;
+      }
+
+      final descCtrl = TextEditingController(
+        text: service.description.trim().isEmpty ? '' : service.description,
+      );
+      final addrCtrl = TextEditingController(text: addressLine ?? '');
+      final gpsCtrl = TextEditingController(text: gpsLine ?? mapsLine ?? '');
+
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text('Editar orden'),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: descCtrl,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: 'Nota / descripción',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: addrCtrl,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: 'Dirección',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: gpsCtrl,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: 'Ubicación (lat,lng o link de Maps)',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Guardar'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (ok != true) {
+        descCtrl.dispose();
+        addrCtrl.dispose();
+        gpsCtrl.dispose();
+        return;
+      }
+
+      String? buildAddressSnapshot(String address, String gpsText) {
+        final a = address.trim();
+        final g = gpsText.trim();
+        if (a.isEmpty && g.isEmpty) return null;
+
+        final point = parseLatLngFromText(g);
+        if (point != null) {
+          final lines = <String>[];
+          if (a.isNotEmpty) lines.add(a);
+          lines.add('GPS: ${formatLatLng(point)}');
+          lines.add('MAPS: ${buildGoogleMapsSearchUrl(point)}');
+          return lines.join('\n');
+        }
+
+        final isUrl = RegExp(r'https?://', caseSensitive: false).hasMatch(g);
+        final lines = <String>[];
+        if (a.isNotEmpty) lines.add(a);
+        if (g.isNotEmpty) {
+          lines.add(isUrl ? 'MAPS: $g' : 'GPS: $g');
+        }
+        return lines.join('\n');
+      }
+
+      final newDesc = descCtrl.text.trim();
+      final snapshot = buildAddressSnapshot(addrCtrl.text, gpsCtrl.text);
+
+      descCtrl.dispose();
+      addrCtrl.dispose();
+      gpsCtrl.dispose();
+
+      try {
+        final updated = await ref
+            .read(operationsControllerProvider.notifier)
+            .updateService(
+              serviceId: service.id,
+              description: newDesc.isEmpty ? 'Sin nota' : newDesc,
+              addressSnapshot: snapshot,
+            );
+        if (!mounted) return;
+        setState(() => _service = updated);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Orden actualizada')));
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e is ApiException ? e.message : '$e')),
+        );
+      }
+    }
+
     Future<void> openActions() async {
       await ServiceActionsSheet.show(
         context,
         service: service,
         canOperate: canOperate,
         operateDeniedReason: perms.operateDeniedReason,
+        canEdit: canEdit,
+        editDeniedReason: perms.criticalDeniedReason,
+        canChangePhase: perms.canChangePhase,
+        changePhaseDeniedReason: perms.changePhaseDeniedReason,
+        onChangePhase: (phase, scheduledAt, note) async {
+          final missing = _missingPhaseRequirements(service, phase);
+          if (missing.isNotEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'No se puede cambiar a ${phaseLabel(phase)}. Falta: ${missing.join(', ')}',
+                ),
+              ),
+            );
+            return;
+          }
+          try {
+            final updated = await ref
+                .read(operationsControllerProvider.notifier)
+                .changePhaseOptimistic(
+                  service.id,
+                  phase,
+                  scheduledAt: scheduledAt,
+                  note: note,
+                );
+
+            if (!mounted) return;
+            setState(() => _service = updated);
+            await _loadPhaseHistory();
+            if (!mounted) return;
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Fase: ${phaseLabel(updated.currentPhase)}'),
+              ),
+            );
+
+            final nextPhase = updated.currentPhase.trim().toLowerCase();
+            final currentOrderState = updated.orderState.trim().toLowerCase();
+            if (nextPhase == 'instalacion' && currentOrderState == 'pending') {
+              final applySuggested = await showDialog<bool>(
+                context: context,
+                builder: (context) {
+                  return AlertDialog(
+                    title: const Text('Sugerencia'),
+                    content: const Text(
+                      'Esta fase normalmente usa el estado de orden "En progreso". ¿Deseas aplicarlo también?',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('No'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const Text('Aplicar'),
+                      ),
+                    ],
+                  );
+                },
+              );
+
+              if (!mounted || applySuggested != true) return;
+              await widget.onChangeOrderState('in_progress');
+              if (!mounted) return;
+              setState(() {
+                _service = _service.copyWith(orderState: 'in_progress');
+              });
+            }
+          } catch (e) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(e is ApiException ? e.message : '$e')),
+            );
+          }
+        },
         allowedStatusTargets: allowedStatusTargets,
         canDelete: canDelete,
         deleteDeniedReason: perms.criticalDeniedReason,
+        onEdit: editFlow,
         onChangeStatus: (status) => _setStatusWithConfirm(status),
         onPickSchedule: () => _pickScheduleFlow(service),
         onAssignTechs: _assignTechsFlow,
@@ -2992,7 +3746,46 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
             children: [
               _kv(context, 'Tipo', headerTitle),
               _kv(context, 'Prioridad', 'P${service.priority}'),
-              _kv(context, 'Estado', _statusLabel(service.status)),
+              _kv(context, 'Fase actual', phaseLabel(service.currentPhase)),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 92,
+                      child: Text(
+                        'Etapa',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.75),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _statusLabel(service.status),
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      onPressed: canOperate
+                          ? () => _pickStageFlow(
+                              canOperate: canOperate,
+                              allowedTargets: allowedStatusTargets,
+                            )
+                          : null,
+                      child: const Text('Cambiar'),
+                    ),
+                  ],
+                ),
+              ),
               _kv(
                 context,
                 'Creado por',
@@ -3000,8 +3793,13 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                     ? '—'
                     : service.createdByName.trim(),
               ),
-              if (service.orderState.trim().isNotEmpty)
-                _kv(context, 'Orden', service.orderState.trim()),
+              _kv(
+                context,
+                'Estado',
+                service.orderState.trim().isEmpty
+                    ? '—'
+                    : _orderStateLabel(service.orderState),
+              ),
               if (service.scheduledStart != null)
                 _kv(
                   context,
@@ -3035,7 +3833,11 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                 ? () async {
                     final uri = location.mapsUri;
                     if (uri == null) return;
-                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    await safeOpenUrl(
+                      context,
+                      uri,
+                      copiedMessage: 'Link copiado',
+                    );
                   }
                 : null,
             icon: const Icon(Icons.map_outlined),
@@ -3125,6 +3927,36 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                         subtitle: Text(
                           '${update.changedBy} · ${update.createdAt == null ? '-' : dateFormat.format(update.createdAt!)}',
                         ),
+                      ),
+                  ],
+                ),
+        ),
+        const SizedBox(height: 10),
+        InfoCard(
+          title: 'Historial de fases',
+          child: _phaseHistoryLoading
+              ? const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(12),
+                    child: CircularProgressIndicator(),
+                  ),
+                )
+              : (_phaseHistoryError != null)
+              ? Text(_phaseHistoryError!)
+              : _phaseHistory.isEmpty
+              ? const Text('Sin movimientos de fase')
+              : Column(
+                  children: [
+                    for (final item in _phaseHistory.take(10))
+                      ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.flag_outlined),
+                        title: Text(phaseLabel(item.phase)),
+                        subtitle: Text(
+                          '${item.changedBy} · ${item.changedAt == null ? '-' : dateFormat.format(item.changedAt!)}${(item.note ?? '').trim().isEmpty ? '' : '\n${item.note!.trim()}'}',
+                        ),
+                        isThreeLine: (item.note ?? '').trim().isNotEmpty,
                       ),
                   ],
                 ),
@@ -3749,27 +4581,9 @@ class _AgendaTab extends StatelessWidget {
                 children: [
                   _quickCreateButton(
                     context,
-                    label: 'Reserva',
-                    icon: Icons.bookmark_add_outlined,
-                    kind: 'reserva',
-                  ),
-                  _quickCreateButton(
-                    context,
-                    label: 'Levantamiento',
-                    icon: Icons.fact_check_outlined,
-                    kind: 'levantamiento',
-                  ),
-                  _quickCreateButton(
-                    context,
-                    label: 'Mantenimiento',
-                    icon: Icons.build_circle_outlined,
+                    label: 'Orden',
+                    icon: Icons.add_task_rounded,
                     kind: 'mantenimiento',
-                  ),
-                  _quickCreateButton(
-                    context,
-                    label: 'Garantía',
-                    icon: Icons.verified_outlined,
-                    kind: 'garantia',
                   ),
                 ],
               ),
@@ -3856,83 +4670,72 @@ class _AgendaTab extends StatelessWidget {
   }
 
   Future<void> _openCreateSheet(BuildContext context, String kind) async {
-    final lower = kind.trim().toLowerCase();
-    final title = lower == 'reserva'
-        ? 'Registrar reserva'
-        : lower == 'levantamiento'
-        ? 'Registrar levantamiento'
-        : lower == 'mantenimiento' || lower == 'servicio'
-        ? 'Registrar mantenimiento'
-        : lower == 'instalacion'
-        ? 'Registrar instalación'
-        : 'Registrar garantía';
-    final submitLabel = lower == 'reserva'
-        ? 'Guardar reserva'
-        : lower == 'levantamiento'
-        ? 'Guardar levantamiento'
-        : lower == 'mantenimiento' || lower == 'servicio'
-        ? 'Guardar mantenimiento'
-        : lower == 'instalacion'
-        ? 'Guardar instalación'
-        : 'Guardar garantía';
-
-    final initialServiceType = lower == 'garantia'
-        ? 'warranty'
-        : lower == 'mantenimiento' ||
-              lower == 'servicio' ||
-              lower == 'levantamiento'
-        ? 'maintenance'
-        : 'installation';
+    const title = 'Crear orden de servicio';
+    const submitLabel = 'Guardar orden';
+    const initialServiceType = 'maintenance';
 
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (_) => SafeArea(
-        child: Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(context).bottom,
-          ),
-          child: SizedBox(
-            height: MediaQuery.sizeOf(context).height * 0.92,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          title,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 16,
+        child: StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              child: SizedBox(
+                height: MediaQuery.sizeOf(context).height * 0.92,
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 16,
+                              ),
+                            ),
                           ),
-                        ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
                       ),
-                      IconButton(
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                      child: Text(
+                        'Crea una orden genérica. La etapa se puede ajustar luego en Detalles.',
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
-                    ],
-                  ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: _CreateReservationTab(
+                        onCreate: (draft) async {
+                          final ok = await onCreateFromAgenda(
+                            draft,
+                            'mantenimiento',
+                          );
+                          if (ok && context.mounted) Navigator.pop(context);
+                        },
+                        submitLabel: submitLabel,
+                        initialServiceType: initialServiceType,
+                        showServiceTypeField: false,
+                      ),
+                    ),
+                  ],
                 ),
-                const Divider(height: 1),
-                Expanded(
-                  child: _CreateReservationTab(
-                    onCreate: (draft) async {
-                      final ok = await onCreateFromAgenda(draft, lower);
-                      if (ok && context.mounted) Navigator.pop(context);
-                    },
-                    agendaKind: lower,
-                    submitLabel: submitLabel,
-                    initialServiceType: initialServiceType,
-                    showServiceTypeField: false,
-                  ),
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -4033,7 +4836,7 @@ class _CreateServiceDraft {
   final String serviceType;
   final String category;
   final int priority;
-  final DateTime reservationAt;
+  final DateTime? reservationAt;
   final String title;
   final String description;
   final String? addressSnapshot;
@@ -4053,7 +4856,7 @@ class _CreateServiceDraft {
     required this.serviceType,
     required this.category,
     required this.priority,
-    required this.reservationAt,
+    this.reservationAt,
     required this.title,
     required this.description,
     required this.orderState,
@@ -4462,13 +5265,27 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
 
   String? _buildAddressSnapshot() {
     final address = _addressCtrl.text.trim();
+    final gpsText = _gpsCtrl.text.trim();
     final point = _gpsPoint ?? parseLatLngFromText(_gpsCtrl.text);
 
     final hasAddress = address.isNotEmpty;
     final hasPoint = point != null;
+    final hasGpsText = gpsText.isNotEmpty;
 
     if (!hasAddress && !hasPoint) return null;
-    if (!hasPoint) return address;
+    if (!hasPoint) {
+      if (!hasAddress && !hasGpsText) return null;
+      if (!hasGpsText) return address;
+
+      final isUrl = RegExp(
+        r'https?://',
+        caseSensitive: false,
+      ).hasMatch(gpsText);
+      final lines = <String>[];
+      if (hasAddress) lines.add(address);
+      lines.add(isUrl ? 'MAPS: $gpsText' : 'GPS: $gpsText');
+      return lines.join('\n');
+    }
 
     final gpsLine = 'GPS: ${formatLatLng(point)}';
     final mapsLine = 'MAPS: ${buildGoogleMapsSearchUrl(point)}';
@@ -4650,11 +5467,10 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                 readOnly: true,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
-                  labelText: 'Fecha y hora de reserva',
+                  labelText: 'Fecha y hora (opcional)',
                   suffixIcon: Icon(Icons.schedule_outlined),
                 ),
                 onTap: _pickReservationDate,
-                validator: (_) => _reservationAt == null ? 'Requerido' : null,
               ),
               const SizedBox(height: 10),
               if (isCompact) ...[
@@ -5262,7 +6078,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                 ),
               const SizedBox(height: 12),
               FilledButton.icon(
-                onPressed: (_saving || _reservationAt == null) ? null : _save,
+                onPressed: _saving ? null : _save,
                 icon: const Icon(Icons.save_outlined),
                 label: Text(_saving ? 'Guardando...' : widget.submitLabel),
               ),
@@ -5720,13 +6536,6 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   }
 
   Future<void> _save() async {
-    if (_reservationAt == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selecciona la fecha y hora de reserva')),
-      );
-      return;
-    }
-
     if (_customerId == null || _customerId!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selecciona un cliente primero')),
@@ -5793,14 +6602,27 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
 
     setState(() => _saving = true);
     try {
+      final gpsText = _gpsCtrl.text.trim();
+      if (gpsText.isNotEmpty && _gpsPoint == null && !_resolvingGps) {
+        setState(() => _resolvingGps = true);
+        try {
+          final point = await _resolveLatLngFromText(gpsText);
+          if (!mounted) return;
+          setState(() {
+            _resolvingGps = false;
+            if (point != null) _gpsPoint = point;
+          });
+        } catch (_) {
+          if (!mounted) return;
+          setState(() => _resolvingGps = false);
+        }
+      }
+
       final title =
           '${_serviceTypeLabel(_serviceType)} · ${_categoryLabel(_category)}';
       final note = _descriptionCtrl.text.trim();
       final description = note.isEmpty ? 'Sin nota' : note;
       final reservationAt = _reservationAt;
-      if (reservationAt == null) {
-        throw ApiException('Selecciona la fecha y hora de reserva', 400);
-      }
 
       await widget.onCreate(
         _CreateServiceDraft(
