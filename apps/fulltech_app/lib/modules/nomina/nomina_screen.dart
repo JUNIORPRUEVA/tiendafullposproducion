@@ -266,6 +266,11 @@ class NominaScreen extends ConsumerWidget {
                                 ref,
                                 employee: employee,
                               ),
+                              onDelete: () => _confirmDeleteEmployee(
+                                context,
+                                ref,
+                                employee,
+                              ),
                             ),
                           ),
                       ],
@@ -275,6 +280,55 @@ class NominaScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDeleteEmployee(
+    BuildContext context,
+    WidgetRef ref,
+    PayrollEmployee employee,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Eliminar de nómina'),
+        content: Text(
+          '¿Deseas eliminar a "${employee.nombre}" de nómina?\n\n'
+          'Esto no elimina el usuario de la app, solo lo quita del módulo de nómina.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+    if (!context.mounted) return;
+
+    try {
+      await ref
+          .read(nominaHomeControllerProvider.notifier)
+          .deleteEmployee(employee.id);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Empleado eliminado de nómina')),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo eliminar: $e')));
+    }
   }
 
   Future<List<({PayrollEmployee employee, PayrollTotals totals})>>
@@ -1574,11 +1628,13 @@ class _EmployeeCard extends StatelessWidget {
     required this.employee,
     required this.onEdit,
     required this.onManage,
+    required this.onDelete,
   });
 
   final PayrollEmployee employee;
   final VoidCallback onEdit;
   final VoidCallback onManage;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -1607,6 +1663,11 @@ class _EmployeeCard extends StatelessWidget {
               tooltip: 'Editar',
               onPressed: onEdit,
               icon: const Icon(Icons.edit_outlined),
+            ),
+            IconButton(
+              tooltip: 'Eliminar',
+              onPressed: onDelete,
+              icon: const Icon(Icons.delete_outline),
             ),
           ],
         ),

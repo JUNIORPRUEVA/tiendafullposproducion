@@ -1866,15 +1866,27 @@ class _PanelOptionsState extends State<_PanelOptions> {
     required List<(T, String)> items,
     required void Function(T next) onChanged,
   }) {
+    final theme = Theme.of(context);
     return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+      spacing: 6,
+      runSpacing: 6,
       children: [
         for (final it in items)
           ChoiceChip(
-            label: Text(it.$2),
+            label: Text(
+              it.$2,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              softWrap: false,
+            ),
             selected: value == it.$1,
             onSelected: (_) => onChanged(it.$1),
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            labelStyle: theme.textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           ),
       ],
     );
@@ -2715,20 +2727,20 @@ class _PanelOptionsState extends State<_PanelOptions> {
       return Expanded(
         child: Card(
           child: Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Container(
-                      width: 28,
-                      height: 28,
+                      width: 26,
+                      height: 26,
                       decoration: BoxDecoration(
                         color: tint.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: Icon(icon, color: tint, size: 18),
+                      child: Icon(icon, color: tint, size: 17),
                     ),
                     const Spacer(),
                     Text(
@@ -2739,20 +2751,38 @@ class _PanelOptionsState extends State<_PanelOptions> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  label,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.75),
+                const SizedBox(height: 6),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.visible,
+                    softWrap: false,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.75,
+                      ),
+                    ),
                   ),
                 ),
                 if (caption != null) ...[
                   const SizedBox(height: 2),
-                  Text(
-                    caption,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      caption,
+                      maxLines: 1,
+                      overflow: TextOverflow.visible,
+                      softWrap: false,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.6,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -2790,21 +2820,19 @@ class _PanelOptionsState extends State<_PanelOptions> {
               tint: theme.colorScheme.error,
               caption: atrasadas > 0 ? '$atrasadas atrasados' : null,
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 6),
             summaryCard(
               label: 'En proceso',
               value: procesoCount,
               icon: Icons.play_circle_outline,
               tint: theme.colorScheme.tertiary,
-              caption: _isDefaultTodayRange(range) ? 'Hoy' : null,
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 6),
             summaryCard(
               label: 'Completadas',
               value: completadasCount,
               icon: Icons.check_circle_outline,
               tint: theme.colorScheme.primary,
-              caption: _isDefaultTodayRange(range) ? 'Hoy' : null,
             ),
           ],
         ),

@@ -76,10 +76,28 @@ class ServiceAgendaCard extends StatelessWidget {
     return null;
   }
 
+  String? _creatorFirstName() {
+    final full = service.createdByName.trim();
+    if (full.isEmpty) return null;
+    final parts = full
+        .split(RegExp(r'\s+'))
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList(growable: false);
+    if (parts.isEmpty) return null;
+    return parts.first;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+
+    final createdByShort = _creatorFirstName();
+    final showTechnicianRow =
+        service.assignments.isNotEmpty && technicianText.trim().isNotEmpty;
+    final showLocationRow = service.customerAddress.trim().isNotEmpty;
+    final isCompactCard = !showTechnicianRow && !showLocationRow;
 
     final customerName = service.customerName.trim().isEmpty
         ? 'Cliente'
@@ -113,7 +131,7 @@ class ServiceAgendaCard extends StatelessWidget {
         side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.55)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(isCompactCard ? 10 : 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -131,78 +149,195 @@ class ServiceAgendaCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                StatusChip(
-                  status: service.orderState.isEmpty
-                      ? service.status
-                      : service.orderState,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    StatusChip(
+                      status: service.orderState.isEmpty
+                          ? service.status
+                          : service.orderState,
+                    ),
+                    if (createdByShort != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        createdByShort,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        softWrap: false,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurface.withValues(alpha: 0.60),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
-              const SizedBox(height: 6),
-              Text(
-                subtitle,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurface.withValues(alpha: 0.80),
-                  fontWeight: FontWeight.w700,
-                ),
+            SizedBox(height: isCompactCard ? 4 : 6),
+            Text(
+              subtitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurface.withValues(alpha: 0.80),
+                fontWeight: FontWeight.w700,
               ),
+            ),
+            SizedBox(height: isCompactCard ? 6 : 8),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: scheme.onSurface.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: scheme.outlineVariant.withValues(alpha: 0.55),
+                    ),
+                  ),
+                  child: Text(
+                    'Fase: ${phaseLabel(service.currentPhase)}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: scheme.onSurface.withValues(alpha: 0.78),
+                    ),
+                  ),
+                ),
+                if (onChangePhase != null) ...[
+                  const SizedBox(width: 6),
+                  IconButton(
+                    tooltip: 'Cambiar fase',
+                    onPressed: onChangePhase,
+                    style: IconButton.styleFrom(foregroundColor: scheme.error),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
+                    icon: const Icon(Icons.flag_outlined, size: 18),
+                  ),
+                ],
+              ],
+            ),
+            if (showLocationRow)
+              Column(
+                children: [
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.place_outlined,
+                        size: 16,
+                        color: scheme.onSurface.withValues(alpha: 0.65),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          location.label,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurface.withValues(alpha: 0.75),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      if (location.canOpenMaps) ...[
+                        const SizedBox(width: 6),
+                        IconButton(
+                          tooltip: 'Abrir Maps',
+                          onPressed: () => _openMaps(context),
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                          icon: const Icon(Icons.map_outlined, size: 18),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            if (hasMapPreview && hasPhotoPreview) ...[
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: scheme.onSurface.withValues(alpha: 0.06),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color: scheme.outlineVariant.withValues(alpha: 0.55),
-                      ),
-                    ),
-                    child: Text(
-                      'Fase: ${phaseLabel(service.currentPhase)}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        color: scheme.onSurface.withValues(alpha: 0.78),
-                      ),
+                  Expanded(
+                    flex: 2,
+                    child: MapPreview(
+                      latitude: point?.latitude,
+                      longitude: point?.longitude,
+                      mapsUrl: hasExplicitMapsUrl
+                          ? location.mapsUri?.toString()
+                          : null,
+                      height: previewHeight,
                     ),
                   ),
-                  if (onChangePhase != null) ...[
-                    const SizedBox(width: 6),
-                    IconButton(
-                      tooltip: 'Cambiar fase',
-                      onPressed: onChangePhase,
-                      style: IconButton.styleFrom(
-                        foregroundColor: scheme.error,
-                      ),
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 36,
-                        minHeight: 36,
-                      ),
-                      icon: const Icon(Icons.flag_outlined, size: 18),
-                    ),
-                  ],
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 1,
+                    child: PhotoPreview(source: photo!, height: previewHeight),
+                  ),
                 ],
               ),
+            ] else if (hasMapPreview) ...[
               const SizedBox(height: 8),
-              if (service.createdByName.trim().isNotEmpty) ...[
-                Row(
+              MapPreview(
+                latitude: point?.latitude,
+                longitude: point?.longitude,
+                mapsUrl: hasExplicitMapsUrl
+                    ? location.mapsUri?.toString()
+                    : null,
+                height: previewHeight,
+              ),
+            ] else if (!hasMapPreview && hasPhotoPreview) ...[
+              const SizedBox(height: 8),
+              PhotoPreview(source: photo!, height: previewHeight),
+            ],
+            SizedBox(height: isCompactCard ? 4 : 6),
+            Builder(
+              builder: (context) {
+                final pill = Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest.withValues(
+                      alpha: 0.70,
+                    ),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'P${service.priority}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                );
+
+                if (!showTechnicianRow) {
+                  return Align(alignment: Alignment.centerRight, child: pill);
+                }
+
+                return Row(
                   children: [
                     Icon(
-                      Icons.person_outline,
+                      Icons.engineering_outlined,
                       size: 16,
                       color: scheme.onSurface.withValues(alpha: 0.65),
                     ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'Creado por: ${service.createdByName.trim()}',
+                        technicianText,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodySmall?.copyWith(
@@ -211,96 +346,24 @@ class ServiceAgendaCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    pill,
                   ],
-                ),
-                const SizedBox(height: 8),
-              ],
+                );
+              },
+            ),
+            if (scheduledText != null && scheduledText!.trim().isNotEmpty) ...[
+              SizedBox(height: isCompactCard ? 4 : 6),
               Row(
                 children: [
                   Icon(
-                    Icons.place_outlined,
+                    Icons.event_outlined,
                     size: 16,
                     color: scheme.onSurface.withValues(alpha: 0.65),
                   ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      location.label,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurface.withValues(alpha: 0.75),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  IconButton(
-                    tooltip: 'Abrir Maps',
-                    onPressed: location.canOpenMaps
-                        ? () => _openMaps(context)
-                        : null,
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 36,
-                      minHeight: 36,
-                    ),
-                    icon: const Icon(Icons.map_outlined, size: 18),
-                  ),
-                ],
-              ),
-              if (hasMapPreview && hasPhotoPreview) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: MapPreview(
-                        latitude: point?.latitude,
-                        longitude: point?.longitude,
-                        mapsUrl: hasExplicitMapsUrl
-                            ? location.mapsUri?.toString()
-                            : null,
-                        height: previewHeight,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      flex: 1,
-                      child: PhotoPreview(
-                        source: photo!,
-                        height: previewHeight,
-                      ),
-                    ),
-                  ],
-                ),
-              ] else if (hasMapPreview) ...[
-                const SizedBox(height: 8),
-                MapPreview(
-                  latitude: point?.latitude,
-                  longitude: point?.longitude,
-                  mapsUrl: hasExplicitMapsUrl
-                      ? location.mapsUri?.toString()
-                      : null,
-                  height: previewHeight,
-                ),
-              ] else if (!hasMapPreview && hasPhotoPreview) ...[
-                const SizedBox(height: 8),
-                PhotoPreview(source: photo!, height: previewHeight),
-              ],
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Icon(
-                    Icons.engineering_outlined,
-                    size: 16,
-                    color: scheme.onSurface.withValues(alpha: 0.65),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      technicianText,
+                      scheduledText!,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -309,73 +372,16 @@ class ServiceAgendaCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: scheme.surfaceContainerHighest.withValues(
-                        alpha: 0.70,
-                      ),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      'P${service.priority}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
                 ],
               ),
-              if (scheduledText != null &&
-                  scheduledText!.trim().isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.event_outlined,
-                      size: 16,
-                      color: scheme.onSurface.withValues(alpha: 0.65),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        scheduledText!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurface.withValues(alpha: 0.75),
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.tonalIcon(
-                      onPressed: () => onChangeState(),
-                      style: FilledButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      icon: const Icon(Icons.swap_horiz_rounded, size: 16),
-                      label: const Text('Cambiar estado'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  OutlinedButton.icon(
-                    onPressed: onView,
-                    style: OutlinedButton.styleFrom(
+            ],
+            SizedBox(height: isCompactCard ? 8 : 10),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    onPressed: () => onChangeState(),
+                    style: FilledButton.styleFrom(
                       visualDensity: VisualDensity.compact,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
@@ -383,39 +389,54 @@ class ServiceAgendaCard extends StatelessWidget {
                       ),
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
-                    icon: const Icon(Icons.visibility_outlined, size: 16),
-                    label: const Text('Ver'),
+                    icon: const Icon(Icons.swap_horiz_rounded, size: 16),
+                    label: const Text('Cambiar estado'),
                   ),
-                  if (hasPhone) ...[
-                    const SizedBox(width: 6),
-                    IconButton(
-                      tooltip: 'WhatsApp',
-                      onPressed: () => _openWhatsApp(context),
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 36,
-                        minHeight: 36,
-                      ),
-                      icon: const Icon(
-                        Icons.chat_bubble_outline_rounded,
-                        size: 18,
-                      ),
+                ),
+                const SizedBox(width: 10),
+                OutlinedButton.icon(
+                  onPressed: onView,
+                  style: OutlinedButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
                     ),
-                    IconButton(
-                      tooltip: 'Llamar',
-                      onPressed: () => _callPhone(context),
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 36,
-                        minHeight: 36,
-                      ),
-                      icon: const Icon(Icons.call_outlined, size: 18),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  icon: const Icon(Icons.visibility_outlined, size: 16),
+                  label: const Text('Ver'),
+                ),
+                if (hasPhone) ...[
+                  const SizedBox(width: 6),
+                  IconButton(
+                    tooltip: 'WhatsApp',
+                    onPressed: () => _openWhatsApp(context),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
                     ),
-                  ],
+                    icon: const Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      size: 18,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Llamar',
+                    onPressed: () => _callPhone(context),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
+                    icon: const Icon(Icons.call_outlined, size: 18),
+                  ),
                 ],
-              ),
+              ],
+            ),
           ],
         ),
       ),

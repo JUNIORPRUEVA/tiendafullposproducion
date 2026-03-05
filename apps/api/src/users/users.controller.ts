@@ -105,6 +105,12 @@ export class UsersController {
     return this.users.findById(user.id);
   }
 
+  @Get(':id')
+  @Roles(Role.ADMIN)
+  findOne(@Param('id') id: string) {
+    return this.users.findById(id);
+  }
+
   @Patch('me')
   updateSelf(@Req() req: Request, @Body() dto: SelfUpdateUserDto) {
     const user = req.user as { id?: string } | undefined;

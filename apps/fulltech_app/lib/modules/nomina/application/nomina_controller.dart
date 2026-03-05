@@ -190,4 +190,11 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
 
     await load();
   }
+
+  Future<void> deleteEmployee(String employeeId) async {
+    final id = employeeId.trim();
+    if (id.isEmpty) return;
+    await _repo.deleteEmployee(id);
+    await load();
+  }
 }

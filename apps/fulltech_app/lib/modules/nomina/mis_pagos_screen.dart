@@ -106,7 +106,10 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
     );
     final hasCurrentPeriod = currentPeriod.periodId.isNotEmpty;
     final historyItems = _items
-        .where((item) => !hasCurrentPeriod || item.periodId != currentPeriod.periodId)
+        .where(
+          (item) =>
+              !hasCurrentPeriod || item.periodId != currentPeriod.periodId,
+        )
         .toList();
 
     final totalHistorico = paidItems.fold<double>(
@@ -136,14 +139,14 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
                 padding: const EdgeInsets.only(right: 12),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(999),
-                  onTap: () => context.push(Routes.user),
+                  onTap: () => context.push(Routes.profile),
                   child: CircleAvatar(
                     radius: 16,
                     backgroundColor: Colors.white24,
                     backgroundImage:
                         (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
-                            ? null
-                            : NetworkImage(currentUser.fotoPersonalUrl!),
+                        ? null
+                        : NetworkImage(currentUser.fotoPersonalUrl!),
                     child: (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
                         ? Text(
                             getInitials(currentUser.nombreCompleto),
@@ -175,10 +178,10 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
                   _CurrentPeriodCard(
                     item: hasCurrentPeriod ? currentPeriod : null,
                     onPdf: hasCurrentPeriod
-                      ? () => _openPayrollPdfPreview(currentPeriod)
-                      : null,
+                        ? () => _openPayrollPdfPreview(currentPeriod)
+                        : null,
                     onDetails: hasCurrentPeriod
-                      ? () => _showPayrollDetailsDialog(currentPeriod)
+                        ? () => _showPayrollDetailsDialog(currentPeriod)
                         : null,
                   ),
                   const SizedBox(height: 12),
@@ -243,11 +246,11 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
         '${DateFormat('dd/MM/yyyy').format(item.periodStart)} - ${DateFormat('dd/MM/yyyy').format(item.periodEnd)}';
     final currentUser = ref.read(authStateProvider).user;
     final fallbackName = (currentUser?.nombreCompleto ?? '').trim().isNotEmpty
-      ? currentUser!.nombreCompleto.trim()
-      : _nameFromEmail(currentUser?.email ?? '');
+        ? currentUser!.nombreCompleto.trim()
+        : _nameFromEmail(currentUser?.email ?? '');
     final employeeName = item.employeeName.trim().isNotEmpty
-      ? item.employeeName.trim()
-      : fallbackName;
+        ? item.employeeName.trim()
+        : fallbackName;
     final employeeRole = _roleLabel(currentUser?.role ?? '');
 
     final doc = pw.Document();
@@ -293,7 +296,9 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
               pw.SizedBox(height: 14),
               pw.Text('Salario quincenal: ${money.format(item.baseSalary)}'),
               pw.Text('Comisión: ${money.format(item.commissionFromSales)}'),
-              pw.Text('Extras: ${money.format(item.overtimeAmount + item.bonusesAmount)}'),
+              pw.Text(
+                'Extras: ${money.format(item.overtimeAmount + item.bonusesAmount)}',
+              ),
               pw.Text('Beneficios: ${money.format(item.benefitsAmount)}'),
               pw.Text('Deducciones: ${money.format(item.deductionsAmount)}'),
               pw.Divider(),
@@ -359,7 +364,10 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
   }
 
   Future<void> _showPayrollDetailsDialog(PayrollHistoryItem item) async {
-    final net = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(item.netTotal);
+    final net = NumberFormat.currency(
+      locale: 'es_DO',
+      symbol: 'RD\$',
+    ).format(item.netTotal);
     final range =
         '${DateFormat('dd/MM/yyyy').format(item.periodStart)} - ${DateFormat('dd/MM/yyyy').format(item.periodEnd)}';
 
@@ -374,7 +382,10 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
             children: [
               Text(range),
               const SizedBox(height: 8),
-              _DetailRow(label: 'Estado', value: item.isPaid ? 'Pagado' : 'Pendiente'),
+              _DetailRow(
+                label: 'Estado',
+                value: item.isPaid ? 'Pagado' : 'Pendiente',
+              ),
               _DetailRow(label: 'Salario base', value: item.baseSalary),
               _DetailRow(label: 'Comisión', value: item.commissionFromSales),
               _DetailRow(
@@ -476,7 +487,10 @@ class _MetricPill extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500)),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+          ),
           const SizedBox(height: 2),
           Text(
             valueText ?? format.format(value ?? 0),
@@ -489,11 +503,7 @@ class _MetricPill extends StatelessWidget {
 }
 
 class _CurrentPeriodCard extends StatelessWidget {
-  const _CurrentPeriodCard({
-    required this.item,
-    this.onPdf,
-    this.onDetails,
-  });
+  const _CurrentPeriodCard({required this.item, this.onPdf, this.onDetails});
 
   final PayrollHistoryItem? item;
   final VoidCallback? onPdf;
@@ -524,7 +534,10 @@ class _CurrentPeriodCard extends StatelessWidget {
 
     final range =
         '${DateFormat('dd/MM/yyyy').format(item!.periodStart)} - ${DateFormat('dd/MM/yyyy').format(item!.periodEnd)}';
-    final net = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(item!.netTotal);
+    final net = NumberFormat.currency(
+      locale: 'es_DO',
+      symbol: 'RD\$',
+    ).format(item!.netTotal);
 
     return Card(
       child: Padding(
@@ -539,7 +552,9 @@ class _CurrentPeriodCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     'Quincena en curso',
-                    style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 Chip(
@@ -550,7 +565,10 @@ class _CurrentPeriodCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
-            Text(item!.periodTitle, style: const TextStyle(fontWeight: FontWeight.w600)),
+            Text(
+              item!.periodTitle,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
             Text(range, style: theme.textTheme.bodySmall),
             const SizedBox(height: 8),
             Row(
@@ -605,7 +623,10 @@ class _HistoryTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
         onTap: onTap,
-        title: Text(item.periodTitle, style: const TextStyle(fontWeight: FontWeight.w600)),
+        title: Text(
+          item.periodTitle,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         subtitle: Text(range),
         leading: Icon(
           item.isPaid ? Icons.verified_outlined : Icons.schedule_outlined,
@@ -615,10 +636,7 @@ class _HistoryTile extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text(
-              net,
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
+            Text(net, style: const TextStyle(fontWeight: FontWeight.w700)),
             Text(
               item.isPaid ? 'Pagado' : 'Pendiente',
               style: TextStyle(
@@ -633,10 +651,7 @@ class _HistoryTile extends StatelessWidget {
                 padding: EdgeInsets.symmetric(vertical: 2),
                 child: Text(
                   'PDF',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
                 ),
               ),
             ),
@@ -648,7 +663,11 @@ class _HistoryTile extends StatelessWidget {
 }
 
 class _DetailRow extends StatelessWidget {
-  const _DetailRow({required this.label, required this.value, this.bold = false});
+  const _DetailRow({
+    required this.label,
+    required this.value,
+    this.bold = false,
+  });
 
   final String label;
   final Object value;
@@ -677,10 +696,7 @@ class _DetailRow extends StatelessWidget {
 }
 
 class _PayrollPdfPreviewScreen extends StatelessWidget {
-  const _PayrollPdfPreviewScreen({
-    required this.title,
-    required this.buildPdf,
-  });
+  const _PayrollPdfPreviewScreen({required this.title, required this.buildPdf});
 
   final String title;
   final Future<Uint8List> Function() buildPdf;
@@ -688,9 +704,7 @@ class _PayrollPdfPreviewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('PDF · $title'),
-      ),
+      appBar: AppBar(title: Text('PDF · $title')),
       body: PdfPreview(
         canChangePageFormat: false,
         canChangeOrientation: false,

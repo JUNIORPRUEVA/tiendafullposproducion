@@ -24,315 +24,229 @@ class ProfileScreen extends ConsumerWidget {
     return Scaffold(
       appBar: CustomAppBar(title: 'Mi Perfil', showLogo: false),
       drawer: AppDrawer(currentUser: user),
-      body: Stack(
-        children: [
-          SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 560),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Header con avatar
-                    Center(
-                      child: Column(
-                        children: [
-                          _ProfileAvatar(
-                            user: user,
-                            color: theme.colorScheme.primary,
-                            onTap: user == null
-                                ? null
-                                : () => _showPhotoActionsSheet(context, ref),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            user?.nombreCompleto ?? 'Usuario',
-                            style: theme.textTheme.headlineSmall?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          if ((user?.email ?? '').trim().isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              user!.email.trim(),
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.outline,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                          const SizedBox(height: 10),
-                          Chip(
-                            label: Text(
-                              user?.role ?? 'Sin rol',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            backgroundColor: theme.colorScheme.primary,
-                          ),
-                        ],
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1000),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _ProfileHeaderCard(
+                  user: user,
+                  onPhotoTap: user == null
+                      ? null
+                      : () => _showPhotoActionsSheet(context, ref),
+                  onEdit: user == null
+                      ? null
+                      : () => _showEditDialog(context, ref, user),
+                ),
+                const SizedBox(height: 16),
+                if (user == null)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        'No hay información del usuario disponible.',
+                        style: theme.textTheme.bodyMedium,
                       ),
                     ),
-                    const SizedBox(height: 28),
+                  )
+                else
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final width = constraints.maxWidth;
+                      final isWide = width >= 860;
 
-                    Text(
-                      'Datos Personales',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: _InfoList(
-                          children: [
-                            if ((user?.cedula ?? '').trim().isNotEmpty)
-                              _InfoRow('Cédula', user!.cedula!.trim()),
-                            if (user?.edad != null)
-                              _InfoRow('Edad', '${user!.edad}'),
-                            if (user?.fechaNacimiento != null)
-                              _InfoRow(
-                                'Fecha de nacimiento',
-                                DateFormat(
-                                  'dd/MM/yyyy',
-                                ).format(user!.fechaNacimiento!),
-                              ),
-                            if (user != null)
+                      final cards = <Widget>[
+                        _SectionCard(
+                          title: 'Datos personales',
+                          icon: Icons.badge_outlined,
+                          child: _InfoList(
+                            children: [
+                              if ((user.cedula ?? '').trim().isNotEmpty)
+                                _InfoRow('Cédula', user.cedula!.trim()),
+                              if (user.edad != null)
+                                _InfoRow('Edad', '${user.edad}'),
+                              if (user.fechaNacimiento != null)
+                                _InfoRow(
+                                  'Fecha de nacimiento',
+                                  DateFormat(
+                                    'dd/MM/yyyy',
+                                  ).format(user.fechaNacimiento!),
+                                ),
                               _InfoRow(
                                 'Estado civil',
                                 user.estaCasado == true ? 'Casado' : 'Soltero',
                               ),
-                            if (user != null)
                               _InfoRow(
                                 'Hijos',
                                 user.tieneHijos == true ? 'Sí' : 'No',
                               ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    Text(
-                      'Contacto',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: _InfoList(
-                          children: [
-                            if ((user?.telefono ?? '').trim().isNotEmpty)
-                              _InfoRow('Teléfono', (user?.telefono ?? '').trim()),
-                            if ((user?.telefonoFamiliar ?? '')
-                                .trim()
-                                .isNotEmpty)
-                              _InfoRow(
-                                'Teléfono familiar',
-                                (user?.telefonoFamiliar ?? '').trim(),
-                              ),
-                            if ((user?.email ?? '').trim().isNotEmpty)
-                              _InfoRow('Email', (user?.email ?? '').trim()),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    Text(
-                      'RRHH',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: _InfoList(
-                          children: [
-                            if (user?.fechaIngreso != null) ...[
-                              _InfoRow(
-                                'Fecha de ingreso',
-                                DateFormat(
-                                  'dd/MM/yyyy',
-                                ).format(user!.fechaIngreso!),
-                              ),
-                              _InfoRow(
-                                'Días en la empresa',
-                                (user.diasEnEmpresa ?? 0).toString(),
-                              ),
                             ],
-                            if (user != null)
+                          ),
+                        ),
+                        _SectionCard(
+                          title: 'Contacto',
+                          icon: Icons.contact_phone_outlined,
+                          child: _InfoList(
+                            children: [
+                              if (user.telefono.trim().isNotEmpty)
+                                _InfoRow('Teléfono', user.telefono.trim()),
+                              if ((user.telefonoFamiliar ?? '')
+                                  .trim()
+                                  .isNotEmpty)
+                                _InfoRow(
+                                  'Teléfono familiar',
+                                  user.telefonoFamiliar!.trim(),
+                                ),
+                              if (user.email.trim().isNotEmpty)
+                                _InfoRow('Email', user.email.trim()),
+                            ],
+                          ),
+                        ),
+                        _SectionCard(
+                          title: 'RRHH',
+                          icon: Icons.work_outline_rounded,
+                          child: _InfoList(
+                            children: [
+                              if (user.fechaIngreso != null)
+                                _InfoRow(
+                                  'Fecha de ingreso',
+                                  DateFormat(
+                                    'dd/MM/yyyy',
+                                  ).format(user.fechaIngreso!),
+                                ),
+                              if (user.fechaIngreso != null)
+                                _InfoRow(
+                                  'Días en la empresa',
+                                  (user.diasEnEmpresa ?? 0).toString(),
+                                ),
                               _InfoRow(
                                 'Licencia de conducir',
                                 user.licenciaConducir == true ? 'Sí' : 'No',
                               ),
-                            if (user != null)
                               _InfoRow(
                                 'Vehículo',
                                 user.vehiculo == true ? 'Sí' : 'No',
                               ),
-                            if (user != null)
                               _InfoRow(
                                 'Casa propia',
                                 user.casaPropia == true ? 'Sí' : 'No',
                               ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Nómina
-                    if ((user?.cuentaNominaPreferencial ?? '')
-                        .trim()
-                        .isNotEmpty) ...[
-                      Text(
-                        'Nómina',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: _InfoList(
-                            children: [
-                              _InfoRow(
-                                'Cuenta preferencial',
-                                user!.cuentaNominaPreferencial!.trim(),
-                              ),
                             ],
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 24),
-                    ],
-
-                    // Habilidades
-                    if (user != null && user.habilidades.isNotEmpty) ...[
-                      Text(
-                        'Habilidades',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: user.habilidades
-                                  .map((h) => Chip(label: Text(h)))
-                                  .toList(growable: false),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                    ],
-
-                    // Información de cuenta
-                    Text(
-                      'Información de Cuenta',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        if ((user.cuentaNominaPreferencial ?? '')
+                            .trim()
+                            .isNotEmpty)
+                          _SectionCard(
+                            title: 'Nómina',
+                            icon: Icons.payments_outlined,
+                            child: _InfoList(
                               children: [
-                                Text(
-                                  'Estado',
-                                  style: TextStyle(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.outline,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: user?.blocked == true
-                                        ? Theme.of(context).colorScheme.error
-                                              .withValues(alpha: 0.1)
-                                        : Colors.green.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    user?.blocked == true
-                                        ? 'Bloqueado'
-                                        : 'Activo',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      color: user?.blocked == true
-                                          ? Theme.of(context).colorScheme.error
-                                          : Colors.green,
-                                      fontSize: 12,
-                                    ),
-                                  ),
+                                _InfoRow(
+                                  'Cuenta preferencial',
+                                  user.cuentaNominaPreferencial!.trim(),
                                 ),
                               ],
                             ),
-                            if (user?.createdAt != null) ...[
-                              _Divider(),
-                              _InfoRow(
-                                'Miembro desde',
-                                DateFormat(
-                                  'dd/MM/yyyy',
-                                ).format(user!.createdAt!),
+                          ),
+                        if (user.habilidades.isNotEmpty)
+                          _SectionCard(
+                            title: 'Habilidades',
+                            icon: Icons.star_border_rounded,
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: user.habilidades
+                                    .map((h) => Chip(label: Text(h)))
+                                    .toList(growable: false),
+                              ),
+                            ),
+                          ),
+                        _SectionCard(
+                          title: 'Cuenta',
+                          icon: Icons.manage_accounts_outlined,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _InfoRow('Rol', (user.role ?? 'Sin rol').trim()),
+                              const SizedBox(height: 12),
+                              _StatusPill(blocked: user.blocked),
+                              if (user.createdAt != null) ...[
+                                const SizedBox(height: 12),
+                                _InfoRow(
+                                  'Miembro desde',
+                                  DateFormat(
+                                    'dd/MM/yyyy',
+                                  ).format(user.createdAt!),
+                                ),
+                              ],
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () =>
+                                          _showPasswordDialog(context, ref),
+                                      icon: const Icon(
+                                        Icons.lock_outline_rounded,
+                                      ),
+                                      label: const Text('Contraseña'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () =>
+                                          _openContractPdf(context, ref, user),
+                                      icon: const Icon(
+                                        Icons.picture_as_pdf_outlined,
+                                      ),
+                                      label: const Text('Contrato PDF'),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
-                          ],
+                          ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-                  ],
-                ),
-              ),
+                      ];
+
+                      if (!isWide) {
+                        return Column(
+                          children: [
+                            for (final c in cards) ...[
+                              c,
+                              const SizedBox(height: 16),
+                            ],
+                          ],
+                        );
+                      }
+
+                      const cardMinWidth = 440.0;
+                      return Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        children: [
+                          for (final c in cards)
+                            SizedBox(
+                              width: width >= (cardMinWidth * 2 + 16)
+                                  ? (width - 16) / 2
+                                  : width,
+                              child: c,
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+              ],
             ),
           ),
-          if (user != null)
-            SafeArea(
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: Transform.translate(
-                  offset: const Offset(18, 0),
-                  child: _SideFloatingActions(
-                    onEdit: () => _showEditDialog(context, ref, user),
-                    onPassword: () => _showPasswordDialog(context, ref),
-                    onContract: () => _openContractPdf(context, ref, user),
-                  ),
-                ),
-              ),
-            ),
-        ],
+        ),
       ),
     );
   }
@@ -413,7 +327,6 @@ class ProfileScreen extends ConsumerWidget {
   }
 
   void _showEditDialog(BuildContext context, WidgetRef ref, UserModel user) {
-    final isAdmin = (user.role ?? '').trim().toUpperCase() == 'ADMIN';
     final nameCtrl = TextEditingController(text: user.nombreCompleto);
     final emailCtrl = TextEditingController(text: user.email);
     final phoneCtrl = TextEditingController(text: user.telefono);
@@ -431,14 +344,12 @@ class ProfileScreen extends ConsumerWidget {
                 decoration: const InputDecoration(labelText: 'Nombre completo'),
               ),
               const SizedBox(height: 12),
-              if (isAdmin) ...[
-                TextField(
-                  controller: emailCtrl,
-                  decoration: const InputDecoration(labelText: 'Correo'),
-                  keyboardType: TextInputType.emailAddress,
-                ),
-                const SizedBox(height: 12),
-              ],
+              TextField(
+                controller: emailCtrl,
+                decoration: const InputDecoration(labelText: 'Correo'),
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: 12),
               TextField(
                 controller: phoneCtrl,
                 decoration: const InputDecoration(labelText: 'Teléfono'),
@@ -454,23 +365,61 @@ class ProfileScreen extends ConsumerWidget {
           ),
           ElevatedButton(
             onPressed: () async {
-              final payload = <String, dynamic>{
-                'nombreCompleto': nameCtrl.text.trim(),
-                if (isAdmin) 'email': emailCtrl.text.trim(),
-                'telefono': phoneCtrl.text.trim(),
-              };
-              payload.removeWhere(
-                (key, value) =>
-                    value == null || (value is String && value.isEmpty),
-              );
+              final newName = nameCtrl.text.trim();
+              if (newName.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('El nombre no puede estar vacío'),
+                  ),
+                );
+                return;
+              }
+
+              final originalEmail = user.email.trim();
+              final newEmail = emailCtrl.text.trim();
+              final originalPhone = user.telefono.trim();
+              final newPhone = phoneCtrl.text.trim();
+
+              final changedEmail =
+                  newEmail.isNotEmpty && newEmail != originalEmail;
+              final changedName = newName != user.nombreCompleto.trim();
+              final changedPhone = newPhone != originalPhone;
+
+              if (!changedEmail && !changedName && !changedPhone) {
+                Navigator.pop(context);
+                return;
+              }
 
               try {
                 final repo = ref.read(usersRepositoryProvider);
-                final updated = await repo.updateMe(
-                  email: isAdmin ? payload['email'] as String? : null,
-                  nombreCompleto: payload['nombreCompleto'] as String?,
-                  telefono: payload['telefono'] as String?,
-                );
+                UserModel updated;
+                try {
+                  updated = await repo.updateMe(
+                    email: changedEmail ? newEmail : null,
+                    nombreCompleto: changedName ? newName : null,
+                    telefono: changedPhone ? newPhone : null,
+                  );
+                } catch (e) {
+                  if (changedEmail) {
+                    updated = await repo.updateMe(
+                      nombreCompleto: changedName ? newName : null,
+                      telefono: changedPhone ? newPhone : null,
+                    );
+                    ref.read(authStateProvider.notifier).setUser(updated);
+                    if (!context.mounted) return;
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Perfil actualizado (el correo no se pudo cambiar)',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
+                  rethrow;
+                }
+
                 ref.read(authStateProvider.notifier).setUser(updated);
                 if (!context.mounted) return;
                 Navigator.pop(context);
@@ -600,7 +549,7 @@ class _InfoRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -608,8 +557,8 @@ class _InfoRow extends StatelessWidget {
             label,
             style: TextStyle(
               color: theme.colorScheme.outline,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(width: 12),
@@ -617,6 +566,7 @@ class _InfoRow extends StatelessWidget {
             child: Text(
               value,
               textAlign: TextAlign.right,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodyMedium?.copyWith(
                 fontWeight: FontWeight.w700,
@@ -629,83 +579,229 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
+class _ProfileHeaderCard extends StatelessWidget {
+  final UserModel? user;
+  final VoidCallback? onPhotoTap;
+  final VoidCallback? onEdit;
+
+  const _ProfileHeaderCard({
+    required this.user,
+    required this.onPhotoTap,
+    required this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final name = (user?.nombreCompleto ?? 'Usuario').trim();
+    final email = (user?.email ?? '').trim();
+    final role = (user?.role ?? 'Sin rol').trim();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _ProfileAvatar(
+              user: user,
+              color: scheme.primary,
+              onTap: onPhotoTap,
+              radius: 42,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name.isEmpty ? 'Usuario' : name,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  if (email.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      email,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: scheme.outline,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _RolePill(role: role),
+                      if (user != null) _StatusPill(blocked: user!.blocked),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: 200,
+                    child: ElevatedButton.icon(
+                      onPressed: onEdit,
+                      icon: const Icon(Icons.edit_outlined),
+                      label: const Text('Editar perfil'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Widget child;
+
+  const _SectionCard({
+    required this.title,
+    required this.icon,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 18, color: scheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RolePill extends StatelessWidget {
+  final String role;
+
+  const _RolePill({required this.role});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Text(
+          role.isEmpty ? 'Sin rol' : role,
+          style: TextStyle(
+            color: scheme.onPrimaryContainer,
+            fontWeight: FontWeight.w800,
+            fontSize: 12,
+            letterSpacing: 0.2,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  final bool blocked;
+
+  const _StatusPill({required this.blocked});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final bg = blocked ? scheme.errorContainer : scheme.secondaryContainer;
+    final fg = blocked ? scheme.onErrorContainer : scheme.onSecondaryContainer;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Text(
+          blocked ? 'Bloqueado' : 'Activo',
+          style: TextStyle(
+            color: fg,
+            fontWeight: FontWeight.w800,
+            fontSize: 12,
+            letterSpacing: 0.2,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ProfileAvatar extends StatelessWidget {
   final UserModel? user;
   final Color color;
   final VoidCallback? onTap;
+  final double radius;
 
   const _ProfileAvatar({
     required this.user,
     required this.color,
     required this.onTap,
+    this.radius = 52,
   });
 
   @override
   Widget build(BuildContext context) {
     final hasPhoto = (user?.fotoPersonalUrl ?? '').trim().isNotEmpty;
 
-    return GestureDetector(
-      onTap: onTap,
-      child: CircleAvatar(
-        radius: 52,
-        backgroundColor: color,
-        backgroundImage: hasPhoto ? NetworkImage(user!.fotoPersonalUrl!) : null,
-        child: !hasPhoto
-            ? Text(
-                getInitials(user?.nombreCompleto ?? 'U'),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                ),
-              )
-            : null,
-      ),
-    );
-  }
-}
-
-class _SideFloatingActions extends StatelessWidget {
-  final VoidCallback onEdit;
-  final VoidCallback onPassword;
-  final VoidCallback onContract;
-
-  const _SideFloatingActions({
-    required this.onEdit,
-    required this.onPassword,
-    required this.onContract,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: scheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(999),
-        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.6)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              tooltip: 'Editar',
-              onPressed: onEdit,
-              icon: const Icon(Icons.edit_outlined),
-            ),
-            IconButton(
-              tooltip: 'Contraseña',
-              onPressed: onPassword,
-              icon: const Icon(Icons.lock_outline_rounded),
-            ),
-            IconButton(
-              tooltip: 'Contrato (PDF)',
-              onPressed: onContract,
-              icon: const Icon(Icons.picture_as_pdf_outlined),
-            ),
-          ],
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: CircleAvatar(
+          radius: radius,
+          backgroundColor: color,
+          backgroundImage: hasPhoto
+              ? NetworkImage(user!.fotoPersonalUrl!)
+              : null,
+          child: !hasPhoto
+              ? Text(
+                  getInitials(user?.nombreCompleto ?? 'U'),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: radius >= 50 ? 28 : 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                )
+              : null,
         ),
       ),
     );
@@ -725,22 +821,10 @@ class _InfoList extends StatelessWidget {
     return Column(
       children: [
         for (var i = 0; i < visible.length; i++) ...[
-          if (i > 0) const _Divider(),
+          if (i > 0) const SizedBox(height: 10),
           visible[i],
         ],
       ],
-    );
-  }
-}
-
-class _Divider extends StatelessWidget {
-  const _Divider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Divider(color: Theme.of(context).dividerColor, height: 16),
     );
   }
 }

@@ -15,14 +15,17 @@ export class CreateUserDto {
   @IsString()
   telefono!: string;
 
+  @IsOptional()
   @IsString()
-  telefonoFamiliar!: string;
+  telefonoFamiliar?: string;
 
+  @IsOptional()
   @IsString()
-  cedula!: string;
+  cedula?: string;
 
+  @IsOptional()
   @IsString()
-  fotoCedulaUrl!: string;
+  fotoCedulaUrl?: string;
 
   @IsOptional()
   @IsString()

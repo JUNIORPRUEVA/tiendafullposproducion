@@ -189,14 +189,14 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
                       padding: const EdgeInsets.only(right: 12),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(999),
-                        onTap: () => context.push(Routes.user),
+                        onTap: () => context.push(Routes.profile),
                         child: CircleAvatar(
                           radius: 16,
                           backgroundColor: Colors.white24,
                           backgroundImage:
                               (user.fotoPersonalUrl ?? '').trim().isEmpty
-                                  ? null
-                                  : NetworkImage(user.fotoPersonalUrl!),
+                              ? null
+                              : NetworkImage(user.fotoPersonalUrl!),
                           child: (user.fotoPersonalUrl ?? '').trim().isEmpty
                               ? Text(
                                   getInitials(user.nombreCompleto),
@@ -1002,9 +1002,9 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
                     errorBuilder: (context, error, stackTrace) => Container(
                       height: 64,
                       width: 64,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
                       alignment: Alignment.center,
                       child: Icon(
                         Icons.broken_image_outlined,

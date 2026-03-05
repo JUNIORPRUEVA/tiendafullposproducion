@@ -14,6 +14,20 @@ export class UsersService {
     private readonly config: ConfigService
   ) {}
 
+  private normalizeEmail(value: string) {
+    return value.trim().toLowerCase();
+  }
+
+  private normalizeOptionalString(value: unknown) {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private hasValue<T>(value: T | null | undefined): value is T {
+    return value !== undefined && value !== null;
+  }
+
   private async getOpenAiRuntimeConfig() {
     const envKey = (this.config.get<string>('OPENAI_API_KEY') ?? process.env.OPENAI_API_KEY ?? '').trim();
     const envModel = (this.config.get<string>('OPENAI_MODEL') ?? process.env.OPENAI_MODEL ?? '').trim();
@@ -343,26 +357,29 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
   }
 
   async create(dto: CreateUserDto) {
-    const exists = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const email = this.normalizeEmail(dto.email);
+    const cedula = this.normalizeOptionalString(dto.cedula);
+
+    const exists = await this.prisma.user.findUnique({ where: { email } });
     if (exists) throw new BadRequestException('Email already in use');
 
-    if (dto.cedula) {
-      const cedulaTaken = await this.prisma.user.findUnique({ where: { cedula: dto.cedula } });
+    if (cedula) {
+      const cedulaTaken = await this.prisma.user.findUnique({ where: { cedula } });
       if (cedulaTaken) throw new BadRequestException('La cédula ya está registrada');
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
     return this.prisma.user.create({
       data: {
-        email: dto.email,
+        email,
         passwordHash,
-        nombreCompleto: dto.nombreCompleto,
-        telefono: dto.telefono,
-        telefonoFamiliar: dto.telefonoFamiliar,
-        cedula: dto.cedula,
-        fotoCedulaUrl: dto.fotoCedulaUrl,
-        fotoLicenciaUrl: dto.fotoLicenciaUrl,
-        fotoPersonalUrl: dto.fotoPersonalUrl,
+        nombreCompleto: dto.nombreCompleto.trim(),
+        telefono: dto.telefono.trim(),
+        telefonoFamiliar: this.normalizeOptionalString(dto.telefonoFamiliar),
+        cedula,
+        fotoCedulaUrl: this.normalizeOptionalString(dto.fotoCedulaUrl),
+        fotoLicenciaUrl: this.normalizeOptionalString(dto.fotoLicenciaUrl),
+        fotoPersonalUrl: this.normalizeOptionalString(dto.fotoPersonalUrl),
         edad: dto.edad,
         tieneHijos: dto.tieneHijos ?? false,
         estaCasado: dto.estaCasado ?? false,
@@ -371,7 +388,7 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         licenciaConducir: dto.licenciaConducir ?? false,
         fechaIngreso: dto.fechaIngreso ? new Date(dto.fechaIngreso) : undefined,
         fechaNacimiento: dto.fechaNacimiento ? new Date(dto.fechaNacimiento) : undefined,
-        cuentaNominaPreferencial: dto.cuentaNominaPreferencial,
+        cuentaNominaPreferencial: this.normalizeOptionalString(dto.cuentaNominaPreferencial),
         habilidades: dto.habilidades,
         role: dto.role,
         blocked: dto.blocked ?? false
@@ -463,42 +480,53 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
     const existing = await this.prisma.user.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('User not found');
 
-    if (dto.email && dto.email !== existing.email) {
-      const emailTaken = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const nextEmail = this.hasValue(dto.email) ? this.normalizeEmail(dto.email) : undefined;
+    const nextCedula = this.hasValue(dto.cedula) ? this.normalizeOptionalString(dto.cedula) : undefined;
+
+    if (nextEmail && nextEmail !== existing.email) {
+      const emailTaken = await this.prisma.user.findUnique({ where: { email: nextEmail } });
       if (emailTaken) throw new BadRequestException('Email already in use');
     }
 
-    if (dto.cedula && dto.cedula !== existing.cedula) {
-      const cedulaTaken = await this.prisma.user.findUnique({ where: { cedula: dto.cedula } });
+    if (nextCedula && nextCedula !== existing.cedula) {
+      const cedulaTaken = await this.prisma.user.findUnique({ where: { cedula: nextCedula } });
       if (cedulaTaken) throw new BadRequestException('La cédula ya está registrada');
     }
 
-    const passwordHash = dto.password ? await bcrypt.hash(dto.password, 10) : undefined;
+    const passwordHash = this.hasValue(dto.password) ? await bcrypt.hash(dto.password, 10) : undefined;
+
+    const data: Prisma.UserUpdateInput = {};
+    if (nextEmail !== undefined) data.email = nextEmail;
+    if (passwordHash !== undefined) data.passwordHash = passwordHash;
+    if (this.hasValue(dto.nombreCompleto)) data.nombreCompleto = dto.nombreCompleto.trim();
+    if (this.hasValue(dto.telefono)) data.telefono = dto.telefono.trim();
+    if (this.hasValue(dto.telefonoFamiliar)) data.telefonoFamiliar = this.normalizeOptionalString(dto.telefonoFamiliar) ?? null;
+    if (dto.cedula !== undefined) data.cedula = nextCedula ?? null;
+    if (this.hasValue(dto.fotoCedulaUrl)) data.fotoCedulaUrl = this.normalizeOptionalString(dto.fotoCedulaUrl) ?? null;
+    if (this.hasValue(dto.fotoLicenciaUrl)) data.fotoLicenciaUrl = this.normalizeOptionalString(dto.fotoLicenciaUrl) ?? null;
+    if (this.hasValue(dto.fotoPersonalUrl)) data.fotoPersonalUrl = this.normalizeOptionalString(dto.fotoPersonalUrl) ?? null;
+    if (this.hasValue(dto.edad)) data.edad = dto.edad;
+    if (this.hasValue(dto.tieneHijos)) data.tieneHijos = dto.tieneHijos;
+    if (this.hasValue(dto.estaCasado)) data.estaCasado = dto.estaCasado;
+    if (this.hasValue(dto.casaPropia)) data.casaPropia = dto.casaPropia;
+    if (this.hasValue(dto.vehiculo)) data.vehiculo = dto.vehiculo;
+    if (this.hasValue(dto.licenciaConducir)) data.licenciaConducir = dto.licenciaConducir;
+    if (this.hasValue(dto.fechaIngreso)) data.fechaIngreso = new Date(dto.fechaIngreso);
+    if (this.hasValue(dto.fechaNacimiento)) data.fechaNacimiento = new Date(dto.fechaNacimiento);
+    if (this.hasValue(dto.cuentaNominaPreferencial)) {
+      data.cuentaNominaPreferencial = this.normalizeOptionalString(dto.cuentaNominaPreferencial) ?? null;
+    }
+    if (this.hasValue(dto.habilidades)) data.habilidades = dto.habilidades as any;
+    if (this.hasValue(dto.role)) data.role = dto.role;
+    if (this.hasValue(dto.blocked)) data.blocked = dto.blocked;
+
+    if (Object.keys(data).length === 0) {
+      return this.findById(id);
+    }
+
     await this.prisma.user.update({
       where: { id },
-      data: {
-        email: dto.email,
-        passwordHash,
-        nombreCompleto: dto.nombreCompleto,
-        telefono: dto.telefono,
-        telefonoFamiliar: dto.telefonoFamiliar,
-        cedula: dto.cedula,
-        fotoCedulaUrl: dto.fotoCedulaUrl,
-        fotoLicenciaUrl: dto.fotoLicenciaUrl,
-        fotoPersonalUrl: dto.fotoPersonalUrl,
-        edad: dto.edad,
-        tieneHijos: dto.tieneHijos,
-        estaCasado: dto.estaCasado,
-        casaPropia: dto.casaPropia,
-        vehiculo: dto.vehiculo,
-        licenciaConducir: dto.licenciaConducir,
-        fechaIngreso: dto.fechaIngreso ? new Date(dto.fechaIngreso) : undefined,
-        fechaNacimiento: dto.fechaNacimiento ? new Date(dto.fechaNacimiento) : undefined,
-        cuentaNominaPreferencial: dto.cuentaNominaPreferencial,
-        habilidades: dto.habilidades,
-        role: dto.role,
-        blocked: dto.blocked
-      },
+      data,
       select: { id: true }
     });
 
@@ -509,25 +537,21 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
     const existing = await this.prisma.user.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('User not found');
 
-    if (dto.email && dto.email !== existing.email) {
-      const emailTaken = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const nextEmail = this.hasValue(dto.email) ? this.normalizeEmail(dto.email) : undefined;
+
+    if (nextEmail && nextEmail !== existing.email) {
+      const emailTaken = await this.prisma.user.findUnique({ where: { email: nextEmail } });
       if (emailTaken) throw new BadRequestException('Email already in use');
     }
 
-    const passwordHash = dto.password ? await bcrypt.hash(dto.password, 10) : undefined;
+    const passwordHash = this.hasValue(dto.password) ? await bcrypt.hash(dto.password, 10) : undefined;
 
     const data: Prisma.UserUpdateInput = {};
-    const email = (dto as any).email === null ? undefined : dto.email;
-    const nombreCompleto = (dto as any).nombreCompleto === null ? undefined : dto.nombreCompleto;
-    const telefono = (dto as any).telefono === null ? undefined : dto.telefono;
-    const fotoPersonalUrl = (dto as any).fotoPersonalUrl === null ? undefined : dto.fotoPersonalUrl;
-    const password = (dto as any).password === null ? undefined : dto.password;
-
-    if (email !== undefined) data.email = email;
-    if (nombreCompleto !== undefined) data.nombreCompleto = nombreCompleto;
-    if (telefono !== undefined) data.telefono = telefono;
-    if (fotoPersonalUrl !== undefined) data.fotoPersonalUrl = fotoPersonalUrl;
-    if (password !== undefined && passwordHash !== undefined) data.passwordHash = passwordHash;
+    if (nextEmail !== undefined) data.email = nextEmail;
+    if (this.hasValue(dto.nombreCompleto)) data.nombreCompleto = dto.nombreCompleto.trim();
+    if (this.hasValue(dto.telefono)) data.telefono = dto.telefono.trim();
+    if (this.hasValue(dto.fotoPersonalUrl)) data.fotoPersonalUrl = this.normalizeOptionalString(dto.fotoPersonalUrl) ?? null;
+    if (passwordHash !== undefined) data.passwordHash = passwordHash;
 
     if (Object.keys(data).length === 0) {
       return this.findById(id);

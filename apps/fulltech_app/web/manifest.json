@@ -1,11 +1,11 @@
 {
-    "name": "fulltech_app",
-    "short_name": "fulltech_app",
+    "name": "FULLTECH",
+    "short_name": "FULLTECH",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#ffffff",
     "theme_color": "#ffffff",
-    "description": "A new Flutter project.",
+    "description": "Aplicación empresarial FULLTECH SRL.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

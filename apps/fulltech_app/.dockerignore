@@ -1,0 +1,26 @@
+# Build outputs
+build/
+
+# Flutter tooling
+.dart_tool/
+
+# IDE
+.idea/
+*.iml
+
+# VCS
+.git/
+
+# Platform folders not needed for web build
+android/
+ios/
+windows/
+linux/
+macos/
+
+# Tests/coverage
+coverage/
+test/
+
+# Local env (we build it from .env.example)
+.env

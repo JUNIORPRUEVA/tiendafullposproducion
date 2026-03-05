@@ -21,6 +21,43 @@ Desde `apps/fulltech_app/`:
 - Android: `flutter run -d android`
 - iOS: `flutter run -d ios`
 
+## Build PWA (Web Release)
+
+Desde `apps/fulltech_app/`:
+
+- Generar build instalable (PWA): `flutter build web --release`
+
+Salida: `apps/fulltech_app/build/web/` (incluye `manifest.json` y `flutter_service_worker.js`).
+
+### Hosting
+
+- La PWA requiere servir por **HTTPS** (excepto `localhost`).
+- Si sirves la app bajo un sub-path (ej. `/fulltech/`), usa: `flutter build web --release --base-href /fulltech/`
+- Si tu hosting es “static only”, el modo por defecto con hash URLs evita configuraciones extra para refresh.
+
+## Deploy en EasyPanel (desde Git + Dockerfile)
+
+Esta app incluye un Dockerfile listo para EasyPanel que:
+- Compila Flutter Web en modo release.
+- Sirve `build/web` con Nginx.
+
+Archivos:
+- `apps/fulltech_app/Dockerfile`
+- `apps/fulltech_app/nginx.conf`
+
+Pasos (resumen):
+1) Sube el repo a Git (GitHub/GitLab).
+2) En EasyPanel crea una nueva App desde Git.
+3) Selecciona:
+	- Build context: `apps/fulltech_app`
+	- Dockerfile: `Dockerfile`
+	- Puerto: `80`
+4) Asigna el dominio genérico de EasyPanel y despliega.
+
+Nota de configuración:
+- La URL del backend se toma desde `.env` (asset). En CI/builds se genera automáticamente desde `.env.example`.
+- Ajusta `API_BASE_URL` en `apps/fulltech_app/.env.example` al dominio real de tu API antes de desplegar.
+
 ## Arquitectura
 
 - `lib/core/`: api, auth storage, routing, theme, widgets, errors

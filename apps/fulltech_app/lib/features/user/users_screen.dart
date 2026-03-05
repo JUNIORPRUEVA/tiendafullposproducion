@@ -13,7 +13,6 @@ import '../../core/utils/string_utils.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../user/application/users_controller.dart';
-import './profile_screen.dart';
 import 'utils/cedula_ocr_service.dart';
 import 'utils/work_contract_preview_screen.dart';
 import 'utils/work_contract_pdf_service.dart';
@@ -76,14 +75,14 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                   padding: const EdgeInsets.only(right: 12),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(999),
-                    onTap: () => context.push(Routes.user),
+                    onTap: () => context.push(Routes.profile),
                     child: CircleAvatar(
                       radius: 16,
                       backgroundColor: Colors.white24,
                       backgroundImage:
                           (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
-                              ? null
-                              : NetworkImage(currentUser.fotoPersonalUrl!),
+                          ? null
+                          : NetworkImage(currentUser.fotoPersonalUrl!),
                       child: (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
                           ? Text(
                               getInitials(currentUser.nombreCompleto),
@@ -116,9 +115,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                 ElevatedButton.icon(
                   icon: const Icon(Icons.person),
                   label: const Text('Ir a mi perfil'),
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                  ),
+                  onPressed: () => context.push(Routes.profile),
                 ),
               ],
             ),
@@ -139,14 +136,14 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                 padding: const EdgeInsets.only(right: 12),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(999),
-                  onTap: () => context.push(Routes.user),
+                  onTap: () => context.push(Routes.profile),
                   child: CircleAvatar(
                     radius: 16,
                     backgroundColor: Colors.white24,
                     backgroundImage:
                         (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
-                            ? null
-                            : NetworkImage(currentUser.fotoPersonalUrl!),
+                        ? null
+                        : NetworkImage(currentUser.fotoPersonalUrl!),
                     child: (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
                         ? Text(
                             getInitials(currentUser.nombreCompleto),
@@ -482,8 +479,8 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                                 cedulaCtrl.text = cedula;
                               }
 
-                              final nombre =
-                                  (ocrResult.nombreCompleto ?? '').trim();
+                              final nombre = (ocrResult.nombreCompleto ?? '')
+                                  .trim();
                               if (nombre.isNotEmpty &&
                                   nameCtrl.text.trim().isEmpty) {
                                 nameCtrl.text = nombre;
@@ -492,8 +489,8 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                               if (ocrResult.fechaNacimiento != null &&
                                   fechaNacimiento == null) {
                                 setModalState(
-                                  () =>
-                                      fechaNacimiento = ocrResult.fechaNacimiento,
+                                  () => fechaNacimiento =
+                                      ocrResult.fechaNacimiento,
                                 );
 
                                 // Autocalcular edad si está vacía.
@@ -615,9 +612,8 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                           .map(
                             (h) => Chip(
                               label: Text(h),
-                              onDeleted: () => setModalState(
-                                () => habilidades.remove(h),
-                              ),
+                              onDeleted: () =>
+                                  setModalState(() => habilidades.remove(h)),
                             ),
                           )
                           .toList(growable: false),
@@ -954,10 +950,13 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                       onPressed: () async {
                         try {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Generando contrato...')),
+                            const SnackBar(
+                              content: Text('Generando contrato...'),
+                            ),
                           );
-                          final settingsRepo =
-                              ref.read(companySettingsRepositoryProvider);
+                          final settingsRepo = ref.read(
+                            companySettingsRepositoryProvider,
+                          );
                           final company = await settingsRepo.getSettings();
                           final bytes = await buildWorkContractPdf(
                             employee: user,
@@ -965,9 +964,10 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                           );
                           final safeName = user.nombreCompleto.trim().isEmpty
                               ? 'empleado'
-                              : user.nombreCompleto
-                                  .trim()
-                                  .replaceAll(RegExp(r'\s+'), '_');
+                              : user.nombreCompleto.trim().replaceAll(
+                                  RegExp(r'\s+'),
+                                  '_',
+                                );
                           final dateFmt = DateFormat('yyyyMMdd');
                           final fileName =
                               'contrato_${safeName}_${dateFmt.format(DateTime.now())}.pdf';
@@ -1042,7 +1042,9 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                           _DetailRow(
                             'Fecha de ingreso',
                             user.fechaIngreso != null
-                                ? DateFormat('dd/MM/yyyy').format(user.fechaIngreso!)
+                                ? DateFormat(
+                                    'dd/MM/yyyy',
+                                  ).format(user.fechaIngreso!)
                                 : '—',
                           ),
                           _DetailRow(

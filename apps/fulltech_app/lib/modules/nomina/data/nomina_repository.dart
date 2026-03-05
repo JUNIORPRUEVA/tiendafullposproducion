@@ -105,6 +105,17 @@ class NominaRepository {
     return PayrollEmployee.fromMap(data);
   }
 
+  Future<void> deleteEmployee(String employeeId) async {
+    try {
+      await _dio.delete(ApiRoutes.payrollEmployeeDetail(employeeId));
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e, 'No se pudo eliminar el empleado de nómina'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
   Future<PayrollEmployeeConfig?> getEmployeeConfig(
     String periodId,
     String employeeId,
