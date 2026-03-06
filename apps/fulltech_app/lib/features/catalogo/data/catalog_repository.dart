@@ -39,7 +39,10 @@ class CatalogRepository {
     return fallback;
   }
 
-  Future<List<ProductModel>> fetchProducts({bool forceRefresh = false}) async {
+  Future<List<ProductModel>> fetchProducts({
+    bool forceRefresh = false,
+    bool silent = false,
+  }) async {
     try {
       final res = await _dio.get(
         ApiRoutes.products,
@@ -52,6 +55,7 @@ class CatalogRepository {
             'Pragma': 'no-cache',
             'Expires': '0',
           },
+          extra: {'silent': silent},
         ),
       );
       final rows = _extractRows(res.data);

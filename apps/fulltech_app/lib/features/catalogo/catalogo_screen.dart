@@ -25,11 +25,9 @@ class CatalogoScreen extends ConsumerStatefulWidget {
 
 class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
     with WidgetsBindingObserver {
-  static const Duration _autoSyncInterval = Duration(seconds: 5);
   final _searchCtrl = TextEditingController();
   String _category = 'Todas';
   DateTime? _lastAutoSyncAt;
-  Timer? _autoSyncTimer;
 
   bool get _hasActiveFilter => _category != 'Todas';
 
@@ -37,23 +35,13 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _startAutoSync();
+    _scheduleAutoSync();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _scheduleAutoSync();
-  }
-
-  void _startAutoSync() {
-    _autoSyncTimer?.cancel();
-    _autoSyncTimer = Timer.periodic(_autoSyncInterval, (_) {
-      if (!mounted) return;
-      ref
-          .read(catalogControllerProvider.notifier)
-          .load(silent: true, forceRemote: true);
-    });
   }
 
   @override
@@ -79,7 +67,6 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
 
   @override
   void dispose() {
-    _autoSyncTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _searchCtrl.dispose();
     super.dispose();

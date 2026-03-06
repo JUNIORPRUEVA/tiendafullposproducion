@@ -24,17 +24,6 @@ String? _resolveFotoUrl(String? url) {
   }
 
   if (url.startsWith('http://') || url.startsWith('https://')) {
-    try {
-      final parsed = Uri.parse(url);
-      final path = extractUploadsPath(parsed.path);
-      final isUploadsPath = path != null;
-      if (isUploadsPath && trimmedBase.isNotEmpty) {
-        final query = parsed.hasQuery ? '?${parsed.query}' : '';
-        return '$trimmedBase$path$query';
-      }
-    } catch (_) {
-      return url;
-    }
     return url;
   }
 

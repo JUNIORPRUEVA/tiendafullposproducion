@@ -97,7 +97,10 @@ class CatalogController extends StateNotifier<CatalogState> {
 
     try {
       final repo = ref.read(catalogRepositoryProvider);
-      final items = await repo.fetchProducts(forceRefresh: forceRemote);
+      final items = await repo.fetchProducts(
+        forceRefresh: forceRemote,
+        silent: silent,
+      );
       state = state.copyWith(items: items, loading: false);
       await _saveToCache(items);
     } catch (e) {

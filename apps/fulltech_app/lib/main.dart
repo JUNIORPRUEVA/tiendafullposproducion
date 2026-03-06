@@ -92,7 +92,7 @@ Future<void> _ensureEnvLoaded() async {
     debugPrint('API_BASE_URL: $baseUrl');
   } on Object catch (error) {
     debugPrint('Invalid API_BASE_URL configuration: $error');
-    rethrow;
+    // Do not block app startup. Downstream API calls will surface errors if any.
   }
 }
 
