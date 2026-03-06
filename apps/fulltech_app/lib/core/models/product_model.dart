@@ -1,5 +1,26 @@
 import '../api/env.dart';
 
+String? _asNullableString(dynamic value) {
+  if (value == null) return null;
+  final text = value.toString().trim();
+  if (text.isEmpty || text.toLowerCase() == 'null') return null;
+  return text;
+}
+
+double _asDouble(dynamic value) {
+  if (value is num) return value.toDouble();
+  if (value == null) return 0;
+  final normalized = value.toString().trim().replaceAll(',', '.');
+  return double.tryParse(normalized) ?? 0;
+}
+
+double? _asNullableDouble(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  final normalized = value.toString().trim().replaceAll(',', '.');
+  return double.tryParse(normalized);
+}
+
 String? _resolveFotoUrl(String? url) {
   if (url == null || url.isEmpty) return null;
   final base = Env.apiBaseUrl;
@@ -60,32 +81,23 @@ class ProductModel {
   });
 
   factory ProductModel.fromJson(Map<String, dynamic> json) {
+    final rawStock =
+        json['stock'] ?? json['cantidadDisponible'] ?? json['cantidad'];
+    final categoria = _asNullableString(
+      json['categoria'] ?? json['categoriaNombre'],
+    );
+    final foto = _asNullableString(json['fotoUrl'] ?? json['imagen']);
+    final createdAtRaw = _asNullableString(json['createdAt']);
+
     return ProductModel(
-      id: json['id'] ?? '',
-      nombre: json['nombre'] ?? '',
-      precio: (json['precio'] is num)
-          ? (json['precio'] as num).toDouble()
-          : double.tryParse(json['precio']?.toString() ?? '') ?? 0,
-      costo: (json['costo'] is num)
-          ? (json['costo'] as num).toDouble()
-          : double.tryParse(json['costo']?.toString() ?? '') ?? 0,
-      stock:
-          (json['stock'] ?? json['cantidadDisponible'] ?? json['cantidad'])
-              is num
-          ? ((json['stock'] ?? json['cantidadDisponible'] ?? json['cantidad'])
-                    as num)
-                .toDouble()
-          : double.tryParse(
-              (json['stock'] ?? json['cantidadDisponible'] ?? json['cantidad'])
-                      ?.toString() ??
-                  '',
-            ),
-      categoria:
-          json['categoria'] as String? ?? json['categoriaNombre'] as String?,
-      fotoUrl: _resolveFotoUrl((json['fotoUrl'] ?? json['imagen']) as String?),
-      createdAt: json['createdAt'] != null
-          ? DateTime.tryParse(json['createdAt'])
-          : null,
+      id: _asNullableString(json['id']) ?? '',
+      nombre: _asNullableString(json['nombre']) ?? '',
+      precio: _asDouble(json['precio']),
+      costo: _asDouble(json['costo']),
+      stock: _asNullableDouble(rawStock),
+      categoria: categoria,
+      fotoUrl: _resolveFotoUrl(foto),
+      createdAt: createdAtRaw != null ? DateTime.tryParse(createdAtRaw) : null,
     );
   }
 

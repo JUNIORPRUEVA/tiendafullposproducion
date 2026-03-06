@@ -71,8 +71,8 @@ class CatalogRepository {
         ),
         e.response?.statusCode,
       );
-    } catch (_) {
-      throw ApiException('No se pudieron cargar los productos');
+    } catch (e) {
+      throw ApiException('No se pudieron cargar los productos: $e');
     }
   }
 
