@@ -113,17 +113,18 @@ final operationsControllerProvider =
 
 class OperationsController extends StateNotifier<OperationsState> {
   final Ref ref;
+  int _loadSeq = 0;
 
   OperationsController(this.ref) : super(OperationsState.initial()) {
     load();
   }
 
   Future<void> load() async {
+    final seq = ++_loadSeq;
+    final repo = ref.read(operationsRepositoryProvider);
+    final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
+
     try {
-      final repo = ref.read(operationsRepositoryProvider);
-
-      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
-
       final cached = await Future.wait([
         repo.getCachedServices(
           cacheScope: cacheScope,
@@ -149,45 +150,63 @@ class OperationsController extends StateNotifier<OperationsState> {
 
       final cachedPage = cached[0] as ServicesPageModel?;
       final cachedDashboard = cached[1] as OperationsDashboardModel?;
+      final cachedItems = cachedPage?.items ?? const <ServiceModel>[];
+      final hasCached = cachedItems.isNotEmpty || cachedDashboard != null;
 
+      // Paint cache immediately (instant UI), then refresh in background.
       state = state.copyWith(
-        loading: true,
+        loading: !hasCached && state.services.isEmpty,
         clearError: true,
         services: cachedPage?.items ?? state.services,
         dashboard: cachedDashboard ?? state.dashboard,
       );
 
-      final results = await Future.wait([
-        repo.listServicesAndCache(
-          cacheScope: cacheScope,
-          status: state.statusFilter,
-          type: state.typeFilter,
-          orderType: state.orderTypeFilter,
-          orderState: state.orderStateFilter,
-          technicianId: state.technicianIdFilter,
-          priority: state.priorityFilter,
-          customerId: state.customerIdFilter,
-          search: state.search,
-          from: state.from,
-          to: state.to,
-          page: 1,
-          pageSize: 120,
-        ),
-        repo.dashboardAndCache(
-          cacheScope: cacheScope,
-          from: state.from,
-          to: state.to,
-        ),
-      ]);
+      unawaited(() async {
+        try {
+          final results = await Future.wait([
+            repo.listServicesAndCache(
+              cacheScope: cacheScope,
+              silent: true,
+              status: state.statusFilter,
+              type: state.typeFilter,
+              orderType: state.orderTypeFilter,
+              orderState: state.orderStateFilter,
+              technicianId: state.technicianIdFilter,
+              priority: state.priorityFilter,
+              customerId: state.customerIdFilter,
+              search: state.search,
+              from: state.from,
+              to: state.to,
+              page: 1,
+              pageSize: 120,
+            ),
+            repo.dashboardAndCache(
+              cacheScope: cacheScope,
+              silent: true,
+              from: state.from,
+              to: state.to,
+            ),
+          ]);
 
-      final page = results[0] as ServicesPageModel;
-      final dashboard = results[1] as OperationsDashboardModel;
+          if (!mounted || seq != _loadSeq) return;
 
-      state = state.copyWith(
-        loading: false,
-        services: page.items,
-        dashboard: dashboard,
-      );
+          final page = results[0] as ServicesPageModel;
+          final dashboard = results[1] as OperationsDashboardModel;
+          state = state.copyWith(
+            loading: false,
+            services: page.items,
+            dashboard: dashboard,
+          );
+        } catch (e) {
+          if (!mounted || seq != _loadSeq) return;
+          state = state.copyWith(
+            loading: false,
+            error: e is ApiException
+                ? e.message
+                : 'No se pudo cargar operaciones',
+          );
+        }
+      }());
     } catch (e) {
       state = state.copyWith(
         loading: false,
@@ -276,11 +295,13 @@ class OperationsController extends StateNotifier<OperationsState> {
 
     final cached = await repo.getCachedService(cacheScope: cacheScope, id: id);
     if (cached != null) {
-      unawaited(repo.getServiceAndCache(cacheScope: cacheScope, id: id));
+      unawaited(
+        repo.getServiceAndCache(cacheScope: cacheScope, id: id, silent: true),
+      );
       return cached;
     }
 
-    return repo.getServiceAndCache(cacheScope: cacheScope, id: id);
+    return repo.getServiceAndCache(cacheScope: cacheScope, id: id, silent: true);
   }
 
   Future<ServiceModel> updateService({

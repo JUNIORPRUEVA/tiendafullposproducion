@@ -4,11 +4,6 @@ FROM ghcr.io/cirruslabs/flutter:stable AS build
 
 WORKDIR /app
 
-# Run flutter as a non-root user (EasyPanel builds often run as root).
-RUN adduser --disabled-password --gecos "" --uid 10001 flutteruser
-ENV HOME=/home/flutteruser
-ENV PUB_CACHE=/home/flutteruser/.pub-cache
-
 # Copy only what is needed for a Flutter Web build.
 COPY pubspec.yaml pubspec.lock ./
 COPY analysis_options.yaml ./
@@ -16,12 +11,6 @@ COPY lib ./lib
 COPY assets ./assets
 COPY web ./web
 COPY .env.example ./.env.example
-
-RUN chown -R flutteruser:flutteruser /app \
-  && mkdir -p "$HOME" "$PUB_CACHE" \
-  && chown -R flutteruser:flutteruser "$HOME" "$PUB_CACHE"
-
-USER flutteruser
 
 # The app references .env as an asset; create it from .env.example for CI/builds.
 RUN cp .env.example .env

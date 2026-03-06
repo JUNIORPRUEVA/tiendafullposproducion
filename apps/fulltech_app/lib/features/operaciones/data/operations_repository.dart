@@ -215,6 +215,7 @@ class OperationsRepository {
 
   Future<ServicesPageModel> listServicesAndCache({
     required String cacheScope,
+    bool silent = false,
     String? status,
     String? type,
     String? orderType,
@@ -232,6 +233,7 @@ class OperationsRepository {
     try {
       final res = await _dio.get(
         ApiRoutes.services,
+        options: Options(extra: {'silent': silent}),
         queryParameters: {
           if (status != null && status.isNotEmpty) 'status': status,
           if (type != null && type.isNotEmpty) 'type': type,
@@ -296,9 +298,13 @@ class OperationsRepository {
   Future<ServiceModel> getServiceAndCache({
     required String cacheScope,
     required String id,
+    bool silent = false,
   }) async {
     try {
-      final res = await _dio.get(ApiRoutes.serviceDetail(id));
+      final res = await _dio.get(
+        ApiRoutes.serviceDetail(id),
+        options: Options(extra: {'silent': silent}),
+      );
       final raw = (res.data as Map).cast<String, dynamic>();
       final key = _serviceCacheKey(cacheScope: cacheScope, id: id);
       await _cache.writeMap(key, raw);
@@ -686,10 +692,12 @@ class OperationsRepository {
     required String cacheScope,
     DateTime? from,
     DateTime? to,
+    bool silent = false,
   }) async {
     try {
       final res = await _dio.get(
         ApiRoutes.operationsDashboard,
+        options: Options(extra: {'silent': silent}),
         queryParameters: {
           if (from != null) 'from': from.toIso8601String(),
           if (to != null) 'to': to.toIso8601String(),
