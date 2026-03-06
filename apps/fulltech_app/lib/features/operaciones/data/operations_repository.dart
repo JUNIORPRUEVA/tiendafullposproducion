@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_routes.dart';
 import '../../../core/auth/auth_repository.dart';
+import '../../../core/cache/local_json_cache.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../modules/clientes/cliente_model.dart';
 import '../operations_models.dart';
@@ -15,11 +16,140 @@ final operationsRepositoryProvider = Provider<OperationsRepository>((ref) {
 class OperationsRepository {
   final Dio _dio;
 
+  static const Duration _servicesCacheTtl = Duration(days: 7);
+  static const Duration _dashboardCacheTtl = Duration(days: 7);
+  static const Duration _serviceDetailCacheTtl = Duration(days: 7);
+
+  final LocalJsonCache _cache = LocalJsonCache();
+
   OperationsRepository(this._dio);
 
   List<TechnicianModel>? _techniciansCache;
   DateTime? _techniciansCacheAt;
   static const Duration _techniciansCacheTtl = Duration(minutes: 5);
+
+  String _scope(String raw) {
+    final v = raw.trim();
+    return v.isEmpty ? 'anon' : v;
+  }
+
+  String _short(String value, {int max = 120}) {
+    final v = value.trim();
+    if (v.length <= max) return v;
+    return v.substring(0, max);
+  }
+
+  String _servicesCacheKey({
+    required String cacheScope,
+    String? status,
+    String? type,
+    String? orderType,
+    String? orderState,
+    String? technicianId,
+    int? priority,
+    String? assignedTo,
+    String? customerId,
+    String? search,
+    DateTime? from,
+    DateTime? to,
+    int page = 1,
+    int pageSize = 50,
+  }) {
+    return [
+      'ops',
+      'services',
+      _scope(cacheScope),
+      status ?? '',
+      type ?? '',
+      orderType ?? '',
+      orderState ?? '',
+      technicianId ?? '',
+      priority?.toString() ?? '',
+      assignedTo ?? '',
+      customerId ?? '',
+      _short(search ?? ''),
+      from?.toIso8601String() ?? '',
+      to?.toIso8601String() ?? '',
+      page.toString(),
+      pageSize.toString(),
+    ].join('|');
+  }
+
+  String _dashboardCacheKey({
+    required String cacheScope,
+    DateTime? from,
+    DateTime? to,
+  }) {
+    return [
+      'ops',
+      'dashboard',
+      _scope(cacheScope),
+      from?.toIso8601String() ?? '',
+      to?.toIso8601String() ?? '',
+    ].join('|');
+  }
+
+  String _serviceCacheKey({required String cacheScope, required String id}) {
+    return ['ops', 'service', _scope(cacheScope), id.trim()].join('|');
+  }
+
+  Future<ServicesPageModel?> getCachedServices({
+    required String cacheScope,
+    String? status,
+    String? type,
+    String? orderType,
+    String? orderState,
+    String? technicianId,
+    int? priority,
+    String? assignedTo,
+    String? customerId,
+    String? search,
+    DateTime? from,
+    DateTime? to,
+    int page = 1,
+    int pageSize = 50,
+  }) async {
+    final key = _servicesCacheKey(
+      cacheScope: cacheScope,
+      status: status,
+      type: type,
+      orderType: orderType,
+      orderState: orderState,
+      technicianId: technicianId,
+      priority: priority,
+      assignedTo: assignedTo,
+      customerId: customerId,
+      search: search,
+      from: from,
+      to: to,
+      page: page,
+      pageSize: pageSize,
+    );
+    final map = await _cache.readMap(key, maxAge: _servicesCacheTtl);
+    if (map == null) return null;
+    return ServicesPageModel.fromJson(map);
+  }
+
+  Future<OperationsDashboardModel?> getCachedDashboard({
+    required String cacheScope,
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final key = _dashboardCacheKey(cacheScope: cacheScope, from: from, to: to);
+    final map = await _cache.readMap(key, maxAge: _dashboardCacheTtl);
+    if (map == null) return null;
+    return OperationsDashboardModel.fromJson(map);
+  }
+
+  Future<ServiceModel?> getCachedService({
+    required String cacheScope,
+    required String id,
+  }) async {
+    final key = _serviceCacheKey(cacheScope: cacheScope, id: id);
+    final map = await _cache.readMap(key, maxAge: _serviceDetailCacheTtl);
+    if (map == null) return null;
+    return ServiceModel.fromJson(map);
+  }
 
   String _extractMessage(dynamic data, String fallback) {
     if (data is Map) {
@@ -83,10 +213,96 @@ class OperationsRepository {
     }
   }
 
+  Future<ServicesPageModel> listServicesAndCache({
+    required String cacheScope,
+    String? status,
+    String? type,
+    String? orderType,
+    String? orderState,
+    String? technicianId,
+    int? priority,
+    String? assignedTo,
+    String? customerId,
+    String? search,
+    DateTime? from,
+    DateTime? to,
+    int page = 1,
+    int pageSize = 50,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.services,
+        queryParameters: {
+          if (status != null && status.isNotEmpty) 'status': status,
+          if (type != null && type.isNotEmpty) 'type': type,
+          if (orderType != null && orderType.isNotEmpty) 'orderType': orderType,
+          if (orderState != null && orderState.isNotEmpty)
+            'orderState': orderState,
+          if (technicianId != null && technicianId.isNotEmpty)
+            'technicianId': technicianId,
+          if (priority != null) 'priority': priority,
+          if (assignedTo != null && assignedTo.isNotEmpty)
+            'assignedTo': assignedTo,
+          if (customerId != null && customerId.isNotEmpty)
+            'customerId': customerId,
+          if (search != null && search.trim().isNotEmpty)
+            'search': search.trim(),
+          if (from != null) 'from': from.toIso8601String(),
+          if (to != null) 'to': to.toIso8601String(),
+          'page': page,
+          'pageSize': pageSize,
+        },
+      );
+
+      final raw = (res.data as Map).cast<String, dynamic>();
+      final key = _servicesCacheKey(
+        cacheScope: cacheScope,
+        status: status,
+        type: type,
+        orderType: orderType,
+        orderState: orderState,
+        technicianId: technicianId,
+        priority: priority,
+        assignedTo: assignedTo,
+        customerId: customerId,
+        search: search,
+        from: from,
+        to: to,
+        page: page,
+        pageSize: pageSize,
+      );
+      await _cache.writeMap(key, raw);
+      return ServicesPageModel.fromJson(raw);
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudieron cargar servicios'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
   Future<ServiceModel> getService(String id) async {
     try {
       final res = await _dio.get(ApiRoutes.serviceDetail(id));
       return ServiceModel.fromJson((res.data as Map).cast<String, dynamic>());
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo cargar el servicio'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<ServiceModel> getServiceAndCache({
+    required String cacheScope,
+    required String id,
+  }) async {
+    try {
+      final res = await _dio.get(ApiRoutes.serviceDetail(id));
+      final raw = (res.data as Map).cast<String, dynamic>();
+      final key = _serviceCacheKey(cacheScope: cacheScope, id: id);
+      await _cache.writeMap(key, raw);
+      return ServiceModel.fromJson(raw);
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo cargar el servicio'),
@@ -458,6 +674,35 @@ class OperationsRepository {
       return OperationsDashboardModel.fromJson(
         (res.data as Map).cast<String, dynamic>(),
       );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo cargar dashboard'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<OperationsDashboardModel> dashboardAndCache({
+    required String cacheScope,
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.operationsDashboard,
+        queryParameters: {
+          if (from != null) 'from': from.toIso8601String(),
+          if (to != null) 'to': to.toIso8601String(),
+        },
+      );
+      final raw = (res.data as Map).cast<String, dynamic>();
+      final key = _dashboardCacheKey(
+        cacheScope: cacheScope,
+        from: from,
+        to: to,
+      );
+      await _cache.writeMap(key, raw);
+      return OperationsDashboardModel.fromJson(raw);
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo cargar dashboard'),

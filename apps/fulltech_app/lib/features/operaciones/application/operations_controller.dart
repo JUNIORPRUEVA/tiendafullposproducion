@@ -117,11 +117,14 @@ class OperationsController extends StateNotifier<OperationsState> {
   }
 
   Future<void> load() async {
-    state = state.copyWith(loading: true, clearError: true);
     try {
       final repo = ref.read(operationsRepositoryProvider);
-      final results = await Future.wait([
-        repo.listServices(
+
+      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
+
+      final cached = await Future.wait([
+        repo.getCachedServices(
+          cacheScope: cacheScope,
           status: state.statusFilter,
           type: state.typeFilter,
           orderType: state.orderTypeFilter,
@@ -135,7 +138,44 @@ class OperationsController extends StateNotifier<OperationsState> {
           page: 1,
           pageSize: 120,
         ),
-        repo.dashboard(from: state.from, to: state.to),
+        repo.getCachedDashboard(
+          cacheScope: cacheScope,
+          from: state.from,
+          to: state.to,
+        ),
+      ]);
+
+      final cachedPage = cached[0] as ServicesPageModel?;
+      final cachedDashboard = cached[1] as OperationsDashboardModel?;
+
+      state = state.copyWith(
+        loading: true,
+        clearError: true,
+        services: cachedPage?.items ?? state.services,
+        dashboard: cachedDashboard ?? state.dashboard,
+      );
+
+      final results = await Future.wait([
+        repo.listServicesAndCache(
+          cacheScope: cacheScope,
+          status: state.statusFilter,
+          type: state.typeFilter,
+          orderType: state.orderTypeFilter,
+          orderState: state.orderStateFilter,
+          technicianId: state.technicianIdFilter,
+          priority: state.priorityFilter,
+          customerId: state.customerIdFilter,
+          search: state.search,
+          from: state.from,
+          to: state.to,
+          page: 1,
+          pageSize: 120,
+        ),
+        repo.dashboardAndCache(
+          cacheScope: cacheScope,
+          from: state.from,
+          to: state.to,
+        ),
       ]);
 
       final page = results[0] as ServicesPageModel;
