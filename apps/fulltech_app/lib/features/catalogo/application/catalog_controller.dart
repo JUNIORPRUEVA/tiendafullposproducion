@@ -48,6 +48,7 @@ final catalogControllerProvider =
 class CatalogController extends StateNotifier<CatalogState> {
   final Ref ref;
   static const _cacheKey = 'catalog_products_cache_v1';
+  bool _remoteRefreshInFlight = false;
 
   CatalogController(this.ref) : super(const CatalogState()) {
     load();
@@ -80,6 +81,11 @@ class CatalogController extends StateNotifier<CatalogState> {
   }
 
   Future<void> load({bool silent = false, bool forceRemote = false}) async {
+    if (silent && forceRemote && _remoteRefreshInFlight) return;
+    if (silent && forceRemote) {
+      _remoteRefreshInFlight = true;
+    }
+
     final shouldShowLoading = !silent || state.items.isEmpty;
 
     if (shouldShowLoading && state.items.isEmpty) {
@@ -110,6 +116,10 @@ class CatalogController extends StateNotifier<CatalogState> {
       // Keep cached/previous items (if any) so UI doesn't go blank.
       if (silent && state.items.isNotEmpty) return;
       state = state.copyWith(loading: false, error: message);
+    } finally {
+      if (silent && forceRemote) {
+        _remoteRefreshInFlight = false;
+      }
     }
   }
 
@@ -137,6 +147,7 @@ class CatalogController extends StateNotifier<CatalogState> {
       );
       final updated = [created, ...state.items];
       state = state.copyWith(items: updated, saving: false);
+      await _saveToCache(updated);
     } catch (e) {
       final message = e is ApiException
           ? e.message
@@ -175,6 +186,7 @@ class CatalogController extends StateNotifier<CatalogState> {
       );
       final list = state.items.map((p) => p.id == id ? updated : p).toList();
       state = state.copyWith(items: list, saving: false);
+      await _saveToCache(list);
     } catch (e) {
       final message = e is ApiException
           ? e.message
@@ -189,10 +201,9 @@ class CatalogController extends StateNotifier<CatalogState> {
     try {
       final repo = ref.read(catalogRepositoryProvider);
       await repo.deleteProduct(id);
-      state = state.copyWith(
-        items: state.items.where((p) => p.id != id).toList(),
-        saving: false,
-      );
+      final list = state.items.where((p) => p.id != id).toList();
+      state = state.copyWith(items: list, saving: false);
+      await _saveToCache(list);
     } catch (e) {
       final message = e is ApiException
           ? e.message

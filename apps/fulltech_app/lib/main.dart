@@ -72,18 +72,27 @@ void _initializeDesktopSqlite() {
 }
 
 Future<void> _ensureEnvLoaded() async {
-  const envFile = '.env';
-  const fallbackFile = '.env.example';
+  const candidates = <String>[
+    '.env',
+    'assets/.env',
+    '.env.example',
+    'assets/.env.example',
+  ];
 
-  try {
-    await dotenv.load(fileName: envFile);
-  } on Object catch (error) {
-    debugPrint('Could not load $envFile: $error');
+  var loaded = false;
+  for (final file in candidates) {
     try {
-      await dotenv.load(fileName: fallbackFile);
-    } on Object catch (fallbackError) {
-      debugPrint('Could not load $fallbackFile either: $fallbackError');
+      await dotenv.load(fileName: file);
+      loaded = true;
+      debugPrint('Loaded env file: $file');
+      break;
+    } on Object catch (error) {
+      debugPrint('Could not load $file: $error');
     }
+  }
+
+  if (!loaded) {
+    debugPrint('No env file could be loaded.');
   }
 
   // Validate and log the selected API base URL.

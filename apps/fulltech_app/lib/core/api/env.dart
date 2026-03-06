@@ -2,8 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class Env {
-  static const String _defaultApiBaseUrl =
-      'https://fulltech-tienda-fulltechapppwa.gcdndd.easypanel.host';
+  static const String _defaultApiBaseUrl = 'https://api.midominio.com';
 
   static String? _readEnv(String key) {
     try {
@@ -15,7 +14,29 @@ class Env {
 
   static String get apiBaseUrl {
     final raw = (_readEnv('API_BASE_URL') ?? '').trim();
-    final value = raw.isEmpty ? _defaultApiBaseUrl : raw;
+
+    if (raw.isEmpty) {
+      debugPrint(
+        'API_BASE_URL is missing. Define it in .env / EasyPanel env vars. Using fallback: $_defaultApiBaseUrl',
+      );
+      return _defaultApiBaseUrl;
+    }
+
+    if (raw.startsWith('/')) {
+      if (kIsWeb) {
+        final value = '${Uri.base.origin}$raw';
+        return value.endsWith('/')
+            ? value.substring(0, value.length - 1)
+            : value;
+      }
+
+      debugPrint(
+        'Relative API_BASE_URL is only valid on web. Value="$raw". Using fallback.',
+      );
+      return _defaultApiBaseUrl;
+    }
+
+    final value = raw;
 
     final parsed = Uri.tryParse(value);
 

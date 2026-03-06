@@ -28,6 +28,8 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
   final _searchCtrl = TextEditingController();
   String _category = 'Todas';
   DateTime? _lastAutoSyncAt;
+  Timer? _liveSyncTimer;
+  static const Duration _liveSyncInterval = Duration(seconds: 4);
 
   bool get _hasActiveFilter => _category != 'Todas';
 
@@ -36,6 +38,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _scheduleAutoSync();
+    _startLiveSync();
   }
 
   @override
@@ -47,10 +50,33 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
+      _startLiveSync();
       ref
           .read(catalogControllerProvider.notifier)
           .load(silent: true, forceRemote: true);
+      return;
     }
+
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _stopLiveSync();
+    }
+  }
+
+  void _startLiveSync() {
+    _liveSyncTimer?.cancel();
+    _liveSyncTimer = Timer.periodic(_liveSyncInterval, (_) {
+      if (!mounted) return;
+      ref
+          .read(catalogControllerProvider.notifier)
+          .load(silent: true, forceRemote: true);
+    });
+  }
+
+  void _stopLiveSync() {
+    _liveSyncTimer?.cancel();
+    _liveSyncTimer = null;
   }
 
   void _scheduleAutoSync() {
@@ -61,13 +87,16 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      ref.read(catalogControllerProvider.notifier).load();
+      ref
+          .read(catalogControllerProvider.notifier)
+          .load(silent: true, forceRemote: true);
     });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _stopLiveSync();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -288,7 +317,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
                           ElevatedButton.icon(
                             onPressed: () => ref
                                 .read(catalogControllerProvider.notifier)
-                                .load(),
+                                .load(forceRemote: true),
                             icon: const Icon(Icons.refresh),
                             label: const Text('Reintentar'),
                           ),
@@ -333,8 +362,9 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
                       final tileHeight = (cardWidth * 0.84).clamp(108.0, 172.0);
 
                       return RefreshIndicator(
-                        onRefresh: () =>
-                            ref.read(catalogControllerProvider.notifier).load(),
+                        onRefresh: () => ref
+                            .read(catalogControllerProvider.notifier)
+                            .load(forceRemote: true),
                         child: GridView.builder(
                           itemCount: filtered.length,
                           gridDelegate:

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,10 +23,13 @@ class RegistrarVentaScreen extends ConsumerStatefulWidget {
       _RegistrarVentaScreenState();
 }
 
-class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
+class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
+    with WidgetsBindingObserver {
   final TextEditingController _searchCtrl = TextEditingController();
   final TextEditingController _noteCtrl = TextEditingController();
   DateTime? _lastAutoSyncAt;
+  Timer? _liveSyncTimer;
+  static const Duration _liveSyncInterval = Duration(seconds: 4);
 
   static const _productsCacheKey = 'ventas_products_cache_v1';
   static const _productsCacheAtKey = 'ventas_products_cache_at_v1';
@@ -67,13 +71,43 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
   @override
   void initState() {
     super.initState();
-    _loadProducts();
+    WidgetsBinding.instance.addObserver(this);
+    _loadProducts(forceRemote: true);
+    _startLiveSync();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _scheduleAutoSync();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _startLiveSync();
+      _loadProducts(forceRemote: true, silent: true);
+      return;
+    }
+
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _stopLiveSync();
+    }
+  }
+
+  void _startLiveSync() {
+    _liveSyncTimer?.cancel();
+    _liveSyncTimer = Timer.periodic(_liveSyncInterval, (_) {
+      if (!mounted) return;
+      _loadProducts(forceRemote: true, silent: true);
+    });
+  }
+
+  void _stopLiveSync() {
+    _liveSyncTimer?.cancel();
+    _liveSyncTimer = null;
   }
 
   void _scheduleAutoSync() {
@@ -84,22 +118,29 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _loadProducts();
+      _loadProducts(forceRemote: true, silent: true);
     });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _stopLiveSync();
     _searchCtrl.dispose();
     _noteCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _loadProducts() async {
+  Future<void> _loadProducts({
+    bool forceRemote = false,
+    bool silent = false,
+  }) async {
     await _loadProductsFromCacheIfEmpty();
-    if (mounted) setState(() => _loadingProducts = true);
+    if (mounted && !silent) setState(() => _loadingProducts = true);
     try {
-      final products = await ref.read(ventasRepositoryProvider).fetchProducts();
+      final products = await ref
+          .read(ventasRepositoryProvider)
+          .fetchProducts(forceRefresh: forceRemote);
       if (!mounted) return;
       setState(() {
         _products = products;
@@ -108,8 +149,9 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
       await _saveProductsToCache(products);
       _prefetchProductImages(products);
     } catch (e) {
-      if (mounted) setState(() => _loadingProducts = false);
+      if (mounted && !silent) setState(() => _loadingProducts = false);
       if (!mounted) return;
+      if (silent) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('No se pudieron cargar productos: $e')),
       );
@@ -184,9 +226,9 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
     await _clearProductsCache();
     await FulltechImageCacheManager.clear();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Caché limpiado')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Caché limpiado')));
     setState(() {
       _products = const [];
       _loadingProducts = true;
@@ -250,7 +292,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
             ? [
                 IconButton(
                   tooltip: 'Recargar productos',
-                  onPressed: _loadProducts,
+                  onPressed: () => _loadProducts(forceRemote: true),
                   icon: const Icon(Icons.refresh),
                 ),
                 PopupMenuButton<String>(
@@ -324,7 +366,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen> {
             : [
                 IconButton(
                   tooltip: 'Recargar productos',
-                  onPressed: _loadProducts,
+                  onPressed: () => _loadProducts(forceRemote: true),
                   icon: const Icon(Icons.refresh),
                 ),
                 PopupMenuButton<String>(

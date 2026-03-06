@@ -124,9 +124,21 @@ class VentasRepository {
     }
   }
 
-  Future<List<ProductModel>> fetchProducts() async {
+  Future<List<ProductModel>> fetchProducts({bool forceRefresh = false}) async {
     try {
-      final res = await _dio.get(ApiRoutes.products);
+      final res = await _dio.get(
+        ApiRoutes.products,
+        queryParameters: forceRefresh
+            ? {'_ts': DateTime.now().millisecondsSinceEpoch}
+            : null,
+        options: Options(
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+          },
+        ),
+      );
       final rows = _extractRows(res.data);
       final parsed = rows
           .whereType<Map>()
