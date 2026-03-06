@@ -2,7 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class Env {
-  static const String _defaultApiBaseUrl = 'http://localhost:4000';
+  static const String _defaultApiBaseUrl =
+      'https://fulltech-tienda-fulltechapppwa.gcdndd.easypanel.host';
 
   static String? _readEnv(String key) {
     try {

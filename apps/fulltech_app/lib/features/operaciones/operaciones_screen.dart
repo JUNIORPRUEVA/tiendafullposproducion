@@ -58,6 +58,8 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     const submitLabel = 'Guardar orden';
     const initialServiceType = 'maintenance';
 
+    var orderType = 'mantenimiento';
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -100,11 +102,54 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                      child: DropdownButtonFormField<String>(
+                        key: ValueKey(
+                          'quick-create-orderType-$orderType',
+                        ),
+                        initialValue: orderType,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Tipo de orden',
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'reserva',
+                            child: Text('Reserva'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'instalacion',
+                            child: Text('Instalación'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'mantenimiento',
+                            child: Text('Mantenimiento'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'garantia',
+                            child: Text('Garantía'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'levantamiento',
+                            child: Text('Levantamiento'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setSheetState(() => orderType = value);
+                        },
+                      ),
+                    ),
                     const Divider(height: 1),
                     Expanded(
                       child: _CreateReservationTab(
                         onCreate: (draft) async {
-                          final ok = await _handleCreateGenericOrder(draft);
+                          final ok = await _handleCreateGenericOrder(
+                            draft,
+                            orderType: orderType,
+                          );
                           if (ok && context.mounted) Navigator.pop(context);
                         },
                         submitLabel: submitLabel,
@@ -535,11 +580,16 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
         );
   }
 
-  Future<bool> _handleCreateGenericOrder(_CreateServiceDraft draft) async {
-    const orderType = 'mantenimiento';
+  Future<bool> _handleCreateGenericOrder(
+    _CreateServiceDraft draft, {
+    required String orderType,
+  }) async {
+    final normalized = orderType.trim().isEmpty
+        ? 'mantenimiento'
+        : orderType.trim().toLowerCase();
 
     try {
-      final created = await _createService(draft, orderType: orderType);
+      final created = await _createService(draft, orderType: normalized);
 
       final reservationAt = draft.reservationAt;
       if (reservationAt != null) {
@@ -1056,6 +1106,7 @@ class _OperacionesAgendaScreenState
     }
   }
 
+  // ignore: unused_element
   Future<bool> _createFromAgenda(_CreateServiceDraft draft, String kind) async {
     final lower = kind.trim().toLowerCase();
     final targetStatus = switch (lower) {
@@ -1724,8 +1775,9 @@ List<String> _missingPhaseRequirements(ServiceModel s, String phase) {
     final total = (s.finalCost ?? 0);
     if (quoted <= 0) missing.add('Cotización');
     if (total <= 0) missing.add('Monto total');
-    if (!_looksLikeValidLocationText(s.customerAddress))
+    if (!_looksLikeValidLocationText(s.customerAddress)) {
       missing.add('Ubicación');
+    }
     return missing;
   }
 
@@ -1821,11 +1873,13 @@ class _PanelOptionsState extends State<_PanelOptions> {
     return '${df.format(r.start)} - ${df.format(r.end)}';
   }
 
+  // ignore: unused_element
   bool _isDefaultTodayRange(DateTimeRange r) {
     final today = OperationsFilters.todayDefault().range;
     return r.start == today.start && r.end == today.end;
   }
 
+  // ignore: unused_element
   InputDecoration _denseDecoration({
     required String hint,
     required IconData icon,
@@ -4065,6 +4119,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     }
   }
 
+  // ignore: unused_element
   Future<String?> _askReason(BuildContext context) async {
     final ctrl = TextEditingController();
     final ok = await showDialog<bool>(
@@ -4094,6 +4149,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     return ok == true ? text : null;
   }
 
+  // ignore: unused_element
   Widget _sectionTitle(String text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -4702,6 +4758,8 @@ class _AgendaTab extends StatelessWidget {
     const submitLabel = 'Guardar orden';
     const initialServiceType = 'maintenance';
 
+    var selectedKind = kind;
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -4744,13 +4802,53 @@ class _AgendaTab extends StatelessWidget {
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                      child: DropdownButtonFormField<String>(
+                        key: ValueKey(
+                          'agenda-create-kind-$selectedKind',
+                        ),
+                        initialValue: selectedKind,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Tipo de orden',
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'reserva',
+                            child: Text('Reserva'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'instalacion',
+                            child: Text('Instalación'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'mantenimiento',
+                            child: Text('Mantenimiento'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'garantia',
+                            child: Text('Garantía'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'levantamiento',
+                            child: Text('Levantamiento'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setSheetState(() => selectedKind = value);
+                        },
+                      ),
+                    ),
                     const Divider(height: 1),
                     Expanded(
                       child: _CreateReservationTab(
                         onCreate: (draft) async {
                           final ok = await onCreateFromAgenda(
                             draft,
-                            'mantenimiento',
+                            selectedKind,
                           );
                           if (ok && context.mounted) Navigator.pop(context);
                         },
@@ -4909,11 +5007,13 @@ class _CreateReservationTab extends ConsumerStatefulWidget {
   final String? agendaKind;
 
   const _CreateReservationTab({
+    // ignore: unused_element_parameter
     super.key,
     required this.onCreate,
     this.submitLabel = 'Guardar reserva',
     this.initialServiceType = 'installation',
     this.showServiceTypeField = true,
+    // ignore: unused_element_parameter
     this.agendaKind,
   });
 
@@ -5649,8 +5749,9 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                             ),
                           ],
                           onChanged: (value) {
-                            if (value != null)
+                            if (value != null) {
                               setState(() => _category = value);
+                            }
                           },
                         ),
                       ),
@@ -5716,7 +5817,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
               ),
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
-                value: _orderState,
+                key: ValueKey('orderState-$_orderState'),
+                initialValue: _orderState,
                 isExpanded: true,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
@@ -5761,7 +5863,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
               ),
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
-                value: _technicianId ?? '',
+                key: ValueKey('technician-${_technicianId ?? ''}'),
+                initialValue: _technicianId ?? '',
                 isExpanded: true,
                 decoration: InputDecoration(
                   border: const OutlineInputBorder(),

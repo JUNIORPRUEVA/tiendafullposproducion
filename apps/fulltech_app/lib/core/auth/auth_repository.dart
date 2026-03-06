@@ -64,13 +64,15 @@ class AuthRepository {
   String _formatDioError(DioException e, String fallback) {
     final status = e.response?.statusCode;
     final endpoint = e.requestOptions.path;
+    final uri = e.requestOptions.uri.toString();
+    final baseUrl = _dio.options.baseUrl;
     final rawMessage = _extractMessage(e.response?.data, fallback);
 
     if (status == null) {
-      return '[NETWORK] $rawMessage\nEndpoint: $endpoint\nDetalle: ${e.message ?? 'Sin respuesta del servidor'}';
+      return '[NETWORK] $rawMessage\nEndpoint: $endpoint\nURI: $uri\nBaseURL: $baseUrl\nDetalle: ${e.message ?? 'Sin respuesta del servidor'}';
     }
 
-    return '[HTTP $status] $rawMessage\nEndpoint: $endpoint';
+    return '[HTTP $status] $rawMessage\nEndpoint: $endpoint\nURI: $uri';
   }
 
   UserModel? _userFromLoginResponse(dynamic data) {
