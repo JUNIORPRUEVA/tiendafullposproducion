@@ -26,6 +26,8 @@ USER flutteruser
 # The app references .env as an asset; create it from .env.example for CI/builds.
 RUN cp .env.example .env
 
+RUN git config --global --add safe.directory /sdks/flutter
+
 RUN flutter --version \
   && flutter config --enable-web \
   && flutter pub get \

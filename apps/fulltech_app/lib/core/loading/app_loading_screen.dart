@@ -53,7 +53,7 @@ class AppLoadingScreen extends StatelessWidget {
                           width: 92,
                           height: 92,
                           fit: BoxFit.contain,
-                          errorBuilder: (context, _error, _stackTrace) {
+                          errorBuilder: (context, error, stackTrace) {
                             return Container(
                               width: 92,
                               height: 92,
