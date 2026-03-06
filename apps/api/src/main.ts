@@ -35,11 +35,6 @@ async function bootstrap() {
   // Global exception filter: logs errors (incl. Prisma meta) and returns safe JSON.
   app.useGlobalFilters(new GlobalExceptionFilter());
   const port = Number(config.get('PORT') ?? 4000);
-  const corsOrigin = config.get<string>('CORS_ORIGIN') ?? 'http://localhost:3000';
-  const allowedOrigins = corsOrigin
-    .split(',')
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0);
   const uploadDirEnv = (config.get<string>('UPLOAD_DIR') ?? '').trim();
   const volumeDir = '/uploads';
   const volumeExists = fs.existsSync(volumeDir);
@@ -63,14 +58,10 @@ async function bootstrap() {
   );
 
   app.enableCors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
-        callback(null, true);
-        return;
-      }
-      callback(new Error('Not allowed by CORS'));
-    },
-    credentials: true
+    origin: true,
+    credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
   });
 
   await app.listen(port, '0.0.0.0');
