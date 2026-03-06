@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -22,17 +23,46 @@ class CatalogoScreen extends ConsumerStatefulWidget {
   ConsumerState<CatalogoScreen> createState() => _CatalogoScreenState();
 }
 
-class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
+class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
+    with WidgetsBindingObserver {
+  static const Duration _autoSyncInterval = Duration(seconds: 5);
   final _searchCtrl = TextEditingController();
   String _category = 'Todas';
   DateTime? _lastAutoSyncAt;
+  Timer? _autoSyncTimer;
 
   bool get _hasActiveFilter => _category != 'Todas';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _startAutoSync();
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _scheduleAutoSync();
+  }
+
+  void _startAutoSync() {
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = Timer.periodic(_autoSyncInterval, (_) {
+      if (!mounted) return;
+      ref
+          .read(catalogControllerProvider.notifier)
+          .load(silent: true, forceRemote: true);
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      ref
+          .read(catalogControllerProvider.notifier)
+          .load(silent: true, forceRemote: true);
+    }
   }
 
   void _scheduleAutoSync() {
@@ -49,6 +79,8 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen> {
 
   @override
   void dispose() {
+    _autoSyncTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _searchCtrl.dispose();
     super.dispose();
   }

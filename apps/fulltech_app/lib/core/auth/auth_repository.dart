@@ -9,6 +9,8 @@ import '../errors/api_exception.dart';
 import '../models/user_model.dart';
 import 'auth_interceptor.dart';
 import 'token_storage.dart';
+import '../loading/app_loading_controller.dart';
+import '../loading/loading_interceptor.dart';
 
 final tokenStorageProvider = Provider<TokenStorage>((ref) => TokenStorage());
 
@@ -16,6 +18,9 @@ final dioProvider = Provider<Dio>((ref) {
   final api = ApiClient();
   final storage = ref.watch(tokenStorageProvider);
   api.dio.interceptors.add(AuthInterceptor(storage, api.dio));
+  api.dio.interceptors.add(
+    LoadingInterceptor(ref.read(appLoadingProvider.notifier)),
+  );
   return api.dio;
 });
 
@@ -159,15 +164,21 @@ class AuthRepository {
       final token = await _storage.getAccessToken().timeout(_storageTimeout);
       if (token == null) return null;
       try {
-        final res = await _dio.get(ApiRoutes.usersMe).timeout(_bootstrapTimeout);
+        final res = await _dio
+            .get(ApiRoutes.usersMe)
+            .timeout(_bootstrapTimeout);
         return UserModel.fromJson((res.data as Map).cast<String, dynamic>());
       } on DioException catch (e) {
         // Si expira, intenta refresh y reintenta
         if (e.response?.statusCode == 401) {
           final refreshed = await _refreshAndSave();
           if (refreshed) {
-            final res = await _dio.get(ApiRoutes.usersMe).timeout(_bootstrapTimeout);
-            return UserModel.fromJson((res.data as Map).cast<String, dynamic>());
+            final res = await _dio
+                .get(ApiRoutes.usersMe)
+                .timeout(_bootstrapTimeout);
+            return UserModel.fromJson(
+              (res.data as Map).cast<String, dynamic>(),
+            );
           }
         }
 

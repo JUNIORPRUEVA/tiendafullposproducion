@@ -79,20 +79,25 @@ class CatalogController extends StateNotifier<CatalogState> {
     }
   }
 
-  Future<void> load() async {
-    if (state.items.isEmpty) {
+  Future<void> load({bool silent = false, bool forceRemote = false}) async {
+    final shouldShowLoading = !silent || state.items.isEmpty;
+
+    if (shouldShowLoading && state.items.isEmpty) {
       final cached = await _loadFromCache();
       if (cached.isNotEmpty) {
         state = state.copyWith(items: cached, loading: true, clearError: true);
       } else {
         state = state.copyWith(loading: true, clearError: true);
       }
-    } else {
+    } else if (shouldShowLoading) {
       state = state.copyWith(loading: true, clearError: true);
+    } else {
+      state = state.copyWith(clearError: true);
     }
+
     try {
       final repo = ref.read(catalogRepositoryProvider);
-      final items = await repo.fetchProducts();
+      final items = await repo.fetchProducts(forceRefresh: forceRemote);
       state = state.copyWith(items: items, loading: false);
       await _saveToCache(items);
     } catch (e) {
@@ -100,6 +105,7 @@ class CatalogController extends StateNotifier<CatalogState> {
           ? e.message
           : 'No se pudieron cargar los productos';
       // Keep cached/previous items (if any) so UI doesn't go blank.
+      if (silent && state.items.isNotEmpty) return;
       state = state.copyWith(loading: false, error: message);
     }
   }

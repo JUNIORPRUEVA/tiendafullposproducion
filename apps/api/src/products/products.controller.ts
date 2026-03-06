@@ -1,4 +1,4 @@
-import { BadRequestException, Body, ConflictException, Controller, Delete, Get, Param, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Delete, Get, Header, Param, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client';
@@ -45,12 +45,20 @@ export class ProductsController {
   }
 
   @UseGuards(AuthGuard('jwt'))
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+  @Header('Pragma', 'no-cache')
+  @Header('Expires', '0')
+  @Header('Surrogate-Control', 'no-store')
   @Get()
   findAll() {
     return this.products.findAll();
   }
 
   @UseGuards(AuthGuard('jwt'))
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+  @Header('Pragma', 'no-cache')
+  @Header('Expires', '0')
+  @Header('Surrogate-Control', 'no-store')
   @Get('source')
   source() {
     return {
@@ -60,6 +68,10 @@ export class ProductsController {
   }
 
   @UseGuards(AuthGuard('jwt'))
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+  @Header('Pragma', 'no-cache')
+  @Header('Expires', '0')
+  @Header('Surrogate-Control', 'no-store')
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.products.findOne(id);

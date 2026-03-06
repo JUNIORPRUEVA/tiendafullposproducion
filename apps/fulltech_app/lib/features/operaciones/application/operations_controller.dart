@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 
@@ -268,8 +270,17 @@ class OperationsController extends StateNotifier<OperationsState> {
     await load();
   }
 
-  Future<ServiceModel> getOne(String id) {
-    return ref.read(operationsRepositoryProvider).getService(id);
+  Future<ServiceModel> getOne(String id) async {
+    final repo = ref.read(operationsRepositoryProvider);
+    final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
+
+    final cached = await repo.getCachedService(cacheScope: cacheScope, id: id);
+    if (cached != null) {
+      unawaited(repo.getServiceAndCache(cacheScope: cacheScope, id: id));
+      return cached;
+    }
+
+    return repo.getServiceAndCache(cacheScope: cacheScope, id: id);
   }
 
   Future<ServiceModel> updateService({

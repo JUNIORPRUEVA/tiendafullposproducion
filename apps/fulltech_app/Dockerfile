@@ -5,7 +5,7 @@ FROM ghcr.io/cirruslabs/flutter:stable AS build
 WORKDIR /app
 
 # Run flutter as a non-root user (EasyPanel builds often run as root).
-RUN adduser -D -u 10001 flutteruser
+RUN adduser --disabled-password --gecos "" --uid 10001 flutteruser
 ENV HOME=/home/flutteruser
 ENV PUB_CACHE=/home/flutteruser/.pub-cache
 
