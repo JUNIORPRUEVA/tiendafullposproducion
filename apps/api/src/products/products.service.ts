@@ -139,6 +139,8 @@ export class ProductsService {
       nombre: p.name,
       categoria: null,
       categoriaNombre: null,
+      stock: p.stock,
+      cantidadDisponible: p.stock,
       precio: p.price,
       costo: p.cost,
       imagen: p.image_url ?? null,
@@ -295,6 +297,8 @@ export class ProductsService {
     return {
       ...product,
       fotoUrl,
+      stock: null,
+      cantidadDisponible: null,
       categoria: product.categoria ?? null,
       categoriaNombre: product.categoria ?? null,
     };

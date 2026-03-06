@@ -43,6 +43,7 @@ class ProductModel {
   final String nombre;
   final double precio;
   final double costo;
+  final double? stock;
   final String? fotoUrl;
   final DateTime? createdAt;
   final String? categoria;
@@ -52,6 +53,7 @@ class ProductModel {
     required this.nombre,
     required this.precio,
     required this.costo,
+    this.stock,
     this.categoria,
     this.fotoUrl,
     this.createdAt,
@@ -67,6 +69,17 @@ class ProductModel {
       costo: (json['costo'] is num)
           ? (json['costo'] as num).toDouble()
           : double.tryParse(json['costo']?.toString() ?? '') ?? 0,
+      stock:
+          (json['stock'] ?? json['cantidadDisponible'] ?? json['cantidad'])
+              is num
+          ? ((json['stock'] ?? json['cantidadDisponible'] ?? json['cantidad'])
+                    as num)
+                .toDouble()
+          : double.tryParse(
+              (json['stock'] ?? json['cantidadDisponible'] ?? json['cantidad'])
+                      ?.toString() ??
+                  '',
+            ),
       categoria:
           json['categoria'] as String? ?? json['categoriaNombre'] as String?,
       fotoUrl: _resolveFotoUrl((json['fotoUrl'] ?? json['imagen']) as String?),
@@ -82,6 +95,7 @@ class ProductModel {
       'nombre': nombre,
       'precio': precio,
       'costo': costo,
+      'stock': stock,
       'categoria': categoria,
       'fotoUrl': fotoUrl,
       'createdAt': createdAt?.toIso8601String(),

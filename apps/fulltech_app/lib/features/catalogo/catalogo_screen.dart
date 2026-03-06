@@ -14,6 +14,12 @@ import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import 'application/catalog_controller.dart';
 
+String _formatStock(double? stock) {
+  if (stock == null) return '—';
+  final isWhole = stock % 1 == 0;
+  return isWhole ? stock.toStringAsFixed(0) : stock.toStringAsFixed(2);
+}
+
 class CatalogoScreen extends ConsumerStatefulWidget {
   final bool modal;
 
@@ -574,6 +580,10 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
                   value: product.categoriaLabel,
                 ),
                 _ProductDetailLine(
+                  label: 'Disponible',
+                  value: _formatStock(product.stock),
+                ),
+                _ProductDetailLine(
                   label: 'Precio',
                   value: '\$${product.precio.toStringAsFixed(2)}',
                 ),
@@ -762,6 +772,16 @@ class _ProductCard extends StatelessWidget {
                       color: Colors.white,
                       fontSize: compact ? 10 : 11,
                       fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    'Disponible ${_formatStock(product.stock)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: compact ? 9.5 : 10.5,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                   if (showCost)
