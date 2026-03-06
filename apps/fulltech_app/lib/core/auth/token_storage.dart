@@ -6,6 +6,8 @@ class TokenStorage {
   static const _accessTokenKey = 'accessToken';
   static const _refreshTokenKey = 'refreshToken';
   final _secureStorage = const FlutterSecureStorage();
+  String? _memoryAccessToken;
+  String? _memoryRefreshToken;
 
   bool get _useSecureStorage {
     if (kIsWeb) return false;
@@ -16,39 +18,86 @@ class TokenStorage {
   Future<SharedPreferences> _prefs() => SharedPreferences.getInstance();
 
   Future<void> saveTokens(String accessToken, [String? refreshToken]) async {
+    _memoryAccessToken = accessToken;
+    if (refreshToken != null && refreshToken.isNotEmpty) {
+      _memoryRefreshToken = refreshToken;
+    }
+
     await _saveInPrefs(accessToken, refreshToken); // Keep a durable fallback
     await _saveInSecure(accessToken, refreshToken);
   }
 
   Future<String?> getAccessToken() async {
-    final secure = await _readSecure(_accessTokenKey);
-    if (secure != null && secure.isNotEmpty) return secure;
+    if (_memoryAccessToken != null && _memoryAccessToken!.isNotEmpty) {
+      return _memoryAccessToken;
+    }
 
-    final prefs = await _prefs();
-    return prefs.getString(_accessTokenKey);
+    final secure = await _readSecure(_accessTokenKey);
+    if (secure != null && secure.isNotEmpty) {
+      _memoryAccessToken = secure;
+      return secure;
+    }
+
+    try {
+      final prefs = await _prefs();
+      final value = prefs.getString(_accessTokenKey);
+      if (value != null && value.isNotEmpty) {
+        _memoryAccessToken = value;
+      }
+      return value;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<String?> getRefreshToken() async {
-    final secure = await _readSecure(_refreshTokenKey);
-    if (secure != null && secure.isNotEmpty) return secure;
+    if (_memoryRefreshToken != null && _memoryRefreshToken!.isNotEmpty) {
+      return _memoryRefreshToken;
+    }
 
-    final prefs = await _prefs();
-    return prefs.getString(_refreshTokenKey);
+    final secure = await _readSecure(_refreshTokenKey);
+    if (secure != null && secure.isNotEmpty) {
+      _memoryRefreshToken = secure;
+      return secure;
+    }
+
+    try {
+      final prefs = await _prefs();
+      final value = prefs.getString(_refreshTokenKey);
+      if (value != null && value.isNotEmpty) {
+        _memoryRefreshToken = value;
+      }
+      return value;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> clearTokens() async {
-    final prefs = await _prefs();
-    await prefs.remove(_accessTokenKey);
-    await prefs.remove(_refreshTokenKey);
+    _memoryAccessToken = null;
+    _memoryRefreshToken = null;
+
+    try {
+      final prefs = await _prefs();
+      await prefs.remove(_accessTokenKey);
+      await prefs.remove(_refreshTokenKey);
+    } catch (_) {
+      // Ignore prefs failures and still clear secure storage.
+    }
+
     await _deleteSecure(_accessTokenKey);
     await _deleteSecure(_refreshTokenKey);
   }
 
   Future<void> _saveInPrefs(String accessToken, [String? refreshToken]) async {
-    final prefs = await _prefs();
-    await prefs.setString(_accessTokenKey, accessToken);
-    if (refreshToken != null && refreshToken.isNotEmpty) {
-      await prefs.setString(_refreshTokenKey, refreshToken);
+    try {
+      final prefs = await _prefs();
+      await prefs.setString(_accessTokenKey, accessToken);
+      if (refreshToken != null && refreshToken.isNotEmpty) {
+        await prefs.setString(_refreshTokenKey, refreshToken);
+      }
+    } catch (_) {
+      // Keep in-memory tokens as fallback for this session.
     }
   }
 
