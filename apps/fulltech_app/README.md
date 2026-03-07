@@ -63,6 +63,17 @@ Variables a definir en EasyPanel (Runtime Env):
 - `API_BASE_URL` (ej: `https://tu-api.tudominio.com`)
 - `API_TIMEOUT_MS` (opcional)
 
+### Recomendado (PWA): Proxy same-origin (evita CORS/XHR)
+
+En algunos hosting/proxies el navegador puede reportar errores tipo `XMLHttpRequest onError` aunque el backend responda.
+La forma más estable de evitarlo es servir la API como **misma** origin que la PWA usando un proxy en Nginx.
+
+Configura en EasyPanel (PWA container):
+- `API_BASE_URL=/api`
+- `API_UPSTREAM_URL=https://tu-api.tudominio.com`
+
+Esto hace que la app llame a `https://TU_PWA_DOMINIO/api/...` y Nginx lo redirija al backend.
+
 ## Arquitectura
 
 - `lib/core/`: api, auth storage, routing, theme, widgets, errors

@@ -4,6 +4,7 @@ set -eu
 WEB_ROOT="/usr/share/nginx/html"
 ENV_FILE="$WEB_ROOT/assets/.env"
 EXAMPLE_FILE="$WEB_ROOT/assets/.env.example"
+NGINX_CONF="/etc/nginx/conf.d/default.conf"
 
 js_escape() {
   # Escape backslashes and double quotes for safe JS string literals.
@@ -52,5 +53,63 @@ window.__ENV.API_TIMEOUT_MS = function () { return window.__ENV.API_TIMEOUT_MS_V
 window.__ENV.API_BASE_URL_STR = window.API_BASE_URL;
 window.__ENV.API_TIMEOUT_MS_STR = window.API_TIMEOUT_MS;
 EOF
+
+# Optional: same-origin reverse proxy to avoid CORS/XHR issues in browsers.
+# Configure:
+# - API_BASE_URL=/api
+# - API_UPSTREAM_URL=https://your-api.example.com
+if [ "${API_UPSTREAM_URL:-}" != "" ]; then
+  UPSTREAM="${API_UPSTREAM_URL%/}"
+  UPSTREAM_HOST="$(printf '%s' "$UPSTREAM" | sed -E 's|^https?://([^/]+).*|\1|')"
+
+  cat > "$NGINX_CONF" <<EOF
+server {
+  listen 80;
+  server_name _;
+
+  root /usr/share/nginx/html;
+  index index.html;
+
+  location = /index.html {
+    add_header Cache-Control "no-cache";
+  }
+
+  location = /flutter_service_worker.js {
+    add_header Cache-Control "no-cache";
+  }
+
+  location = /manifest.json {
+    add_header Cache-Control "no-cache";
+  }
+
+  location = /assets/.env {
+    add_header Cache-Control "no-cache";
+  }
+
+  location = /assets/.env.example {
+    add_header Cache-Control "no-cache";
+  }
+
+  location = /env.js {
+    add_header Cache-Control "no-cache";
+  }
+
+  # Reverse proxy: /api/* -> API_UPSTREAM_URL/*
+  location /api/ {
+    proxy_ssl_server_name on;
+    proxy_pass $UPSTREAM/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $UPSTREAM_HOST;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
+EOF
+fi
 
 exec nginx -g "daemon off;"
