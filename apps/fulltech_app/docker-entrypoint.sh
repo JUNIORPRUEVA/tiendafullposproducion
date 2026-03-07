@@ -59,10 +59,17 @@ EOF
 # - API_BASE_URL=/api
 # - API_UPSTREAM_URL=https://your-api.example.com
 if [ "${API_UPSTREAM_URL:-}" != "" ]; then
+  escape_sed_repl() {
+    # Escape '&' and delimiter '@' for safe sed replacement.
+    printf '%s' "$1" | sed 's/[&@]/\\&/g'
+  }
+
   UPSTREAM="${API_UPSTREAM_URL%/}"
   UPSTREAM_HOST="$(printf '%s' "$UPSTREAM" | sed -E 's|^https?://([^/]+).*|\1|')"
+  UPSTREAM_ESC="$(escape_sed_repl "$UPSTREAM")"
+  UPSTREAM_HOST_ESC="$(escape_sed_repl "$UPSTREAM_HOST")"
 
-  cat > "$NGINX_CONF" <<EOF
+  cat > "$NGINX_CONF" <<'EOF'
 server {
   listen 80;
   server_name _;
@@ -97,12 +104,12 @@ server {
   # Reverse proxy: /api/* -> API_UPSTREAM_URL/*
   location /api/ {
     proxy_ssl_server_name on;
-    proxy_pass $UPSTREAM/;
+    proxy_pass __UPSTREAM__/;
     proxy_http_version 1.1;
-    proxy_set_header Host $UPSTREAM_HOST;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header Host __UPSTREAM_HOST__;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
   }
 
   location / {
@@ -110,6 +117,11 @@ server {
   }
 }
 EOF
+
+  sed -i \
+    -e "s@__UPSTREAM__@${UPSTREAM_ESC}@g" \
+    -e "s@__UPSTREAM_HOST__@${UPSTREAM_HOST_ESC}@g" \
+    "$NGINX_CONF"
 fi
 
 exec nginx -g "daemon off;"
