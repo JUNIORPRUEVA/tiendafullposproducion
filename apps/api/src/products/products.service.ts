@@ -1,58 +1,27 @@
-import { ConflictException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, Product } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CatalogProductsService } from './catalog-products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
 type ProductsSource = 'FULLPOS' | 'LOCAL';
-
-type FullposIntegrationProduct = {
-  id: number;
-  sku: string;
-  barcode: string;
-  name: string;
-  price: number;
-  cost: number;
-  stock: number;
-  image_url?: string | null;
-  imageUrl?: string | null;
-  active: boolean;
-  updated_at: string;
-  updatedAt?: string;
-};
-
-type FullposListResponse = {
-  items: FullposIntegrationProduct[];
-  next_cursor: string | null;
-};
-
-type RemoteImageValidation = {
-  isValid: boolean;
-  checkedAt: number;
-};
 
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
   private readonly publicBaseUrl: string;
   private readonly productsSource: ProductsSource;
-  private readonly fullposBaseUrl: string;
-  private readonly fullposIntegrationToken: string;
-  private readonly fullposTimeoutMs: number;
   private readonly allowLocalFallback: boolean;
-  private readonly remoteImageValidationCache = new Map<string, RemoteImageValidation>();
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly catalogProducts: CatalogProductsService,
     config: ConfigService
   ) {
     const base = config.get<string>('PUBLIC_BASE_URL') ?? config.get<string>('API_BASE_URL') ?? '';
     this.publicBaseUrl = base.trim().replace(/\/$/, '');
-
-    this.fullposBaseUrl = (config.get<string>('FULLPOS_INTEGRATION_BASE_URL') ?? '').trim().replace(/\/$/, '');
-    this.fullposIntegrationToken = (config.get<string>('FULLPOS_INTEGRATION_TOKEN') ?? '').trim();
-    this.fullposTimeoutMs = Number(config.get<string>('FULLPOS_INTEGRATION_TIMEOUT_MS') ?? 8000);
 
     const rawFallback = (config.get<string>('PRODUCTS_ALLOW_LOCAL_FALLBACK') ?? '').trim().toLowerCase();
     this.allowLocalFallback = rawFallback === '1' || rawFallback === 'true' || rawFallback === 'yes';
@@ -60,7 +29,9 @@ export class ProductsService {
     const rawSource = (config.get<string>('PRODUCTS_SOURCE') ?? '').trim().toUpperCase();
     const nodeEnv = (config.get<string>('NODE_ENV') ?? process.env.NODE_ENV ?? 'development').toLowerCase();
 
-    const fullposConfigured = this.fullposBaseUrl.length > 0 && this.fullposIntegrationToken.length > 0;
+    const fullposBaseUrl = (config.get<string>('FULLPOS_INTEGRATION_BASE_URL') ?? '').trim();
+    const fullposIntegrationToken = (config.get<string>('FULLPOS_INTEGRATION_TOKEN') ?? '').trim();
+    const fullposConfigured = fullposBaseUrl.length > 0 && fullposIntegrationToken.length > 0;
 
     // Backwards-compatible default: use LOCAL unless FULLPOS is explicitly selected
     // or is fully configured (so dev environments don't break /products).
@@ -91,149 +62,6 @@ export class ProductsService {
     if (this.productsSource === 'FULLPOS') {
       throw new ConflictException('Productos en modo solo-lectura: fuente FULLPOS (cloud). Administra productos en FULLPOS.');
     }
-  }
-
-  private ensureFullposConfigured() {
-    if (!this.fullposBaseUrl) {
-      throw new ServiceUnavailableException('FULLPOS_INTEGRATION_BASE_URL no está configurado');
-    }
-    if (!this.fullposIntegrationToken) {
-      throw new ServiceUnavailableException('FULLPOS_INTEGRATION_TOKEN no está configurado');
-    }
-  }
-
-  private async validateFullposImageUrl(url: string | null | undefined): Promise<string | null> {
-    const candidate = (url ?? '').trim();
-    if (!candidate || !/^https?:\/\//i.test(candidate)) {
-      return candidate || null;
-    }
-
-    let parsedUrl: URL;
-    let fullposUrl: URL;
-    try {
-      parsedUrl = new URL(candidate);
-      fullposUrl = new URL(this.fullposBaseUrl);
-    } catch {
-      return candidate;
-    }
-
-    const sameFullposHost = parsedUrl.host.toLowerCase() === fullposUrl.host.toLowerCase();
-    const looksLikeUpload = parsedUrl.pathname.toLowerCase().includes('/uploads/');
-    if (!sameFullposHost || !looksLikeUpload) {
-      return candidate;
-    }
-
-    const cached = this.remoteImageValidationCache.get(candidate);
-    const now = Date.now();
-    if (cached) {
-      const ttlMs = cached.isValid ? 30 * 60 * 1000 : 5 * 60 * 1000;
-      if (now - cached.checkedAt < ttlMs) {
-        return cached.isValid ? candidate : null;
-      }
-    }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), Math.min(this.fullposTimeoutMs, 3000));
-
-    try {
-      let response = await fetch(candidate, {
-        method: 'HEAD',
-        headers: { Accept: 'image/*,*/*;q=0.8' },
-        signal: controller.signal,
-      });
-
-      if (response.status === 405 || response.status === 501) {
-        response = await fetch(candidate, {
-          method: 'GET',
-          headers: { Accept: 'image/*,*/*;q=0.8' },
-          signal: controller.signal,
-        });
-      }
-
-      const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
-      const isValid = response.ok && contentType.startsWith('image/');
-      this.remoteImageValidationCache.set(candidate, {
-        isValid,
-        checkedAt: now,
-      });
-      if (!isValid) {
-        this.logger.warn(`FULLPOS image unavailable; omitting dead url status=${response.status} url=${candidate}`);
-      }
-      return isValid ? candidate : null;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`FULLPOS image validation failed; omitting url=${candidate} error=${message}`);
-      this.remoteImageValidationCache.set(candidate, {
-        isValid: false,
-        checkedAt: now,
-      });
-      return null;
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
-  private async fetchFullposProducts(): Promise<any[]> {
-    this.ensureFullposConfigured();
-
-    const items: FullposIntegrationProduct[] = [];
-    let cursor: string | null = null;
-
-    for (let page = 0; page < 50; page += 1) {
-      const url = new URL(`${this.fullposBaseUrl}/api/integrations/products`);
-      url.searchParams.set('limit', '500');
-      if (cursor) url.searchParams.set('cursor', cursor);
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), this.fullposTimeoutMs);
-
-      try {
-        const res = await fetch(url.toString(), {
-          method: 'GET',
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${this.fullposIntegrationToken}`,
-          },
-          signal: controller.signal,
-        });
-
-        if (!res.ok) {
-          const text = await res.text().catch(() => '');
-          this.logger.warn(`FULLPOS integrations/products failed: status=${res.status} body=${text.substring(0, 200)}`);
-          throw new ServiceUnavailableException('No se pudieron cargar productos desde FULLPOS');
-        }
-
-        const data = (await res.json()) as FullposListResponse;
-        const batch = Array.isArray(data?.items) ? data.items : [];
-        items.push(...batch);
-        cursor = data?.next_cursor ?? null;
-        if (!cursor) break;
-      } finally {
-        clearTimeout(timeout);
-      }
-    }
-
-    const mapped = await Promise.all(items.map(async (p) => {
-      const imageUrl = await this.validateFullposImageUrl(p.image_url ?? p.imageUrl ?? null);
-      const updatedAt = p.updated_at ?? p.updatedAt ?? null;
-
-      return ({
-      id: String(p.id),
-      nombre: p.name,
-      categoria: null,
-      categoriaNombre: null,
-      stock: p.stock,
-      cantidadDisponible: p.stock,
-      precio: p.price,
-      costo: p.cost,
-      imagen: imageUrl,
-      fotoUrl: imageUrl,
-      createdAt: null,
-      updatedAt,
-    });
-    }));
-
-    return mapped;
   }
 
   private isSchemaMismatch(error: unknown) {
@@ -286,7 +114,8 @@ export class ProductsService {
   async findAll(): Promise<any[]> {
     if (this.productsSource === 'FULLPOS') {
       try {
-        return await this.fetchFullposProducts();
+        const response = await this.catalogProducts.findAll();
+        return response.items;
       } catch (error) {
         if (!this.allowLocalFallback) {
           throw error;
@@ -313,10 +142,7 @@ export class ProductsService {
   async findOne(id: string): Promise<any> {
     if (this.productsSource === 'FULLPOS') {
       try {
-        const items = await this.fetchFullposProducts();
-        const found = items.find((p) => `${p.id}` === `${id}`);
-        if (!found) throw new NotFoundException('Product not found');
-        return found;
+        return await this.catalogProducts.findOne(id);
       } catch (error) {
         if (!this.allowLocalFallback) {
           throw error;

@@ -12,6 +12,10 @@ final companySettingsRepositoryProvider = Provider<CompanySettingsRepository>((
   return CompanySettingsRepository(ref.watch(dioProvider));
 });
 
+final companySettingsProvider = FutureProvider<CompanySettings>((ref) async {
+  return ref.watch(companySettingsRepositoryProvider).getSettings();
+});
+
 class CompanySettingsRepository {
   final Dio _dio;
 

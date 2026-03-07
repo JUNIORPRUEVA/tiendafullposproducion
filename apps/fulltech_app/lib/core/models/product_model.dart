@@ -44,6 +44,8 @@ String? _versionFromDate(DateTime? value) {
 class ProductModel {
   final String id;
   final String nombre;
+  final String? descripcion;
+  final String? codigo;
   final double precio;
   final double costo;
   final double? stock;
@@ -52,11 +54,14 @@ class ProductModel {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final String? categoria;
+  final bool activo;
   final String? imageVersion;
 
   ProductModel({
     required this.id,
     required this.nombre,
+    this.descripcion,
+    this.codigo,
     required this.precio,
     required this.costo,
     this.stock,
@@ -65,12 +70,15 @@ class ProductModel {
     this.originalFotoUrl,
     this.createdAt,
     this.updatedAt,
+    this.activo = true,
     this.imageVersion,
   });
 
   ProductModel copyWith({
     String? id,
     String? nombre,
+    String? descripcion,
+    String? codigo,
     double? precio,
     double? costo,
     double? stock,
@@ -79,11 +87,14 @@ class ProductModel {
     String? originalFotoUrl,
     DateTime? createdAt,
     DateTime? updatedAt,
+    bool? activo,
     String? imageVersion,
   }) {
     return ProductModel(
       id: id ?? this.id,
       nombre: nombre ?? this.nombre,
+      descripcion: descripcion ?? this.descripcion,
+      codigo: codigo ?? this.codigo,
       precio: precio ?? this.precio,
       costo: costo ?? this.costo,
       stock: stock ?? this.stock,
@@ -92,6 +103,7 @@ class ProductModel {
       originalFotoUrl: originalFotoUrl ?? this.originalFotoUrl,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      activo: activo ?? this.activo,
       imageVersion: imageVersion ?? this.imageVersion,
     );
   }
@@ -101,6 +113,12 @@ class ProductModel {
         json['stock'] ?? json['cantidadDisponible'] ?? json['cantidad'];
     final categoria = _asNullableString(
       json['categoria'] ?? json['categoriaNombre'],
+    );
+    final descripcion = _asNullableString(
+      json['descripcion'] ?? json['description'] ?? json['detalle'],
+    );
+    final codigo = _asNullableString(
+      json['codigo'] ?? json['sku'] ?? json['barcode'] ?? json['code'],
     );
     final foto = _asNullableString(
       json['originalFotoUrl'] ??
@@ -131,6 +149,11 @@ class ProductModel {
           json['catalogRefreshVersion'] ??
           json['_catalogSyncVersion'],
     );
+    final activoValue = json['activo'];
+    final activo =
+        activoValue is bool
+            ? activoValue
+            : (json['estado']?.toString().toLowerCase() != 'inactivo');
     final normalizedFotoUrl = normalizeProductImageUrl(
       imageUrl: foto,
       baseUrl: Env.apiBaseUrl,
@@ -155,6 +178,8 @@ class ProductModel {
     return ProductModel(
       id: productId,
       nombre: productName,
+      descripcion: descripcion,
+      codigo: codigo,
       precio: _asDouble(json['precio']),
       costo: _asDouble(json['costo']),
       stock: _asNullableDouble(rawStock),
@@ -163,6 +188,7 @@ class ProductModel {
       originalFotoUrl: foto,
       createdAt: createdAt,
       updatedAt: updatedAt,
+      activo: activo,
       imageVersion: imageVersion,
     );
   }
@@ -171,6 +197,8 @@ class ProductModel {
     return {
       'id': id,
       'nombre': nombre,
+      'descripcion': descripcion,
+      'codigo': codigo,
       'precio': precio,
       'costo': costo,
       'stock': stock,
@@ -179,6 +207,7 @@ class ProductModel {
       'originalFotoUrl': originalFotoUrl,
       'createdAt': createdAt?.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
+      'activo': activo,
       'imageVersion': imageVersion,
     };
   }

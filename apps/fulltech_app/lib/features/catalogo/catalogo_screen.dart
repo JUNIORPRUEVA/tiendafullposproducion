@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/company/company_settings_repository.dart';
 import '../../core/models/product_model.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/product_image_url.dart';
@@ -112,7 +113,9 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
   Widget build(BuildContext context) {
     final user = ref.watch(authStateProvider).user;
     final isAdmin = (user?.role ?? '').trim().toUpperCase() == 'ADMIN';
-    final canManage = isAdmin;
+    final companySettings = ref.watch(companySettingsProvider);
+    final productsReadOnly = companySettings.valueOrNull?.productsReadOnly ?? true;
+    final canManage = isAdmin && !productsReadOnly;
 
     final isModal = widget.modal;
 

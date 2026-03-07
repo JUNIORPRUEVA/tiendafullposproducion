@@ -127,7 +127,7 @@ class VentasRepository {
   Future<List<ProductModel>> fetchProducts({bool forceRefresh = false}) async {
     try {
       final res = await _dio.get(
-        ApiRoutes.products,
+        ApiRoutes.catalogProducts,
         queryParameters: forceRefresh
             ? {'_ts': DateTime.now().millisecondsSinceEpoch}
             : null,

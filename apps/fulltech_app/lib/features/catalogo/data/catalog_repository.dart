@@ -59,7 +59,7 @@ class CatalogRepository {
   }) async {
     try {
       final res = await _dio.get(
-        ApiRoutes.products,
+        ApiRoutes.catalogProducts,
         queryParameters: forceRefresh
             ? {'_ts': DateTime.now().millisecondsSinceEpoch}
             : null,
@@ -124,6 +124,7 @@ class CatalogRepository {
     required String categoria,
   }) async {
     try {
+      // Legacy LOCAL-only operation. Catalog reads now use /catalog/products.
       final res = await _dio.post(
         ApiRoutes.products,
         data: {
@@ -152,6 +153,7 @@ class CatalogRepository {
     String? categoria,
   }) async {
     try {
+      // Legacy LOCAL-only operation. Catalog reads now use /catalog/products.
       final res = await _dio.patch(
         ApiRoutes.updateProduct(id),
         data: {
@@ -173,6 +175,7 @@ class CatalogRepository {
 
   Future<void> deleteProduct(String id) async {
     try {
+      // Legacy LOCAL-only operation. Catalog reads now use /catalog/products.
       await _dio.delete(ApiRoutes.deleteProduct(id));
     } on DioException catch (e) {
       throw ApiException(

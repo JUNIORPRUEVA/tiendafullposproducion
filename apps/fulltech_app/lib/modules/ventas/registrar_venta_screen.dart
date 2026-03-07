@@ -33,8 +33,8 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
   static const Duration _liveSyncInterval = Duration(seconds: 30);
   static const Duration _silentRefreshMinInterval = Duration(seconds: 20);
 
-  static const _productsCacheKey = 'ventas_products_cache_v3';
-  static const _productsCacheAtKey = 'ventas_products_cache_at_v3';
+  static const _productsCacheKey = 'ventas_products_cache_v4';
+  static const _productsCacheAtKey = 'ventas_products_cache_at_v4';
 
   bool _loadingProducts = true;
   bool _saving = false;

@@ -55,6 +55,7 @@ class ApiRoutes {
 
   // Productos
   static const products = '/products';
+    static const catalogProducts = '/catalog/products';
   static const productsUpload = '/products/upload';
   static String productDetail(String id) => '/products/$id';
   static String updateProduct(String id) => '/products/$id';
