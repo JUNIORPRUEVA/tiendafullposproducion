@@ -55,8 +55,13 @@ Pasos (resumen):
 4) Asigna el dominio genérico de EasyPanel y despliega.
 
 Nota de configuración:
-- La URL del backend se toma desde `.env` (asset). En CI/builds se genera automáticamente desde `.env.example`.
-- Ajusta `API_BASE_URL` en `apps/fulltech_app/.env.example` al dominio real de tu API antes de desplegar.
+- En **Web/PWA**, EasyPanel debe inyectar `API_BASE_URL` como variable de entorno del contenedor.
+- El contenedor genera `/env.js` al arrancar (no queda cacheado por el service worker) y la app lo lee en runtime.
+- `.env` (asset) sigue existiendo como fallback, pero para cloud lo ideal es **no depender** de editar `.env.example`.
+
+Variables a definir en EasyPanel (Runtime Env):
+- `API_BASE_URL` (ej: `https://tu-api.tudominio.com`)
+- `API_TIMEOUT_MS` (opcional)
 
 ## Arquitectura
 

@@ -1,10 +1,29 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import 'runtime_env.dart';
+
 class Env {
   static const String _defaultApiBaseUrl = 'https://api.midominio.com';
 
   static String? _readEnv(String key) {
+    // 1) Compile-time values (flutter build --dart-define=...)
+    if (key == 'API_BASE_URL') {
+      const v = String.fromEnvironment('API_BASE_URL', defaultValue: '');
+      if (v.trim().isNotEmpty) return v;
+    }
+    if (key == 'API_TIMEOUT_MS') {
+      const v = String.fromEnvironment('API_TIMEOUT_MS', defaultValue: '');
+      if (v.trim().isNotEmpty) return v;
+    }
+
+    // 2) Runtime values for Web (injected via env.js)
+    if (kIsWeb) {
+      final v = RuntimeEnv.get(key);
+      if (v != null && v.trim().isNotEmpty) return v;
+    }
+
+    // 3) Bundled .env assets (flutter_dotenv)
     try {
       return dotenv.env[key];
     } catch (_) {

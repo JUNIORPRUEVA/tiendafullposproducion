@@ -5,6 +5,11 @@ WEB_ROOT="/usr/share/nginx/html"
 ENV_FILE="$WEB_ROOT/assets/.env"
 EXAMPLE_FILE="$WEB_ROOT/assets/.env.example"
 
+js_escape() {
+  # Escape backslashes and double quotes for safe JS string literals.
+  printf '%s' "$1" | sed 's/\\\\/\\\\\\\\/g; s/"/\\"/g'
+}
+
 # Ensure the env file exists (so flutter_dotenv can load it as an asset).
 if [ ! -f "$ENV_FILE" ] && [ -f "$EXAMPLE_FILE" ]; then
   cp "$EXAMPLE_FILE" "$ENV_FILE"
@@ -23,5 +28,19 @@ if [ "${API_BASE_URL:-}" != "" ] || [ "${API_TIMEOUT_MS:-}" != "" ]; then
     fi
   } > "$ENV_FILE"
 fi
+
+# Generate runtime config for Flutter Web (NOT part of flutter_service_worker RESOURCES).
+# This avoids stale config caused by PWA caching of assets.
+API_BASE_URL_ESC="$(js_escape "${API_BASE_URL:-}")"
+API_TIMEOUT_MS_ESC="$(js_escape "${API_TIMEOUT_MS:-}")"
+cat > "$WEB_ROOT/env.js" <<EOF
+// Generated at container start
+window.__ENV = window.__ENV || {};
+window.__ENV.API_BASE_URL = "${API_BASE_URL_ESC}";
+window.__ENV.API_TIMEOUT_MS = "${API_TIMEOUT_MS_ESC}";
+// Backwards-compatible aliases
+window.API_BASE_URL = window.__ENV.API_BASE_URL;
+window.API_TIMEOUT_MS = window.__ENV.API_TIMEOUT_MS;
+EOF
 
 exec nginx -g "daemon off;"
