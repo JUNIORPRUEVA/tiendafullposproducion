@@ -16,8 +16,10 @@ type FullposIntegrationProduct = {
   cost: number;
   stock: number;
   image_url?: string | null;
+  imageUrl?: string | null;
   active: boolean;
   updated_at: string;
+  updatedAt?: string;
 };
 
 type FullposListResponse = {
@@ -134,7 +136,11 @@ export class ProductsService {
       }
     }
 
-    return items.map((p) => ({
+    return items.map((p) => {
+      const imageUrl = p.image_url ?? p.imageUrl ?? null;
+      const updatedAt = p.updated_at ?? p.updatedAt ?? null;
+
+      return ({
       id: String(p.id),
       nombre: p.name,
       categoria: null,
@@ -143,11 +149,12 @@ export class ProductsService {
       cantidadDisponible: p.stock,
       precio: p.price,
       costo: p.cost,
-      imagen: p.image_url ?? null,
-      fotoUrl: p.image_url ?? null,
+      imagen: imageUrl,
+      fotoUrl: imageUrl,
       createdAt: null,
-      updatedAt: p.updated_at,
-    }));
+      updatedAt,
+    });
+    });
   }
 
   private isSchemaMismatch(error: unknown) {

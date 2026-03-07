@@ -198,19 +198,8 @@ String _salaryToContractText(String salario) {
   final cents = ((value - pesos) * 100).round().clamp(0, 99);
   final words = _numberToSpanishWords(pesos);
   final centsText = cents.toString().padLeft(2, '0');
-  final fmt = NumberFormat.currency(symbol: 'RD\$', decimalDigits: 2);
+  final fmt = NumberFormat.currency(symbol: 'RS\$', decimalDigits: 2);
   return '${words.isEmpty ? '________________' : words} PESOS DOMINICANOS CON $centsText/100 (${fmt.format(value)})';
-}
-
-DateTime _addMonths(DateTime date, int monthsToAdd) {
-  final year = date.year + ((date.month - 1 + monthsToAdd) ~/ 12);
-  final month = ((date.month - 1 + monthsToAdd) % 12) + 1;
-
-  final lastDayOfTargetMonth = DateTime(year, month + 1, 0).day;
-  final day = date.day <= lastDayOfTargetMonth
-      ? date.day
-      : lastDayOfTargetMonth;
-  return DateTime(year, month, day);
 }
 
 Future<Uint8List> buildWorkContractPdf({
@@ -225,9 +214,8 @@ Future<Uint8List> buildWorkContractPdf({
 }) async {
   final today = DateTime.now();
 
-  final companyName = (company?.companyName ?? '').trim().isNotEmpty
-      ? company!.companyName.trim()
-      : 'FULLTECH, SRL';
+  // Contrato oficial: texto fijo como fue provisto.
+  const companyName = 'FULLTECH, SRL';
 
   // Datos fijos como aparecen en el contrato oficial provisto.
   const employerRncLine = '133 08020 6';
@@ -237,9 +225,8 @@ Future<Uint8List> buildWorkContractPdf({
   const representativeCedula = '40238377333';
   const representativeRole = 'gerente';
 
-  final companyAddress = (company?.address ?? '').trim().isNotEmpty
-      ? company!.address!.trim()
-      : 'la calle beller numero 9 centro, en la ciudad de Higüey, Provincia la Altagracia, República Dominicana';
+  const companyAddress =
+      'la calle beller numero 9 centro, en la ciudad de Higüey, Provincia la Altagracia, República Dominicana';
 
   final nombreEmpleado = employee.nombreCompleto.trim().isNotEmpty
       ? employee.nombreCompleto.trim()

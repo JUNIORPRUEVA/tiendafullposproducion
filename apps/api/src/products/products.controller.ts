@@ -93,10 +93,9 @@ export class ProductsController {
       throw new BadRequestException('url inválida');
     }
 
-    const isUploadsPath = parsedUrl.pathname.includes('/uploads/');
     const sameFullposHost = parsedUrl.host.toLowerCase() == fullposUrl.host.toLowerCase();
-    if (!isUploadsPath || !sameFullposHost) {
-      throw new BadRequestException('Solo se permiten imágenes de uploads de FULLPOS');
+    if (!sameFullposHost) {
+      throw new BadRequestException('Solo se permiten imágenes del host de FULLPOS');
     }
 
     const upstream = await fetch(parsedUrl.toString(), {
@@ -110,6 +109,10 @@ export class ProductsController {
     }
 
     const contentType = upstream.headers.get('content-type') ?? 'application/octet-stream';
+    if (!contentType.toLowerCase().startsWith('image/')) {
+      res.status(415).send('El recurso remoto no es una imagen');
+      return;
+    }
     const contentLength = upstream.headers.get('content-length');
     const body = Buffer.from(await upstream.arrayBuffer());
 

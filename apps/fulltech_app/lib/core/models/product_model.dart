@@ -103,7 +103,11 @@ class ProductModel {
       json['categoria'] ?? json['categoriaNombre'],
     );
     final foto = _asNullableString(
-      json['originalFotoUrl'] ?? json['fotoUrl'] ?? json['imagen'],
+      json['originalFotoUrl'] ??
+          json['fotoUrl'] ??
+          json['imagen'] ??
+          json['imageUrl'] ??
+          json['image_url'],
     );
     final createdAt = _firstParsedDate([
       json['createdAt'],
