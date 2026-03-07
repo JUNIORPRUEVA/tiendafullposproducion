@@ -27,6 +27,11 @@ type FullposListResponse = {
   next_cursor: string | null;
 };
 
+type RemoteImageValidation = {
+  isValid: boolean;
+  checkedAt: number;
+};
+
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
@@ -36,6 +41,7 @@ export class ProductsService {
   private readonly fullposIntegrationToken: string;
   private readonly fullposTimeoutMs: number;
   private readonly allowLocalFallback: boolean;
+  private readonly remoteImageValidationCache = new Map<string, RemoteImageValidation>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -96,6 +102,77 @@ export class ProductsService {
     }
   }
 
+  private async validateFullposImageUrl(url: string | null | undefined): Promise<string | null> {
+    const candidate = (url ?? '').trim();
+    if (!candidate || !/^https?:\/\//i.test(candidate)) {
+      return candidate || null;
+    }
+
+    let parsedUrl: URL;
+    let fullposUrl: URL;
+    try {
+      parsedUrl = new URL(candidate);
+      fullposUrl = new URL(this.fullposBaseUrl);
+    } catch {
+      return candidate;
+    }
+
+    const sameFullposHost = parsedUrl.host.toLowerCase() === fullposUrl.host.toLowerCase();
+    const looksLikeUpload = parsedUrl.pathname.toLowerCase().includes('/uploads/');
+    if (!sameFullposHost || !looksLikeUpload) {
+      return candidate;
+    }
+
+    const cached = this.remoteImageValidationCache.get(candidate);
+    const now = Date.now();
+    if (cached) {
+      const ttlMs = cached.isValid ? 30 * 60 * 1000 : 5 * 60 * 1000;
+      if (now - cached.checkedAt < ttlMs) {
+        return cached.isValid ? candidate : null;
+      }
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Math.min(this.fullposTimeoutMs, 3000));
+
+    try {
+      let response = await fetch(candidate, {
+        method: 'HEAD',
+        headers: { Accept: 'image/*,*/*;q=0.8' },
+        signal: controller.signal,
+      });
+
+      if (response.status === 405 || response.status === 501) {
+        response = await fetch(candidate, {
+          method: 'GET',
+          headers: { Accept: 'image/*,*/*;q=0.8' },
+          signal: controller.signal,
+        });
+      }
+
+      const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
+      const isValid = response.ok && contentType.startsWith('image/');
+      this.remoteImageValidationCache.set(candidate, {
+        isValid,
+        checkedAt: now,
+      });
+      if (!isValid) {
+        this.logger.warn(`FULLPOS image unavailable; omitting dead url status=${response.status} url=${candidate}`);
+      }
+      return isValid ? candidate : null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`FULLPOS image validation failed; omitting url=${candidate} error=${message}`);
+      this.remoteImageValidationCache.set(candidate, {
+        isValid: false,
+        checkedAt: now,
+      });
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   private async fetchFullposProducts(): Promise<any[]> {
     this.ensureFullposConfigured();
 
@@ -136,8 +213,8 @@ export class ProductsService {
       }
     }
 
-    return items.map((p) => {
-      const imageUrl = p.image_url ?? p.imageUrl ?? null;
+    const mapped = await Promise.all(items.map(async (p) => {
+      const imageUrl = await this.validateFullposImageUrl(p.image_url ?? p.imageUrl ?? null);
       const updatedAt = p.updated_at ?? p.updatedAt ?? null;
 
       return ({
@@ -154,7 +231,9 @@ export class ProductsService {
       createdAt: null,
       updatedAt,
     });
-    });
+    }));
+
+    return mapped;
   }
 
   private isSchemaMismatch(error: unknown) {

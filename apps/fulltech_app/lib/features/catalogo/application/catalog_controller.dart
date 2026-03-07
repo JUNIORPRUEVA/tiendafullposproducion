@@ -47,7 +47,7 @@ final catalogControllerProvider =
 
 class CatalogController extends StateNotifier<CatalogState> {
   final Ref ref;
-  static const _cacheKey = 'catalog_products_cache_v2';
+  static const _cacheKey = 'catalog_products_cache_v3';
   static const _silentRefreshMinInterval = Duration(seconds: 20);
   bool _remoteRefreshInFlight = false;
   DateTime? _lastSuccessfulRemoteSyncAt;
