@@ -36,11 +36,21 @@ API_TIMEOUT_MS_ESC="$(js_escape "${API_TIMEOUT_MS:-}")"
 cat > "$WEB_ROOT/env.js" <<EOF
 // Generated at container start
 window.__ENV = window.__ENV || {};
-window.__ENV.API_BASE_URL = "${API_BASE_URL_ESC}";
-window.__ENV.API_TIMEOUT_MS = "${API_TIMEOUT_MS_ESC}";
-// Backwards-compatible aliases
-window.API_BASE_URL = window.__ENV.API_BASE_URL;
-window.API_TIMEOUT_MS = window.__ENV.API_TIMEOUT_MS;
+// Primary (string) values for current builds
+window.API_BASE_URL = "${API_BASE_URL_ESC}";
+window.API_TIMEOUT_MS = "${API_TIMEOUT_MS_ESC}";
+
+// Backwards compatibility for older cached builds that expect functions:
+//   __ENV.API_BASE_URL() / __ENV.API_TIMEOUT_MS()
+// Also keep value mirrors for any code that reads __ENV.* as strings.
+window.__ENV.API_BASE_URL_VALUE = window.API_BASE_URL;
+window.__ENV.API_TIMEOUT_MS_VALUE = window.API_TIMEOUT_MS;
+window.__ENV.API_BASE_URL = function () { return window.__ENV.API_BASE_URL_VALUE; };
+window.__ENV.API_TIMEOUT_MS = function () { return window.__ENV.API_TIMEOUT_MS_VALUE; };
+
+// Convenience aliases (string)
+window.__ENV.API_BASE_URL_STR = window.API_BASE_URL;
+window.__ENV.API_TIMEOUT_MS_STR = window.API_TIMEOUT_MS;
 EOF
 
 exec nginx -g "daemon off;"
