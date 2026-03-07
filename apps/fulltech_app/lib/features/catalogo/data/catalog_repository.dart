@@ -39,6 +39,20 @@ class CatalogRepository {
     return fallback;
   }
 
+  String _formatDioError(DioException e, String fallback) {
+    final status = e.response?.statusCode;
+    final endpoint = e.requestOptions.path;
+    final uri = e.requestOptions.uri.toString();
+    final baseUrl = _dio.options.baseUrl;
+    final rawMessage = _extractMessage(e.response?.data, fallback);
+
+    if (status == null) {
+      return '[NETWORK] $rawMessage\nEndpoint: $endpoint\nURI: $uri\nBaseURL: $baseUrl\nDetalle: ${e.message ?? 'Sin respuesta del servidor'}';
+    }
+
+    return '[HTTP $status] $rawMessage\nEndpoint: $endpoint\nURI: $uri';
+  }
+
   Future<List<ProductModel>> fetchProducts({
     bool forceRefresh = false,
     bool silent = false,
@@ -65,10 +79,7 @@ class CatalogRepository {
           .toList();
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(
-          e.response?.data,
-          'No se pudieron cargar los productos',
-        ),
+        _formatDioError(e, 'No se pudieron cargar los productos'),
         e.response?.statusCode,
       );
     } catch (e) {
