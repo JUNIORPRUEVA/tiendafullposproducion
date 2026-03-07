@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Pool } from 'pg';
 import {
   classifyFullposImageValue,
   normalizeFullposCatalogImageUrl,
@@ -78,12 +79,47 @@ type CatalogProductView = {
 };
 
 type CatalogProductsResponse = {
-  source: 'FULLPOS';
+  source: 'FULLPOS' | 'FULLPOS_DIRECT';
   readOnly: true;
   total: number;
   fetchedAt: string;
   items: CatalogProductView[];
 };
+
+type CatalogSourceMode = 'direct-db' | 'integration-api';
+
+type FullposDbColumnMap = {
+  id: string;
+  name: string;
+  description: string | null;
+  code: string | null;
+  price: string | null;
+  cost: string | null;
+  stock: string | null;
+  image: string | null;
+  active: string | null;
+  status: string | null;
+  updatedAt: string | null;
+  createdAt: string | null;
+  deletedAt: string | null;
+  company: string;
+  categoryName: string | null;
+  categoryId: string | null;
+};
+
+type FullposCategoryJoin = {
+  table: string;
+  idColumn: string;
+  nameColumn: string;
+};
+
+type FullposDirectSchema = {
+  productTable: string;
+  columnMap: FullposDbColumnMap;
+  categoryJoin: FullposCategoryJoin | null;
+};
+
+type DirectProductRow = Record<string, unknown>;
 
 @Injectable()
 export class CatalogProductsService {
@@ -91,7 +127,13 @@ export class CatalogProductsService {
   private readonly fullposBaseUrl: string;
   private readonly fullposIntegrationToken: string;
   private readonly fullposTimeoutMs: number;
+  private readonly fullposDirectDatabaseUrl: string;
+  private readonly fullposDirectCompanyId: string;
+  private readonly fullposDirectProductsTable: string;
+  private readonly fullposDirectCompanyColumn: string;
   private readonly remoteImageValidationCache = new Map<string, RemoteImageValidation>();
+  private readonly fullposDirectPool?: Pool;
+  private schemaPromise?: Promise<FullposDirectSchema>;
 
   constructor(private readonly config: ConfigService) {
     this.fullposBaseUrl = (config.get<string>('FULLPOS_INTEGRATION_BASE_URL') ?? '')
@@ -99,35 +141,33 @@ export class CatalogProductsService {
       .replace(/\/$/, '');
     this.fullposIntegrationToken = (config.get<string>('FULLPOS_INTEGRATION_TOKEN') ?? '').trim();
     this.fullposTimeoutMs = Number(config.get<string>('FULLPOS_INTEGRATION_TIMEOUT_MS') ?? 8000);
+    this.fullposDirectDatabaseUrl = (config.get<string>('FULLPOS_DIRECT_DATABASE_URL') ?? '').trim();
+    this.fullposDirectCompanyId = (config.get<string>('FULLPOS_DIRECT_COMPANY_ID') ?? '').trim();
+    this.fullposDirectProductsTable = (config.get<string>('FULLPOS_DIRECT_PRODUCTS_TABLE') ?? '').trim();
+    this.fullposDirectCompanyColumn = (config.get<string>('FULLPOS_DIRECT_COMPANY_COLUMN') ?? '').trim();
+
+    if (this.fullposDirectDatabaseUrl) {
+      this.fullposDirectPool = new Pool({
+        connectionString: this.fullposDirectDatabaseUrl,
+        max: 3,
+        idleTimeoutMillis: 15000,
+        connectionTimeoutMillis: Math.min(this.fullposTimeoutMs, 5000),
+      });
+    }
   }
 
   async findAll(): Promise<CatalogProductsResponse> {
-    this.ensureConfigured();
+    const mode = this.resolveMode();
 
-    const rawItems = await this.fetchAllRawProducts();
-    const imageStats = { empty: 0, relative: 0, absolute: 0 };
+    if (mode === 'direct-db') {
+      const response = await this.findAllFromDirectDb();
+      this.logger.log(`[catalog-products] source=FULLPOS_DIRECT total=${response.total}`);
+      return response;
+    }
 
-    const mapped = await Promise.all(
-      rawItems.map(async (item) => {
-        const rawImage = this.pickString(item.image_url, item.imageUrl, item.imagen, item.fotoUrl);
-        imageStats[classifyFullposImageValue(rawImage)] += 1;
-        return this.mapProduct(item, rawImage);
-      }),
-    );
-
-    const activeItems = mapped.filter((item): item is CatalogProductView => item != null && item.activo);
-
-    this.logger.log(
-      `[catalog-products] source=FULLPOS raw=${rawItems.length} active=${activeItems.length} images(empty=${imageStats.empty},relative=${imageStats.relative},absolute=${imageStats.absolute})`,
-    );
-
-    return {
-      source: 'FULLPOS',
-      readOnly: true,
-      total: activeItems.length,
-      fetchedAt: new Date().toISOString(),
-      items: activeItems,
-    };
+    const response = await this.findAllFromIntegrationApi();
+    this.logger.log(`[catalog-products] source=FULLPOS total=${response.total}`);
+    return response;
   }
 
   async findOne(id: string): Promise<CatalogProductView> {
@@ -139,13 +179,375 @@ export class CatalogProductsService {
     return found;
   }
 
-  private ensureConfigured() {
+  private resolveMode(): CatalogSourceMode {
+    if (this.fullposDirectDatabaseUrl) {
+      return 'direct-db';
+    }
+    return 'integration-api';
+  }
+
+  private async findAllFromDirectDb(): Promise<CatalogProductsResponse> {
+    this.ensureDirectDbConfigured();
+
+    const schema = await this.getDirectSchema();
+    const rows = await this.queryDirectProducts(schema);
+    const imageStats = { empty: 0, relative: 0, absolute: 0 };
+
+    const mapped = await Promise.all(rows.map(async (row) => {
+      const rawImage = this.pickString(row.raw_image, row.imagen, row.fotoUrl);
+      imageStats[classifyFullposImageValue(rawImage)] += 1;
+      const imageUrl = await this.validateFullposImageUrl(
+        normalizeFullposCatalogImageUrl(rawImage, this.fullposBaseUrl),
+      );
+      const activo = this.asBoolean(row.activo, row.estado);
+      const updatedAt = this.pickString(row.updatedAt, row.fechaActualizacion);
+      const categoria = this.pickString(row.categoria, row.categoriaNombre);
+
+      return {
+        id: this.pickString(row.id)?.trim() ?? '',
+        nombre: this.pickString(row.nombre) ?? 'Producto sin nombre',
+        descripcion: this.pickString(row.descripcion),
+        codigo: this.pickString(row.codigo),
+        precio: this.asNumber(row.precio),
+        costo: this.asNumber(row.costo),
+        stock: this.asNullableNumber(row.stock),
+        categoria,
+        categoriaNombre: categoria,
+        imagen: imageUrl,
+        fotoUrl: imageUrl,
+        activo,
+        estado: activo ? 'ACTIVO' : 'INACTIVO',
+        createdAt: this.pickString(row.createdAt),
+        updatedAt,
+        fechaActualizacion: updatedAt,
+      } satisfies CatalogProductView;
+    }));
+
+    const activeItems = mapped.filter((item) => item.activo);
+
+    this.logger.log(
+      `[catalog-products][direct-db] company=${this.fullposDirectCompanyId} raw=${rows.length} active=${activeItems.length} images(empty=${imageStats.empty},relative=${imageStats.relative},absolute=${imageStats.absolute}) table=${schema.productTable}`,
+    );
+
+    return {
+      source: 'FULLPOS_DIRECT',
+      readOnly: true,
+      total: activeItems.length,
+      fetchedAt: new Date().toISOString(),
+      items: activeItems,
+    };
+  }
+
+  private async findAllFromIntegrationApi(): Promise<CatalogProductsResponse> {
+    this.ensureIntegrationConfigured();
+
+    const rawItems = await this.fetchAllRawProducts();
+    const imageStats = { empty: 0, relative: 0, absolute: 0 };
+
+    const mapped = await Promise.all(
+      rawItems.map(async (item) => {
+        const rawImage = this.pickString(item.image_url, item.imageUrl, item.imagen, item.fotoUrl);
+        imageStats[classifyFullposImageValue(rawImage)] += 1;
+        return this.mapIntegrationProduct(item, rawImage);
+      }),
+    );
+
+    const activeItems = mapped.filter((item): item is CatalogProductView => item != null && item.activo);
+
+    this.logger.log(
+      `[catalog-products][integration-api] raw=${rawItems.length} active=${activeItems.length} images(empty=${imageStats.empty},relative=${imageStats.relative},absolute=${imageStats.absolute})`,
+    );
+
+    return {
+      source: 'FULLPOS',
+      readOnly: true,
+      total: activeItems.length,
+      fetchedAt: new Date().toISOString(),
+      items: activeItems,
+    };
+  }
+
+  private ensureIntegrationConfigured() {
     if (!this.fullposBaseUrl) {
       throw new ServiceUnavailableException('FULLPOS_INTEGRATION_BASE_URL no está configurado');
     }
     if (!this.fullposIntegrationToken) {
       throw new ServiceUnavailableException('FULLPOS_INTEGRATION_TOKEN no está configurado');
     }
+  }
+
+  private ensureDirectDbConfigured() {
+    if (!this.fullposDirectDatabaseUrl) {
+      throw new ServiceUnavailableException('FULLPOS_DIRECT_DATABASE_URL no está configurado');
+    }
+    if (!this.fullposDirectCompanyId) {
+      throw new ServiceUnavailableException('FULLPOS_DIRECT_COMPANY_ID no está configurado');
+    }
+    if (!this.fullposDirectPool) {
+      throw new ServiceUnavailableException('No se pudo inicializar la conexión directa a FULLPOS');
+    }
+  }
+
+  private async getDirectSchema(): Promise<FullposDirectSchema> {
+    if (!this.schemaPromise) {
+      this.schemaPromise = this.detectDirectSchema();
+    }
+    return this.schemaPromise;
+  }
+
+  private async detectDirectSchema(): Promise<FullposDirectSchema> {
+    this.ensureDirectDbConfigured();
+
+    const pool = this.fullposDirectPool!;
+    const columnRows = await pool.query<{
+      table_name: string;
+      column_name: string;
+    }>(`
+      select table_name, column_name
+      from information_schema.columns
+      where table_schema = 'public'
+      order by table_name, ordinal_position
+    `);
+
+    const columnsByTable = new Map<string, string[]>();
+    for (const row of columnRows.rows) {
+      const key = row.table_name;
+      const list = columnsByTable.get(key) ?? [];
+      list.push(row.column_name);
+      columnsByTable.set(key, list);
+    }
+
+    const tableCandidates = this.rankProductTables(columnsByTable);
+    if (tableCandidates.length === 0) {
+      throw new ServiceUnavailableException('No se pudo detectar la tabla de productos en FULLPOS');
+    }
+
+    const productTable = this.fullposDirectProductsTable || tableCandidates[0];
+    const productColumns = columnsByTable.get(productTable) ?? [];
+    const columnMap = this.buildColumnMap(productColumns);
+    if (!columnMap.id || !columnMap.name || !columnMap.company) {
+      throw new ServiceUnavailableException(
+        `No se pudo mapear id/nombre/empresa en la tabla de productos FULLPOS (${productTable})`,
+      );
+    }
+
+    const categoryJoin = await this.detectCategoryJoin(pool, productTable, columnMap.categoryId, columnsByTable);
+
+    this.logger.log(
+      `[catalog-products][direct-db] schema table=${productTable} companyColumn=${columnMap.company} categoryJoin=${categoryJoin?.table ?? 'none'}`,
+    );
+
+    return {
+      productTable,
+      columnMap,
+      categoryJoin,
+    };
+  }
+
+  private rankProductTables(columnsByTable: Map<string, string[]>): string[] {
+    const preferredTableNames = ['products', 'product', 'items', 'inventory_products'];
+    const candidates = Array.from(columnsByTable.entries())
+      .map(([table, columns]) => ({
+        table,
+        columns,
+        score: this.scoreProductTable(table, columns),
+      }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        const aPreferred = preferredTableNames.indexOf(a.table);
+        const bPreferred = preferredTableNames.indexOf(b.table);
+        if (aPreferred >= 0 || bPreferred >= 0) {
+          return (aPreferred === -1 ? 999 : aPreferred) - (bPreferred === -1 ? 999 : bPreferred);
+        }
+        return a.table.localeCompare(b.table);
+      })
+      .map((item) => item.table);
+
+    return candidates;
+  }
+
+  private scoreProductTable(table: string, columns: string[]): number {
+    const loweredTable = table.toLowerCase();
+    const loweredColumns = new Set(columns.map((column) => column.toLowerCase()));
+    let score = 0;
+
+    if (loweredTable === 'products') score += 100;
+    if (loweredTable.includes('product')) score += 40;
+    if (loweredColumns.has('name') || loweredColumns.has('nombre')) score += 20;
+    if (loweredColumns.has('price') || loweredColumns.has('precio')) score += 20;
+    if (loweredColumns.has('company_id') || loweredColumns.has('owner_id')) score += 30;
+    if (loweredColumns.has('updated_at') || loweredColumns.has('updatedat')) score += 10;
+    if (loweredColumns.has('stock')) score += 10;
+    if (loweredColumns.has('image_url') || loweredColumns.has('imagen')) score += 10;
+
+    return score;
+  }
+
+  private buildColumnMap(columns: string[]): FullposDbColumnMap {
+    return {
+      id: this.pickColumn(columns, ['id']) ?? '',
+      name: this.pickColumn(columns, ['name', 'nombre']) ?? '',
+      description: this.pickColumn(columns, ['description', 'descripcion', 'details', 'detail']),
+      code: this.pickColumn(columns, ['sku', 'code', 'codigo', 'barcode']),
+      price: this.pickColumn(columns, ['price', 'precio']),
+      cost: this.pickColumn(columns, ['cost', 'costo']),
+      stock: this.pickColumn(columns, ['stock', 'quantity', 'existencia']),
+      image: this.pickColumn(columns, [
+        'image_url',
+        'imageurl',
+        'imagen',
+        'image',
+        'foto_url',
+        'fotoUrl',
+        'photo_url',
+        'thumbnail_url',
+      ]),
+      active: this.pickColumn(columns, ['active', 'activo', 'is_active', 'enabled']),
+      status: this.pickColumn(columns, ['status', 'estado']),
+      updatedAt: this.pickColumn(columns, ['updated_at', 'updatedat', 'modified_at', 'modifiedat']),
+      createdAt: this.pickColumn(columns, ['created_at', 'createdat']),
+      deletedAt: this.pickColumn(columns, ['deleted_at', 'deletedat']),
+      company:
+        this.fullposDirectCompanyColumn ||
+        this.pickColumn(columns, ['company_id', 'owner_id', 'tenant_id', 'business_id', 'companyid', 'ownerid']) ||
+        '',
+      categoryName: this.pickColumn(columns, ['category', 'categoria', 'category_name', 'categorianombre']),
+      categoryId: this.pickColumn(columns, ['category_id', 'categoria_id', 'categoryid', 'categoriaid']),
+    };
+  }
+
+  private pickColumn(columns: string[], candidates: string[]): string | null {
+    const byLower = new Map(columns.map((column) => [column.toLowerCase(), column]));
+    for (const candidate of candidates) {
+      const found = byLower.get(candidate.toLowerCase());
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+
+  private async detectCategoryJoin(
+    pool: Pool,
+    productTable: string,
+    categoryIdColumn: string | null,
+    columnsByTable: Map<string, string[]>,
+  ): Promise<FullposCategoryJoin | null> {
+    if (!categoryIdColumn) {
+      return null;
+    }
+
+    const fkRows = await pool.query<{
+      column_name: string;
+      foreign_table_name: string;
+      foreign_column_name: string;
+    }>(`
+      select
+        kcu.column_name,
+        ccu.table_name as foreign_table_name,
+        ccu.column_name as foreign_column_name
+      from information_schema.table_constraints tc
+      join information_schema.key_column_usage kcu
+        on tc.constraint_name = kcu.constraint_name
+       and tc.table_schema = kcu.table_schema
+      join information_schema.constraint_column_usage ccu
+        on ccu.constraint_name = tc.constraint_name
+       and ccu.table_schema = tc.table_schema
+      where tc.constraint_type = 'FOREIGN KEY'
+        and tc.table_schema = 'public'
+        and tc.table_name = $1
+        and kcu.column_name = $2
+    `, [productTable, categoryIdColumn]);
+
+    const fk = fkRows.rows[0];
+    if (!fk) {
+      return null;
+    }
+
+    const categoryColumns = columnsByTable.get(fk.foreign_table_name) ?? [];
+    const nameColumn = this.pickColumn(categoryColumns, ['name', 'nombre', 'title', 'descripcion']);
+    if (!nameColumn) {
+      return null;
+    }
+
+    return {
+      table: fk.foreign_table_name,
+      idColumn: fk.foreign_column_name,
+      nameColumn,
+    };
+  }
+
+  private async queryDirectProducts(schema: FullposDirectSchema): Promise<DirectProductRow[]> {
+    this.ensureDirectDbConfigured();
+
+    const pool = this.fullposDirectPool!;
+    const p = 'p';
+    const c = 'c';
+    const selectParts = [
+      `${p}.${this.q(schema.columnMap.id)}::text as id`,
+      `${p}.${this.q(schema.columnMap.name)}::text as nombre`,
+      this.selectOrNull(p, schema.columnMap.description, 'descripcion'),
+      this.selectOrNull(p, schema.columnMap.code, 'codigo'),
+      this.selectOrNull(p, schema.columnMap.price, 'precio'),
+      this.selectOrNull(p, schema.columnMap.cost, 'costo'),
+      this.selectOrNull(p, schema.columnMap.stock, 'stock'),
+      this.selectOrNull(p, schema.columnMap.image, 'raw_image'),
+      this.selectOrNull(p, schema.columnMap.active, 'activo'),
+      this.selectOrNull(p, schema.columnMap.status, 'estado'),
+      this.selectOrNull(p, schema.columnMap.createdAt, 'createdAt'),
+      this.selectOrNull(p, schema.columnMap.updatedAt, 'updatedAt'),
+      this.selectOrNull(p, schema.columnMap.updatedAt, 'fechaActualizacion'),
+      schema.columnMap.categoryName
+        ? this.selectOrNull(p, schema.columnMap.categoryName, 'categoria')
+        : schema.categoryJoin
+          ? `${c}.${this.q(schema.categoryJoin.nameColumn)}::text as categoria`
+          : `null::text as categoria`,
+      schema.columnMap.categoryName
+        ? this.selectOrNull(p, schema.columnMap.categoryName, 'categoriaNombre')
+        : schema.categoryJoin
+          ? `${c}.${this.q(schema.categoryJoin.nameColumn)}::text as "categoriaNombre"`
+          : `null::text as "categoriaNombre"`,
+    ];
+
+    const joinClause = schema.categoryJoin && schema.columnMap.categoryId
+      ? ` left join ${this.table(schema.categoryJoin.table)} ${c} on ${p}.${this.q(schema.columnMap.categoryId)} = ${c}.${this.q(schema.categoryJoin.idColumn)}`
+      : '';
+
+    const whereParts = [`${p}.${this.q(schema.columnMap.company)}::text = $1`];
+    if (schema.columnMap.deletedAt) {
+      whereParts.push(`${p}.${this.q(schema.columnMap.deletedAt)} is null`);
+    }
+
+    const orderByColumn = schema.columnMap.updatedAt ?? schema.columnMap.name;
+
+    const query = `
+      select
+        ${selectParts.join(',\n        ')}
+      from ${this.table(schema.productTable)} ${p}
+      ${joinClause}
+      where ${whereParts.join(' and ')}
+      order by ${p}.${this.q(orderByColumn)} desc nulls last
+      limit 5000
+    `;
+
+    const result = await pool.query(query, [this.fullposDirectCompanyId]);
+    return result.rows as DirectProductRow[];
+  }
+
+  private q(identifier: string): string {
+    return `"${identifier.replace(/"/g, '""')}"`;
+  }
+
+  private table(identifier: string): string {
+    return `public.${this.q(identifier)}`;
+  }
+
+  private selectOrNull(alias: string, column: string | null, output: string): string {
+    if (!column) {
+      return `null::text as ${this.q(output)}`;
+    }
+    return `${alias}.${this.q(column)}::text as ${this.q(output)}`;
   }
 
   private async fetchAllRawProducts(): Promise<FullposIntegrationProduct[]> {
@@ -205,7 +607,7 @@ export class CatalogProductsService {
     return [];
   }
 
-  private async mapProduct(
+  private async mapIntegrationProduct(
     item: FullposIntegrationProduct,
     rawImage: string | null,
   ): Promise<CatalogProductView | null> {
@@ -268,6 +670,28 @@ export class CatalogProductsService {
     return null;
   }
 
+  private asBoolean(...values: unknown[]): boolean {
+    for (const value of values) {
+      if (typeof value === 'boolean') {
+        return value;
+      }
+      if (typeof value === 'number') {
+        return value !== 0;
+      }
+      if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (!normalized) continue;
+        if (['true', '1', 'yes', 'si', 'activo', 'active', 'enabled'].includes(normalized)) {
+          return true;
+        }
+        if (['false', '0', 'no', 'inactivo', 'inactive', 'disabled', 'deleted'].includes(normalized)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
   private extractCategory(...values: unknown[]): string | null {
     for (const value of values) {
       if (value == null) continue;
@@ -286,19 +710,7 @@ export class CatalogProductsService {
   }
 
   private resolveActive(item: FullposIntegrationProduct): boolean {
-    const explicit = [item.active, item.is_active, item.enabled].find(
-      (value) => typeof value === 'boolean',
-    );
-    if (typeof explicit === 'boolean') {
-      return explicit;
-    }
-
-    const state = this.pickString(item.status, item.estado)?.toLowerCase();
-    if (state == null) {
-      return true;
-    }
-
-    return !['inactive', 'inactivo', 'disabled', 'archived', 'deleted'].includes(state);
+    return this.asBoolean(item.active, item.is_active, item.enabled, item.status, item.estado);
   }
 
   private async validateFullposImageUrl(url: string | null): Promise<string | null> {

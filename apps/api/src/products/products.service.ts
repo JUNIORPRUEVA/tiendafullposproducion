@@ -6,7 +6,7 @@ import { CatalogProductsService } from './catalog-products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
-type ProductsSource = 'FULLPOS' | 'LOCAL';
+type ProductsSource = 'FULLPOS' | 'FULLPOS_DIRECT' | 'LOCAL';
 
 @Injectable()
 export class ProductsService {
@@ -31,16 +31,22 @@ export class ProductsService {
 
     const fullposBaseUrl = (config.get<string>('FULLPOS_INTEGRATION_BASE_URL') ?? '').trim();
     const fullposIntegrationToken = (config.get<string>('FULLPOS_INTEGRATION_TOKEN') ?? '').trim();
+    const fullposDirectDatabaseUrl = (config.get<string>('FULLPOS_DIRECT_DATABASE_URL') ?? '').trim();
+    const fullposDirectCompanyId = (config.get<string>('FULLPOS_DIRECT_COMPANY_ID') ?? '').trim();
     const fullposConfigured = fullposBaseUrl.length > 0 && fullposIntegrationToken.length > 0;
+    const fullposDirectConfigured =
+      fullposDirectDatabaseUrl.length > 0 && fullposDirectCompanyId.length > 0;
 
     // Backwards-compatible default: use LOCAL unless FULLPOS is explicitly selected
     // or is fully configured (so dev environments don't break /products).
     let computed: ProductsSource = 'LOCAL';
-    if (rawSource === 'FULLPOS' || rawSource === 'LOCAL') {
+    if (rawSource === 'FULLPOS' || rawSource === 'FULLPOS_DIRECT' || rawSource === 'LOCAL') {
       computed = rawSource as ProductsSource;
     } else {
-      // If FULLPOS is configured, allow using it in non-prod.
-      if (nodeEnv !== 'production' && fullposConfigured) {
+      // If direct FULLPOS DB access is configured, prefer it for product catalog reads.
+      if (fullposDirectConfigured) {
+        computed = 'FULLPOS_DIRECT';
+      } else if (nodeEnv !== 'production' && fullposConfigured) {
         computed = 'FULLPOS';
       } else {
         computed = 'LOCAL';
@@ -51,7 +57,7 @@ export class ProductsService {
   }
 
   isReadOnly() {
-    return this.productsSource === 'FULLPOS';
+    return this.productsSource === 'FULLPOS' || this.productsSource === 'FULLPOS_DIRECT';
   }
 
   getSource(): ProductsSource {
@@ -59,7 +65,7 @@ export class ProductsService {
   }
 
   private assertWritable() {
-    if (this.productsSource === 'FULLPOS') {
+    if (this.productsSource === 'FULLPOS' || this.productsSource === 'FULLPOS_DIRECT') {
       throw new ConflictException('Productos en modo solo-lectura: fuente FULLPOS (cloud). Administra productos en FULLPOS.');
     }
   }
@@ -112,7 +118,7 @@ export class ProductsService {
   }
 
   async findAll(): Promise<any[]> {
-    if (this.productsSource === 'FULLPOS') {
+    if (this.productsSource === 'FULLPOS' || this.productsSource === 'FULLPOS_DIRECT') {
       try {
         const response = await this.catalogProducts.findAll();
         return response.items;

@@ -6,7 +6,7 @@ import { UpdateSettingsDto } from './dto/update-settings.dto';
 
 type Actor = { role?: Role | string };
 
-type ProductsSource = 'FULLPOS' | 'LOCAL';
+type ProductsSource = 'FULLPOS' | 'FULLPOS_DIRECT' | 'LOCAL';
 
 @Injectable()
 export class SettingsService {
@@ -18,8 +18,15 @@ export class SettingsService {
   private resolveProductsSource(): ProductsSource {
     const rawSource = (this.config.get<string>('PRODUCTS_SOURCE') ?? '').trim().toUpperCase();
     const nodeEnv = (this.config.get<string>('NODE_ENV') ?? process.env.NODE_ENV ?? 'development').toLowerCase();
-    const defaultSource: ProductsSource = nodeEnv === 'production' ? 'LOCAL' : 'FULLPOS';
-    return rawSource === 'LOCAL' || rawSource === 'FULLPOS' ? (rawSource as ProductsSource) : defaultSource;
+    const hasDirectDb =
+      ((this.config.get<string>('FULLPOS_DIRECT_DATABASE_URL') ?? '').trim().length > 0) &&
+      ((this.config.get<string>('FULLPOS_DIRECT_COMPANY_ID') ?? '').trim().length > 0);
+    const defaultSource: ProductsSource = hasDirectDb
+      ? 'FULLPOS_DIRECT'
+      : (nodeEnv === 'production' ? 'LOCAL' : 'FULLPOS');
+    return rawSource === 'LOCAL' || rawSource === 'FULLPOS' || rawSource === 'FULLPOS_DIRECT'
+      ? (rawSource as ProductsSource)
+      : defaultSource;
   }
 
   private async ensureConfig() {
@@ -53,7 +60,7 @@ export class SettingsService {
       hasOpenAiApiKey: !!config.openAiApiKey,
       openAiApiKey: isAdmin ? config.openAiApiKey : null,
       productsSource,
-      productsReadOnly: productsSource === 'FULLPOS',
+      productsReadOnly: productsSource === 'FULLPOS' || productsSource === 'FULLPOS_DIRECT',
       updatedAt: config.updatedAt,
     };
   }
