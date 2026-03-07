@@ -1062,7 +1062,7 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
                     fit: BoxFit.cover,
                   ),
                 )
-              else if ((isEdit && widget.product?.displayFotoUrl) != null)
+              else if (isEdit && widget.product?.displayFotoUrl != null)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Image.network(
