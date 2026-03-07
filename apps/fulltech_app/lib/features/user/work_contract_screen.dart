@@ -21,7 +21,7 @@ class WorkContractScreen extends ConsumerStatefulWidget {
 }
 
 class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
-  static const String _workContractVersion = 'v1.0';
+  static const String _workContractVersion = '2026-03-07';
 
   late final SignatureController _signatureCtrl;
 
@@ -65,9 +65,7 @@ class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
       final history = await nominaRepo.listMyPayrollHistory();
       final latest = history.isEmpty
           ? null
-          : history.reduce(
-              (a, b) => a.periodEnd.isAfter(b.periodEnd) ? a : b,
-            );
+          : history.reduce((a, b) => a.periodEnd.isAfter(b.periodEnd) ? a : b);
       final baseSalary = latest?.baseSalary;
       if (baseSalary != null && baseSalary > 0) {
         final fmt = NumberFormat.currency(symbol: 'RD\$', decimalDigits: 2);
@@ -94,7 +92,8 @@ class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
         ? 'empleado'
         : user.nombreCompleto.trim().replaceAll(RegExp(r'\s+'), '_');
     final dateFmt = DateFormat('yyyyMMdd');
-    final fileName = 'contrato_${safeName}_${dateFmt.format(DateTime.now())}.pdf';
+    final fileName =
+        'contrato_${safeName}_${dateFmt.format(DateTime.now())}.pdf';
 
     return _ContractPdfState(bytes: bytes, fileName: fileName, employee: user);
   }
@@ -117,7 +116,8 @@ class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
       }
 
       final repo = ref.read(usersRepositoryProvider);
-      final fileName = 'firma_contrato_${user.id}_${DateTime.now().millisecondsSinceEpoch}.png';
+      final fileName =
+          'firma_contrato_${user.id}_${DateTime.now().millisecondsSinceEpoch}.png';
       final signatureUrl = await repo.uploadUserDocument(
         bytes: png,
         fileName: fileName,
@@ -138,9 +138,9 @@ class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
       setState(() {});
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo firmar: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo firmar: $e')));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -155,9 +155,7 @@ class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
     final isSigned = signedAt != null;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Contrato'),
-      ),
+      appBar: AppBar(title: const Text('Contrato')),
       body: user == null
           ? const Center(child: Text('No hay usuario autenticado'))
           : Column(
@@ -206,9 +204,7 @@ class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
                                   isSigned
                                       ? 'Firmado el ${DateFormat('dd/MM/yyyy HH:mm').format(signedAt)}'
                                       : 'Firma obligatoria',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleSmall
+                                  style: Theme.of(context).textTheme.titleSmall
                                       ?.copyWith(fontWeight: FontWeight.w700),
                                 ),
                               ),
@@ -216,10 +212,12 @@ class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
                                   user.workContractVersion!.trim().isNotEmpty)
                                 Text(
                                   'v ${user.workContractVersion}',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(color: Theme.of(context).colorScheme.outline),
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.outline,
+                                      ),
                                 ),
                             ],
                           ),
@@ -234,7 +232,9 @@ class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
                               height: 140,
                               decoration: BoxDecoration(
                                 border: Border.all(
-                                  color: Theme.of(context).colorScheme.outlineVariant,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.outlineVariant,
                                 ),
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -266,10 +266,14 @@ class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
                                         ? const SizedBox(
                                             width: 18,
                                             height: 18,
-                                            child: CircularProgressIndicator(strokeWidth: 2),
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
                                           )
                                         : const Icon(Icons.check),
-                                    label: Text(_submitting ? 'Firmando...' : 'Firmar'),
+                                    label: Text(
+                                      _submitting ? 'Firmando...' : 'Firmar',
+                                    ),
                                   ),
                                 ),
                               ],

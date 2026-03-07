@@ -9,6 +9,7 @@ import '../../core/company/company_settings_repository.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/models/product_model.dart';
 import '../../core/routing/routes.dart';
+import '../../core/utils/product_image_url.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../clientes/cliente_model.dart';
 import '../ventas/data/ventas_repository.dart';
@@ -989,7 +990,26 @@ class _ProductThumbCard extends StatelessWidget {
                             width: 38,
                             height: 38,
                             fit: BoxFit.cover,
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return const Center(
+                                child: SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              );
+                            },
                             errorBuilder: (context, error, stackTrace) {
+                              debugLogProductImageFailure(
+                                productId: product.id,
+                                productName: product.nombre,
+                                originalUrl: product.originalFotoUrl,
+                                attemptedUrl: product.displayFotoUrl!,
+                                error: error,
+                              );
                               return Center(
                                 child: Icon(
                                   Icons.broken_image_outlined,

@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/models/product_model.dart';
 import '../../core/routing/routes.dart';
+import '../../core/utils/product_image_url.dart';
 import '../../core/utils/string_utils.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
@@ -552,19 +553,42 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
                             ),
                           )
                         : Image.network(
-                          imageUrl,
+                            imageUrl,
                             fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) =>
-                                Container(
-                                  color:
-                                      theme.colorScheme.surfaceContainerHighest,
-                                  alignment: Alignment.center,
-                                  child: Icon(
-                                    Icons.broken_image_outlined,
-                                    size: 38,
-                                    color: theme.colorScheme.outline,
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return Container(
+                                color:
+                                    theme.colorScheme.surfaceContainerHighest,
+                                alignment: Alignment.center,
+                                child: const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
                                   ),
                                 ),
+                              );
+                            },
+                            errorBuilder: (context, error, stackTrace) {
+                              debugLogProductImageFailure(
+                                productId: product.id,
+                                productName: product.nombre,
+                                originalUrl: product.originalFotoUrl,
+                                attemptedUrl: imageUrl,
+                                error: error,
+                              );
+                              return Container(
+                                color:
+                                    theme.colorScheme.surfaceContainerHighest,
+                                alignment: Alignment.center,
+                                child: Icon(
+                                  Icons.broken_image_outlined,
+                                  size: 38,
+                                  color: theme.colorScheme.outline,
+                                ),
+                              );
+                            },
                           ),
                   ),
                 ),
@@ -687,15 +711,36 @@ class _ProductCard extends StatelessWidget {
               Image.network(
                 imageUrl,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  alignment: Alignment.center,
-                  child: Icon(
-                    Icons.broken_image_outlined,
-                    size: 28,
-                    color: theme.colorScheme.outline,
-                  ),
-                ),
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Container(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    alignment: Alignment.center,
+                    child: const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  debugLogProductImageFailure(
+                    productId: product.id,
+                    productName: product.nombre,
+                    originalUrl: product.originalFotoUrl,
+                    attemptedUrl: imageUrl,
+                    error: error,
+                  );
+                  return Container(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    alignment: Alignment.center,
+                    child: Icon(
+                      Icons.broken_image_outlined,
+                      size: 28,
+                      color: theme.colorScheme.outline,
+                    ),
+                  );
+                },
               ),
             const Positioned.fill(
               child: DecoratedBox(
@@ -1070,18 +1115,43 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
                     height: 64,
                     width: 64,
                     fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      height: 64,
-                      width: 64,
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerHighest,
-                      alignment: Alignment.center,
-                      child: Icon(
-                        Icons.broken_image_outlined,
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                    ),
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return Container(
+                        height: 64,
+                        width: 64,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
+                        alignment: Alignment.center,
+                        child: const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      );
+                    },
+                    errorBuilder: (context, error, stackTrace) {
+                      debugLogProductImageFailure(
+                        productId: widget.product!.id,
+                        productName: widget.product!.nombre,
+                        originalUrl: widget.product!.originalFotoUrl,
+                        attemptedUrl: widget.product!.displayFotoUrl!,
+                        error: error,
+                      );
+                      return Container(
+                        height: 64,
+                        width: 64,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
+                        alignment: Alignment.center,
+                        child: Icon(
+                          Icons.broken_image_outlined,
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                      );
+                    },
                   ),
                 ),
             ],

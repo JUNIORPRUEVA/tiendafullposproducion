@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/cache/fulltech_cache_manager.dart';
 import '../../core/models/product_model.dart';
+import '../../core/utils/product_image_url.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../clientes/cliente_model.dart';
 import 'data/ventas_repository.dart';
@@ -581,14 +582,23 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
                                   child: Icon(Icons.inventory_2_outlined),
                                 ),
                               ),
-                              errorWidget: (context, _, __) => Container(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.surfaceContainerHighest,
-                                child: const Center(
-                                  child: Icon(Icons.broken_image_outlined),
-                                ),
-                              ),
+                              errorWidget: (context, _, error) {
+                                debugLogProductImageFailure(
+                                  productId: p.id,
+                                  productName: p.nombre,
+                                  originalUrl: p.originalFotoUrl,
+                                  attemptedUrl: p.displayFotoUrl!,
+                                  error: error,
+                                );
+                                return Container(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.surfaceContainerHighest,
+                                  child: const Center(
+                                    child: Icon(Icons.broken_image_outlined),
+                                  ),
+                                );
+                              },
                             ),
                           const Positioned.fill(
                             child: DecoratedBox(

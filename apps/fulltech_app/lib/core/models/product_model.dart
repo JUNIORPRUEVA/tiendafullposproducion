@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart';
-
 import '../api/env.dart';
 import '../utils/product_image_url.dart';
 
@@ -43,54 +41,6 @@ String? _versionFromDate(DateTime? value) {
   return value.toUtc().millisecondsSinceEpoch.toString();
 }
 
-String? _resolveFotoUrl(String? url) {
-  if (url == null || url.isEmpty) return null;
-  final base = Env.apiBaseUrl;
-  final trimmedBase = base.endsWith('/')
-      ? base.substring(0, base.length - 1)
-      : base;
-
-  String? extractUploadsPath(String value) {
-    final normalized = value.replaceAll('\\\\', '/').trim();
-    const marker = '/uploads/';
-    final markerIndex = normalized.indexOf(marker);
-    if (markerIndex >= 0) {
-      return normalized.substring(markerIndex);
-    }
-    if (normalized.startsWith('uploads/')) {
-      return '/$normalized';
-    }
-    if (normalized.startsWith('./uploads/')) {
-      return normalized.substring(1);
-    }
-    return null;
-  }
-
-  if (trimmedBase.isNotEmpty &&
-      (url == trimmedBase || url.startsWith('$trimmedBase/'))) {
-    return url;
-  }
-
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    final uploadsPath = extractUploadsPath(url);
-    if (kIsWeb && uploadsPath != null && trimmedBase.isNotEmpty) {
-      final encodedUrl = Uri.encodeQueryComponent(url);
-      return '$trimmedBase/products/image-proxy?url=$encodedUrl';
-    }
-    return url;
-  }
-
-  final uploadsPath = extractUploadsPath(url);
-  if (uploadsPath != null) {
-    if (trimmedBase.isEmpty) return uploadsPath;
-    return '$trimmedBase$uploadsPath';
-  }
-
-  if (trimmedBase.isEmpty) return url;
-  final normalizedPath = url.startsWith('/') ? url : '/$url';
-  return '$trimmedBase$normalizedPath';
-}
-
 class ProductModel {
   final String id;
   final String nombre;
@@ -98,6 +48,7 @@ class ProductModel {
   final double costo;
   final double? stock;
   final String? fotoUrl;
+  final String? originalFotoUrl;
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final String? categoria;
@@ -111,6 +62,7 @@ class ProductModel {
     this.stock,
     this.categoria,
     this.fotoUrl,
+    this.originalFotoUrl,
     this.createdAt,
     this.updatedAt,
     this.imageVersion,
@@ -124,6 +76,7 @@ class ProductModel {
     double? stock,
     String? categoria,
     String? fotoUrl,
+    String? originalFotoUrl,
     DateTime? createdAt,
     DateTime? updatedAt,
     String? imageVersion,
@@ -136,6 +89,7 @@ class ProductModel {
       stock: stock ?? this.stock,
       categoria: categoria ?? this.categoria,
       fotoUrl: fotoUrl ?? this.fotoUrl,
+      originalFotoUrl: originalFotoUrl ?? this.originalFotoUrl,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       imageVersion: imageVersion ?? this.imageVersion,
@@ -148,7 +102,9 @@ class ProductModel {
     final categoria = _asNullableString(
       json['categoria'] ?? json['categoriaNombre'],
     );
-    final foto = _asNullableString(json['fotoUrl'] ?? json['imagen']);
+    final foto = _asNullableString(
+      json['originalFotoUrl'] ?? json['fotoUrl'] ?? json['imagen'],
+    );
     final createdAt = _firstParsedDate([
       json['createdAt'],
       json['created_at'],
@@ -171,19 +127,39 @@ class ProductModel {
           json['catalogRefreshVersion'] ??
           json['_catalogSyncVersion'],
     );
+    final normalizedFotoUrl = normalizeProductImageUrl(
+      imageUrl: foto,
+      baseUrl: Env.apiBaseUrl,
+      proxyUploadsOnWeb: true,
+    );
+    final imageVersion =
+        _versionFromDate(imageUpdatedAt ?? updatedAt) ?? explicitImageVersion;
+    final finalImageUrl = buildProductImageUrl(
+      imageUrl: normalizedFotoUrl,
+      version: imageVersion,
+    );
+    final productId = _asNullableString(json['id']) ?? '';
+    final productName = _asNullableString(json['nombre']) ?? '';
+
+    debugLogProductImageResolution(
+      productId: productId,
+      productName: productName,
+      originalUrl: foto,
+      finalUrl: finalImageUrl,
+    );
 
     return ProductModel(
-      id: _asNullableString(json['id']) ?? '',
-      nombre: _asNullableString(json['nombre']) ?? '',
+      id: productId,
+      nombre: productName,
       precio: _asDouble(json['precio']),
       costo: _asDouble(json['costo']),
       stock: _asNullableDouble(rawStock),
       categoria: categoria,
-      fotoUrl: _resolveFotoUrl(foto),
+      fotoUrl: normalizedFotoUrl.isEmpty ? null : normalizedFotoUrl,
+      originalFotoUrl: foto,
       createdAt: createdAt,
       updatedAt: updatedAt,
-      imageVersion:
-          _versionFromDate(imageUpdatedAt ?? updatedAt) ?? explicitImageVersion,
+      imageVersion: imageVersion,
     );
   }
 
@@ -196,6 +172,7 @@ class ProductModel {
       'stock': stock,
       'categoria': categoria,
       'fotoUrl': fotoUrl,
+      'originalFotoUrl': originalFotoUrl,
       'createdAt': createdAt?.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
       'imageVersion': imageVersion,
@@ -203,9 +180,13 @@ class ProductModel {
   }
 
   String? get displayFotoUrl {
-    final url = fotoUrl?.trim();
-    if (url == null || url.isEmpty) return null;
-    return buildProductImageUrl(imageUrl: url, version: imageVersion);
+    final url = buildProductImageUrl(
+      imageUrl: fotoUrl ?? originalFotoUrl,
+      version: imageVersion,
+      baseUrl: Env.apiBaseUrl,
+      proxyUploadsOnWeb: true,
+    );
+    return url.isEmpty ? null : url;
   }
 
   String get categoriaLabel =>
