@@ -141,8 +141,16 @@ export class CatalogProductsService {
       .replace(/\/$/, '');
     this.fullposIntegrationToken = (config.get<string>('FULLPOS_INTEGRATION_TOKEN') ?? '').trim();
     this.fullposTimeoutMs = Number(config.get<string>('FULLPOS_INTEGRATION_TIMEOUT_MS') ?? 8000);
-    this.fullposDirectDatabaseUrl = (config.get<string>('FULLPOS_DIRECT_DATABASE_URL') ?? '').trim();
-    this.fullposDirectCompanyId = (config.get<string>('FULLPOS_DIRECT_COMPANY_ID') ?? '').trim();
+    this.fullposDirectDatabaseUrl = (
+      config.get<string>('FULLPOS_DIRECT_DATABASE_URL') ??
+      config.get<string>('FULLPOS_DB_URL') ??
+      ''
+    ).trim();
+    this.fullposDirectCompanyId = (
+      config.get<string>('FULLPOS_DIRECT_COMPANY_ID') ??
+      config.get<string>('FULLPOS_COMPANY_ID') ??
+      ''
+    ).trim();
     this.fullposDirectProductsTable = (config.get<string>('FULLPOS_DIRECT_PRODUCTS_TABLE') ?? '').trim();
     this.fullposDirectCompanyColumn = (config.get<string>('FULLPOS_DIRECT_COMPANY_COLUMN') ?? '').trim();
 

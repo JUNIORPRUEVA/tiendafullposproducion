@@ -31,8 +31,16 @@ export class ProductsService {
 
     const fullposBaseUrl = (config.get<string>('FULLPOS_INTEGRATION_BASE_URL') ?? '').trim();
     const fullposIntegrationToken = (config.get<string>('FULLPOS_INTEGRATION_TOKEN') ?? '').trim();
-    const fullposDirectDatabaseUrl = (config.get<string>('FULLPOS_DIRECT_DATABASE_URL') ?? '').trim();
-    const fullposDirectCompanyId = (config.get<string>('FULLPOS_DIRECT_COMPANY_ID') ?? '').trim();
+    const fullposDirectDatabaseUrl = (
+      config.get<string>('FULLPOS_DIRECT_DATABASE_URL') ??
+      config.get<string>('FULLPOS_DB_URL') ??
+      ''
+    ).trim();
+    const fullposDirectCompanyId = (
+      config.get<string>('FULLPOS_DIRECT_COMPANY_ID') ??
+      config.get<string>('FULLPOS_COMPANY_ID') ??
+      ''
+    ).trim();
     const fullposConfigured = fullposBaseUrl.length > 0 && fullposIntegrationToken.length > 0;
     const fullposDirectConfigured =
       fullposDirectDatabaseUrl.length > 0 && fullposDirectCompanyId.length > 0;

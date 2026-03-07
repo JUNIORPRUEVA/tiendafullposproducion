@@ -19,8 +19,8 @@ export class SettingsService {
     const rawSource = (this.config.get<string>('PRODUCTS_SOURCE') ?? '').trim().toUpperCase();
     const nodeEnv = (this.config.get<string>('NODE_ENV') ?? process.env.NODE_ENV ?? 'development').toLowerCase();
     const hasDirectDb =
-      ((this.config.get<string>('FULLPOS_DIRECT_DATABASE_URL') ?? '').trim().length > 0) &&
-      ((this.config.get<string>('FULLPOS_DIRECT_COMPANY_ID') ?? '').trim().length > 0);
+      ((this.config.get<string>('FULLPOS_DIRECT_DATABASE_URL') ?? this.config.get<string>('FULLPOS_DB_URL') ?? '').trim().length > 0) &&
+      ((this.config.get<string>('FULLPOS_DIRECT_COMPANY_ID') ?? this.config.get<string>('FULLPOS_COMPANY_ID') ?? '').trim().length > 0);
     const defaultSource: ProductsSource = hasDirectDb
       ? 'FULLPOS_DIRECT'
       : (nodeEnv === 'production' ? 'LOCAL' : 'FULLPOS');
