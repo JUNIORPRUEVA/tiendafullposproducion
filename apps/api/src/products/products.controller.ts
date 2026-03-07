@@ -1,10 +1,10 @@
-import { BadRequestException, Body, ConflictException, Controller, Delete, Get, Header, Param, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Delete, Get, Header, Param, Patch, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client';
 import { diskStorage } from 'multer';
 import { extname, join } from 'node:path';
-import type { Express, Request } from 'express';
+import type { Express, Request, Response } from 'express';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -19,6 +19,7 @@ import * as fs from 'node:fs';
 export class ProductsController {
   private readonly uploadDir: string;
   private readonly publicBaseUrl: string;
+  private readonly fullposBaseUrl: string;
 
   private resolveUploadDir(config: ConfigService): string {
     const fromEnv = (config.get<string>('UPLOAD_DIR') ?? '').trim();
@@ -41,6 +42,7 @@ export class ProductsController {
     this.uploadDir = dir.trim();
     const base = config.get<string>('PUBLIC_BASE_URL') ?? config.get<string>('API_BASE_URL') ?? '';
     this.publicBaseUrl = base.trim().replace(/\/$/, '');
+    this.fullposBaseUrl = (config.get<string>('FULLPOS_INTEGRATION_BASE_URL') ?? '').trim().replace(/\/$/, '');
     fs.mkdirSync(this.uploadDir, { recursive: true });
   }
 
@@ -65,6 +67,57 @@ export class ProductsController {
       source: this.products.getSource(),
       readOnly: this.products.isReadOnly(),
     };
+  }
+
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+  @Header('Pragma', 'no-cache')
+  @Header('Expires', '0')
+  @Header('Surrogate-Control', 'no-store')
+  @Get('image-proxy')
+  async imageProxy(@Query('url') rawUrl: string | undefined, @Res() res: Response) {
+    const url = (rawUrl ?? '').trim();
+    if (!url) {
+      throw new BadRequestException('url es requerido');
+    }
+
+    if (!this.fullposBaseUrl) {
+      throw new BadRequestException('FULLPOS_INTEGRATION_BASE_URL no está configurado');
+    }
+
+    let parsedUrl: URL;
+    let fullposUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+      fullposUrl = new URL(this.fullposBaseUrl);
+    } catch {
+      throw new BadRequestException('url inválida');
+    }
+
+    const isUploadsPath = parsedUrl.pathname.includes('/uploads/');
+    const sameFullposHost = parsedUrl.host.toLowerCase() == fullposUrl.host.toLowerCase();
+    if (!isUploadsPath || !sameFullposHost) {
+      throw new BadRequestException('Solo se permiten imágenes de uploads de FULLPOS');
+    }
+
+    const upstream = await fetch(parsedUrl.toString(), {
+      headers: { Accept: 'image/*,*/*;q=0.8' },
+    });
+
+    if (!upstream.ok) {
+      const text = await upstream.text().catch(() => '');
+      res.status(upstream.status).send(text);
+      return;
+    }
+
+    const contentType = upstream.headers.get('content-type') ?? 'application/octet-stream';
+    const contentLength = upstream.headers.get('content-length');
+    const body = Buffer.from(await upstream.arrayBuffer());
+
+    res.setHeader('Content-Type', contentType);
+    if (contentLength) {
+      res.setHeader('Content-Length', contentLength);
+    }
+    res.send(body);
   }
 
   @UseGuards(AuthGuard('jwt'))

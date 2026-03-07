@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../api/env.dart';
 
 String? _asNullableString(dynamic value) {
@@ -45,6 +47,11 @@ String? _resolveFotoUrl(String? url) {
   }
 
   if (url.startsWith('http://') || url.startsWith('https://')) {
+    final uploadsPath = extractUploadsPath(url);
+    if (kIsWeb && uploadsPath != null && trimmedBase.isNotEmpty) {
+      final encodedUrl = Uri.encodeQueryComponent(url);
+      return '$trimmedBase/products/image-proxy?url=$encodedUrl';
+    }
     return url;
   }
 
