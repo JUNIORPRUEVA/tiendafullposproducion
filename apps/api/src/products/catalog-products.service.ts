@@ -160,9 +160,17 @@ export class CatalogProductsService {
     const mode = this.resolveMode();
 
     if (mode === 'direct-db') {
-      const response = await this.findAllFromDirectDb();
-      this.logger.log(`[catalog-products] source=FULLPOS_DIRECT total=${response.total}`);
-      return response;
+      try {
+        const response = await this.findAllFromDirectDb();
+        this.logger.log(`[catalog-products] source=FULLPOS_DIRECT total=${response.total}`);
+        return response;
+      } catch (error) {
+        const message = this.describeDirectDbError(error);
+        this.logger.error(`[catalog-products][direct-db] ${message}`);
+        throw new ServiceUnavailableException(
+          `No se pudo leer el catalogo desde FULLPOS_DIRECT. ${message}`,
+        );
+      }
     }
 
     const response = await this.findAllFromIntegrationApi();
@@ -782,5 +790,28 @@ export class CatalogProductsService {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private describeDirectDbError(error: unknown): string {
+    if (error instanceof ServiceUnavailableException) {
+      const response = error.getResponse();
+      if (typeof response === 'string' && response.trim()) {
+        return response;
+      }
+      if (
+        response &&
+        typeof response === 'object' &&
+        'message' in response &&
+        typeof (response as { message?: unknown }).message === 'string'
+      ) {
+        return (response as { message: string }).message;
+      }
+    }
+
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    return 'Revisa FULLPOS_DIRECT_DATABASE_URL, la red interna de EasyPanel y las variables FULLPOS_DIRECT_PRODUCTS_TABLE/FULLPOS_DIRECT_COMPANY_COLUMN.';
   }
 }
