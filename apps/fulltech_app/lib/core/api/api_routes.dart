@@ -14,6 +14,7 @@ class ApiRoutes {
   static String blockUser(String id) => '/users/$id/block';
   static String unblockUser(String id) => '/users/$id/unblock';
   static const usersUpload = '/users/upload';
+    static const usersMeWorkContractSign = '/users/me/work-contract/sign';
 
   // Ponche
   static const punch = '/punch';

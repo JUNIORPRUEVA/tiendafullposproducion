@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { CreateUserDto } from './dto/create-user.dto';
+import { SignWorkContractDto } from './dto/sign-work-contract.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcryptjs';
 import { SelfUpdateUserDto } from './dto/self-update-user.dto';
@@ -182,6 +183,9 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
       fotoCedulaUrl: row.fotoCedulaUrl ?? null,
       fotoLicenciaUrl: row.fotoLicenciaUrl ?? null,
       fotoPersonalUrl: row.fotoPersonalUrl ?? null,
+      workContractSignatureUrl: row.workContractSignatureUrl ?? null,
+      workContractSignedAt: row.workContractSignedAt ?? null,
+      workContractVersion: row.workContractVersion ?? null,
       edad: row.edad ?? 0,
       tieneHijos: row.tieneHijos ?? false,
       estaCasado: row.estaCasado ?? false,
@@ -211,6 +215,9 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         "fotoCedulaUrl",
         "fotoLicenciaUrl",
         "fotoPersonalUrl",
+        "workContractSignatureUrl",
+        "workContractSignedAt",
+        "workContractVersion",
         COALESCE(edad, 0) AS edad,
         COALESCE("tieneHijos", false) AS "tieneHijos",
         COALESCE("estaCasado", false) AS "estaCasado",
@@ -244,6 +251,9 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         "fotoCedulaUrl",
         "fotoLicenciaUrl",
         "fotoPersonalUrl",
+        "workContractSignatureUrl",
+        "workContractSignedAt",
+        "workContractVersion",
         COALESCE(edad, 0) AS edad,
         COALESCE("tieneHijos", false) AS "tieneHijos",
         COALESCE("estaCasado", false) AS "estaCasado",
@@ -285,6 +295,9 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
       fotoCedulaUrl: null,
       fotoLicenciaUrl: null,
       fotoPersonalUrl: null,
+      workContractSignatureUrl: null,
+      workContractSignedAt: null,
+      workContractVersion: null,
       edad: null,
       tieneHijos: false,
       estaCasado: false,
@@ -318,6 +331,9 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
           fotoCedulaUrl: true,
           fotoLicenciaUrl: true,
           fotoPersonalUrl: true,
+          workContractSignatureUrl: true,
+          workContractSignedAt: true,
+          workContractVersion: true,
           edad: true,
           tieneHijos: true,
           estaCasado: true,
@@ -403,6 +419,9 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         fotoCedulaUrl: true,
         fotoLicenciaUrl: true,
         fotoPersonalUrl: true,
+        workContractSignatureUrl: true,
+        workContractSignedAt: true,
+        workContractVersion: true,
         edad: true,
         tieneHijos: true,
         estaCasado: true,
@@ -434,6 +453,9 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         fotoCedulaUrl: true,
         fotoLicenciaUrl: true,
         fotoPersonalUrl: true,
+        workContractSignatureUrl: true,
+        workContractSignedAt: true,
+        workContractVersion: true,
         edad: true,
         tieneHijos: true,
         estaCasado: true,
@@ -474,6 +496,46 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
       `);
       return rows.map((row) => this.mapMinimalUser(row));
     });
+  }
+
+  async signWorkContract(userId: string, dto: SignWorkContractDto) {
+    const signatureUrl = this.normalizeOptionalString(dto.signatureUrl);
+    const version = this.normalizeOptionalString(dto.version);
+
+    if (!signatureUrl) throw new BadRequestException('Firma inválida');
+    if (!version) throw new BadRequestException('Versión inválida');
+
+    const existing = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        workContractSignatureUrl: true,
+        workContractSignedAt: true,
+        workContractVersion: true,
+      },
+    });
+    if (!existing) throw new NotFoundException('User not found');
+
+    const alreadySignedSameVersion =
+      existing.workContractSignedAt != null &&
+      (existing.workContractSignatureUrl ?? '').trim().length > 0 &&
+      (existing.workContractVersion ?? '').trim() === version;
+
+    if (alreadySignedSameVersion) {
+      throw new BadRequestException('Este contrato ya fue firmado');
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        workContractSignatureUrl: signatureUrl,
+        workContractSignedAt: new Date(),
+        workContractVersion: version,
+      },
+      select: { id: true }
+    });
+
+    return this.findById(userId);
   }
 
   async update(id: string, dto: UpdateUserDto) {

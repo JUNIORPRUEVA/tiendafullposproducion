@@ -90,6 +90,18 @@ class UsersRepository {
     return UserModel.fromJson(res.data as Map<String, dynamic>);
   }
 
+  Future<UserModel> signWorkContract({
+    required String version,
+    required String signatureUrl,
+  }) async {
+    final payload = {
+      'version': version,
+      'signatureUrl': signatureUrl,
+    };
+    final res = await _dio.post(ApiRoutes.usersMeWorkContractSign, data: payload);
+    return UserModel.fromJson(res.data as Map<String, dynamic>);
+  }
+
   Future<String> uploadUserDocument({
     required List<int> bytes,
     required String fileName,

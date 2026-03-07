@@ -8,6 +8,9 @@ class UserModel {
   final String? fotoCedulaUrl;
   final String? fotoLicenciaUrl;
   final String? fotoPersonalUrl;
+  final String? workContractSignatureUrl;
+  final DateTime? workContractSignedAt;
+  final String? workContractVersion;
   final String? experienciaLaboral;
   final DateTime? fechaIngreso;
   final DateTime? fechaNacimiento;
@@ -33,6 +36,9 @@ class UserModel {
     this.fotoCedulaUrl,
     this.fotoLicenciaUrl,
     this.fotoPersonalUrl,
+    this.workContractSignatureUrl,
+    this.workContractSignedAt,
+    this.workContractVersion,
     this.experienciaLaboral,
     this.fechaIngreso,
     this.fechaNacimiento,
@@ -69,6 +75,11 @@ class UserModel {
       fotoCedulaUrl: json['fotoCedulaUrl'],
       fotoLicenciaUrl: json['fotoLicenciaUrl'],
       fotoPersonalUrl: json['fotoPersonalUrl'],
+        workContractSignatureUrl: json['workContractSignatureUrl'],
+        workContractSignedAt: json['workContractSignedAt'] != null
+          ? DateTime.tryParse(json['workContractSignedAt'])
+          : null,
+        workContractVersion: json['workContractVersion'],
       experienciaLaboral: json['experienciaLaboral'],
       fechaIngreso: json['fechaIngreso'] != null
           ? DateTime.tryParse(json['fechaIngreso'])
@@ -116,6 +127,9 @@ class UserModel {
       'fotoCedulaUrl': fotoCedulaUrl,
       'fotoLicenciaUrl': fotoLicenciaUrl,
       'fotoPersonalUrl': fotoPersonalUrl,
+      'workContractSignatureUrl': workContractSignatureUrl,
+      'workContractSignedAt': workContractSignedAt?.toIso8601String(),
+      'workContractVersion': workContractVersion,
       'experienciaLaboral': experienciaLaboral,
       'fechaIngreso': fechaIngreso?.toIso8601String(),
       'fechaNacimiento': fechaNacimiento?.toIso8601String(),

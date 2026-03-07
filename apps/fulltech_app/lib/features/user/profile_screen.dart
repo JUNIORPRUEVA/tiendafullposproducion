@@ -7,10 +7,8 @@ import '../../core/widgets/custom_app_bar.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/utils/string_utils.dart';
 import '../../core/models/user_model.dart';
-import '../../core/company/company_settings_repository.dart';
 import '../user/data/users_repository.dart';
-import 'utils/work_contract_preview_screen.dart';
-import 'utils/work_contract_pdf_service.dart';
+import 'work_contract_screen.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -202,11 +200,11 @@ class ProfileScreen extends ConsumerWidget {
                                   Expanded(
                                     child: OutlinedButton.icon(
                                       onPressed: () =>
-                                          _openContractPdf(context, ref, user),
+                                          _openContract(context),
                                       icon: const Icon(
-                                        Icons.picture_as_pdf_outlined,
+                                        Icons.description_outlined,
                                       ),
-                                      label: const Text('Contrato PDF'),
+                                      label: const Text('Contrato'),
                                     ),
                                   ),
                                 ],
@@ -288,42 +286,10 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _openContractPdf(
-    BuildContext context,
-    WidgetRef ref,
-    UserModel user,
-  ) async {
-    try {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Generando contrato...')));
-
-      final settingsRepo = ref.read(companySettingsRepositoryProvider);
-      final company = await settingsRepo.getSettings();
-      final bytes = await buildWorkContractPdf(
-        employee: user,
-        company: company,
-      );
-      final safeName = user.nombreCompleto.trim().isEmpty
-          ? 'empleado'
-          : user.nombreCompleto.trim().replaceAll(RegExp(r'\s+'), '_');
-      final dateFmt = DateFormat('yyyyMMdd');
-      final fileName =
-          'contrato_${safeName}_${dateFmt.format(DateTime.now())}.pdf';
-
-      if (!context.mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) =>
-              WorkContractPreviewScreen(bytes: bytes, fileName: fileName),
-        ),
-      );
-    } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo generar el contrato: $e')),
-      );
-    }
+  Future<void> _openContract(BuildContext context) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const WorkContractScreen()),
+    );
   }
 
   void _showEditDialog(BuildContext context, WidgetRef ref, UserModel user) {

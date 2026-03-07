@@ -142,6 +142,9 @@ model User {
   fotoCedulaUrl    String?
   fotoLicenciaUrl  String?
   fotoPersonalUrl  String?
+  workContractSignatureUrl String?
+  workContractSignedAt     DateTime?
+  workContractVersion      String?
   edad             Int
   tieneHijos       Boolean  @default(false)
   estaCasado       Boolean  @default(false)

@@ -8,6 +8,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { BlockUserDto } from './dto/block-user.dto';
 import { SelfUpdateUserDto } from './dto/self-update-user.dto';
+import { SignWorkContractDto } from './dto/sign-work-contract.dto';
 import { Request } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -103,6 +104,15 @@ export class UsersController {
       throw new UnauthorizedException('Usuario no autenticado');
     }
     return this.users.findById(user.id);
+  }
+
+  @Post('me/work-contract/sign')
+  signWorkContract(@Req() req: Request, @Body() dto: SignWorkContractDto) {
+    const user = req.user as { id?: string } | undefined;
+    if (!user?.id) {
+      throw new UnauthorizedException('Usuario no autenticado');
+    }
+    return this.users.signWorkContract(user.id, dto);
   }
 
   @Get(':id')
