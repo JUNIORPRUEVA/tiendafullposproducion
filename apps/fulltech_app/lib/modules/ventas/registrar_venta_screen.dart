@@ -29,13 +29,16 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
   final TextEditingController _noteCtrl = TextEditingController();
   DateTime? _lastAutoSyncAt;
   Timer? _liveSyncTimer;
-  static const Duration _liveSyncInterval = Duration(seconds: 4);
+  static const Duration _liveSyncInterval = Duration(seconds: 30);
+  static const Duration _silentRefreshMinInterval = Duration(seconds: 20);
 
-  static const _productsCacheKey = 'ventas_products_cache_v1';
-  static const _productsCacheAtKey = 'ventas_products_cache_at_v1';
+  static const _productsCacheKey = 'ventas_products_cache_v2';
+  static const _productsCacheAtKey = 'ventas_products_cache_at_v2';
 
   bool _loadingProducts = true;
   bool _saving = false;
+  bool _remoteRefreshInFlight = false;
+  DateTime? _lastSuccessfulRemoteSyncAt;
   List<ProductModel> _products = const [];
   List<SaleDraftItem> _cart = [];
   String? _selectedCategory;
@@ -135,12 +138,27 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
     bool forceRemote = false,
     bool silent = false,
   }) async {
+    if (silent && forceRemote && _remoteRefreshInFlight) return;
+    if (silent &&
+        forceRemote &&
+        _products.isNotEmpty &&
+        _lastSuccessfulRemoteSyncAt != null &&
+        DateTime.now().difference(_lastSuccessfulRemoteSyncAt!) <
+            _silentRefreshMinInterval) {
+      return;
+    }
+    if (silent && forceRemote) {
+      _remoteRefreshInFlight = true;
+    }
+
     await _loadProductsFromCacheIfEmpty();
     if (mounted && !silent) setState(() => _loadingProducts = true);
     try {
-      final products = await ref
+      final fetched = await ref
           .read(ventasRepositoryProvider)
           .fetchProducts(forceRefresh: forceRemote);
+      final syncVersion = buildCatalogSyncVersion(fetched);
+      final products = applyCatalogSyncVersion(fetched, syncVersion);
       if (!mounted) return;
       setState(() {
         _products = products;
@@ -148,6 +166,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
       });
       await _saveProductsToCache(products);
       _prefetchProductImages(products);
+      _lastSuccessfulRemoteSyncAt = DateTime.now();
     } catch (e) {
       if (mounted && !silent) setState(() => _loadingProducts = false);
       if (!mounted) return;
@@ -155,6 +174,10 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('No se pudieron cargar productos: $e')),
       );
+    } finally {
+      if (silent && forceRemote) {
+        _remoteRefreshInFlight = false;
+      }
     }
   }
 
@@ -203,7 +226,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
 
   void _prefetchProductImages(List<ProductModel> products) {
     final urls = products
-        .map((p) => p.fotoUrl)
+        .map((p) => p.displayFotoUrl)
         .whereType<String>()
         .map((u) => u.trim())
         .where((u) => u.isNotEmpty)
@@ -534,7 +557,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          if (p.fotoUrl == null || p.fotoUrl!.isEmpty)
+                          if ((p.displayFotoUrl ?? '').isEmpty)
                             Container(
                               color: Theme.of(
                                 context,
@@ -545,7 +568,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
                             )
                           else
                             CachedNetworkImage(
-                              imageUrl: p.fotoUrl!,
+                              imageUrl: p.displayFotoUrl!,
                               cacheManager: FulltechImageCacheManager.instance,
                               fit: BoxFit.cover,
                               fadeInDuration: Duration.zero,
@@ -1097,7 +1120,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
           product: product,
           productId: productId,
           name: product.nombre,
-          imageUrl: product.fotoUrl,
+          imageUrl: product.displayFotoUrl,
           isExternal: productId == null,
           qty: 1,
           priceSoldUnit: product.precio,

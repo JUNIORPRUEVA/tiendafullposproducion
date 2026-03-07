@@ -47,8 +47,10 @@ final catalogControllerProvider =
 
 class CatalogController extends StateNotifier<CatalogState> {
   final Ref ref;
-  static const _cacheKey = 'catalog_products_cache_v1';
+  static const _cacheKey = 'catalog_products_cache_v2';
+  static const _silentRefreshMinInterval = Duration(seconds: 20);
   bool _remoteRefreshInFlight = false;
+  DateTime? _lastSuccessfulRemoteSyncAt;
 
   CatalogController(this.ref) : super(const CatalogState()) {
     load();
@@ -82,6 +84,14 @@ class CatalogController extends StateNotifier<CatalogState> {
 
   Future<void> load({bool silent = false, bool forceRemote = false}) async {
     if (silent && forceRemote && _remoteRefreshInFlight) return;
+    if (silent &&
+        forceRemote &&
+        state.items.isNotEmpty &&
+        _lastSuccessfulRemoteSyncAt != null &&
+        DateTime.now().difference(_lastSuccessfulRemoteSyncAt!) <
+            _silentRefreshMinInterval) {
+      return;
+    }
     if (silent && forceRemote) {
       _remoteRefreshInFlight = true;
     }
@@ -103,12 +113,15 @@ class CatalogController extends StateNotifier<CatalogState> {
 
     try {
       final repo = ref.read(catalogRepositoryProvider);
-      final items = await repo.fetchProducts(
+      final fetched = await repo.fetchProducts(
         forceRefresh: forceRemote,
         silent: silent,
       );
+      final syncVersion = buildCatalogSyncVersion(fetched);
+      final items = applyCatalogSyncVersion(fetched, syncVersion);
       state = state.copyWith(items: items, loading: false);
       await _saveToCache(items);
+      _lastSuccessfulRemoteSyncAt = DateTime.now();
     } catch (e) {
       final message = e is ApiException
           ? e.message

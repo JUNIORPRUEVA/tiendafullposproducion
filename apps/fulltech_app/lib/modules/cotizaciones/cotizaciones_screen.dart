@@ -191,7 +191,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen> {
           CotizacionItem(
             productId: product.id,
             nombre: product.nombre,
-            imageUrl: product.fotoUrl,
+            imageUrl: product.displayFotoUrl,
             unitPrice: product.precio,
             qty: 1,
           ),
@@ -981,11 +981,11 @@ class _ProductThumbCard extends StatelessWidget {
                   backgroundColor: Theme.of(
                     context,
                   ).colorScheme.surfaceContainerHighest,
-                  child: (product.fotoUrl ?? '').trim().isEmpty
+                  child: (product.displayFotoUrl ?? '').trim().isEmpty
                       ? const Icon(Icons.inventory_2_outlined, size: 17)
                       : ClipOval(
                           child: Image.network(
-                            product.fotoUrl!,
+                            product.displayFotoUrl!,
                             width: 38,
                             height: 38,
                             fit: BoxFit.cover,

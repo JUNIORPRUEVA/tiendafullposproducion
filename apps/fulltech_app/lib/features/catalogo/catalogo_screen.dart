@@ -35,7 +35,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
   String _category = 'Todas';
   DateTime? _lastAutoSyncAt;
   Timer? _liveSyncTimer;
-  static const Duration _liveSyncInterval = Duration(seconds: 4);
+  static const Duration _liveSyncInterval = Duration(seconds: 30);
 
   bool get _hasActiveFilter => _category != 'Todas';
 
@@ -530,6 +530,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
       ),
       builder: (context) {
         final theme = Theme.of(context);
+        final imageUrl = product.displayFotoUrl;
         return SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -540,7 +541,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
                   borderRadius: BorderRadius.circular(14),
                   child: AspectRatio(
                     aspectRatio: 16 / 9,
-                    child: product.fotoUrl == null || product.fotoUrl!.isEmpty
+                    child: imageUrl == null || imageUrl.isEmpty
                         ? Container(
                             color: theme.colorScheme.surfaceContainerHighest,
                             alignment: Alignment.center,
@@ -551,7 +552,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
                             ),
                           )
                         : Image.network(
-                            product.fotoUrl!,
+                          imageUrl,
                             fit: BoxFit.cover,
                             errorBuilder: (context, error, stackTrace) =>
                                 Container(
@@ -659,6 +660,7 @@ class _ProductCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final compact = MediaQuery.sizeOf(context).width < 700;
+    final imageUrl = product.displayFotoUrl;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -671,7 +673,7 @@ class _ProductCard extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (product.fotoUrl == null || product.fotoUrl!.isEmpty)
+            if (imageUrl == null || imageUrl.isEmpty)
               Container(
                 color: theme.colorScheme.surfaceContainerHighest,
                 alignment: Alignment.center,
@@ -683,7 +685,7 @@ class _ProductCard extends StatelessWidget {
               )
             else
               Image.network(
-                product.fotoUrl!,
+                imageUrl,
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) => Container(
                   color: theme.colorScheme.surfaceContainerHighest,
@@ -1060,11 +1062,11 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
                     fit: BoxFit.cover,
                   ),
                 )
-              else if (isEdit && widget.product?.fotoUrl != null)
+              else if ((isEdit && widget.product?.displayFotoUrl) != null)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Image.network(
-                    widget.product!.fotoUrl!,
+                    widget.product!.displayFotoUrl!,
                     height: 64,
                     width: 64,
                     fit: BoxFit.cover,
