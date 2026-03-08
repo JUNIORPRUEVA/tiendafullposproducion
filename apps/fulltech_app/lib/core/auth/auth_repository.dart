@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_client.dart';
 import '../api/api_routes.dart';
 import '../errors/api_exception.dart';
 import '../models/user_model.dart';
+import '../utils/is_flutter_test.dart';
 import 'auth_interceptor.dart';
 import 'token_storage.dart';
 import '../loading/app_loading_controller.dart';
@@ -162,6 +164,14 @@ class AuthRepository {
   }
 
   Future<UserModel?> getMeOrNull() async {
+    // Widget tests (smoke test) should not block on secure storage/network.
+    // Those calls can hang in tests and leave pending timeout timers.
+    // Note: `bool.fromEnvironment('FLUTTER_TEST')` would require --dart-define;
+    // `flutter test` doesn't set that by default.
+    if (isFlutterTest) {
+      return null;
+    }
+
     try {
       final token = await _storage.getAccessToken().timeout(_storageTimeout);
       if (token == null) return null;

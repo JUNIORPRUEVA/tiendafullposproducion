@@ -59,11 +59,19 @@ class _SalidasTecnicasPunchPanelState
             ),
           ],
         ),
-        if (state.error != null && state.error!.trim().isNotEmpty)
+        if (state.loadError != null && state.loadError!.trim().isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Text(
-              state.error!,
+              state.loadError!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+        if (state.salidaError != null && state.salidaError!.trim().isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              state.salidaError!,
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
@@ -132,13 +140,13 @@ class _SalidasTecnicasPunchPanelState
               children: [
                 if (salida.estado == 'INICIADA')
                   FilledButton(
-                    onPressed: state.busy
+                    onPressed: state.isMarkingLlegada
                         ? null
                         : () => ctrl.marcarLlegada(salidaId: salida.id),
                     child: const Text('Marcar llegada'),
                   ),
                 FilledButton(
-                  onPressed: state.busy
+                  onPressed: state.isFinalizingSalida
                       ? null
                       : () => ctrl.finalizar(salidaId: salida.id),
                   child: const Text('Finalizar'),
@@ -181,7 +189,7 @@ class _SalidasTecnicasPunchPanelState
                     ),
                   )
                   .toList(),
-              onChanged: state.busy
+              onChanged: state.isStartingSalida
                   ? null
                   : (v) => setState(() => _selectedServicioId = v),
               decoration: const InputDecoration(labelText: 'Servicio asignado'),
@@ -194,7 +202,7 @@ class _SalidasTecnicasPunchPanelState
                     (v) => DropdownMenuItem(value: v.id, child: Text(v.label)),
                   )
                   .toList(),
-              onChanged: state.busy
+              onChanged: state.isStartingSalida
                   ? null
                   : (v) => setState(() => _selectedVehiculoId = v),
               decoration: const InputDecoration(labelText: 'Vehículo'),
@@ -206,17 +214,17 @@ class _SalidasTecnicasPunchPanelState
               ),
               minLines: 1,
               maxLines: 3,
-              enabled: !state.busy,
+              enabled: !state.isStartingSalida,
               onChanged: (v) => _observacion = v,
             ),
-            if (state.busy) ...[
+            if (state.isStartingSalida) ...[
               const SizedBox(height: 12),
               const LinearProgressIndicator(),
             ],
             const SizedBox(height: 12),
             FilledButton(
               onPressed:
-                  state.busy ||
+                  state.isStartingSalida ||
                       _selectedServicioId == null ||
                       selectedVehiculo == null
                   ? null

@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'auth_repository.dart';
 import '../models/user_model.dart';
+import '../utils/is_flutter_test.dart';
 
 class AuthState {
   final bool initialized;
@@ -40,7 +41,6 @@ final authStateProvider = StateNotifierProvider<AuthController, AuthState>((
 
 class AuthController extends StateNotifier<AuthState> {
   final Ref ref;
-  static const Duration _bootstrapTimeout = Duration(seconds: 10);
 
   AuthController(this.ref)
     : super(
@@ -55,9 +55,21 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> _bootstrap() async {
+    if (isFlutterTest) {
+      state = AuthState(
+        initialized: true,
+        isAuthenticated: false,
+        user: null,
+        loading: false,
+      );
+      return;
+    }
     try {
       final repo = ref.read(authRepositoryProvider);
-      final user = await repo.getMeOrNull().timeout(_bootstrapTimeout);
+      // Avoid adding an additional Future.timeout() here.
+      // The repository/Dio layer already applies timeouts and, in widget tests,
+      // an extra timeout Timer can remain pending when the widget tree disposes.
+      final user = await repo.getMeOrNull();
 
       if (!mounted) return;
       state = AuthState(

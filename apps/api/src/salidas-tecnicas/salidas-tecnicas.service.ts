@@ -36,17 +36,29 @@ export class SalidasTecnicasService {
 
   async createVehiculoPropio(
     tecnicoId: string,
-    dto: { nombre: string; tipo: string; placa?: string; combustibleTipo: string; rendimientoKmLitro: number },
+    dto: {
+      nombre: string;
+      tipo: string;
+      placa?: string;
+      combustibleTipo: string;
+      rendimientoKmLitro?: number;
+      esEmpresa?: boolean;
+    },
   ) {
+    const esEmpresa = dto.esEmpresa === true;
+
     const created = await this.prisma.vehiculo.create({
       data: {
         nombre: dto.nombre.trim(),
         tipo: dto.tipo.trim(),
         placa: dto.placa?.trim() || null,
         combustibleTipo: dto.combustibleTipo.trim(),
-        rendimientoKmLitro: new Prisma.Decimal(dto.rendimientoKmLitro),
-        esEmpresa: false,
-        tecnicoIdPropietario: tecnicoId,
+        rendimientoKmLitro:
+          dto.rendimientoKmLitro !== undefined && dto.rendimientoKmLitro !== null
+            ? new Prisma.Decimal(dto.rendimientoKmLitro)
+            : null,
+        esEmpresa,
+        tecnicoIdPropietario: esEmpresa ? null : tecnicoId,
         activo: true,
       },
     });

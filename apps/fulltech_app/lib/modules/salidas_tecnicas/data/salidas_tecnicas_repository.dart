@@ -7,7 +7,9 @@ import '../../../core/auth/auth_repository.dart';
 import '../../../core/errors/api_exception.dart';
 import '../salidas_tecnicas_models.dart';
 
-final salidasTecnicasRepositoryProvider = Provider<SalidasTecnicasRepository>((ref) {
+final salidasTecnicasRepositoryProvider = Provider<SalidasTecnicasRepository>((
+  ref,
+) {
   return SalidasTecnicasRepository(ref.watch(dioProvider));
 });
 
@@ -44,12 +46,13 @@ class SalidasTecnicasRepository {
     }
   }
 
-  Future<VehiculoModel> createVehiculoPropio({
+  Future<VehiculoModel> createVehiculo({
     required String nombre,
     required String tipo,
     String? placa,
     required String combustibleTipo,
-    required double rendimientoKmLitro,
+    double? rendimientoKmLitro,
+    required bool esEmpresa,
   }) async {
     try {
       final res = await _dio.post(
@@ -59,7 +62,9 @@ class SalidasTecnicasRepository {
           'tipo': tipo,
           'placa': placa,
           'combustibleTipo': combustibleTipo,
-          'rendimientoKmLitro': rendimientoKmLitro,
+          if (rendimientoKmLitro != null)
+            'rendimientoKmLitro': rendimientoKmLitro,
+          'esEmpresa': esEmpresa,
         },
       );
       return VehiculoModel.fromJson((res.data as Map).cast<String, dynamic>());
@@ -87,14 +92,19 @@ class SalidasTecnicasRepository {
     }
   }
 
-  Future<List<SalidaTecnicaModel>> listHistorial({String? from, String? to, String? estado}) async {
+  Future<List<SalidaTecnicaModel>> listHistorial({
+    String? from,
+    String? to,
+    String? estado,
+  }) async {
     try {
       final res = await _dio.get(
         ApiRoutes.tecnicoSalidasHistorial,
         queryParameters: {
           if (from != null && from.trim().isNotEmpty) 'from': from.trim(),
           if (to != null && to.trim().isNotEmpty) 'to': to.trim(),
-          if (estado != null && estado.trim().isNotEmpty) 'estado': estado.trim(),
+          if (estado != null && estado.trim().isNotEmpty)
+            'estado': estado.trim(),
         },
       );
       final items = (res.data as Map)['items'] as List?;
@@ -107,7 +117,9 @@ class SalidasTecnicasRepository {
       // Si el historial es grande, parsearlo en el hilo UI puede “congelar” la app.
       // En mobile/desktop usamos isolate con compute; en web parseamos inline.
       if (kIsWeb) {
-        return normalized.map(SalidaTecnicaModel.fromJson).toList(growable: false);
+        return normalized
+            .map(SalidaTecnicaModel.fromJson)
+            .toList(growable: false);
       }
       return compute(_parseSalidaTecnicaList, normalized);
     } on DioException catch (e) {
@@ -138,7 +150,9 @@ class SalidasTecnicasRepository {
           'observacion': observacion,
         },
       );
-      return SalidaTecnicaModel.fromJson((res.data as Map).cast<String, dynamic>());
+      return SalidaTecnicaModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo iniciar la salida'),
@@ -162,7 +176,9 @@ class SalidasTecnicasRepository {
           'observacion': observacion,
         },
       );
-      return SalidaTecnicaModel.fromJson((res.data as Map).cast<String, dynamic>());
+      return SalidaTecnicaModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo marcar llegada'),
@@ -186,7 +202,9 @@ class SalidasTecnicasRepository {
           'observacion': observacion,
         },
       );
-      return SalidaTecnicaModel.fromJson((res.data as Map).cast<String, dynamic>());
+      return SalidaTecnicaModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo finalizar la salida'),
@@ -207,7 +225,8 @@ class SalidasTecnicasRepository {
         queryParameters: {
           if (from != null && from.trim().isNotEmpty) 'from': from.trim(),
           if (to != null && to.trim().isNotEmpty) 'to': to.trim(),
-          if (estado != null && estado.trim().isNotEmpty) 'estado': estado.trim(),
+          if (estado != null && estado.trim().isNotEmpty)
+            'estado': estado.trim(),
           if (tecnicoId != null && tecnicoId.trim().isNotEmpty)
             'tecnicoId': tecnicoId.trim(),
         },
@@ -254,9 +273,7 @@ class SalidasTecnicasRepository {
     try {
       await _dio.post(
         ApiRoutes.adminSalidaAprobar(salidaId),
-        data: {
-          if (observacion != null) 'observacion': observacion,
-        },
+        data: {if (observacion != null) 'observacion': observacion},
       );
     } on DioException catch (e) {
       throw ApiException(
@@ -273,9 +290,7 @@ class SalidasTecnicasRepository {
     try {
       await _dio.post(
         ApiRoutes.adminSalidaRechazar(salidaId),
-        data: {
-          'observacion': observacion,
-        },
+        data: {'observacion': observacion},
       );
     } on DioException catch (e) {
       throw ApiException(

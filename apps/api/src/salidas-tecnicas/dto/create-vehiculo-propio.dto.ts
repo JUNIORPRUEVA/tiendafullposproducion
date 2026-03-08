@@ -1,4 +1,4 @@
-import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateIf } from 'class-validator';
 
 export class CreateVehiculoPropioDto {
   @IsString()
@@ -17,9 +17,10 @@ export class CreateVehiculoPropioDto {
   @IsNotEmpty()
   combustibleTipo!: string;
 
+  @ValidateIf((o: CreateVehiculoPropioDto) => o.esEmpresa !== true)
   @IsNumber()
   @Min(0.01)
-  rendimientoKmLitro!: number;
+  rendimientoKmLitro?: number;
 
   // fuerza vehículo propio
   @IsOptional()

@@ -21,6 +21,30 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
   String _observacion = '';
 
   @override
+  void initState() {
+    super.initState();
+    // Log y SnackBar opcional: si prefieres solo texto, quítalo.
+    ref.listen<SalidasTecnicasState>(salidasTecnicasControllerProvider, (
+      previous,
+      next,
+    ) {
+      final prevMsg =
+          (previous?.vehicleError ??
+                  previous?.salidaError ??
+                  previous?.loadError)
+              ?.trim();
+      final nextMsg = (next.vehicleError ?? next.salidaError ?? next.loadError)
+          ?.trim();
+      if (nextMsg == null || nextMsg.isEmpty) return;
+      if (nextMsg == prevMsg) return;
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(nextMsg)));
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authStateProvider);
     final state = ref.watch(salidasTecnicasControllerProvider);
@@ -59,17 +83,22 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  if (state.error != null && state.error!.trim().isNotEmpty)
+                  if (state.loadError != null &&
+                      state.loadError!.trim().isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: Text(
-                        state.error!,
+                        state.loadError!,
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.error,
                         ),
                       ),
                     ),
-                  if (state.busy)
+                  if (state.isStartingSalida ||
+                      state.isSavingVehicle ||
+                      state.isMarkingLlegada ||
+                      state.isFinalizingSalida ||
+                      state.loadingVehiculos)
                     const Padding(
                       padding: EdgeInsets.only(bottom: 12),
                       child: LinearProgressIndicator(),
@@ -150,13 +179,13 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
               children: [
                 if (salida.estado == 'INICIADA')
                   FilledButton(
-                    onPressed: state.busy
+                    onPressed: state.isMarkingLlegada
                         ? null
                         : () => ctrl.marcarLlegada(salidaId: salida.id),
                     child: const Text('Marcar llegada'),
                   ),
                 FilledButton(
-                  onPressed: state.busy
+                  onPressed: state.isFinalizingSalida
                       ? null
                       : () => ctrl.finalizar(salidaId: salida.id),
                   child: const Text('Finalizar'),
@@ -199,7 +228,7 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
                     ),
                   )
                   .toList(),
-              onChanged: state.busy
+              onChanged: state.isStartingSalida
                   ? null
                   : (v) => setState(() => _selectedServicioId = v),
               decoration: const InputDecoration(labelText: 'Servicio asignado'),
@@ -212,7 +241,7 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
                     (v) => DropdownMenuItem(value: v.id, child: Text(v.label)),
                   )
                   .toList(),
-              onChanged: state.busy
+              onChanged: state.isStartingSalida
                   ? null
                   : (v) => setState(() => _selectedVehiculoId = v),
               decoration: const InputDecoration(labelText: 'Vehículo'),
@@ -224,13 +253,13 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
               ),
               minLines: 1,
               maxLines: 3,
-              enabled: !state.busy,
+              enabled: !state.isStartingSalida,
               onChanged: (v) => _observacion = v,
             ),
             const SizedBox(height: 12),
             FilledButton(
               onPressed:
-                  state.busy ||
+                  state.isStartingSalida ||
                       _selectedServicioId == null ||
                       selectedVehiculo == null
                   ? null
@@ -243,6 +272,15 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
                     ),
               child: const Text('Iniciar'),
             ),
+            if (state.salidaError != null &&
+                state.salidaError!.trim().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  state.salidaError!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
           ],
         ),
       ),
@@ -270,26 +308,34 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
                   ),
                 ),
                 TextButton(
-                  onPressed: state.busy
+                  onPressed: state.isSavingVehicle
                       ? null
                       : () async {
+                          debugPrint(
+                            '[SalidasTecnicasScreen] Abriendo formulario de nuevo vehículo',
+                          );
                           final created = await _showCrearVehiculoDialog(
                             context,
+                            ctrl,
                           );
+                          if (!mounted) return;
                           if (created == null) return;
-                          await ctrl.crearVehiculoPropio(
-                            nombre: created.nombre,
-                            tipo: created.tipo,
-                            placa: created.placa,
-                            combustibleTipo: created.combustibleTipo,
-                            rendimientoKmLitro: created.rendimientoKmLitro,
-                          );
+                          setState(() => _selectedVehiculoId = created.id);
                         },
                   child: const Text('Nuevo'),
                 ),
               ],
             ),
             const SizedBox(height: 8),
+            if (state.vehicleError != null &&
+                state.vehicleError!.trim().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  state.vehicleError!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
             if (vehiculos.isEmpty)
               const Text('No hay vehículos disponibles.')
             else
@@ -339,86 +385,187 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
     );
   }
 
-  Future<_VehiculoDraft?> _showCrearVehiculoDialog(BuildContext context) async {
+  Future<VehiculoModel?> _showCrearVehiculoDialog(
+    BuildContext context,
+    SalidasTecnicasController ctrl,
+  ) async {
+    final formKey = GlobalKey<FormState>();
     final nombreCtrl = TextEditingController();
     final tipoCtrl = TextEditingController();
     final placaCtrl = TextEditingController();
     final combustibleCtrl = TextEditingController();
     final rendimientoCtrl = TextEditingController();
 
+    bool esEmpresa = false;
+    bool savingLocal = false;
+    String? localError;
+
+    String? validateRequired(String? v, String label) {
+      if ((v ?? '').trim().isEmpty) return '$label es requerido';
+      return null;
+    }
+
+    String? validateRendimiento(String? v) {
+      if (esEmpresa) return null;
+      final raw = (v ?? '').trim();
+      if (raw.isEmpty) return 'Rendimiento km/l es requerido';
+      final parsed = double.tryParse(raw.replaceAll(',', '.'));
+      if (parsed == null || parsed <= 0) return 'Rendimiento km/l inválido';
+      return null;
+    }
+
     try {
-      return showDialog<_VehiculoDraft>(
+      return await showDialog<VehiculoModel>(
         context: context,
-        builder: (ctx) {
-          return AlertDialog(
-            title: const Text('Nuevo vehículo propio'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: nombreCtrl,
-                    decoration: const InputDecoration(labelText: 'Nombre'),
-                  ),
-                  TextField(
-                    controller: tipoCtrl,
-                    decoration: const InputDecoration(labelText: 'Tipo'),
-                  ),
-                  TextField(
-                    controller: placaCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Placa (opcional)',
-                    ),
-                  ),
-                  TextField(
-                    controller: combustibleCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Combustible (ej: GASOLINA)',
-                    ),
-                  ),
-                  TextField(
-                    controller: rendimientoCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Rendimiento km/l',
-                    ),
-                    keyboardType: TextInputType.number,
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancelar'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  final rendimiento = double.tryParse(
-                    rendimientoCtrl.text.trim(),
+        barrierDismissible: !savingLocal,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (dialogContext, setDialogState) {
+              Future<void> submit() async {
+                setDialogState(() => localError = null);
+                final ok = formKey.currentState?.validate() ?? false;
+                if (!ok) {
+                  setDialogState(
+                    () => localError = 'Revisa los campos marcados',
                   );
-                  if (nombreCtrl.text.trim().isEmpty ||
-                      tipoCtrl.text.trim().isEmpty ||
-                      combustibleCtrl.text.trim().isEmpty ||
-                      rendimiento == null ||
-                      rendimiento <= 0) {
+                  return;
+                }
+
+                setDialogState(() => savingLocal = true);
+                final rendimiento = double.tryParse(
+                  rendimientoCtrl.text.trim().replaceAll(',', '.'),
+                );
+
+                try {
+                  debugPrint(
+                    '[SalidasTecnicasScreen] Validación OK. Guardando vehículo...',
+                  );
+                  final created = await ctrl.crearVehiculo(
+                    nombre: nombreCtrl.text,
+                    tipo: tipoCtrl.text,
+                    placa: placaCtrl.text,
+                    combustibleTipo: combustibleCtrl.text,
+                    rendimientoKmLitro: rendimiento,
+                    esEmpresa: esEmpresa,
+                  );
+                  if (!dialogContext.mounted) return;
+                  if (created == null) {
+                    // El controller ya puso vehicleError; mostramos uno local si hace falta.
+                    setDialogState(() {
+                      localError =
+                          localError ?? 'No se pudo guardar el vehículo';
+                    });
                     return;
                   }
-                  Navigator.pop(
-                    ctx,
-                    _VehiculoDraft(
-                      nombre: nombreCtrl.text.trim(),
-                      tipo: tipoCtrl.text.trim(),
-                      placa: placaCtrl.text.trim().isEmpty
-                          ? null
-                          : placaCtrl.text.trim(),
-                      combustibleTipo: combustibleCtrl.text.trim(),
-                      rendimientoKmLitro: rendimiento,
-                    ),
+                  Navigator.pop(dialogContext, created);
+                } catch (e, st) {
+                  debugPrint(
+                    '[SalidasTecnicasScreen] Error submit vehículo: $e',
                   );
-                },
-                child: const Text('Crear'),
-              ),
-            ],
+                  debugPrintStack(stackTrace: st);
+                  if (!dialogContext.mounted) return;
+                  setDialogState(
+                    () => localError = 'Error inesperado al guardar',
+                  );
+                } finally {
+                  if (!dialogContext.mounted) return;
+                  setDialogState(() => savingLocal = false);
+                }
+              }
+
+              return AlertDialog(
+                title: const Text('Nuevo vehículo'),
+                content: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Vehículo de empresa'),
+                          value: esEmpresa,
+                          onChanged: savingLocal
+                              ? null
+                              : (v) {
+                                  setDialogState(() {
+                                    esEmpresa = v;
+                                    localError = null;
+                                  });
+                                },
+                        ),
+                        TextFormField(
+                          controller: nombreCtrl,
+                          enabled: !savingLocal,
+                          decoration: const InputDecoration(
+                            labelText: 'Nombre',
+                          ),
+                          validator: (v) => validateRequired(v, 'Nombre'),
+                        ),
+                        TextFormField(
+                          controller: tipoCtrl,
+                          enabled: !savingLocal,
+                          decoration: const InputDecoration(labelText: 'Tipo'),
+                          validator: (v) => validateRequired(v, 'Tipo'),
+                        ),
+                        TextFormField(
+                          controller: placaCtrl,
+                          enabled: !savingLocal,
+                          decoration: const InputDecoration(
+                            labelText: 'Placa (opcional)',
+                          ),
+                        ),
+                        TextFormField(
+                          controller: combustibleCtrl,
+                          enabled: !savingLocal,
+                          decoration: const InputDecoration(
+                            labelText: 'Combustible (ej: GASOLINA)',
+                          ),
+                          validator: (v) => validateRequired(v, 'Combustible'),
+                        ),
+                        TextFormField(
+                          controller: rendimientoCtrl,
+                          enabled: !savingLocal && !esEmpresa,
+                          decoration: InputDecoration(
+                            labelText:
+                                'Rendimiento km/l${esEmpresa ? ' (no aplica)' : ''}',
+                          ),
+                          keyboardType: TextInputType.number,
+                          validator: validateRendimiento,
+                        ),
+                        if (localError != null && localError!.trim().isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: Text(
+                              localError!,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                          ),
+                        if (savingLocal)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 12),
+                            child: LinearProgressIndicator(),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: savingLocal
+                        ? null
+                        : () => Navigator.pop(dialogContext),
+                    child: const Text('Cancelar'),
+                  ),
+                  FilledButton(
+                    onPressed: savingLocal ? null : submit,
+                    child: const Text('Guardar'),
+                  ),
+                ],
+              );
+            },
           );
         },
       );
@@ -430,20 +577,4 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
       rendimientoCtrl.dispose();
     }
   }
-}
-
-class _VehiculoDraft {
-  final String nombre;
-  final String tipo;
-  final String? placa;
-  final String combustibleTipo;
-  final double rendimientoKmLitro;
-
-  const _VehiculoDraft({
-    required this.nombre,
-    required this.tipo,
-    required this.placa,
-    required this.combustibleTipo,
-    required this.rendimientoKmLitro,
-  });
 }
