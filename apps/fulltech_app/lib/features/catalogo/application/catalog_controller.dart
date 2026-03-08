@@ -117,8 +117,9 @@ class CatalogController extends StateNotifier<CatalogState> {
         forceRefresh: forceRemote,
         silent: silent,
       );
-      final syncVersion = buildCatalogSyncVersion(fetched);
-      final items = applyCatalogSyncVersion(fetched, syncVersion);
+      final merged = _mergeRecoveredImages(fetched);
+      final syncVersion = buildCatalogSyncVersion(merged);
+      final items = applyCatalogSyncVersion(merged, syncVersion);
       state = state.copyWith(items: items, loading: false);
       await _saveToCache(items);
       _lastSuccessfulRemoteSyncAt = DateTime.now();
@@ -134,6 +135,46 @@ class CatalogController extends StateNotifier<CatalogState> {
         _remoteRefreshInFlight = false;
       }
     }
+  }
+
+  List<ProductModel> _mergeRecoveredImages(List<ProductModel> fetched) {
+    if (state.items.isEmpty) return fetched;
+
+    final previousById = {for (final item in state.items) item.id: item};
+
+    return fetched
+        .map((next) {
+          final previous = previousById[next.id];
+          if (previous == null) return next;
+
+          final nextHasImage =
+              (next.fotoUrl ?? '').trim().isNotEmpty ||
+              (next.originalFotoUrl ?? '').trim().isNotEmpty;
+          final previousHasImage =
+              (previous.fotoUrl ?? '').trim().isNotEmpty ||
+              (previous.originalFotoUrl ?? '').trim().isNotEmpty;
+
+          if (!previousHasImage || nextHasImage) {
+            return next;
+          }
+
+          final sameUpdatedAt =
+              next.updatedAt != null &&
+              previous.updatedAt != null &&
+              next.updatedAt!.millisecondsSinceEpoch ==
+                  previous.updatedAt!.millisecondsSinceEpoch;
+
+          if (sameUpdatedAt || next.updatedAt == null) {
+            return next.copyWith(
+              fotoUrl: previous.fotoUrl,
+              originalFotoUrl: previous.originalFotoUrl,
+              imageVersion: previous.imageVersion ?? next.imageVersion,
+            );
+          }
+
+          return next;
+        })
+        .toList(growable: false);
   }
 
   Future<void> create({

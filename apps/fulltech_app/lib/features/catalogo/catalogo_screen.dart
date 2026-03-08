@@ -9,11 +9,13 @@ import 'package:go_router/go_router.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../../core/models/product_model.dart';
+import '../../core/routing/app_route_observer.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/product_image_url.dart';
 import '../../core/utils/string_utils.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
+import '../../core/widgets/product_network_image.dart';
 import 'application/catalog_controller.dart';
 
 String _formatStock(double? stock) {
@@ -32,11 +34,13 @@ class CatalogoScreen extends ConsumerStatefulWidget {
 }
 
 class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver
+    implements RouteAware {
   final _searchCtrl = TextEditingController();
   String _category = 'Todas';
   DateTime? _lastAutoSyncAt;
   Timer? _liveSyncTimer;
+  bool _routeObserverSubscribed = false;
   static const Duration _liveSyncInterval = Duration(seconds: 30);
 
   bool get _hasActiveFilter => _category != 'Todas';
@@ -52,8 +56,40 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _subscribeRouteObserver();
     _scheduleAutoSync();
   }
+
+  void _subscribeRouteObserver() {
+    if (_routeObserverSubscribed) return;
+    final route = ModalRoute.of(context);
+    if (route == null) return;
+    ref.read(appRouteObserverProvider).subscribe(this, route);
+    _routeObserverSubscribed = true;
+  }
+
+  void _syncProductsOnEnter() {
+    if (!mounted) return;
+    ref
+        .read(catalogControllerProvider.notifier)
+        .load(silent: true, forceRemote: true);
+  }
+
+  @override
+  void didPush() {
+    _syncProductsOnEnter();
+  }
+
+  @override
+  void didPopNext() {
+    _syncProductsOnEnter();
+  }
+
+  @override
+  void didPushNext() {}
+
+  @override
+  void didPop() {}
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -104,6 +140,10 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (_routeObserverSubscribed) {
+      ref.read(appRouteObserverProvider).unsubscribe(this);
+      _routeObserverSubscribed = false;
+    }
     _stopLiveSync();
     _searchCtrl.dispose();
     super.dispose();
@@ -114,7 +154,8 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
     final user = ref.watch(authStateProvider).user;
     final isAdmin = (user?.role ?? '').trim().toUpperCase() == 'ADMIN';
     final companySettings = ref.watch(companySettingsProvider);
-    final productsReadOnly = companySettings.valueOrNull?.productsReadOnly ?? true;
+    final productsReadOnly =
+        companySettings.valueOrNull?.productsReadOnly ?? true;
     final canManage = isAdmin && !productsReadOnly;
 
     final isModal = widget.modal;
@@ -555,43 +596,32 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
                               color: theme.colorScheme.outline,
                             ),
                           )
-                        : Image.network(
-                            imageUrl,
+                        : ProductNetworkImage(
+                            imageUrl: imageUrl,
+                            productId: product.id,
+                            productName: product.nombre,
+                            originalUrl: product.originalFotoUrl,
                             fit: BoxFit.cover,
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return Container(
-                                color:
-                                    theme.colorScheme.surfaceContainerHighest,
-                                alignment: Alignment.center,
-                                child: const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
+                            loading: Container(
+                              color: theme.colorScheme.surfaceContainerHighest,
+                              alignment: Alignment.center,
+                              child: const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
                                 ),
-                              );
-                            },
-                            errorBuilder: (context, error, stackTrace) {
-                              debugLogProductImageFailure(
-                                productId: product.id,
-                                productName: product.nombre,
-                                originalUrl: product.originalFotoUrl,
-                                attemptedUrl: imageUrl,
-                                error: error,
-                              );
-                              return Container(
-                                color:
-                                    theme.colorScheme.surfaceContainerHighest,
-                                alignment: Alignment.center,
-                                child: Icon(
-                                  Icons.broken_image_outlined,
-                                  size: 38,
-                                  color: theme.colorScheme.outline,
-                                ),
-                              );
-                            },
+                              ),
+                            ),
+                            fallback: Container(
+                              color: theme.colorScheme.surfaceContainerHighest,
+                              alignment: Alignment.center,
+                              child: Icon(
+                                Icons.broken_image_outlined,
+                                size: 38,
+                                color: theme.colorScheme.outline,
+                              ),
+                            ),
                           ),
                   ),
                 ),
@@ -711,39 +741,30 @@ class _ProductCard extends StatelessWidget {
                 ),
               )
             else
-              Image.network(
-                imageUrl,
+              ProductNetworkImage(
+                imageUrl: imageUrl,
+                productId: product.id,
+                productName: product.nombre,
+                originalUrl: product.originalFotoUrl,
                 fit: BoxFit.cover,
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return Container(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    alignment: Alignment.center,
-                    child: const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  );
-                },
-                errorBuilder: (context, error, stackTrace) {
-                  debugLogProductImageFailure(
-                    productId: product.id,
-                    productName: product.nombre,
-                    originalUrl: product.originalFotoUrl,
-                    attemptedUrl: imageUrl,
-                    error: error,
-                  );
-                  return Container(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    alignment: Alignment.center,
-                    child: Icon(
-                      Icons.broken_image_outlined,
-                      size: 28,
-                      color: theme.colorScheme.outline,
-                    ),
-                  );
-                },
+                loading: Container(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  alignment: Alignment.center,
+                  child: const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+                fallback: Container(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  alignment: Alignment.center,
+                  child: Icon(
+                    Icons.broken_image_outlined,
+                    size: 28,
+                    color: theme.colorScheme.outline,
+                  ),
+                ),
               ),
             const Positioned.fill(
               child: DecoratedBox(
@@ -1113,14 +1134,16 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
               else if (isEdit && widget.product?.displayFotoUrl != null)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    widget.product!.displayFotoUrl!,
+                  child: SizedBox(
                     height: 64,
                     width: 64,
-                    fit: BoxFit.cover,
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
-                      return Container(
+                    child: ProductNetworkImage(
+                      imageUrl: widget.product!.displayFotoUrl!,
+                      productId: widget.product!.id,
+                      productName: widget.product!.nombre,
+                      originalUrl: widget.product!.originalFotoUrl,
+                      fit: BoxFit.cover,
+                      loading: Container(
                         height: 64,
                         width: 64,
                         color: Theme.of(
@@ -1132,17 +1155,8 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         ),
-                      );
-                    },
-                    errorBuilder: (context, error, stackTrace) {
-                      debugLogProductImageFailure(
-                        productId: widget.product!.id,
-                        productName: widget.product!.nombre,
-                        originalUrl: widget.product!.originalFotoUrl,
-                        attemptedUrl: widget.product!.displayFotoUrl!,
-                        error: error,
-                      );
-                      return Container(
+                      ),
+                      fallback: Container(
                         height: 64,
                         width: 64,
                         color: Theme.of(
@@ -1153,8 +1167,8 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
                           Icons.broken_image_outlined,
                           color: Theme.of(context).colorScheme.outline,
                         ),
-                      );
-                    },
+                      ),
+                    ),
                   ),
                 ),
             ],

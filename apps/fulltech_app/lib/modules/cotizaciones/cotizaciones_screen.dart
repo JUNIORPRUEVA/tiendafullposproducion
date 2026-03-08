@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,6 +10,7 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/models/product_model.dart';
+import '../../core/routing/app_route_observer.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/product_image_url.dart';
 import '../../core/widgets/app_drawer.dart';
@@ -25,6 +28,9 @@ class CotizacionesScreen extends ConsumerStatefulWidget {
 }
 
 class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen> {
+class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
+    with WidgetsBindingObserver
+    implements RouteAware {
   final TextEditingController _searchCtrl = TextEditingController();
 
   final List<CotizacionItem> _items = [];
@@ -46,16 +52,27 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen> {
   DateTime? _editingCreatedAt;
 
   bool _prefillFromRouteApplied = false;
+  bool _routeObserverSubscribed = false;
+  bool _remoteRefreshInFlight = false;
+  DateTime? _lastSuccessfulRemoteSyncAt;
+  DateTime? _lastAutoSyncAt;
+  Timer? _liveSyncTimer;
+  static const Duration _liveSyncInterval = Duration(seconds: 30);
+  static const Duration _silentRefreshMinInterval = Duration(seconds: 20);
 
   @override
   void initState() {
     super.initState();
-    _loadProducts();
+    WidgetsBinding.instance.addObserver(this);
+    _loadProducts(forceRemote: true);
+    _startLiveSync();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _subscribeRouteObserver();
+    _scheduleAutoSync();
 
     if (_prefillFromRouteApplied) return;
     _prefillFromRouteApplied = true;
@@ -64,6 +81,75 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen> {
       if (!mounted) return;
       _applyClientPrefillFromRoute();
     });
+  }
+
+  void _subscribeRouteObserver() {
+    if (_routeObserverSubscribed) return;
+    final route = ModalRoute.of(context);
+    if (route == null) return;
+    ref.read(appRouteObserverProvider).subscribe(this, route);
+    _routeObserverSubscribed = true;
+  }
+
+  void _startLiveSync() {
+    _liveSyncTimer?.cancel();
+    _liveSyncTimer = Timer.periodic(_liveSyncInterval, (_) {
+      if (!mounted) return;
+      _loadProducts(forceRemote: true, silent: true);
+    });
+  }
+
+  void _stopLiveSync() {
+    _liveSyncTimer?.cancel();
+    _liveSyncTimer = null;
+  }
+
+  void _scheduleAutoSync() {
+    final now = DateTime.now();
+    final last = _lastAutoSyncAt;
+    if (last != null && now.difference(last).inMilliseconds < 1200) return;
+    _lastAutoSyncAt = now;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadProducts(forceRemote: true, silent: true);
+    });
+  }
+
+  void _syncProductsOnEnter() {
+    if (!mounted) return;
+    _loadProducts(forceRemote: true, silent: true);
+  }
+
+  @override
+  void didPush() {
+    _syncProductsOnEnter();
+  }
+
+  @override
+  void didPopNext() {
+    _syncProductsOnEnter();
+  }
+
+  @override
+  void didPushNext() {}
+
+  @override
+  void didPop() {}
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _startLiveSync();
+      _loadProducts(forceRemote: true, silent: true);
+      return;
+    }
+
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _stopLiveSync();
+    }
   }
 
   void _applyClientPrefillFromRoute() {
@@ -123,29 +209,59 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    if (_routeObserverSubscribed) {
+      ref.read(appRouteObserverProvider).unsubscribe(this);
+      _routeObserverSubscribed = false;
+    }
+    _stopLiveSync();
     _searchCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _loadProducts() async {
-    setState(() {
-      _loadingProducts = true;
-      _error = null;
-    });
+  Future<void> _loadProducts({bool forceRemote = false, bool silent = false}) async {
+    if (silent && forceRemote && _remoteRefreshInFlight) return;
+    if (silent &&
+        forceRemote &&
+        _productos.isNotEmpty &&
+        _lastSuccessfulRemoteSyncAt != null &&
+        DateTime.now().difference(_lastSuccessfulRemoteSyncAt!) <
+            _silentRefreshMinInterval) {
+      return;
+    }
+    if (silent && forceRemote) {
+      _remoteRefreshInFlight = true;
+    }
+
+    if (!silent) {
+      setState(() {
+        _loadingProducts = true;
+        _error = null;
+      });
+    }
 
     try {
-      final rows = await ref.read(ventasRepositoryProvider).fetchProducts();
+      final rows = await ref
+          .read(ventasRepositoryProvider)
+          .fetchProducts(forceRefresh: forceRemote);
       if (!mounted) return;
       setState(() {
         _productos = rows;
         _loadingProducts = false;
+        _error = null;
       });
+      _lastSuccessfulRemoteSyncAt = DateTime.now();
     } catch (e) {
       if (!mounted) return;
+      if (silent && _productos.isNotEmpty) return;
       setState(() {
         _loadingProducts = false;
         _error = 'No se pudieron cargar productos: $e';
       });
+    } finally {
+      if (silent && forceRemote) {
+        _remoteRefreshInFlight = false;
+      }
     }
   }
 

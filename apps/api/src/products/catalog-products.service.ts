@@ -127,6 +127,7 @@ export class CatalogProductsService {
   private readonly fullposBaseUrl: string;
   private readonly fullposIntegrationToken: string;
   private readonly fullposTimeoutMs: number;
+  private readonly fullposValidateImages: boolean;
   private readonly fullposDirectDatabaseUrl: string;
   private readonly fullposDirectCompanyId: string;
   private readonly fullposDirectProductsTable: string;
@@ -141,6 +142,7 @@ export class CatalogProductsService {
       .replace(/\/$/, '');
     this.fullposIntegrationToken = (config.get<string>('FULLPOS_INTEGRATION_TOKEN') ?? '').trim();
     this.fullposTimeoutMs = Number(config.get<string>('FULLPOS_INTEGRATION_TIMEOUT_MS') ?? 8000);
+    const rawValidateImages = (config.get<string>('FULLPOS_VALIDATE_IMAGES') ?? '').trim().toLowerCase();
     this.fullposDirectDatabaseUrl = (
       config.get<string>('FULLPOS_DIRECT_DATABASE_URL') ??
       config.get<string>('FULLPOS_DB_URL') ??
@@ -153,6 +155,9 @@ export class CatalogProductsService {
     ).trim();
     this.fullposDirectProductsTable = (config.get<string>('FULLPOS_DIRECT_PRODUCTS_TABLE') ?? '').trim();
     this.fullposDirectCompanyColumn = (config.get<string>('FULLPOS_DIRECT_COMPANY_COLUMN') ?? '').trim();
+    this.fullposValidateImages = rawValidateImages.length > 0
+      ? ['1', 'true', 'yes', 'on'].includes(rawValidateImages)
+      : !this.fullposDirectDatabaseUrl;
 
     if (this.fullposDirectDatabaseUrl) {
       this.fullposDirectPool = new Pool({
@@ -733,6 +738,10 @@ export class CatalogProductsService {
     const candidate = (url ?? '').trim();
     if (!candidate || !/^https?:\/\//i.test(candidate)) {
       return candidate || null;
+    }
+
+    if (!this.fullposValidateImages) {
+      return candidate;
     }
 
     let parsedUrl: URL;

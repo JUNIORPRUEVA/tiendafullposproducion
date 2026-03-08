@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/cache/fulltech_cache_manager.dart';
 import '../../core/models/product_model.dart';
+import '../../core/routing/app_route_observer.dart';
 import '../../core/utils/product_image_url.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../clientes/cliente_model.dart';
@@ -25,7 +26,8 @@ class RegistrarVentaScreen extends ConsumerStatefulWidget {
 }
 
 class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver
+    implements RouteAware {
   final TextEditingController _searchCtrl = TextEditingController();
   final TextEditingController _noteCtrl = TextEditingController();
   DateTime? _lastAutoSyncAt;
@@ -35,6 +37,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
 
   static const _productsCacheKey = 'ventas_products_cache_v4';
   static const _productsCacheAtKey = 'ventas_products_cache_at_v4';
+  bool _routeObserverSubscribed = false;
 
   bool _loadingProducts = true;
   bool _saving = false;
@@ -83,8 +86,38 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _subscribeRouteObserver();
     _scheduleAutoSync();
   }
+
+  void _subscribeRouteObserver() {
+    if (_routeObserverSubscribed) return;
+    final route = ModalRoute.of(context);
+    if (route == null) return;
+    ref.read(appRouteObserverProvider).subscribe(this, route);
+    _routeObserverSubscribed = true;
+  }
+
+  void _syncProductsOnEnter() {
+    if (!mounted) return;
+    _loadProducts(forceRemote: true, silent: true);
+  }
+
+  @override
+  void didPush() {
+    _syncProductsOnEnter();
+  }
+
+  @override
+  void didPopNext() {
+    _syncProductsOnEnter();
+  }
+
+  @override
+  void didPushNext() {}
+
+  @override
+  void didPop() {}
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -129,6 +162,10 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (_routeObserverSubscribed) {
+      ref.read(appRouteObserverProvider).unsubscribe(this);
+      _routeObserverSubscribed = false;
+    }
     _stopLiveSync();
     _searchCtrl.dispose();
     _noteCtrl.dispose();

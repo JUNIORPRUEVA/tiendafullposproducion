@@ -29,6 +29,7 @@ import '../../modules/ventas/mis_ventas_screen.dart';
 import '../../modules/ventas/registrar_venta_screen.dart';
 import '../auth/auth_provider.dart';
 import '../auth/role_permissions.dart';
+import 'app_route_observer.dart';
 import 'routes.dart';
 
 final _routerRefreshProvider = Provider<_RouterRefreshNotifier>((ref) {
@@ -43,10 +44,12 @@ final _routerRefreshProvider = Provider<_RouterRefreshNotifier>((ref) {
 
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ref.watch(_routerRefreshProvider);
+  final routeObserver = ref.watch(appRouteObserverProvider);
 
   return GoRouter(
     initialLocation: Routes.splash,
     refreshListenable: refresh,
+    observers: [routeObserver],
     routes: [
       GoRoute(
         path: Routes.splash,
