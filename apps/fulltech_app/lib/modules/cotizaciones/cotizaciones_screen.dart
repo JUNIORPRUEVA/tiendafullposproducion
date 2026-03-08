@@ -27,7 +27,6 @@ class CotizacionesScreen extends ConsumerStatefulWidget {
   ConsumerState<CotizacionesScreen> createState() => _CotizacionesScreenState();
 }
 
-class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen> {
 class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     with WidgetsBindingObserver
     implements RouteAware {
@@ -219,7 +218,10 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     super.dispose();
   }
 
-  Future<void> _loadProducts({bool forceRemote = false, bool silent = false}) async {
+  Future<void> _loadProducts({
+    bool forceRemote = false,
+    bool silent = false,
+  }) async {
     if (silent && forceRemote && _remoteRefreshInFlight) return;
     if (silent &&
         forceRemote &&
