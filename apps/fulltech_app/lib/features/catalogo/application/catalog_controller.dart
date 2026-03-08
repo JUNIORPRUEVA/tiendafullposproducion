@@ -52,9 +52,7 @@ class CatalogController extends StateNotifier<CatalogState> {
   bool _remoteRefreshInFlight = false;
   DateTime? _lastSuccessfulRemoteSyncAt;
 
-  CatalogController(this.ref) : super(const CatalogState()) {
-    load();
-  }
+  CatalogController(this.ref) : super(const CatalogState());
 
   Future<List<ProductModel>> _loadFromCache() async {
     try {

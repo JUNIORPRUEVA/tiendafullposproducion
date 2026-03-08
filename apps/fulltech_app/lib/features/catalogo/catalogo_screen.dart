@@ -73,9 +73,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
 
   void _syncProductsOnEnter() {
     if (!mounted) return;
-    ref
-        .read(catalogControllerProvider.notifier)
-        .load(silent: true, forceRemote: true);
+    _scheduleCatalogSync();
   }
 
   @override
@@ -98,9 +96,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
       _startLiveSync();
-      ref
-          .read(catalogControllerProvider.notifier)
-          .load(silent: true, forceRemote: true);
+      _scheduleCatalogSync();
       return;
     }
 
@@ -115,9 +111,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
     _liveSyncTimer?.cancel();
     _liveSyncTimer = Timer.periodic(_liveSyncInterval, (_) {
       if (!mounted) return;
-      ref
-          .read(catalogControllerProvider.notifier)
-          .load(silent: true, forceRemote: true);
+      _scheduleCatalogSync();
     });
   }
 
@@ -132,6 +126,13 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
     if (last != null && now.difference(last).inMilliseconds < 1200) return;
     _lastAutoSyncAt = now;
 
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scheduleCatalogSync();
+    });
+  }
+
+  void _scheduleCatalogSync() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref

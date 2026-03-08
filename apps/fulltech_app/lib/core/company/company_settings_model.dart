@@ -7,6 +7,10 @@ class CompanySettings {
   final String openAiApiKey;
   final String openAiModel;
   final bool hasOpenAiApiKey;
+  final String evolutionApiBaseUrl;
+  final String evolutionApiInstanceName;
+  final String evolutionApiApiKey;
+  final bool hasEvolutionApiApiKey;
   final String productsSource;
   final bool productsReadOnly;
 
@@ -19,6 +23,10 @@ class CompanySettings {
     required this.openAiApiKey,
     required this.openAiModel,
     required this.hasOpenAiApiKey,
+    required this.evolutionApiBaseUrl,
+    required this.evolutionApiInstanceName,
+    required this.evolutionApiApiKey,
+    required this.hasEvolutionApiApiKey,
     this.productsSource = 'LOCAL',
     this.productsReadOnly = false,
   });
@@ -33,6 +41,10 @@ class CompanySettings {
       openAiApiKey: '',
       openAiModel: 'gpt-4o-mini',
       hasOpenAiApiKey: false,
+      evolutionApiBaseUrl: '',
+      evolutionApiInstanceName: '',
+      evolutionApiApiKey: '',
+      hasEvolutionApiApiKey: false,
       productsSource: 'LOCAL',
       productsReadOnly: false,
     );
@@ -47,6 +59,10 @@ class CompanySettings {
     String? openAiApiKey,
     String? openAiModel,
     bool? hasOpenAiApiKey,
+    String? evolutionApiBaseUrl,
+    String? evolutionApiInstanceName,
+    String? evolutionApiApiKey,
+    bool? hasEvolutionApiApiKey,
     String? productsSource,
     bool? productsReadOnly,
     bool clearLogo = false,
@@ -60,6 +76,12 @@ class CompanySettings {
       openAiApiKey: openAiApiKey ?? this.openAiApiKey,
       openAiModel: openAiModel ?? this.openAiModel,
       hasOpenAiApiKey: hasOpenAiApiKey ?? this.hasOpenAiApiKey,
+      evolutionApiBaseUrl: evolutionApiBaseUrl ?? this.evolutionApiBaseUrl,
+      evolutionApiInstanceName:
+          evolutionApiInstanceName ?? this.evolutionApiInstanceName,
+      evolutionApiApiKey: evolutionApiApiKey ?? this.evolutionApiApiKey,
+      hasEvolutionApiApiKey:
+          hasEvolutionApiApiKey ?? this.hasEvolutionApiApiKey,
       productsSource: productsSource ?? this.productsSource,
       productsReadOnly: productsReadOnly ?? this.productsReadOnly,
     );
@@ -74,6 +96,10 @@ class CompanySettings {
     'openAiApiKey': openAiApiKey,
     'openAiModel': openAiModel,
     'hasOpenAiApiKey': hasOpenAiApiKey,
+    'evolutionApiBaseUrl': evolutionApiBaseUrl,
+    'evolutionApiInstanceName': evolutionApiInstanceName,
+    'evolutionApiApiKey': evolutionApiApiKey,
+    'hasEvolutionApiApiKey': hasEvolutionApiApiKey,
     'productsSource': productsSource,
     'productsReadOnly': productsReadOnly,
   };
@@ -88,6 +114,11 @@ class CompanySettings {
       openAiApiKey: (map['openAiApiKey'] ?? '').toString(),
       openAiModel: (map['openAiModel'] ?? 'gpt-4o-mini').toString(),
       hasOpenAiApiKey: map['hasOpenAiApiKey'] == true,
+      evolutionApiBaseUrl: (map['evolutionApiBaseUrl'] ?? '').toString(),
+      evolutionApiInstanceName:
+          (map['evolutionApiInstanceName'] ?? '').toString(),
+      evolutionApiApiKey: (map['evolutionApiApiKey'] ?? '').toString(),
+      hasEvolutionApiApiKey: map['hasEvolutionApiApiKey'] == true,
       productsSource: (map['productsSource'] ?? 'LOCAL').toString(),
       productsReadOnly: map['productsReadOnly'] == true,
     );

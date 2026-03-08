@@ -24,10 +24,14 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
   final _phoneCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
   final _openAiApiKeyCtrl = TextEditingController();
+  final _evolutionApiBaseUrlCtrl = TextEditingController();
+  final _evolutionApiInstanceNameCtrl = TextEditingController();
+  final _evolutionApiApiKeyCtrl = TextEditingController();
 
   bool _loading = true;
   bool _saving = false;
   bool _showApiKey = false;
+  bool _showEvolutionApiKey = false;
   String? _logoBase64;
 
   @override
@@ -43,6 +47,9 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     _phoneCtrl.dispose();
     _addressCtrl.dispose();
     _openAiApiKeyCtrl.dispose();
+    _evolutionApiBaseUrlCtrl.dispose();
+    _evolutionApiInstanceNameCtrl.dispose();
+    _evolutionApiApiKeyCtrl.dispose();
     super.dispose();
   }
 
@@ -57,6 +64,9 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
       _addressCtrl.text = settings.address;
       _logoBase64 = settings.logoBase64;
       _openAiApiKeyCtrl.text = settings.openAiApiKey;
+      _evolutionApiBaseUrlCtrl.text = settings.evolutionApiBaseUrl;
+      _evolutionApiInstanceNameCtrl.text = settings.evolutionApiInstanceName;
+      _evolutionApiApiKeyCtrl.text = settings.evolutionApiApiKey;
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -101,6 +111,10 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
       openAiApiKey: _openAiApiKeyCtrl.text.trim(),
       openAiModel: '',
       hasOpenAiApiKey: _openAiApiKeyCtrl.text.trim().isNotEmpty,
+      evolutionApiBaseUrl: _evolutionApiBaseUrlCtrl.text.trim(),
+      evolutionApiInstanceName: _evolutionApiInstanceNameCtrl.text.trim(),
+      evolutionApiApiKey: _evolutionApiApiKeyCtrl.text.trim(),
+      hasEvolutionApiApiKey: _evolutionApiApiKeyCtrl.text.trim().isNotEmpty,
     );
 
     try {
@@ -270,6 +284,86 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
                             },
                             icon: const Icon(Icons.delete_outline),
                             label: const Text('Limpiar API key'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Configuración de API (Evolution)',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Configura tu instancia de Evolution API para enviar notificaciones y mensajes.',
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: _evolutionApiBaseUrlCtrl,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          keyboardType: TextInputType.url,
+                          decoration: const InputDecoration(
+                            labelText: 'Base URL',
+                            hintText: 'https://tu-evolution-api.com',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _evolutionApiInstanceNameCtrl,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          decoration: const InputDecoration(
+                            labelText: 'Instance name',
+                            hintText: 'fulltech',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _evolutionApiApiKeyCtrl,
+                          obscureText: !_showEvolutionApiKey,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          decoration: InputDecoration(
+                            labelText: 'API Key',
+                            hintText: 'ev-...',
+                            suffixIcon: IconButton(
+                              tooltip: _showEvolutionApiKey
+                                  ? 'Ocultar clave'
+                                  : 'Mostrar clave',
+                              onPressed: () => setState(
+                                () => _showEvolutionApiKey =
+                                    !_showEvolutionApiKey,
+                              ),
+                              icon: Icon(
+                                _showEvolutionApiKey
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _evolutionApiBaseUrlCtrl.clear();
+                                _evolutionApiInstanceNameCtrl.clear();
+                                _evolutionApiApiKeyCtrl.clear();
+                              });
+                            },
+                            icon: const Icon(Icons.delete_outline),
+                            label: const Text('Limpiar Evolution API'),
                           ),
                         ),
                       ],

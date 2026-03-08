@@ -66,6 +66,9 @@ class CompanySettingsRepository {
           'address': settings.address,
           'logoBase64': settings.logoBase64,
           'openAiApiKey': settings.openAiApiKey,
+          'evolutionApiBaseUrl': settings.evolutionApiBaseUrl,
+          'evolutionApiInstanceName': settings.evolutionApiInstanceName,
+          'evolutionApiApiKey': settings.evolutionApiApiKey,
         },
       );
     } on DioException catch (e) {

@@ -33,4 +33,19 @@ export class UpdateSettingsDto {
   @IsString()
   @MaxLength(100)
   openAiModel?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  evolutionApiBaseUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  evolutionApiInstanceName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  evolutionApiApiKey?: string;
 }

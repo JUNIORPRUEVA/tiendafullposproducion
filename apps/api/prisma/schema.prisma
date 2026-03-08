@@ -209,6 +209,9 @@ model AppConfig {
   logoBase64   String?
   openAiApiKey String?
   openAiModel  String   @default("gpt-4o-mini")
+  evolutionApiBaseUrl      String  @default("") @map("evolution_api_base_url")
+  evolutionApiInstanceName String  @default("") @map("evolution_api_instance_name")
+  evolutionApiApiKey       String? @map("evolution_api_api_key")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
