@@ -5,6 +5,8 @@ import 'runtime_env.dart';
 
 class Env {
   static const String _defaultApiBaseUrl = 'https://api.midominio.com';
+  static const int _defaultApiTimeoutMs = 15000;
+  static const int _minApiTimeoutMs = 1000;
 
   static String? _readEnv(String key) {
     // 1) Compile-time values (flutter build --dart-define=...)
@@ -89,6 +91,15 @@ class Env {
     return normalized;
   }
 
-  static int get apiTimeoutMs =>
-      int.tryParse(_readEnv('API_TIMEOUT_MS') ?? '15000') ?? 15000;
+  static int get apiTimeoutMs {
+    final raw = (_readEnv('API_TIMEOUT_MS') ?? '').trim();
+    final parsed = int.tryParse(raw);
+    final value = parsed ?? _defaultApiTimeoutMs;
+
+    // Dio treats Duration.zero as “no timeout”. A misconfigured 0 would look
+    // like a freeze for users.
+    if (value <= 0) return _defaultApiTimeoutMs;
+    if (value < _minApiTimeoutMs) return _minApiTimeoutMs;
+    return value;
+  }
 }

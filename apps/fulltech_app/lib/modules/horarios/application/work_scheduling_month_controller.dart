@@ -43,10 +43,11 @@ class WorkSchedulingMonthState {
   }
 }
 
-final workSchedulingMonthControllerProvider = StateNotifierProvider.autoDispose<
-    WorkSchedulingMonthController, WorkSchedulingMonthState>(
-  (ref) => WorkSchedulingMonthController(ref),
-);
+final workSchedulingMonthControllerProvider =
+    StateNotifierProvider.autoDispose<
+      WorkSchedulingMonthController,
+      WorkSchedulingMonthState
+    >((ref) => WorkSchedulingMonthController(ref));
 
 class WorkSchedulingMonthController
     extends StateNotifier<WorkSchedulingMonthState> {
@@ -54,7 +55,7 @@ class WorkSchedulingMonthController
   int _seq = 0;
 
   WorkSchedulingMonthController(this.ref)
-      : super(WorkSchedulingMonthState.initial()) {
+    : super(WorkSchedulingMonthState.initial()) {
     load();
   }
 
@@ -83,15 +84,21 @@ class WorkSchedulingMonthController
       final lastWeekStart = startOfWeekMonday(monthEnd);
 
       final weekStarts = <DateTime>[];
-      for (var d = firstWeekStart;
-          !d.isAfter(lastWeekStart);
-          d = d.add(const Duration(days: 7))) {
+      for (
+        var d = firstWeekStart;
+        !d.isAfter(lastWeekStart);
+        d = d.add(const Duration(days: 7))
+      ) {
         weekStarts.add(d);
       }
 
       final next = <String, WorkDayAssignment>{};
       for (final ws in weekStarts) {
         final week = await repo.getWeek(dateOnly(ws));
+        if (week == null) {
+          if (seq != _seq) return;
+          continue;
+        }
         for (final a in week.days) {
           final key = '${a.date}|${a.userId}';
           next[key] = a;

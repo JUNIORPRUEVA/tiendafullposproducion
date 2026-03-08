@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_routes.dart';
@@ -97,10 +98,18 @@ class SalidasTecnicasRepository {
         },
       );
       final items = (res.data as Map)['items'] as List?;
-      return (items ?? const [])
+
+      final normalized = (items ?? const [])
           .whereType<Map>()
-          .map((e) => SalidaTecnicaModel.fromJson(e.cast<String, dynamic>()))
-          .toList();
+          .map((e) => e.cast<String, dynamic>())
+          .toList(growable: false);
+
+      // Si el historial es grande, parsearlo en el hilo UI puede “congelar” la app.
+      // En mobile/desktop usamos isolate con compute; en web parseamos inline.
+      if (kIsWeb) {
+        return normalized.map(SalidaTecnicaModel.fromJson).toList(growable: false);
+      }
+      return compute(_parseSalidaTecnicaList, normalized);
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo cargar historial'),
@@ -205,16 +214,37 @@ class SalidasTecnicasRepository {
       );
 
       final items = (res.data as Map)['items'] as List?;
-      return (items ?? const [])
+
+      final normalized = (items ?? const [])
           .whereType<Map>()
-          .map((e) => AdminSalidaTecnicaModel.fromJson(e.cast<String, dynamic>()))
-          .toList();
+          .map((e) => e.cast<String, dynamic>())
+          .toList(growable: false);
+
+      if (kIsWeb) {
+        return normalized
+            .map(AdminSalidaTecnicaModel.fromJson)
+            .toList(growable: false);
+      }
+      return compute(_parseAdminSalidaTecnicaList, normalized);
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudieron cargar salidas'),
         e.response?.statusCode,
       );
     }
+  }
+
+  // compute() requiere funciones top-level o static.
+  static List<SalidaTecnicaModel> _parseSalidaTecnicaList(
+    List<Map<String, dynamic>> items,
+  ) {
+    return items.map(SalidaTecnicaModel.fromJson).toList(growable: false);
+  }
+
+  static List<AdminSalidaTecnicaModel> _parseAdminSalidaTecnicaList(
+    List<Map<String, dynamic>> items,
+  ) {
+    return items.map(AdminSalidaTecnicaModel.fromJson).toList(growable: false);
   }
 
   Future<void> adminAprobarSalida({

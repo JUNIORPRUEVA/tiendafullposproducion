@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_theme.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../horarios_models.dart';
 
 enum WorkUiStatus {
@@ -72,10 +72,7 @@ WorkStatusStyle workStatusStyleForAssignment(
   }
 }
 
-WorkStatusStyle workStatusStyleForRequestState(
-  String raw,
-  ColorScheme scheme,
-) {
+WorkStatusStyle workStatusStyleForRequestState(String raw, ColorScheme scheme) {
   final v = raw.trim().toLowerCase();
   switch (v) {
     case 'pending':

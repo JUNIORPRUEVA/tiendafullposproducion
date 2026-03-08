@@ -69,6 +69,11 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
                         ),
                       ),
                     ),
+                  if (state.busy)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 12),
+                      child: LinearProgressIndicator(),
+                    ),
 
                   _buildSalidaAbiertaCard(context, state, ctrl),
                   const SizedBox(height: 12),

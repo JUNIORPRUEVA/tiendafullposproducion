@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/auth/app_role.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../features/operaciones/data/operations_repository.dart';
 import '../../../features/operaciones/operations_models.dart';
@@ -28,14 +31,14 @@ class SalidasTecnicasState {
   });
 
   factory SalidasTecnicasState.initial() => const SalidasTecnicasState(
-        loading: true,
-        busy: false,
-        error: null,
-        vehiculos: [],
-        abierta: null,
-        historial: [],
-        servicios: [],
-      );
+    loading: true,
+    busy: false,
+    error: null,
+    vehiculos: [],
+    abierta: null,
+    historial: [],
+    servicios: [],
+  );
 
   SalidasTecnicasState copyWith({
     bool? loading,
@@ -59,13 +62,15 @@ class SalidasTecnicasState {
 }
 
 final salidasTecnicasControllerProvider =
-    StateNotifierProvider<SalidasTecnicasController, SalidasTecnicasState>((ref) {
-  return SalidasTecnicasController(
-    ref,
-    ref.watch(salidasTecnicasRepositoryProvider),
-    ref.watch(operationsRepositoryProvider),
-  );
-});
+    StateNotifierProvider<SalidasTecnicasController, SalidasTecnicasState>((
+      ref,
+    ) {
+      return SalidasTecnicasController(
+        ref,
+        ref.watch(salidasTecnicasRepositoryProvider),
+        ref.watch(operationsRepositoryProvider),
+      );
+    });
 
 class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
   final Ref _ref;
@@ -73,19 +78,24 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
   final OperationsRepository _ops;
 
   SalidasTecnicasController(this._ref, this._repo, this._ops)
-      : super(SalidasTecnicasState.initial()) {
+    : super(SalidasTecnicasState.initial()) {
     load();
   }
 
   Future<void> load() async {
     final auth = _ref.read(authStateProvider);
-    final role = (auth.user?.role ?? '').toUpperCase();
-    if (!auth.isAuthenticated || role != 'TECNICO') {
-      state = state.copyWith(loading: false, error: 'Solo disponible para técnicos');
+    final isTecnico = auth.user?.appRole == AppRole.tecnico;
+    if (!auth.isAuthenticated || !isTecnico) {
+      state = state.copyWith(
+        loading: false,
+        busy: false,
+        error: 'Solo disponible para técnicos',
+      );
       return;
     }
 
-    state = state.copyWith(loading: true, error: null);
+    // Always clear transient busy state when (re)loading.
+    state = state.copyWith(loading: true, busy: false, error: null);
     try {
       final results = await Future.wait([
         _repo.listVehiculos(),
@@ -114,6 +124,7 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
 
       state = state.copyWith(
         loading: false,
+        busy: false,
         error: null,
         vehiculos: vehiculos,
         abierta: abierta,
@@ -121,9 +132,13 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
         servicios: servicios,
       );
     } on ApiException catch (e) {
-      state = state.copyWith(loading: false, error: e.message);
+      state = state.copyWith(loading: false, busy: false, error: e.message);
     } catch (_) {
-      state = state.copyWith(loading: false, error: 'Ocurrió un error');
+      state = state.copyWith(
+        loading: false,
+        busy: false,
+        error: 'Ocurrió un error',
+      );
     }
   }
 
@@ -136,14 +151,23 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
-    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
       throw ApiException('Permiso de ubicación denegado');
     }
 
-    return Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-      timeLimit: const Duration(seconds: 12),
-    );
+    try {
+      return await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 12),
+      ).timeout(
+        const Duration(seconds: 13),
+        onTimeout: () =>
+            throw ApiException('No se pudo obtener la ubicación (timeout).'),
+      );
+    } on TimeoutException {
+      throw ApiException('No se pudo obtener la ubicación (timeout).');
+    }
   }
 
   Future<void> crearVehiculoPropio({
@@ -166,7 +190,10 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
     } on ApiException catch (e) {
       state = state.copyWith(busy: false, error: e.message);
     } catch (_) {
-      state = state.copyWith(busy: false, error: 'No se pudo crear el vehículo');
+      state = state.copyWith(
+        busy: false,
+        error: 'No se pudo crear el vehículo',
+      );
     }
   }
 
@@ -190,11 +217,17 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
     } on ApiException catch (e) {
       state = state.copyWith(busy: false, error: e.message);
     } catch (_) {
-      state = state.copyWith(busy: false, error: 'No se pudo iniciar la salida');
+      state = state.copyWith(
+        busy: false,
+        error: 'No se pudo iniciar la salida',
+      );
     }
   }
 
-  Future<void> marcarLlegada({required String salidaId, String? observacion}) async {
+  Future<void> marcarLlegada({
+    required String salidaId,
+    String? observacion,
+  }) async {
     state = state.copyWith(busy: true, error: null);
     try {
       final pos = await _getCurrentPosition();
@@ -212,7 +245,10 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
     }
   }
 
-  Future<void> finalizar({required String salidaId, String? observacion}) async {
+  Future<void> finalizar({
+    required String salidaId,
+    String? observacion,
+  }) async {
     state = state.copyWith(busy: true, error: null);
     try {
       final pos = await _getCurrentPosition();
@@ -226,7 +262,10 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
     } on ApiException catch (e) {
       state = state.copyWith(busy: false, error: e.message);
     } catch (_) {
-      state = state.copyWith(busy: false, error: 'No se pudo finalizar la salida');
+      state = state.copyWith(
+        busy: false,
+        error: 'No se pudo finalizar la salida',
+      );
     }
   }
 }

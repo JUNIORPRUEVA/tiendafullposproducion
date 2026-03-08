@@ -209,6 +209,10 @@ class _SalidasTecnicasPunchPanelState
               enabled: !state.busy,
               onChanged: (v) => _observacion = v,
             ),
+            if (state.busy) ...[
+              const SizedBox(height: 12),
+              const LinearProgressIndicator(),
+            ],
             const SizedBox(height: 12),
             FilledButton(
               onPressed:

@@ -252,7 +252,11 @@ export class WorkSchedulingService {
 
     const data: Prisma.WorkEmployeeConfigUpdateInput = {};
     if (dto.enabled !== undefined) data.enabled = dto.enabled;
-    if (dto.schedule_profile_id !== undefined) data.scheduleProfileId = dto.schedule_profile_id;
+    if (dto.schedule_profile_id !== undefined) {
+      data.scheduleProfile = dto.schedule_profile_id
+        ? { connect: { id: dto.schedule_profile_id } }
+        : { disconnect: true };
+    }
     if (dto.preferred_day_off_weekday !== undefined) data.preferredDayOffWeekday = dto.preferred_day_off_weekday;
     if (dto.fixed_day_off_weekday !== undefined) data.fixedDayOffWeekday = dto.fixed_day_off_weekday;
     if (dto.disallowed_day_off_weekdays !== undefined) data.disallowedDayOffWeekdays = uniqueWeekdays(dto.disallowed_day_off_weekdays);
@@ -1201,7 +1205,7 @@ export class WorkSchedulingService {
             endMinute,
             manualOverride: false,
             note,
-            conflictFlags: null,
+            conflictFlags: Prisma.DbNull,
           });
         }
       }
@@ -1514,8 +1518,8 @@ export class WorkSchedulingService {
     const rows = await this.prisma.workScheduleAuditLog.groupBy({
       by: ['targetUserId'],
       where,
-      _count: { _all: true },
-      orderBy: { _count: { _all: 'desc' } },
+      _count: { id: true },
+      orderBy: { _count: { id: 'desc' } },
       take: 50,
     });
 
@@ -1529,7 +1533,7 @@ export class WorkSchedulingService {
         user_id: r.targetUserId,
         user_name: userMap.get(r.targetUserId!)?.nombreCompleto ?? '',
         role: userMap.get(r.targetUserId!)?.role ?? null,
-        changes: r._count._all,
+        changes: r._count?.id ?? 0,
       }));
   }
 
