@@ -14,6 +14,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/auth/app_role.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/models/user_model.dart';
 import '../../core/models/punch_model.dart';
@@ -105,9 +106,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                       child: DropdownButtonFormField<String>(
-                        key: ValueKey(
-                          'quick-create-orderType-$orderType',
-                        ),
+                        key: ValueKey('quick-create-orderType-$orderType'),
                         initialValue: orderType,
                         isExpanded: true,
                         decoration: const InputDecoration(
@@ -321,12 +320,19 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     );
   }
 
+  Future<void> _openSalidasTecnicasDialog() async {
+    // Open the full module screen so the technician has access to the Drawer
+    // for navigation without leaving the module.
+    context.push(Routes.salidasTecnicas);
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
     final state = ref.watch(operationsControllerProvider);
     final notifier = ref.read(operationsControllerProvider.notifier);
     final scheme = Theme.of(context).colorScheme;
+    final isTecnico = authState.user?.appRole == AppRole.tecnico;
 
     final gradientTop = Color.alphaBlend(
       scheme.primary.withValues(alpha: 0.10),
@@ -397,6 +403,15 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
             onPressed: _openCatalogoDialog,
             child: const _CatalogoFabIcon(),
           ),
+          if (isTecnico) ...[
+            const SizedBox(height: 12),
+            FloatingActionButton.small(
+              heroTag: 'fab-salidas-tecnicas',
+              tooltip: 'Salidas técnicas',
+              onPressed: _openSalidasTecnicasDialog,
+              child: const Icon(Icons.directions_car_filled_outlined),
+            ),
+          ],
           const SizedBox(height: 12),
           FloatingActionButton.small(
             heroTag: 'fab-ponche',
@@ -4805,9 +4820,7 @@ class _AgendaTab extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                       child: DropdownButtonFormField<String>(
-                        key: ValueKey(
-                          'agenda-create-kind-$selectedKind',
-                        ),
+                        key: ValueKey('agenda-create-kind-$selectedKind'),
                         initialValue: selectedKind,
                         isExpanded: true,
                         decoration: const InputDecoration(

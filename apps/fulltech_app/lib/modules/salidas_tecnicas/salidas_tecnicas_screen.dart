@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/auth/app_role.dart';
 import '../../core/widgets/app_drawer.dart';
 import 'application/salidas_tecnicas_controller.dart';
 import 'salidas_tecnicas_models.dart';
@@ -10,19 +11,14 @@ class SalidasTecnicasScreen extends ConsumerStatefulWidget {
   const SalidasTecnicasScreen({super.key});
 
   @override
-  ConsumerState<SalidasTecnicasScreen> createState() => _SalidasTecnicasScreenState();
+  ConsumerState<SalidasTecnicasScreen> createState() =>
+      _SalidasTecnicasScreenState();
 }
 
 class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
   String? _selectedServicioId;
   String? _selectedVehiculoId;
-  final _obsCtrl = TextEditingController();
-
-  @override
-  void dispose() {
-    _obsCtrl.dispose();
-    super.dispose();
-  }
+  String _observacion = '';
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +27,7 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
     final ctrl = ref.read(salidasTecnicasControllerProvider.notifier);
 
     final user = auth.user;
-    final isTecnico = (user?.role ?? '').toUpperCase() == 'TECNICO';
+    final isTecnico = user?.appRole == AppRole.tecnico;
 
     final vehiculos = state.vehiculos.where((v) => v.activo).toList();
 
@@ -68,7 +64,9 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
                       padding: const EdgeInsets.only(bottom: 12),
                       child: Text(
                         state.error!,
-                        style: TextStyle(color: Theme.of(context).colorScheme.error),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                     ),
 
@@ -76,7 +74,13 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
                   const SizedBox(height: 12),
 
                   if (state.abierta == null) ...[
-                    _buildIniciarCard(context, state, ctrl, vehiculos, selectedVehiculo),
+                    _buildIniciarCard(
+                      context,
+                      state,
+                      ctrl,
+                      vehiculos,
+                      selectedVehiculo,
+                    ),
                     const SizedBox(height: 12),
                   ],
 
@@ -98,7 +102,12 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
   ) {
     final salida = state.abierta;
     if (state.loading) {
-      return const Card(child: Padding(padding: EdgeInsets.all(16), child: LinearProgressIndicator()));
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: LinearProgressIndicator(),
+        ),
+      );
     }
 
     if (salida == null) {
@@ -119,7 +128,10 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Salida abierta', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Salida abierta',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
             Text(servicioTitle, style: Theme.of(context).textTheme.bodyLarge),
             const SizedBox(height: 4),
@@ -133,11 +145,15 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
               children: [
                 if (salida.estado == 'INICIADA')
                   FilledButton(
-                    onPressed: state.busy ? null : () => ctrl.marcarLlegada(salidaId: salida.id),
+                    onPressed: state.busy
+                        ? null
+                        : () => ctrl.marcarLlegada(salidaId: salida.id),
                     child: const Text('Marcar llegada'),
                   ),
                 FilledButton(
-                  onPressed: state.busy ? null : () => ctrl.finalizar(salidaId: salida.id),
+                  onPressed: state.busy
+                      ? null
+                      : () => ctrl.finalizar(salidaId: salida.id),
                   child: const Text('Finalizar'),
                 ),
               ],
@@ -163,7 +179,10 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Iniciar salida', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Iniciar salida',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               value: _selectedServicioId,
@@ -175,7 +194,9 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
                     ),
                   )
                   .toList(),
-              onChanged: state.busy ? null : (v) => setState(() => _selectedServicioId = v),
+              onChanged: state.busy
+                  ? null
+                  : (v) => setState(() => _selectedServicioId = v),
               decoration: const InputDecoration(labelText: 'Servicio asignado'),
             ),
             const SizedBox(height: 12),
@@ -183,32 +204,38 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
               value: _selectedVehiculoId,
               items: vehiculos
                   .map(
-                    (v) => DropdownMenuItem(
-                      value: v.id,
-                      child: Text(v.label),
-                    ),
+                    (v) => DropdownMenuItem(value: v.id, child: Text(v.label)),
                   )
                   .toList(),
-              onChanged: state.busy ? null : (v) => setState(() => _selectedVehiculoId = v),
+              onChanged: state.busy
+                  ? null
+                  : (v) => setState(() => _selectedVehiculoId = v),
               decoration: const InputDecoration(labelText: 'Vehículo'),
             ),
             const SizedBox(height: 12),
             TextField(
-              controller: _obsCtrl,
-              decoration: const InputDecoration(labelText: 'Observación (opcional)'),
+              decoration: const InputDecoration(
+                labelText: 'Observación (opcional)',
+              ),
               minLines: 1,
               maxLines: 3,
               enabled: !state.busy,
+              onChanged: (v) => _observacion = v,
             ),
             const SizedBox(height: 12),
             FilledButton(
-              onPressed: state.busy || _selectedServicioId == null || selectedVehiculo == null
+              onPressed:
+                  state.busy ||
+                      _selectedServicioId == null ||
+                      selectedVehiculo == null
                   ? null
                   : () => ctrl.iniciarSalida(
-                        servicioId: _selectedServicioId!,
-                        vehiculo: selectedVehiculo,
-                        observacion: _obsCtrl.text.trim().isEmpty ? null : _obsCtrl.text.trim(),
-                      ),
+                      servicioId: _selectedServicioId!,
+                      vehiculo: selectedVehiculo,
+                      observacion: _observacion.trim().isEmpty
+                          ? null
+                          : _observacion.trim(),
+                    ),
               child: const Text('Iniciar'),
             ),
           ],
@@ -232,13 +259,18 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
             Row(
               children: [
                 Expanded(
-                  child: Text('Vehículos', style: Theme.of(context).textTheme.titleMedium),
+                  child: Text(
+                    'Vehículos',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                 ),
                 TextButton(
                   onPressed: state.busy
                       ? null
                       : () async {
-                          final created = await _showCrearVehiculoDialog(context);
+                          final created = await _showCrearVehiculoDialog(
+                            context,
+                          );
                           if (created == null) return;
                           await ctrl.crearVehiculoPropio(
                             nombre: created.nombre,
@@ -283,19 +315,19 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
             if (items.isEmpty)
               const Text('Sin registros.')
             else
-              ...items.map(
-                (s) {
-                  final title = s.servicio?.title ?? 'Servicio';
-                  final vehiculo = s.vehiculo?.label ?? '';
-                  final monto = s.montoCombustible;
-                  return ListTile(
-                    dense: true,
-                    title: Text(title),
-                    subtitle: Text('Estado: ${s.estado}${vehiculo.isEmpty ? '' : ' • $vehiculo'}'),
-                    trailing: monto > 0 ? Text(monto.toStringAsFixed(2)) : null,
-                  );
-                },
-              ),
+              ...items.map((s) {
+                final title = s.servicio?.title ?? 'Servicio';
+                final vehiculo = s.vehiculo?.label ?? '';
+                final monto = s.montoCombustible;
+                return ListTile(
+                  dense: true,
+                  title: Text(title),
+                  subtitle: Text(
+                    'Estado: ${s.estado}${vehiculo.isEmpty ? '' : ' • $vehiculo'}',
+                  ),
+                  trailing: monto > 0 ? Text(monto.toStringAsFixed(2)) : null,
+                );
+              }),
           ],
         ),
       ),
@@ -319,23 +351,46 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  TextField(controller: nombreCtrl, decoration: const InputDecoration(labelText: 'Nombre')),
-                  TextField(controller: tipoCtrl, decoration: const InputDecoration(labelText: 'Tipo')),
-                  TextField(controller: placaCtrl, decoration: const InputDecoration(labelText: 'Placa (opcional)')),
-                  TextField(controller: combustibleCtrl, decoration: const InputDecoration(labelText: 'Combustible (ej: GASOLINA)')),
+                  TextField(
+                    controller: nombreCtrl,
+                    decoration: const InputDecoration(labelText: 'Nombre'),
+                  ),
+                  TextField(
+                    controller: tipoCtrl,
+                    decoration: const InputDecoration(labelText: 'Tipo'),
+                  ),
+                  TextField(
+                    controller: placaCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Placa (opcional)',
+                    ),
+                  ),
+                  TextField(
+                    controller: combustibleCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Combustible (ej: GASOLINA)',
+                    ),
+                  ),
                   TextField(
                     controller: rendimientoCtrl,
-                    decoration: const InputDecoration(labelText: 'Rendimiento km/l'),
+                    decoration: const InputDecoration(
+                      labelText: 'Rendimiento km/l',
+                    ),
                     keyboardType: TextInputType.number,
                   ),
                 ],
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
               FilledButton(
                 onPressed: () {
-                  final rendimiento = double.tryParse(rendimientoCtrl.text.trim());
+                  final rendimiento = double.tryParse(
+                    rendimientoCtrl.text.trim(),
+                  );
                   if (nombreCtrl.text.trim().isEmpty ||
                       tipoCtrl.text.trim().isEmpty ||
                       combustibleCtrl.text.trim().isEmpty ||
@@ -348,7 +403,9 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
                     _VehiculoDraft(
                       nombre: nombreCtrl.text.trim(),
                       tipo: tipoCtrl.text.trim(),
-                      placa: placaCtrl.text.trim().isEmpty ? null : placaCtrl.text.trim(),
+                      placa: placaCtrl.text.trim().isEmpty
+                          ? null
+                          : placaCtrl.text.trim(),
                       combustibleTipo: combustibleCtrl.text.trim(),
                       rendimientoKmLitro: rendimiento,
                     ),

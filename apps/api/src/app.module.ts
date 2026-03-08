@@ -17,6 +17,7 @@ import { SettingsModule } from './settings/settings.module';
 import { CotizacionesModule } from './cotizaciones/cotizaciones.module';
 import { LocationsModule } from './locations/locations.module';
 import { SalidasTecnicasModule } from './salidas-tecnicas/salidas-tecnicas.module';
+import { WorkSchedulingModule } from './work-scheduling/work-scheduling.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { SalidasTecnicasModule } from './salidas-tecnicas/salidas-tecnicas.modul
     CotizacionesModule,
     LocationsModule,
     SalidasTecnicasModule,
+    WorkSchedulingModule,
   ]
 })
 export class AppModule {}

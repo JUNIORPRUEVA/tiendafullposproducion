@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/auth/app_role.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/theme/app_theme.dart';
@@ -18,32 +19,35 @@ class PoncheScreen extends ConsumerStatefulWidget {
 }
 
 class _PoncheScreenState extends ConsumerState<PoncheScreen> {
-    void _openSalidasTecnicasSheet() {
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-        ),
-        builder: (context) {
-          return DraggableScrollableSheet(
-            expand: false,
-            initialChildSize: 0.72,
-            minChildSize: 0.45,
-            maxChildSize: 0.92,
-            builder: (context, controller) {
-              return SafeArea(
-                child: SingleChildScrollView(
-                  controller: controller,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: const SalidasTecnicasPunchPanel(),
+  void _openSalidasTecnicasSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.72,
+          minChildSize: 0.45,
+          maxChildSize: 0.92,
+          builder: (context, controller) {
+            return SafeArea(
+              child: SingleChildScrollView(
+                controller: controller,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
                 ),
-              );
-            },
-          );
-        },
-      );
-    }
+                child: const SalidasTecnicasPunchPanel(),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   void _showPunchOptions(PunchState state) {
     showModalBottomSheet(
@@ -208,8 +212,8 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
     final lastLabel = lastPunch != null
         ? '${lastPunch.type.label} · $lastStamp'
         : 'Todavía no hay registros';
-  final auth = ref.watch(authStateProvider);
-  final isTecnico = (auth.user?.role ?? '').toUpperCase() == 'TECNICO';
+    final auth = ref.watch(authStateProvider);
+    final isTecnico = auth.user?.appRole == AppRole.tecnico;
 
     return Container(
       width: double.infinity,

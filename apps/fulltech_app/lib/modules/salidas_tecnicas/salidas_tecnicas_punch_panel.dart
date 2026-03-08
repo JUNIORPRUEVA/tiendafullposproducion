@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/auth/app_role.dart';
 import 'application/salidas_tecnicas_controller.dart';
 import 'salidas_tecnicas_models.dart';
 
@@ -17,13 +18,7 @@ class _SalidasTecnicasPunchPanelState
     extends ConsumerState<SalidasTecnicasPunchPanel> {
   String? _selectedServicioId;
   String? _selectedVehiculoId;
-  final _obsCtrl = TextEditingController();
-
-  @override
-  void dispose() {
-    _obsCtrl.dispose();
-    super.dispose();
-  }
+  String _observacion = '';
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +26,7 @@ class _SalidasTecnicasPunchPanelState
     final state = ref.watch(salidasTecnicasControllerProvider);
     final ctrl = ref.read(salidasTecnicasControllerProvider.notifier);
 
-    final isTecnico = (auth.user?.role ?? '').toUpperCase() == 'TECNICO';
+    final isTecnico = auth.user?.appRole == AppRole.tecnico;
     if (!isTecnico) return const SizedBox.shrink();
 
     final vehiculos = state.vehiculos.where((v) => v.activo).toList();
@@ -143,8 +138,9 @@ class _SalidasTecnicasPunchPanelState
                     child: const Text('Marcar llegada'),
                   ),
                 FilledButton(
-                  onPressed:
-                      state.busy ? null : () => ctrl.finalizar(salidaId: salida.id),
+                  onPressed: state.busy
+                      ? null
+                      : () => ctrl.finalizar(salidaId: salida.id),
                   child: const Text('Finalizar'),
                 ),
               ],
@@ -195,10 +191,7 @@ class _SalidasTecnicasPunchPanelState
               value: _selectedVehiculoId,
               items: vehiculos
                   .map(
-                    (v) => DropdownMenuItem(
-                      value: v.id,
-                      child: Text(v.label),
-                    ),
+                    (v) => DropdownMenuItem(value: v.id, child: Text(v.label)),
                   )
                   .toList(),
               onChanged: state.busy
@@ -208,26 +201,28 @@ class _SalidasTecnicasPunchPanelState
             ),
             const SizedBox(height: 12),
             TextField(
-              controller: _obsCtrl,
-              decoration:
-                  const InputDecoration(labelText: 'Observación (opcional)'),
+              decoration: const InputDecoration(
+                labelText: 'Observación (opcional)',
+              ),
               minLines: 1,
               maxLines: 3,
               enabled: !state.busy,
+              onChanged: (v) => _observacion = v,
             ),
             const SizedBox(height: 12),
             FilledButton(
-              onPressed: state.busy ||
+              onPressed:
+                  state.busy ||
                       _selectedServicioId == null ||
                       selectedVehiculo == null
                   ? null
                   : () => ctrl.iniciarSalida(
-                        servicioId: _selectedServicioId!,
-                        vehiculo: selectedVehiculo,
-                        observacion: _obsCtrl.text.trim().isEmpty
-                            ? null
-                            : _obsCtrl.text.trim(),
-                      ),
+                      servicioId: _selectedServicioId!,
+                      vehiculo: selectedVehiculo,
+                      observacion: _observacion.trim().isEmpty
+                          ? null
+                          : _observacion.trim(),
+                    ),
               child: const Text('Registrar'),
             ),
           ],

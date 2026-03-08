@@ -12,7 +12,10 @@ class AuthInterceptor extends Interceptor {
   AuthInterceptor(this.tokenStorage, this.dio) : _refreshDio = Dio(dio.options);
 
   @override
-  void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
+  void onRequest(
+    RequestOptions options,
+    RequestInterceptorHandler handler,
+  ) async {
     final token = await tokenStorage.getAccessToken();
     if (token != null && token.isNotEmpty) {
       options.headers['Authorization'] = 'Bearer $token';
@@ -36,7 +39,10 @@ class AuthInterceptor extends Interceptor {
         final newAccess = data['accessToken'] as String?;
         final newRefresh = data['refreshToken'] as String?;
         if (newAccess != null && newAccess.isNotEmpty) {
-          return _RefreshResult(accessToken: newAccess, refreshToken: newRefresh);
+          return _RefreshResult(
+            accessToken: newAccess,
+            refreshToken: newRefresh,
+          );
         }
       }
     } catch (_) {
@@ -47,7 +53,8 @@ class AuthInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
-    if (err.response?.statusCode == 401 && !_isAuthRefreshPath(err.requestOptions.path)) {
+    if (err.response?.statusCode == 401 &&
+        !_isAuthRefreshPath(err.requestOptions.path)) {
       final refreshToken = await tokenStorage.getRefreshToken();
       if (refreshToken != null && refreshToken.isNotEmpty) {
         try {
@@ -59,12 +66,21 @@ class AuthInterceptor extends Interceptor {
           if (refreshed != null && refreshed.accessToken.isNotEmpty) {
             await tokenStorage.saveTokens(
               refreshed.accessToken,
-              (refreshed.refreshToken != null && refreshed.refreshToken!.isNotEmpty)
+              (refreshed.refreshToken != null &&
+                      refreshed.refreshToken!.isNotEmpty)
                   ? refreshed.refreshToken
                   : refreshToken,
             );
             final opts = err.requestOptions;
             opts.headers['Authorization'] = 'Bearer ${refreshed.accessToken}';
+
+            // Dio no permite reutilizar FormData ya enviada (queda "finalized").
+            // Clonamos para que el reintento funcione en uploads multipart.
+            final data = opts.data;
+            if (data is FormData) {
+              opts.data = data.clone();
+            }
+
             final retryResponse = await dio.fetch(opts);
             return handler.resolve(retryResponse);
           }

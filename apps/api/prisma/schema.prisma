@@ -131,6 +131,44 @@ enum ServicePhaseType {
   GARANTIA
 }
 
+enum WorkShiftKind {
+  NORMAL
+  REDUCED
+  SPECIAL
+}
+
+enum WorkAssignmentStatus {
+  WORK
+  DAY_OFF
+  EXCEPTION_OFF
+}
+
+enum WorkScheduleExceptionType {
+  HOLIDAY
+  VACATION
+  SICK
+  LEAVE
+  LICENSE
+  ABSENCE
+  BLOCKED_DAY
+}
+
+enum WorkWeekScheduleStatus {
+  GENERATED
+}
+
+enum WorkScheduleAuditAction {
+  GENERATE_WEEK
+  REGENERATE_WEEK
+  UPDATE_SETTINGS
+  UPDATE_EMPLOYEE_CONFIG
+  CREATE_EXCEPTION
+  UPDATE_EXCEPTION
+  DELETE_EXCEPTION
+  MANUAL_MOVE_DAY_OFF
+  MANUAL_SWAP_DAY_OFF
+}
+
 enum SalidaTecnicaEstado {
   INICIADA
   LLEGADA
@@ -196,6 +234,8 @@ model User {
   vehiculosPropios Vehiculo[] @relation("VehiculoPropietario")
   salidasTecnicas SalidaTecnica[]
   pagosCombustibleTecnicos PagoCombustibleTecnico[]
+
+  workEmployeeConfig WorkEmployeeConfig?
 
   @@map("users")
 }
@@ -792,4 +832,155 @@ model CotizacionItem {
 
   @@index([cotizacionId])
   @@index([productId])
+}
+
+model WorkScheduleProfile {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  isDefault Boolean  @default(false) @map("is_default")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  days WorkScheduleProfileDay[]
+  employeeConfigs WorkEmployeeConfig[]
+
+  @@index([isDefault])
+  @@map("work_schedule_profiles")
+}
+
+model WorkScheduleProfileDay {
+  id          String        @id @default(uuid()) @db.Uuid
+  profileId   String        @db.Uuid @map("profile_id")
+  weekday     Int           // 0=Mon ... 6=Sun
+  isWorking   Boolean       @default(true) @map("is_working")
+  kind        WorkShiftKind @default(NORMAL)
+  startMinute Int           @map("start_minute")
+  endMinute   Int           @map("end_minute")
+
+  profile WorkScheduleProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, weekday])
+  @@index([weekday])
+  @@map("work_schedule_profile_days")
+}
+
+model WorkCoverageRule {
+  id          String   @id @default(uuid()) @db.Uuid
+  role        Role
+  weekday     Int      // 0=Mon ... 6=Sun
+  minRequired Int      @default(0) @map("min_required")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([role, weekday])
+  @@index([weekday])
+  @@map("work_coverage_rules")
+}
+
+model WorkEmployeeConfig {
+  id                     String   @id @default(uuid()) @db.Uuid
+  userId                 String   @unique @db.Uuid @map("user_id")
+  enabled                Boolean  @default(true)
+  scheduleProfileId      String?  @db.Uuid @map("schedule_profile_id")
+  preferredDayOffWeekday Int?     @map("preferred_day_off_weekday")
+  fixedDayOffWeekday     Int?     @map("fixed_day_off_weekday")
+  disallowedDayOffWeekdays Int[]  @default([]) @map("disallowed_day_off_weekdays")
+  unavailableWeekdays    Int[]    @default([]) @map("unavailable_weekdays")
+  notes                  String?
+  lastAssignedDayOffWeekday Int?  @map("last_assigned_day_off_weekday")
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scheduleProfile WorkScheduleProfile? @relation(fields: [scheduleProfileId], references: [id], onDelete: SetNull)
+  exceptions WorkScheduleException[]
+  assignments WorkDayAssignment[]
+
+  @@index([enabled])
+  @@index([scheduleProfileId])
+  @@map("work_employee_configs")
+}
+
+model WorkScheduleException {
+  id          String                    @id @default(uuid()) @db.Uuid
+  userId      String?                   @db.Uuid @map("user_id")
+  type        WorkScheduleExceptionType
+  dateFrom    DateTime                  @map("date_from")
+  dateTo      DateTime                  @map("date_to")
+  note        String?
+  createdById String?                   @db.Uuid @map("created_by_id")
+  createdByName String?                 @map("created_by_name")
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+
+  employeeConfig WorkEmployeeConfig? @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([dateFrom, dateTo])
+  @@map("work_schedule_exceptions")
+}
+
+model WorkWeekSchedule {
+  id            String                @id @default(uuid()) @db.Uuid
+  weekStartDate DateTime              @unique @map("week_start_date")
+  status        WorkWeekScheduleStatus @default(GENERATED)
+  generatedById String?               @db.Uuid @map("generated_by_id")
+  generatedByName String?             @map("generated_by_name")
+  generatedAt   DateTime              @default(now()) @map("generated_at")
+  warnings      Json?                 // array of strings/objects
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  days WorkDayAssignment[]
+
+  @@index([generatedAt])
+  @@map("work_week_schedules")
+}
+
+model WorkDayAssignment {
+  id            String               @id @default(uuid()) @db.Uuid
+  weekScheduleId String              @db.Uuid @map("week_schedule_id")
+  userId        String               @db.Uuid @map("user_id")
+  date          DateTime
+  weekday       Int
+  status        WorkAssignmentStatus
+  startMinute   Int?                 @map("start_minute")
+  endMinute     Int?                 @map("end_minute")
+  manualOverride Boolean             @default(false) @map("manual_override")
+  note          String?
+  conflictFlags Json?                @map("conflict_flags")
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  weekSchedule WorkWeekSchedule @relation(fields: [weekScheduleId], references: [id], onDelete: Cascade)
+  employeeConfig WorkEmployeeConfig @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@unique([weekScheduleId, userId, date])
+  @@index([weekScheduleId])
+  @@index([userId])
+  @@index([date])
+  @@index([weekday])
+  @@map("work_day_assignments")
+}
+
+model WorkScheduleAuditLog {
+  id            String                 @id @default(uuid()) @db.Uuid
+  action        WorkScheduleAuditAction
+  actorUserId   String?                @db.Uuid @map("actor_user_id")
+  actorUserName String?                @map("actor_user_name")
+  targetUserId  String?                @db.Uuid @map("target_user_id")
+  weekStartDate DateTime?              @map("week_start_date")
+  dateAffected  DateTime?              @map("date_affected")
+  reason        String?
+  before        Json?
+  after         Json?
+  createdAt     DateTime               @default(now())
+
+  @@index([action])
+  @@index([actorUserId])
+  @@index([targetUserId])
+  @@index([weekStartDate])
+  @@index([createdAt])
+  @@map("work_schedule_audit_logs")
 }

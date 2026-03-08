@@ -29,9 +29,12 @@ import '../../modules/ventas/mis_ventas_screen.dart';
 import '../../modules/ventas/registrar_venta_screen.dart';
 import '../../modules/salidas_tecnicas/salidas_tecnicas_screen.dart';
 import '../../modules/salidas_tecnicas/admin/admin_salidas_tecnicas_screen.dart';
+import '../../modules/horarios/horarios_screen.dart';
 import '../auth/auth_provider.dart';
-import '../auth/role_permissions.dart';
+import '../auth/app_permissions.dart';
+import '../auth/app_role.dart';
 import 'app_route_observer.dart';
+import 'route_access.dart';
 import 'routes.dart';
 
 final _routerRefreshProvider = Provider<_RouterRefreshNotifier>((ref) {
@@ -67,7 +70,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: Routes.home,
-        redirect: (context, state) => Routes.operaciones,
+        redirect: (context, state) {
+          final auth = ref.read(authStateProvider);
+          if (!auth.isAuthenticated) return Routes.login;
+          return Routes.operaciones;
+        },
       ),
       GoRoute(
         path: Routes.registrarVenta,
@@ -99,6 +106,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.ponche,
             builder: (context, state) => const PoncheScreen(),
+          ),
+          GoRoute(
+            path: Routes.horarios,
+            builder: (context, state) => const HorariosScreen(),
           ),
           GoRoute(
             path: Routes.operaciones,
@@ -202,22 +213,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       final auth = ref.read(authStateProvider);
       final initialized = auth.initialized;
       final isAuth = auth.isAuthenticated;
-      final isAdmin = (auth.user?.role ?? '').toUpperCase() == 'ADMIN';
-      final canAccessContabilidad = canAccessContabilidadByRole(
-        auth.user?.role,
-      );
+      final role = auth.user?.appRole ?? AppRole.unknown;
       final loc = state.uri.toString();
-      final isAuthRoute = loc == Routes.login;
-      final isSplash = loc == Routes.splash;
-      final isConfigRoute =
-          loc == Routes.configuracion ||
-          loc.startsWith('${Routes.configuracion}/');
-      final isContabilidadRoute =
-          loc == Routes.contabilidad ||
-          loc.startsWith('${Routes.contabilidad}/');
-      final isAdminRoute =
-          loc == Routes.administracion ||
-          loc.startsWith('${Routes.administracion}/');
+      final path = state.uri.path;
+      final isAuthRoute = path == Routes.login;
+      final isSplash = path == Routes.splash;
 
       if (!initialized) {
         return isSplash ? null : Routes.splash;
@@ -235,16 +235,21 @@ final routerProvider = Provider<GoRouter>((ref) {
         return Routes.operaciones;
       }
 
-      if (isConfigRoute && !isAdmin) {
-        return Routes.operaciones;
-      }
+      final required = RouteAccess.permissionForLocation(loc);
+      if (required != null && !hasPermission(role, required)) {
+        // Prefer sending users to Operaciones as the safe default.
+        if (path != Routes.operaciones &&
+            hasPermission(role, AppPermission.viewOperations)) {
+          return Routes.operaciones;
+        }
 
-      if (isContabilidadRoute && !canAccessContabilidad) {
-        return Routes.operaciones;
-      }
+        // If even Operaciones is not allowed (shouldn't happen), fall back.
+        if (path != Routes.profile &&
+            hasPermission(role, AppPermission.viewProfile)) {
+          return Routes.profile;
+        }
 
-      if (isAdminRoute && !isAdmin) {
-        return Routes.operaciones;
+        return Routes.login;
       }
 
       return null;

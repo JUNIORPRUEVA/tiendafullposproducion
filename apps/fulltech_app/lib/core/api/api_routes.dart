@@ -125,4 +125,38 @@ class ApiRoutes {
   // Cotizaciones (nube)
   static const cotizaciones = '/cotizaciones';
   static String cotizacionDetail(String id) => '/cotizaciones/$id';
+
+    // Horarios (Work Scheduling)
+    static const workSchedulingEmployees = '/work-scheduling/employees';
+    static String workSchedulingEmployee(String id) =>
+      '/work-scheduling/employees/$id';
+
+    static const workSchedulingProfiles = '/work-scheduling/profiles';
+    static const workSchedulingProfilesUpsert =
+      '/work-scheduling/profiles/upsert';
+
+    static const workSchedulingCoverageRules = '/work-scheduling/coverage-rules';
+    static const workSchedulingCoverageRulesUpsert =
+      '/work-scheduling/coverage-rules/upsert';
+
+    static const workSchedulingExceptions = '/work-scheduling/exceptions';
+    static String workSchedulingException(String id) =>
+      '/work-scheduling/exceptions/$id';
+    static String workSchedulingExceptionDelete(String id) =>
+      '/work-scheduling/exceptions/$id/delete';
+
+    static const workSchedulingWeeksGenerate = '/work-scheduling/weeks/generate';
+    static String workSchedulingWeek(String weekStartDate) =>
+      '/work-scheduling/weeks/$weekStartDate';
+
+    static const workSchedulingManualMoveDayOff =
+      '/work-scheduling/manual/move-day-off';
+    static const workSchedulingManualSwapDayOff =
+      '/work-scheduling/manual/swap-day-off';
+
+    static const workSchedulingAudit = '/work-scheduling/audit';
+    static const workSchedulingReportMostChanges =
+      '/work-scheduling/reports/most-changes';
+    static const workSchedulingReportLowCoverage =
+      '/work-scheduling/reports/low-coverage';
 }

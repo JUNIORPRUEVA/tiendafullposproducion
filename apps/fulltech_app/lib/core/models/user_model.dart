@@ -1,3 +1,5 @@
+import '../auth/app_role.dart';
+
 class UserModel {
   final String id;
   final String email;
@@ -54,6 +56,10 @@ class UserModel {
     this.licenciaConducir = false,
     this.createdAt,
   });
+
+  /// Normalized, typed role for consistent permission checks.
+  /// Avoid comparing [role] raw strings across the app.
+  AppRole get appRole => parseAppRole(role);
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
     final habilidadesRaw = json['habilidades'];
