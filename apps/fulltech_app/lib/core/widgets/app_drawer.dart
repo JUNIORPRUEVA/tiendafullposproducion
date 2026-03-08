@@ -14,6 +14,7 @@ class AppDrawer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isAdmin = currentUser?.role == 'ADMIN';
+    final isTecnico = (currentUser?.role ?? '').toUpperCase() == 'TECNICO';
     final canAccessContabilidad = canAccessContabilidadByRole(currentUser?.role);
     final colorScheme = Theme.of(context).colorScheme;
     final mediaQuery = MediaQuery.of(context);
@@ -109,6 +110,17 @@ class AppDrawer extends ConsumerWidget {
                         context.go(Routes.operaciones);
                       },
                     ),
+                    if (isTecnico)
+                      _DrawerMenuItem(
+                        icon: Icons.directions_car_filled_outlined,
+                        title: 'Salidas técnicas',
+                        compact: isCompactMobile,
+                        selected: isActiveRoute(Routes.salidasTecnicas),
+                        onTap: () {
+                          Navigator.pop(context);
+                          context.go(Routes.salidasTecnicas);
+                        },
+                      ),
                     _DrawerMenuItem(
                       icon: Icons.access_time_rounded,
                       title: 'Ponche',

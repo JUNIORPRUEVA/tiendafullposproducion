@@ -131,6 +131,21 @@ enum ServicePhaseType {
   GARANTIA
 }
 
+enum SalidaTecnicaEstado {
+  INICIADA
+  LLEGADA
+  FINALIZADA
+  APROBADA
+  RECHAZADA
+  PAGADA
+}
+
+enum PagoCombustibleTecnicoEstado {
+  PENDIENTE
+  PAGADO
+  CANCELADO
+}
+
 model User {
   id               String   @id @default(uuid()) @db.Uuid
   email            String   @unique
@@ -177,6 +192,10 @@ model User {
   uploadedServiceFiles ServiceFile[]
   cotizaciones Cotizacion[]
   location UserLocation?
+
+  vehiculosPropios Vehiculo[] @relation("VehiculoPropietario")
+  salidasTecnicas SalidaTecnica[]
+  pagosCombustibleTecnicos PagoCombustibleTecnico[]
 
   @@map("users")
 }
@@ -535,6 +554,8 @@ model Service {
   files ServiceFile[]
   phaseHistory ServicePhaseHistory[]
 
+  salidasTecnicas SalidaTecnica[]
+
   @@index([customerId])
   @@index([createdByUserId])
   @@index([serviceType])
@@ -546,6 +567,108 @@ model Service {
   @@index([priority])
   @@index([scheduledStart])
   @@index([isDeleted])
+}
+
+model Vehiculo {
+  id                 String   @id @default(uuid()) @db.Uuid
+  nombre             String
+  tipo               String
+  placa              String?
+  combustibleTipo    String   @map("combustible_tipo")
+  rendimientoKmLitro Decimal? @db.Decimal(10, 2) @map("rendimiento_km_litro")
+  esEmpresa          Boolean  @default(false) @map("es_empresa")
+  tecnicoIdPropietario String? @db.Uuid @map("tecnico_id_propietario")
+  activo             Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  propietario User? @relation("VehiculoPropietario", fields: [tecnicoIdPropietario], references: [id], onDelete: SetNull)
+  salidas     SalidaTecnica[]
+
+  @@index([esEmpresa])
+  @@index([tecnicoIdPropietario])
+  @@index([activo])
+  @@map("vehiculos")
+}
+
+model PrecioCombustible {
+  id              String   @id @default(uuid()) @db.Uuid
+  combustibleTipo String   @map("combustible_tipo")
+  precioPorLitro  Decimal  @db.Decimal(12, 2) @map("precio_por_litro")
+  vigenciaDesde   DateTime? @map("vigencia_desde")
+  activo          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([combustibleTipo])
+  @@index([combustibleTipo, activo])
+  @@index([vigenciaDesde])
+  @@map("precios_combustible")
+}
+
+model PagoCombustibleTecnico {
+  id          String                     @id @default(uuid()) @db.Uuid
+  tecnicoId   String                     @db.Uuid @map("tecnico_id")
+  fechaInicio DateTime                   @map("fecha_inicio")
+  fechaFin    DateTime                   @map("fecha_fin")
+  totalMonto  Decimal                    @db.Decimal(12, 2) @map("total_monto")
+  estado      PagoCombustibleTecnicoEstado @default(PENDIENTE)
+  fechaPago   DateTime?                  @map("fecha_pago")
+  createdAt   DateTime                   @default(now())
+  updatedAt   DateTime                   @updatedAt
+
+  tecnico User @relation(fields: [tecnicoId], references: [id], onDelete: Restrict)
+  salidas SalidaTecnica[]
+
+  @@unique([tecnicoId, fechaInicio, fechaFin])
+  @@index([tecnicoId])
+  @@index([createdAt])
+  @@map("pagos_combustible_tecnicos")
+}
+
+model SalidaTecnica {
+  id                    String            @id @default(uuid()) @db.Uuid
+  servicioId            String            @db.Uuid @map("servicio_id")
+  tecnicoId             String            @db.Uuid @map("tecnico_id")
+  vehiculoId            String            @db.Uuid @map("vehiculo_id")
+  pagoCombustibleId     String?           @db.Uuid @map("pago_combustible_id")
+
+  esVehiculoPropio      Boolean           @default(false) @map("es_vehiculo_propio")
+  generaPagoCombustible Boolean           @default(false) @map("genera_pago_combustible")
+
+  fecha                 DateTime          @default(now())
+  horaSalida            DateTime          @map("hora_salida")
+  horaLlegada           DateTime?         @map("hora_llegada")
+  horaFinal             DateTime?         @map("hora_final")
+
+  latSalida             Float             @map("lat_salida")
+  lngSalida             Float             @map("lng_salida")
+  latLlegada            Float?            @map("lat_llegada")
+  lngLlegada            Float?            @map("lng_llegada")
+  latFinal              Float?            @map("lat_final")
+  lngFinal              Float?            @map("lng_final")
+
+  kmEstimados           Decimal?          @db.Decimal(12, 2) @map("km_estimados")
+  litrosEstimados       Decimal?          @db.Decimal(12, 2) @map("litros_estimados")
+  precioCombustibleLitro Decimal?         @db.Decimal(12, 2) @map("precio_combustible_litro")
+  montoCombustible      Decimal           @default(0) @db.Decimal(12, 2) @map("monto_combustible")
+
+  estado                SalidaTecnicaEstado @default(INICIADA)
+  observacion           String?           @map("observacion")
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  tecnico        User                   @relation(fields: [tecnicoId], references: [id], onDelete: Restrict)
+  vehiculo       Vehiculo               @relation(fields: [vehiculoId], references: [id], onDelete: Restrict)
+  servicio       Service                @relation(fields: [servicioId], references: [id], onDelete: Cascade)
+  pagoCombustible PagoCombustibleTecnico? @relation(fields: [pagoCombustibleId], references: [id], onDelete: SetNull)
+
+  @@index([tecnicoId, fecha])
+  @@index([servicioId])
+  @@index([vehiculoId])
+  @@index([estado])
+  @@index([pagoCombustibleId])
+  @@map("salidas_tecnicas")
 }
 
 model ServicePhaseHistory {

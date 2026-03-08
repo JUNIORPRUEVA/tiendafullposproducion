@@ -82,6 +82,15 @@ class ApiRoutes {
   static String customerServices(String id) => '/customers/$id/services';
   static const operationsDashboard = '/dashboard/operations';
 
+    // Salidas técnicas (técnico)
+    static const tecnicoVehiculos = '/tecnico/vehiculos';
+    static const tecnicoSalidasAbierta = '/tecnico/salidas-tecnicas/abierta';
+    static const tecnicoSalidasHistorial = '/tecnico/salidas-tecnicas/historial';
+    static const tecnicoSalidasIniciar = '/tecnico/salidas-tecnicas/iniciar';
+    static String tecnicoSalidasLlegada(String id) => '/tecnico/salidas-tecnicas/$id/llegada';
+    static String tecnicoSalidasFinalizar(String id) => '/tecnico/salidas-tecnicas/$id/finalizar';
+    static const tecnicoPagosCombustible = '/tecnico/pagos-combustible-tecnicos';
+
   // Nómina
   static const payrollPeriods = '/payroll/periods';
   static const payrollPeriodEnsureCurrentOpen =

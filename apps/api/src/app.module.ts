@@ -16,6 +16,7 @@ import { AdminModule } from './admin/admin.module';
 import { SettingsModule } from './settings/settings.module';
 import { CotizacionesModule } from './cotizaciones/cotizaciones.module';
 import { LocationsModule } from './locations/locations.module';
+import { SalidasTecnicasModule } from './salidas-tecnicas/salidas-tecnicas.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { LocationsModule } from './locations/locations.module';
     SettingsModule,
     CotizacionesModule,
     LocationsModule,
+    SalidasTecnicasModule,
   ]
 })
 export class AppModule {}
