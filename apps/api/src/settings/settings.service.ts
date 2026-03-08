@@ -162,9 +162,10 @@ export class SettingsService {
               : {}),
           ...(dto.openAiModel != null
               ? {
-                  openAiModel: this.sanitizeText(dto.openAiModel).isEmpty
-                      ? 'gpt-4o-mini'
-                      : this.sanitizeText(dto.openAiModel),
+                  openAiModel: (() => {
+                    const cleaned = this.sanitizeText(dto.openAiModel);
+                    return cleaned.length === 0 ? 'gpt-4o-mini' : cleaned;
+                  })(),
                 }
               : {}),
           ...(dto.evolutionApiBaseUrl != null
