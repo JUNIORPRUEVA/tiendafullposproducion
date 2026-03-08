@@ -39,6 +39,73 @@ class ServiceMiniModel {
   }
 }
 
+class TecnicoMiniModel {
+  final String id;
+  final String nombreCompleto;
+
+  const TecnicoMiniModel({required this.id, required this.nombreCompleto});
+
+  factory TecnicoMiniModel.fromJson(Map<String, dynamic> json) {
+    return TecnicoMiniModel(
+      id: (json['id'] ?? '').toString(),
+      nombreCompleto: (json['nombreCompleto'] ?? json['name'] ?? '').toString(),
+    );
+  }
+}
+
+class PagoCombustibleMiniModel {
+  final String id;
+  final String estado;
+  final DateTime? fechaInicio;
+  final DateTime? fechaFin;
+  final double totalMonto;
+
+  const PagoCombustibleMiniModel({
+    required this.id,
+    required this.estado,
+    required this.fechaInicio,
+    required this.fechaFin,
+    required this.totalMonto,
+  });
+
+  factory PagoCombustibleMiniModel.fromJson(Map<String, dynamic> json) {
+    return PagoCombustibleMiniModel(
+      id: (json['id'] ?? '').toString(),
+      estado: (json['estado'] ?? '').toString(),
+      fechaInicio: _toDateTime(json['fechaInicio']),
+      fechaFin: _toDateTime(json['fechaFin']),
+      totalMonto: _toDouble(json['totalMonto']),
+    );
+  }
+}
+
+class AdminSalidaTecnicaModel {
+  final SalidaTecnicaModel salida;
+  final TecnicoMiniModel? tecnico;
+  final PagoCombustibleMiniModel? pagoCombustible;
+
+  const AdminSalidaTecnicaModel({
+    required this.salida,
+    required this.tecnico,
+    required this.pagoCombustible,
+  });
+
+  factory AdminSalidaTecnicaModel.fromJson(Map<String, dynamic> json) {
+    final tecnicoRaw = json['tecnico'];
+    final pagoRaw = json['pagoCombustible'];
+
+    return AdminSalidaTecnicaModel(
+      salida: SalidaTecnicaModel.fromJson(json),
+      tecnico: tecnicoRaw is Map
+          ? TecnicoMiniModel.fromJson(tecnicoRaw.cast<String, dynamic>())
+          : null,
+      pagoCombustible: pagoRaw is Map
+          ? PagoCombustibleMiniModel.fromJson(pagoRaw.cast<String, dynamic>())
+          : null,
+    );
+  }
+}
+
 class VehiculoModel {
   final String id;
   final String nombre;

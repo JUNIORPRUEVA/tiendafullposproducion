@@ -185,4 +185,73 @@ class SalidasTecnicasRepository {
       );
     }
   }
+
+  Future<List<AdminSalidaTecnicaModel>> adminListSalidas({
+    String? from,
+    String? to,
+    String? estado,
+    String? tecnicoId,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.adminSalidasTecnicas,
+        queryParameters: {
+          if (from != null && from.trim().isNotEmpty) 'from': from.trim(),
+          if (to != null && to.trim().isNotEmpty) 'to': to.trim(),
+          if (estado != null && estado.trim().isNotEmpty) 'estado': estado.trim(),
+          if (tecnicoId != null && tecnicoId.trim().isNotEmpty)
+            'tecnicoId': tecnicoId.trim(),
+        },
+      );
+
+      final items = (res.data as Map)['items'] as List?;
+      return (items ?? const [])
+          .whereType<Map>()
+          .map((e) => AdminSalidaTecnicaModel.fromJson(e.cast<String, dynamic>()))
+          .toList();
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudieron cargar salidas'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<void> adminAprobarSalida({
+    required String salidaId,
+    String? observacion,
+  }) async {
+    try {
+      await _dio.post(
+        ApiRoutes.adminSalidaAprobar(salidaId),
+        data: {
+          if (observacion != null) 'observacion': observacion,
+        },
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo aprobar la salida'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<void> adminRechazarSalida({
+    required String salidaId,
+    required String observacion,
+  }) async {
+    try {
+      await _dio.post(
+        ApiRoutes.adminSalidaRechazar(salidaId),
+        data: {
+          'observacion': observacion,
+        },
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo rechazar la salida'),
+        e.response?.statusCode,
+      );
+    }
+  }
 }

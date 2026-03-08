@@ -11,7 +11,6 @@ import '../../core/company/company_settings_repository.dart';
 import '../../core/models/product_model.dart';
 import '../../core/routing/app_route_observer.dart';
 import '../../core/routing/routes.dart';
-import '../../core/utils/product_image_url.dart';
 import '../../core/utils/string_utils.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';

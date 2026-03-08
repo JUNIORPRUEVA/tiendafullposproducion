@@ -149,8 +149,11 @@ class MapPreview extends StatelessWidget {
   }
 
   Uri? _targetUri() {
-    if (_hasCoords) {
-      final q = Uri.encodeQueryComponent('${latitude!},${longitude!}');
+    final lat = latitude;
+    final lng = longitude;
+
+    if (lat != null && lng != null) {
+      final q = Uri.encodeQueryComponent('$lat,$lng');
       return Uri.parse('https://www.google.com/maps/search/?api=1&query=$q');
     }
 
@@ -172,12 +175,10 @@ class MapPreview extends StatelessWidget {
         : parseLatLngFromText((mapsUrl ?? '').trim());
     final effectiveLat = latitude ?? parsedFromMaps?.latitude;
     final effectiveLng = longitude ?? parsedFromMaps?.longitude;
-    final canRenderStatic = effectiveLat != null && effectiveLng != null;
-
-    if (canRenderStatic) {
+    if (effectiveLat != null && effectiveLng != null) {
       return MapPreviewCard(
-        latitude: effectiveLat!,
-        longitude: effectiveLng!,
+        latitude: effectiveLat,
+        longitude: effectiveLng,
         height: height,
       );
     }

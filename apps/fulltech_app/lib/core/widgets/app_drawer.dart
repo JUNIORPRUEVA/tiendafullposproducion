@@ -193,6 +193,17 @@ class AppDrawer extends ConsumerWidget {
                           context.go(Routes.administracion);
                         },
                       ),
+                    if (isAdmin)
+                      _DrawerMenuItem(
+                        icon: Icons.directions_car_filled_outlined,
+                        title: 'Salidas técnicas (Admin)',
+                        compact: isCompactMobile,
+                        selected: isActiveRoute(Routes.administracionSalidasTecnicas),
+                        onTap: () {
+                          Navigator.pop(context);
+                          context.go(Routes.administracionSalidasTecnicas);
+                        },
+                      ),
 
                     SizedBox(height: isCompactMobile ? 2 : 4),
                     _DrawerSectionTitle('Nómina', compact: isCompactMobile),

@@ -88,13 +88,9 @@ class StatusChip extends StatelessWidget {
         // Back-compat
         case 'scheduled':
           return scheme.primary;
-        case 'in_progress':
-          return scheme.tertiary;
         case 'completed':
         case 'closed':
           return scheme.primary;
-        case 'cancelled':
-          return scheme.error;
 
         default:
           return scheme.onSurface.withValues(alpha: 0.70);

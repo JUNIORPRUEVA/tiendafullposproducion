@@ -91,6 +91,11 @@ class ApiRoutes {
     static String tecnicoSalidasFinalizar(String id) => '/tecnico/salidas-tecnicas/$id/finalizar';
     static const tecnicoPagosCombustible = '/tecnico/pagos-combustible-tecnicos';
 
+    // Salidas técnicas (admin)
+    static const adminSalidasTecnicas = '/admin/salidas-tecnicas';
+    static String adminSalidaAprobar(String id) => '/admin/salidas-tecnicas/$id/aprobar';
+    static String adminSalidaRechazar(String id) => '/admin/salidas-tecnicas/$id/rechazar';
+
   // Nómina
   static const payrollPeriods = '/payroll/periods';
   static const payrollPeriodEnsureCurrentOpen =

@@ -8,6 +8,7 @@ import '../../core/errors/api_exception.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/models/punch_model.dart';
 import './application/punch_controller.dart';
+import '../../modules/salidas_tecnicas/salidas_tecnicas_punch_panel.dart';
 
 class PoncheScreen extends ConsumerStatefulWidget {
   const PoncheScreen({super.key});
@@ -17,6 +18,33 @@ class PoncheScreen extends ConsumerStatefulWidget {
 }
 
 class _PoncheScreenState extends ConsumerState<PoncheScreen> {
+    void _openSalidasTecnicasSheet() {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+        ),
+        builder: (context) {
+          return DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.72,
+            minChildSize: 0.45,
+            maxChildSize: 0.92,
+            builder: (context, controller) {
+              return SafeArea(
+                child: SingleChildScrollView(
+                  controller: controller,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: const SalidasTecnicasPunchPanel(),
+                ),
+              );
+            },
+          );
+        },
+      );
+    }
+
   void _showPunchOptions(PunchState state) {
     showModalBottomSheet(
       context: context,
@@ -180,6 +208,8 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
     final lastLabel = lastPunch != null
         ? '${lastPunch.type.label} · $lastStamp'
         : 'Todavía no hay registros';
+  final auth = ref.watch(authStateProvider);
+  final isTecnico = (auth.user?.role ?? '').toUpperCase() == 'TECNICO';
 
     return Container(
       width: double.infinity,
@@ -210,6 +240,19 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
                 ),
               ],
               const SizedBox(height: 24),
+              if (isTecnico) ...[
+                OutlinedButton.icon(
+                  onPressed: _openSalidasTecnicasSheet,
+                  icon: const Icon(Icons.directions_car_filled_outlined),
+                  label: const Text('SALIDAS TÉCNICAS'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white54),
+                    minimumSize: const Size.fromHeight(46),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
               Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [

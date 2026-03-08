@@ -28,6 +28,7 @@ import '../../modules/cotizaciones/cotizaciones_screen.dart';
 import '../../modules/ventas/mis_ventas_screen.dart';
 import '../../modules/ventas/registrar_venta_screen.dart';
 import '../../modules/salidas_tecnicas/salidas_tecnicas_screen.dart';
+import '../../modules/salidas_tecnicas/admin/admin_salidas_tecnicas_screen.dart';
 import '../auth/auth_provider.dart';
 import '../auth/role_permissions.dart';
 import 'app_route_observer.dart';
@@ -142,6 +143,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.administracion,
             builder: (context, state) => const AdministracionScreen(),
+          ),
+          GoRoute(
+            path: Routes.administracionSalidasTecnicas,
+            builder: (context, state) => const AdminSalidasTecnicasScreen(),
           ),
           GoRoute(
             path: Routes.clientes,

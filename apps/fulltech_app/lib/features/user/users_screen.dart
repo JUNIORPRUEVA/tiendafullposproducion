@@ -348,6 +348,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
   }
 
   void _showUserDialog(BuildContext context, WidgetRef ref, [UserModel? user]) {
+    final scaffoldContext = context;
     final nameCtrl = TextEditingController(text: user?.nombreCompleto ?? '');
     final emailCtrl = TextEditingController(text: user?.email ?? '');
     final phoneCtrl = TextEditingController(text: user?.telefono ?? '');
@@ -445,7 +446,9 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                             final bytes = file.bytes;
                             if (bytes == null || bytes.isEmpty) {
                               if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              ScaffoldMessenger.of(
+                                scaffoldContext,
+                              ).showSnackBar(
                                 const SnackBar(
                                   content: Text(
                                     'No se pudo leer la imagen seleccionada',
@@ -510,7 +513,9 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                               }
 
                               if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              ScaffoldMessenger.of(
+                                scaffoldContext,
+                              ).showSnackBar(
                                 const SnackBar(
                                   content: Text(
                                     'Cédula escaneada y datos autollenados',
@@ -519,7 +524,9 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                               );
                             } catch (e) {
                               if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              ScaffoldMessenger.of(
+                                scaffoldContext,
+                              ).showSnackBar(
                                 SnackBar(
                                   content: Text(
                                     'No se pudo escanear la cédula: $e',
@@ -702,7 +709,10 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                   isUploaded:
                       fotoCedulaUrl != null && fotoCedulaUrl!.isNotEmpty,
                   onTap: () async {
-                    final uploaded = await _pickAndUploadImage(context, ref);
+                    final uploaded = await _pickAndUploadImage(
+                      scaffoldContext,
+                      ref,
+                    );
                     if (uploaded != null) {
                       setModalState(() => fotoCedulaUrl = uploaded);
                     }
@@ -714,7 +724,10 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                   isUploaded:
                       fotoLicenciaUrl != null && fotoLicenciaUrl!.isNotEmpty,
                   onTap: () async {
-                    final uploaded = await _pickAndUploadImage(context, ref);
+                    final uploaded = await _pickAndUploadImage(
+                      scaffoldContext,
+                      ref,
+                    );
                     if (uploaded != null) {
                       setModalState(() => fotoLicenciaUrl = uploaded);
                     }
@@ -726,7 +739,10 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                   isUploaded:
                       fotoPersonalUrl != null && fotoPersonalUrl!.isNotEmpty,
                   onTap: () async {
-                    final uploaded = await _pickAndUploadImage(context, ref);
+                    final uploaded = await _pickAndUploadImage(
+                      scaffoldContext,
+                      ref,
+                    );
                     if (uploaded != null) {
                       setModalState(() => fotoPersonalUrl = uploaded);
                     }
@@ -782,7 +798,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
               onPressed: () async {
                 final edad = int.tryParse(edadCtrl.text.trim());
                 if (edad == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  ScaffoldMessenger.of(scaffoldContext).showSnackBar(
                     const SnackBar(content: Text('Edad inválida')),
                   );
                   return;
@@ -819,7 +835,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                 );
 
                 if (user == null && !payload.containsKey('password')) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  ScaffoldMessenger.of(scaffoldContext).showSnackBar(
                     const SnackBar(
                       content: Text('La contraseña es obligatoria al crear'),
                     ),
@@ -828,14 +844,14 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                 }
 
                 if (!payload.containsKey('cedula')) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  ScaffoldMessenger.of(scaffoldContext).showSnackBar(
                     const SnackBar(content: Text('La cédula es obligatoria')),
                   );
                   return;
                 }
 
                 if (!payload.containsKey('telefonoFamiliar')) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  ScaffoldMessenger.of(scaffoldContext).showSnackBar(
                     const SnackBar(
                       content: Text('El teléfono de familiar es obligatorio'),
                     ),
@@ -844,7 +860,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                 }
 
                 if (user == null && !payload.containsKey('fotoCedulaUrl')) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  ScaffoldMessenger.of(scaffoldContext).showSnackBar(
                     const SnackBar(
                       content: Text('Debes subir la foto de la cédula'),
                     ),
@@ -858,7 +874,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                         .read(usersControllerProvider.notifier)
                         .create(payload);
                     if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    ScaffoldMessenger.of(scaffoldContext).showSnackBar(
                       const SnackBar(content: Text('Usuario creado')),
                     );
                   } else {
@@ -866,7 +882,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                         .read(usersControllerProvider.notifier)
                         .update(user.id, payload);
                     if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    ScaffoldMessenger.of(scaffoldContext).showSnackBar(
                       const SnackBar(content: Text('Usuario actualizado')),
                     );
                   }
@@ -875,7 +891,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                 } catch (e) {
                   if (!context.mounted) return;
                   ScaffoldMessenger.of(
-                    context,
+                    scaffoldContext,
                   ).showSnackBar(SnackBar(content: Text('Error: $e')));
                 }
               },
@@ -888,6 +904,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
   }
 
   void _showDeleteDialog(BuildContext context, WidgetRef ref, UserModel user) {
+    final scaffoldContext = context;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -909,12 +926,12 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                     .delete(user.id);
                 if (!context.mounted) return;
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
+                ScaffoldMessenger.of(scaffoldContext).showSnackBar(
                   const SnackBar(content: Text('Usuario eliminado')),
                 );
               } catch (e) {
                 if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
+                ScaffoldMessenger.of(scaffoldContext).showSnackBar(
                   SnackBar(content: Text('No se pudo eliminar: $e')),
                 );
               }
