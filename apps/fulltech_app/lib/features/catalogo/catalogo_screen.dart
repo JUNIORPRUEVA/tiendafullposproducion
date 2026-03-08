@@ -41,6 +41,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
   DateTime? _lastAutoSyncAt;
   Timer? _liveSyncTimer;
   bool _routeObserverSubscribed = false;
+  RouteObserver<ModalRoute<dynamic>>? _routeObserver;
   static const Duration _liveSyncInterval = Duration(seconds: 30);
 
   bool get _hasActiveFilter => _category != 'Todas';
@@ -64,7 +65,9 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
     if (_routeObserverSubscribed) return;
     final route = ModalRoute.of(context);
     if (route == null) return;
-    ref.read(appRouteObserverProvider).subscribe(this, route);
+    final observer = ref.read(appRouteObserverProvider);
+    observer.subscribe(this, route);
+    _routeObserver = observer;
     _routeObserverSubscribed = true;
   }
 
@@ -141,8 +144,9 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     if (_routeObserverSubscribed) {
-      ref.read(appRouteObserverProvider).unsubscribe(this);
+      _routeObserver?.unsubscribe(this);
       _routeObserverSubscribed = false;
+      _routeObserver = null;
     }
     _stopLiveSync();
     _searchCtrl.dispose();

@@ -38,6 +38,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
   static const _productsCacheKey = 'ventas_products_cache_v4';
   static const _productsCacheAtKey = 'ventas_products_cache_at_v4';
   bool _routeObserverSubscribed = false;
+  RouteObserver<ModalRoute<dynamic>>? _routeObserver;
 
   bool _loadingProducts = true;
   bool _saving = false;
@@ -94,7 +95,9 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
     if (_routeObserverSubscribed) return;
     final route = ModalRoute.of(context);
     if (route == null) return;
-    ref.read(appRouteObserverProvider).subscribe(this, route);
+    final observer = ref.read(appRouteObserverProvider);
+    observer.subscribe(this, route);
+    _routeObserver = observer;
     _routeObserverSubscribed = true;
   }
 
@@ -163,8 +166,9 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     if (_routeObserverSubscribed) {
-      ref.read(appRouteObserverProvider).unsubscribe(this);
+      _routeObserver?.unsubscribe(this);
       _routeObserverSubscribed = false;
+      _routeObserver = null;
     }
     _stopLiveSync();
     _searchCtrl.dispose();

@@ -52,6 +52,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
   bool _prefillFromRouteApplied = false;
   bool _routeObserverSubscribed = false;
+  RouteObserver<ModalRoute<dynamic>>? _routeObserver;
   bool _remoteRefreshInFlight = false;
   DateTime? _lastSuccessfulRemoteSyncAt;
   DateTime? _lastAutoSyncAt;
@@ -86,7 +87,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     if (_routeObserverSubscribed) return;
     final route = ModalRoute.of(context);
     if (route == null) return;
-    ref.read(appRouteObserverProvider).subscribe(this, route);
+    final observer = ref.read(appRouteObserverProvider);
+    observer.subscribe(this, route);
+    _routeObserver = observer;
     _routeObserverSubscribed = true;
   }
 
@@ -210,8 +213,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     if (_routeObserverSubscribed) {
-      ref.read(appRouteObserverProvider).unsubscribe(this);
+      _routeObserver?.unsubscribe(this);
       _routeObserverSubscribed = false;
+      _routeObserver = null;
     }
     _stopLiveSync();
     _searchCtrl.dispose();
