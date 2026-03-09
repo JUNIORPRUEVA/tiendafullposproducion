@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,6 +20,8 @@ class SalidasTecnicasRepository {
 
   SalidasTecnicasRepository(this._dio);
 
+  static final _skipLoaderOptions = Options(extra: {'skipLoader': true});
+
   String _extractMessage(dynamic data, String fallback) {
     if (data is Map) {
       final message = data['message'];
@@ -32,7 +36,10 @@ class SalidasTecnicasRepository {
 
   Future<List<VehiculoModel>> listVehiculos() async {
     try {
-      final res = await _dio.get(ApiRoutes.tecnicoVehiculos);
+      final res = await _dio.get(
+        ApiRoutes.tecnicoVehiculos,
+        options: _skipLoaderOptions,
+      );
       final items = (res.data as Map)['items'] as List?;
       return (items ?? const [])
           .whereType<Map>()
@@ -57,6 +64,7 @@ class SalidasTecnicasRepository {
     try {
       final res = await _dio.post(
         ApiRoutes.tecnicoVehiculos,
+        options: _skipLoaderOptions,
         data: {
           'nombre': nombre,
           'tipo': tipo,
@@ -78,7 +86,10 @@ class SalidasTecnicasRepository {
 
   Future<SalidaTecnicaModel?> getSalidaAbierta() async {
     try {
-      final res = await _dio.get(ApiRoutes.tecnicoSalidasAbierta);
+      final res = await _dio.get(
+        ApiRoutes.tecnicoSalidasAbierta,
+        options: _skipLoaderOptions,
+      );
       final salida = (res.data as Map)['salida'];
       if (salida is Map) {
         return SalidaTecnicaModel.fromJson(salida.cast<String, dynamic>());
@@ -98,8 +109,42 @@ class SalidasTecnicasRepository {
     String? estado,
   }) async {
     try {
+      if (!kIsWeb) {
+        final sw = Stopwatch()..start();
+        final resPlain = await _dio.get(
+          ApiRoutes.tecnicoSalidasHistorial,
+          options: Options(
+            responseType: ResponseType.plain,
+            extra: const {'skipLoader': true},
+          ),
+          queryParameters: {
+            if (from != null && from.trim().isNotEmpty) 'from': from.trim(),
+            if (to != null && to.trim().isNotEmpty) 'to': to.trim(),
+            if (estado != null && estado.trim().isNotEmpty)
+              'estado': estado.trim(),
+          },
+        );
+        final body = resPlain.data;
+        final text = body is String ? body : body.toString();
+        debugPrint(
+          '[SalidasTecnicasRepository] Historial (plain) recibido en ${sw.elapsedMilliseconds}ms (chars=${text.length})',
+        );
+        List<Map<String, dynamic>> normalized;
+        try {
+          normalized = await compute(_extractSalidaTecnicaItemsFromJson, text);
+        } catch (e, st) {
+          debugPrint(
+            '[SalidasTecnicasRepository] Error parseando historial en isolate: $e',
+          );
+          debugPrintStack(stackTrace: st);
+          throw ApiException('No se pudo cargar historial');
+        }
+        return _mapSalidaTecnicaModelsYielding(normalized);
+      }
+
       final res = await _dio.get(
         ApiRoutes.tecnicoSalidasHistorial,
+        options: _skipLoaderOptions,
         queryParameters: {
           if (from != null && from.trim().isNotEmpty) 'from': from.trim(),
           if (to != null && to.trim().isNotEmpty) 'to': to.trim(),
@@ -116,12 +161,7 @@ class SalidasTecnicasRepository {
 
       // Si el historial es grande, parsearlo en el hilo UI puede “congelar” la app.
       // En mobile/desktop usamos isolate con compute; en web parseamos inline.
-      if (kIsWeb) {
-        return normalized
-            .map(SalidaTecnicaModel.fromJson)
-            .toList(growable: false);
-      }
-      return compute(_parseSalidaTecnicaList, normalized);
+      return _mapSalidaTecnicaModelsYielding(normalized);
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo cargar historial'),
@@ -141,6 +181,7 @@ class SalidasTecnicasRepository {
     try {
       final res = await _dio.post(
         ApiRoutes.tecnicoSalidasIniciar,
+        options: _skipLoaderOptions,
         data: {
           'servicioId': servicioId,
           'vehiculoId': vehiculoId,
@@ -170,6 +211,7 @@ class SalidasTecnicasRepository {
     try {
       final res = await _dio.patch(
         ApiRoutes.tecnicoSalidasLlegada(salidaId),
+        options: _skipLoaderOptions,
         data: {
           'latLlegada': latLlegada,
           'lngLlegada': lngLlegada,
@@ -196,6 +238,7 @@ class SalidasTecnicasRepository {
     try {
       final res = await _dio.patch(
         ApiRoutes.tecnicoSalidasFinalizar(salidaId),
+        options: _skipLoaderOptions,
         data: {
           'latFinal': latFinal,
           'lngFinal': lngFinal,
@@ -254,10 +297,33 @@ class SalidasTecnicasRepository {
   }
 
   // compute() requiere funciones top-level o static.
-  static List<SalidaTecnicaModel> _parseSalidaTecnicaList(
-    List<Map<String, dynamic>> items,
+  static List<Map<String, dynamic>> _extractSalidaTecnicaItemsFromJson(
+    String body,
   ) {
-    return items.map(SalidaTecnicaModel.fromJson).toList(growable: false);
+    final decoded = jsonDecode(body);
+    if (decoded is! Map) return const <Map<String, dynamic>>[];
+    final items = decoded['items'];
+    if (items is! List) return const <Map<String, dynamic>>[];
+    return items
+        .whereType<Map>()
+        .map((e) => e.cast<String, dynamic>())
+        .toList(growable: false);
+  }
+
+  static Future<List<SalidaTecnicaModel>> _mapSalidaTecnicaModelsYielding(
+    List<Map<String, dynamic>> items,
+  ) async {
+    // Nota: en Web y/o con historiales grandes, un map() masivo puede dejar la
+    // UI sin responder. Procesamos en lotes y cedemos el event-loop.
+    final out = <SalidaTecnicaModel>[];
+    final total = items.length;
+    for (var i = 0; i < total; i++) {
+      out.add(SalidaTecnicaModel.fromJson(items[i]));
+      if (i > 0 && (i % 200 == 0)) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+    return out;
   }
 
   static List<AdminSalidaTecnicaModel> _parseAdminSalidaTecnicaList(

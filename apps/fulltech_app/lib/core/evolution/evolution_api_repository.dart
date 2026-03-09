@@ -38,9 +38,9 @@ class EvolutionApiRepository {
   ///
   /// NOTE: Evolution API endpoint paths may vary by version/config.
   /// This implementation targets the common v2 pattern:
-  /// POST /message/sendText/{instanceName}
-  /// Header: apikey: <globalApiKey>
-  /// Body: { "number": "<E164>", "text": "..." }
+  /// POST `/message/sendText/{instanceName}`
+  /// Header: `apikey: <globalApiKey>`
+  /// Body: `{ "number": "<E164>", "text": "..." }`
   Future<void> sendTextMessage({
     required String toNumber,
     required String message,

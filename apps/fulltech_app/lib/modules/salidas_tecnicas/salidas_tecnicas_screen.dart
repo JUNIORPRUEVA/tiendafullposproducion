@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/auth_provider.dart';
@@ -102,6 +103,39 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
                     const Padding(
                       padding: EdgeInsets.only(bottom: 12),
                       child: LinearProgressIndicator(),
+                    ),
+
+                  if (kDebugMode &&
+                      ((state.isStartingSalida ||
+                              state.isSavingVehicle ||
+                              state.isMarkingLlegada ||
+                              state.isFinalizingSalida ||
+                              state.loadingVehiculos) ||
+                          (state.debugLastError != null &&
+                              state.debugLastError!.trim().isNotEmpty)))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Diagnóstico: ${state.debugStage ?? '-'}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          if (state.debugLastError != null &&
+                              state.debugLastError!.trim().isNotEmpty)
+                            Text(
+                              'Último error: ${state.debugLastError}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color:
+                                        Theme.of(context).colorScheme.error,
+                                  ),
+                            ),
+                        ],
+                      ),
                     ),
 
                   _buildSalidaAbiertaCard(context, state, ctrl),
@@ -355,6 +389,9 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
   Widget _buildHistorial(BuildContext context, SalidasTecnicasState state) {
     final items = state.historial;
 
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final listHeight = (screenHeight * 0.42).clamp(220.0, 520.0);
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -366,19 +403,29 @@ class _SalidasTecnicasScreenState extends ConsumerState<SalidasTecnicasScreen> {
             if (items.isEmpty)
               const Text('Sin registros.')
             else
-              ...items.map((s) {
-                final title = s.servicio?.title ?? 'Servicio';
-                final vehiculo = s.vehiculo?.label ?? '';
-                final monto = s.montoCombustible;
-                return ListTile(
-                  dense: true,
-                  title: Text(title),
-                  subtitle: Text(
-                    'Estado: ${s.estado}${vehiculo.isEmpty ? '' : ' • $vehiculo'}',
-                  ),
-                  trailing: monto > 0 ? Text(monto.toStringAsFixed(2)) : null,
-                );
-              }),
+              SizedBox(
+                height: listHeight,
+                child: ListView.separated(
+                  primary: false,
+                  itemCount: items.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final s = items[index];
+                    final title = s.servicio?.title ?? 'Servicio';
+                    final vehiculo = s.vehiculo?.label ?? '';
+                    final monto = s.montoCombustible;
+                    return ListTile(
+                      dense: true,
+                      title: Text(title),
+                      subtitle: Text(
+                        'Estado: ${s.estado}${vehiculo.isEmpty ? '' : ' • $vehiculo'}',
+                      ),
+                      trailing:
+                          monto > 0 ? Text(monto.toStringAsFixed(2)) : null,
+                    );
+                  },
+                ),
+              ),
           ],
         ),
       ),

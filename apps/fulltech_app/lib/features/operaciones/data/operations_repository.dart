@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_routes.dart';
@@ -211,6 +214,95 @@ class OperationsRepository {
         e.response?.statusCode,
       );
     }
+  }
+
+  Future<List<Map<String, dynamic>>> listServicesMini({
+    int page = 1,
+    int pageSize = 50,
+    Options? options,
+  }) async {
+    try {
+      if (!kIsWeb) {
+        final sw = Stopwatch()..start();
+        final resPlain = await _dio.get(
+          ApiRoutes.services,
+          options: Options(
+            responseType: ResponseType.plain,
+            extra: {
+              'skipLoader': true,
+              ...?options?.extra,
+            },
+          ),
+          queryParameters: {
+            'page': page,
+            'pageSize': pageSize,
+          },
+        );
+        final body = resPlain.data;
+        final text = body is String ? body : body.toString();
+        debugPrint(
+          '[OperationsRepository] Services mini (plain) recibido en ${sw.elapsedMilliseconds}ms (chars=${text.length})',
+        );
+        return compute(_extractServicesMiniItemsFromJson, text);
+      }
+
+      final res = await _dio.get(
+        ApiRoutes.services,
+        options: Options(
+          extra: {
+            'skipLoader': true,
+            ...?options?.extra,
+          },
+        ),
+        queryParameters: {
+          'page': page,
+          'pageSize': pageSize,
+        },
+      );
+      final data = res.data;
+      if (data is! Map) return const <Map<String, dynamic>>[];
+      final items = data['items'];
+      if (items is! List) return const <Map<String, dynamic>>[];
+
+      return items
+          .whereType<Map>()
+          .map(
+            (e) => <String, dynamic>{
+              'id': (e['id'] ?? '').toString(),
+              'title': (e['title'] ?? '').toString(),
+              'status': (e['status'] ?? '').toString(),
+              'orderState': e['orderState']?.toString(),
+              'scheduledStart': e['scheduledStart']?.toString(),
+            },
+          )
+          .toList(growable: false);
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudieron cargar servicios'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  static List<Map<String, dynamic>> _extractServicesMiniItemsFromJson(
+    String body,
+  ) {
+    final decoded = jsonDecode(body);
+    if (decoded is! Map) return const <Map<String, dynamic>>[];
+    final items = decoded['items'];
+    if (items is! List) return const <Map<String, dynamic>>[];
+    return items
+        .whereType<Map>()
+        .map(
+          (e) => <String, dynamic>{
+            'id': (e['id'] ?? '').toString(),
+            'title': (e['title'] ?? '').toString(),
+            'status': (e['status'] ?? '').toString(),
+            'orderState': e['orderState']?.toString(),
+            'scheduledStart': e['scheduledStart']?.toString(),
+          },
+        )
+        .toList(growable: false);
   }
 
   Future<ServicesPageModel> listServicesAndCache({

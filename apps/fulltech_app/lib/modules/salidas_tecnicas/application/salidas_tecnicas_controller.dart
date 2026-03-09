@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -8,7 +9,6 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../core/auth/app_role.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../features/operaciones/data/operations_repository.dart';
-import '../../../features/operaciones/operations_models.dart';
 import '../salidas_tecnicas_models.dart';
 import '../data/salidas_tecnicas_repository.dart';
 
@@ -19,6 +19,8 @@ class SalidasTecnicasState {
   final bool isStartingSalida;
   final bool isMarkingLlegada;
   final bool isFinalizingSalida;
+  final String? debugStage;
+  final String? debugLastError;
   final String? loadError;
   final String? vehicleError;
   final String? salidaError;
@@ -34,6 +36,8 @@ class SalidasTecnicasState {
     required this.isStartingSalida,
     required this.isMarkingLlegada,
     required this.isFinalizingSalida,
+    required this.debugStage,
+    required this.debugLastError,
     required this.loadError,
     required this.vehicleError,
     required this.salidaError,
@@ -50,6 +54,8 @@ class SalidasTecnicasState {
     isStartingSalida: false,
     isMarkingLlegada: false,
     isFinalizingSalida: false,
+    debugStage: null,
+    debugLastError: null,
     loadError: null,
     vehicleError: null,
     salidaError: null,
@@ -66,6 +72,10 @@ class SalidasTecnicasState {
     bool? isStartingSalida,
     bool? isMarkingLlegada,
     bool? isFinalizingSalida,
+    String? debugStage,
+    String? debugLastError,
+    bool clearDebugStage = false,
+    bool clearDebugLastError = false,
     String? loadError,
     String? vehicleError,
     String? salidaError,
@@ -81,6 +91,9 @@ class SalidasTecnicasState {
       isStartingSalida: isStartingSalida ?? this.isStartingSalida,
       isMarkingLlegada: isMarkingLlegada ?? this.isMarkingLlegada,
       isFinalizingSalida: isFinalizingSalida ?? this.isFinalizingSalida,
+      debugStage: clearDebugStage ? null : (debugStage ?? this.debugStage),
+      debugLastError:
+          clearDebugLastError ? null : (debugLastError ?? this.debugLastError),
       loadError: loadError,
       vehicleError: vehicleError,
       salidaError: salidaError,
@@ -113,7 +126,20 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
     load();
   }
 
+  void _stage(String message) {
+    final ts = DateTime.now().toIso8601String();
+    debugPrint('[SalidasTecnicas][stage][$ts] $message');
+    state = state.copyWith(debugStage: message);
+  }
+
+  void _rememberError(String message) {
+    final ts = DateTime.now().toIso8601String();
+    debugPrint('[SalidasTecnicas][error][$ts] $message');
+    state = state.copyWith(debugLastError: message);
+  }
+
   Future<void> load() async {
+    _stage('Cargando datos…');
     final auth = _ref.read(authStateProvider);
     final isTecnico = auth.user?.appRole == AppRole.tecnico;
     if (!auth.isAuthenticated || !isTecnico) {
@@ -122,6 +148,7 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
         loadError: 'Solo disponible para técnicos',
         vehicleError: null,
         salidaError: null,
+        debugStage: 'No autorizado',
       );
       return;
     }
@@ -132,28 +159,21 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
       // No tocar isSavingVehicle/isStartingSalida aquí: son flujos separados.
     );
     try {
+      _stage('Consultando API (vehículos/salida/historial/servicios)…');
       final results = await Future.wait([
         _repo.listVehiculos(),
         _repo.getSalidaAbierta(),
         _repo.listHistorial(),
-        _ops.listServices(pageSize: 50),
+        _ops.listServicesMini(pageSize: 50),
       ]);
 
       final vehiculos = results[0] as List<VehiculoModel>;
       final abierta = results[1] as SalidaTecnicaModel?;
       final historial = results[2] as List<SalidaTecnicaModel>;
-      final servicesPage = results[3] as ServicesPageModel;
+      final servicesMini = results[3] as List<Map<String, dynamic>>;
 
-      final servicios = servicesPage.items
-          .map(
-            (s) => ServiceMiniModel(
-              id: s.id,
-              title: s.title,
-              status: s.status,
-              orderState: s.orderState,
-              scheduledStart: s.scheduledStart,
-            ),
-          )
+      final servicios = servicesMini
+          .map(ServiceMiniModel.fromJson)
           .where((s) => s.id.trim().isNotEmpty)
           .toList();
 
@@ -164,16 +184,20 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
         abierta: abierta,
         historial: historial,
         servicios: servicios,
+        debugStage: 'Listo',
       );
     } on ApiException catch (e) {
+      _rememberError(e.message);
       state = state.copyWith(loading: false, loadError: e.message);
     } catch (_) {
+      _rememberError('Ocurrió un error');
       state = state.copyWith(loading: false, loadError: 'Ocurrió un error');
     }
   }
 
   Future<void> refreshVehiculos({bool silent = false}) async {
     if (!silent) {
+      _stage('Cargando vehículos…');
       state = state.copyWith(loadingVehiculos: true, vehicleError: null);
     }
 
@@ -183,14 +207,17 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
         loadingVehiculos: false,
         vehicleError: null,
         vehiculos: vehiculos,
+        debugStage: silent ? state.debugStage : 'Vehículos actualizados',
       );
     } on ApiException catch (e, st) {
       debugPrint('[SalidasTecnicas] Error cargando vehículos: ${e.message}');
       debugPrintStack(stackTrace: st);
+      _rememberError(e.message);
       state = state.copyWith(loadingVehiculos: false, vehicleError: e.message);
     } catch (e, st) {
       debugPrint('[SalidasTecnicas] Error inesperado cargando vehículos: $e');
       debugPrintStack(stackTrace: st);
+      _rememberError('No se pudieron cargar vehículos');
       state = state.copyWith(
         loadingVehiculos: false,
         vehicleError: 'No se pudieron cargar vehículos',
@@ -199,6 +226,15 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
   }
 
   Future<Position> _getCurrentPosition() async {
+    // Desktop Windows can hang ("Not responding") when invoking some location
+    // plugins depending on OS settings/drivers. Fail fast with a clear message
+    // instead of blocking the UI thread.
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      throw ApiException(
+        'Ubicación no disponible en Windows. Registra la salida desde Android/iOS o habilita un dispositivo con GPS.',
+      );
+    }
+
     if (!await Geolocator.isLocationServiceEnabled()) {
       throw ApiException('Activa el GPS para continuar');
     }
@@ -301,9 +337,16 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
     required VehiculoModel vehiculo,
     String? observacion,
   }) async {
-    state = state.copyWith(isStartingSalida: true, salidaError: null);
+    _stage('Preparando registro de salida…');
+    state = state.copyWith(
+      isStartingSalida: true,
+      salidaError: null,
+      clearDebugLastError: true,
+    );
     try {
+      _stage('Obteniendo ubicación (GPS)…');
       final pos = await _getCurrentPosition();
+      _stage('Enviando salida a la API…');
       final started = await _repo.iniciar(
         servicioId: servicioId,
         vehiculoId: vehiculo.id,
@@ -318,12 +361,17 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
       state = state.copyWith(
         salidaError: null,
         abierta: started,
+        debugStage: 'Salida iniciada',
       );
     } on ApiException catch (e) {
+      _rememberError(e.message);
+      _stage('Falló: ${e.message}');
       state = state.copyWith(salidaError: e.message);
     } catch (e, st) {
       debugPrint('[SalidasTecnicas] Error inesperado iniciando salida: $e');
       debugPrintStack(stackTrace: st);
+      _rememberError('No se pudo iniciar la salida');
+      _stage('Falló: No se pudo iniciar la salida');
       state = state.copyWith(salidaError: 'No se pudo iniciar la salida');
     } finally {
       state = state.copyWith(isStartingSalida: false);
@@ -334,9 +382,16 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
     required String salidaId,
     String? observacion,
   }) async {
-    state = state.copyWith(isMarkingLlegada: true, salidaError: null);
+    _stage('Preparando marcar llegada…');
+    state = state.copyWith(
+      isMarkingLlegada: true,
+      salidaError: null,
+      clearDebugLastError: true,
+    );
     try {
+      _stage('Obteniendo ubicación (GPS)…');
       final pos = await _getCurrentPosition();
+      _stage('Enviando llegada a la API…');
       final updated = await _repo.marcarLlegada(
         salidaId: salidaId,
         latLlegada: pos.latitude,
@@ -348,12 +403,17 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
       state = state.copyWith(
         salidaError: null,
         abierta: updated,
+        debugStage: 'Llegada registrada',
       );
     } on ApiException catch (e) {
+      _rememberError(e.message);
+      _stage('Falló: ${e.message}');
       state = state.copyWith(salidaError: e.message);
     } catch (e, st) {
       debugPrint('[SalidasTecnicas] Error inesperado marcando llegada: $e');
       debugPrintStack(stackTrace: st);
+      _rememberError('No se pudo marcar llegada');
+      _stage('Falló: No se pudo marcar llegada');
       state = state.copyWith(salidaError: 'No se pudo marcar llegada');
     } finally {
       state = state.copyWith(isMarkingLlegada: false);
@@ -364,9 +424,16 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
     required String salidaId,
     String? observacion,
   }) async {
-    state = state.copyWith(isFinalizingSalida: true, salidaError: null);
+    _stage('Preparando finalizar salida…');
+    state = state.copyWith(
+      isFinalizingSalida: true,
+      salidaError: null,
+      clearDebugLastError: true,
+    );
     try {
+      _stage('Obteniendo ubicación (GPS)…');
       final pos = await _getCurrentPosition();
+      _stage('Enviando finalización a la API…');
       final finalized = await _repo.finalizar(
         salidaId: salidaId,
         latFinal: pos.latitude,
@@ -386,12 +453,17 @@ class SalidasTecnicasController extends StateNotifier<SalidasTecnicasState> {
         salidaError: null,
         abierta: null,
         historial: nextHistorial,
+        debugStage: 'Salida finalizada',
       );
     } on ApiException catch (e) {
+      _rememberError(e.message);
+      _stage('Falló: ${e.message}');
       state = state.copyWith(salidaError: e.message);
     } catch (e, st) {
       debugPrint('[SalidasTecnicas] Error inesperado finalizando salida: $e');
       debugPrintStack(stackTrace: st);
+      _rememberError('No se pudo finalizar la salida');
+      _stage('Falló: No se pudo finalizar la salida');
       state = state.copyWith(salidaError: 'No se pudo finalizar la salida');
     } finally {
       state = state.copyWith(isFinalizingSalida: false);

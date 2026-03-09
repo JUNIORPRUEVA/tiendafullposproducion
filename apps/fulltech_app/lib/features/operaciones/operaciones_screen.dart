@@ -53,6 +53,7 @@ class OperacionesScreen extends ConsumerStatefulWidget {
 class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     with WidgetsBindingObserver {
   final _searchCtrl = TextEditingController();
+  bool _openingSalidasTecnicas = false;
 
   Future<void> _openQuickCreateFromAppBar() async {
     const title = 'Crear orden de servicio';
@@ -321,9 +322,31 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
   }
 
   Future<void> _openSalidasTecnicasDialog() async {
-    // Open the full module screen so the technician has access to the Drawer
-    // for navigation without leaving the module.
-    context.push(Routes.salidasTecnicas);
+    debugPrint('[OperacionesScreen] FAB Salidas técnicas presionado');
+    if (_openingSalidasTecnicas) {
+      debugPrint(
+        '[OperacionesScreen] Ignorando tap: navegación ya en progreso',
+      );
+      return;
+    }
+
+    _openingSalidasTecnicas = true;
+    try {
+      if (!mounted) return;
+      // Open the full module screen so the technician has access to the Drawer
+      // for navigation without leaving the module.
+      context.push(Routes.salidasTecnicas);
+      debugPrint('[OperacionesScreen] Navegación a Salidas técnicas disparada');
+    } catch (e, st) {
+      debugPrint('[OperacionesScreen] Error al abrir Salidas técnicas: $e');
+      debugPrintStack(stackTrace: st);
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('No se pudo abrir Salidas técnicas')),
+      );
+    } finally {
+      _openingSalidasTecnicas = false;
+    }
   }
 
   @override
