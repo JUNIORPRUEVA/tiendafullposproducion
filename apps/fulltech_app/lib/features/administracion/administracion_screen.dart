@@ -3,11 +3,18 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_provider.dart';
+import '../../core/models/user_model.dart';
+import '../../core/utils/app_feedback.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../salidas_tecnicas/data/salidas_tecnicas_repository.dart';
+import '../salidas_tecnicas/salidas_tecnicas_models.dart';
+import '../user/data/users_repository.dart';
 import 'data/admin_locations_repository.dart';
 import 'data/administracion_repository.dart';
 import 'models/admin_locations_models.dart';
@@ -167,6 +174,10 @@ class _AdministracionScreenState extends ConsumerState<AdministracionScreen> {
                       icon: Icon(Icons.location_on_outlined),
                       label: Text('Ubicaciones'),
                     ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.local_gas_station_outlined),
+                      label: Text('Combustible'),
+                    ),
                   ],
                 ),
                 const VerticalDivider(width: 1),
@@ -201,6 +212,10 @@ class _AdministracionScreenState extends ConsumerState<AdministracionScreen> {
                       icon: Icon(Icons.location_on_outlined),
                       label: 'Ubicaciones',
                     ),
+                    NavigationDestination(
+                      icon: Icon(Icons.local_gas_station_outlined),
+                      label: 'Combustible',
+                    ),
                   ],
                 ),
               ],
@@ -223,9 +238,766 @@ class _AdministracionScreenState extends ConsumerState<AdministracionScreen> {
         return _AdminOverviewPage(data: _overview!);
       case 4:
         return const _AdminLocationsPage();
+      case 5:
+        return const _AdminTechFuelPage();
       default:
         return _AdminOverviewPage(data: _overview!);
     }
+  }
+}
+
+class _AdminTechFuelPage extends ConsumerStatefulWidget {
+  const _AdminTechFuelPage();
+
+  @override
+  ConsumerState<_AdminTechFuelPage> createState() => _AdminTechFuelPageState();
+}
+
+class _AdminTechFuelPageState extends ConsumerState<_AdminTechFuelPage> {
+  static const List<String> _statusOptions = [
+    'TODOS',
+    'FINALIZADA',
+    'APROBADA',
+    'PAGADA',
+    'RECHAZADA',
+  ];
+
+  List<UserModel> _technicians = const [];
+  List<TechnicalDeparture> _departures = const [];
+  List<TechFuelPayment> _payments = const [];
+  bool _loading = true;
+  bool _acting = false;
+  String? _error;
+  String? _selectedTechnicianId;
+  String _selectedStatus = 'TODOS';
+
+  SalidasTecnicasRepository get _repo =>
+      ref.read(salidasTecnicasRepositoryProvider);
+
+  UsersRepository get _usersRepo => ref.read(usersRepositoryProvider);
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_load);
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+
+    try {
+      final selectedTechnicianId = _selectedTechnicianId;
+      final selectedStatus = _selectedStatus == 'TODOS'
+          ? null
+          : _selectedStatus;
+
+      final results = await Future.wait([
+        _usersRepo.getAllUsers(forceRefresh: silent),
+        _repo.listAdminDepartures(
+          tecnicoId: selectedTechnicianId,
+          estado: selectedStatus,
+        ),
+        _repo.listAdminFuelPayments(tecnicoId: selectedTechnicianId),
+      ]);
+
+      if (!mounted) return;
+
+      final users = (results[0] as List<UserModel>)
+          .where((user) => user.appRole.isTechnician && !user.blocked)
+          .toList(growable: false);
+
+      setState(() {
+        _technicians = users;
+        _departures = results[1] as List<TechnicalDeparture>;
+        _payments = results[2] as List<TechFuelPayment>;
+        _loading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '$e';
+      });
+    }
+  }
+
+  Future<void> _runAction(Future<void> Function() action) async {
+    if (_acting) return;
+    setState(() => _acting = true);
+    try {
+      await action();
+      await _load(silent: true);
+    } catch (e) {
+      if (!mounted) return;
+      await AppFeedback.showError(context, e.toString());
+    } finally {
+      if (mounted) {
+        setState(() => _acting = false);
+      }
+    }
+  }
+
+  Future<void> _approveDeparture(TechnicalDeparture departure) async {
+    await _runAction(() async {
+      await _repo.approveDeparture(departure.id);
+      if (!mounted) return;
+      await AppFeedback.showInfo(context, 'Salida aprobada correctamente.');
+    });
+  }
+
+  Future<void> _rejectDeparture(TechnicalDeparture departure) async {
+    final controller = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Rechazar salida'),
+        content: TextField(
+          controller: controller,
+          minLines: 2,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            labelText: 'Motivo',
+            hintText: 'Explica por qué se rechaza esta salida',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: const Text('Rechazar'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (reason == null || reason.trim().isEmpty) {
+      return;
+    }
+
+    await _runAction(() async {
+      await _repo.rejectDeparture(departure.id, observacion: reason);
+      if (!mounted) return;
+      await AppFeedback.showInfo(context, 'Salida rechazada.');
+    });
+  }
+
+  Future<void> _createPaymentPeriod() async {
+    final technicians = _technicians;
+    if (technicians.isEmpty) {
+      await AppFeedback.showError(
+        context,
+        'No hay técnicos disponibles para generar el pago.',
+      );
+      return;
+    }
+
+    final result = await showDialog<_PaymentPeriodFormValue>(
+      context: context,
+      builder: (dialogContext) => _CreateFuelPaymentDialog(
+        technicians: technicians,
+        initialTechnicianId: _selectedTechnicianId,
+      ),
+    );
+
+    if (result == null) return;
+
+    await _runAction(() async {
+      final payment = await _repo.createFuelPaymentPeriod(
+        tecnicoId: result.technicianId,
+        fechaInicio: result.start,
+        fechaFin: result.end,
+      );
+      if (!mounted) return;
+      await AppFeedback.showInfo(
+        context,
+        'Pago generado por RD\$${payment.totalMonto.toStringAsFixed(2)}.',
+      );
+    });
+  }
+
+  Future<void> _markPaymentPaid(TechFuelPayment payment) async {
+    await _runAction(() async {
+      final result = await _repo.markFuelPaymentPaid(payment.id);
+      if (!mounted) return;
+
+      final imported = result['payrollImported'] == true;
+      final periodId = result['payrollPeriodId']?.toString();
+      final message = imported
+          ? 'Pago marcado como pagado e importado a nómina.'
+          : periodId != null && periodId.isNotEmpty
+          ? 'Pago marcado como pagado. La importación a nómina quedó pendiente.'
+          : 'Pago marcado como pagado. No había quincena abierta coincidente.';
+      await AppFeedback.showInfo(context, message);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currency = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final pendingApprovals = _departures
+        .where((item) => item.estado.toUpperCase() == 'FINALIZADA')
+        .length;
+    final approvedAwaitingPayment = _departures
+        .where((item) => item.estado.toUpperCase() == 'APROBADA')
+        .length;
+    final pendingPayments = _payments.where((item) => item.isPending).length;
+
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return RefreshIndicator(
+      onRefresh: () => _load(silent: true),
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _AdminMetricCard(
+                label: 'Salidas por aprobar',
+                value: '$pendingApprovals',
+                icon: Icons.fact_check_outlined,
+              ),
+              _AdminMetricCard(
+                label: 'Aprobadas sin pago',
+                value: '$approvedAwaitingPayment',
+                icon: Icons.hourglass_top_outlined,
+              ),
+              _AdminMetricCard(
+                label: 'Pagos pendientes',
+                value: '$pendingPayments',
+                icon: Icons.local_gas_station_outlined,
+              ),
+              _AdminMetricCard(
+                label: 'Monto visible',
+                value: currency.format(
+                  _payments.fold<double>(
+                    0,
+                    (sum, item) => sum + item.totalMonto,
+                  ),
+                ),
+                icon: Icons.payments_outlined,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 280,
+                    child: DropdownButtonFormField<String?>(
+                      initialValue: _selectedTechnicianId,
+                      decoration: const InputDecoration(
+                        labelText: 'Filtrar por técnico',
+                      ),
+                      items: [
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('Todos los técnicos'),
+                        ),
+                        ..._technicians.map(
+                          (technician) => DropdownMenuItem<String?>(
+                            value: technician.id,
+                            child: Text(technician.nombreCompleto),
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        setState(() => _selectedTechnicianId = value);
+                        _load(silent: true);
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    width: 220,
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _selectedStatus,
+                      decoration: const InputDecoration(
+                        labelText: 'Estado de salida',
+                      ),
+                      items: _statusOptions
+                          .map(
+                            (status) => DropdownMenuItem<String>(
+                              value: status,
+                              child: Text(status),
+                            ),
+                          )
+                          .toList(growable: false),
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setState(() => _selectedStatus = value);
+                        _load(silent: true);
+                      },
+                    ),
+                  ),
+                  FilledButton.icon(
+                    onPressed: _acting ? null : _createPaymentPeriod,
+                    icon: const Icon(Icons.add_card_outlined),
+                    label: const Text('Generar pago'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _acting ? null : () => _load(silent: true),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Recargar'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Card(
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Text(
+                  _error!,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                  ),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          Text(
+            'Salidas técnicas',
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          if (_departures.isEmpty)
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('No hay salidas para los filtros actuales.'),
+              ),
+            )
+          else
+            ..._departures
+                .take(50)
+                .map(
+                  (departure) => Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  departure.servicio?.title ??
+                                      'Servicio sin título',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              _AdminStatusBadge(label: departure.estado),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 8,
+                            children: [
+                              _AdminInfoPill(
+                                label:
+                                    'Técnico: ${departure.tecnico?.nombreCompleto ?? 'Sin técnico'}',
+                              ),
+                              _AdminInfoPill(
+                                label:
+                                    'Vehículo: ${departure.vehiculo?.displayName ?? 'Sin vehículo'}',
+                              ),
+                              _AdminInfoPill(
+                                label:
+                                    'Monto: ${currency.format(departure.montoCombustible)}',
+                              ),
+                              if (departure.fecha != null)
+                                _AdminInfoPill(
+                                  label:
+                                      'Fecha: ${DateFormat('dd/MM/yyyy').format(departure.fecha!.toLocal())}',
+                                ),
+                            ],
+                          ),
+                          if ((departure.observacion ?? '')
+                              .trim()
+                              .isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Text(departure.observacion!.trim()),
+                          ],
+                          if (departure.estado.toUpperCase() ==
+                              'FINALIZADA') ...[
+                            const SizedBox(height: 14),
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: [
+                                FilledButton.icon(
+                                  onPressed: _acting
+                                      ? null
+                                      : () => _approveDeparture(departure),
+                                  icon: const Icon(Icons.check_circle_outline),
+                                  label: const Text('Aprobar'),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: _acting
+                                      ? null
+                                      : () => _rejectDeparture(departure),
+                                  icon: const Icon(Icons.cancel_outlined),
+                                  label: const Text('Rechazar'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+          const SizedBox(height: 16),
+          Text(
+            'Pagos de combustible',
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          if (_payments.isEmpty)
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('No hay pagos de combustible generados todavía.'),
+              ),
+            )
+          else
+            ..._payments
+                .take(50)
+                .map(
+                  (payment) => Card(
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.all(16),
+                      title: Text(
+                        payment.tecnico?.nombreCompleto ?? 'Técnico sin nombre',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Rango: ${_formatDate(payment.fechaInicio)} - ${_formatDate(payment.fechaFin)}',
+                            ),
+                            Text(
+                              'Monto: ${currency.format(payment.totalMonto)}',
+                            ),
+                            if (payment.fechaPago != null)
+                              Text(
+                                'Fecha de pago: ${_formatDate(payment.fechaPago)}',
+                              ),
+                            if (payment.payrollEntryId != null)
+                              Text(
+                                'Importado a nómina: sí (${payment.payrollPeriodId ?? 'sin quincena'})',
+                              ),
+                          ],
+                        ),
+                      ),
+                      trailing: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          _AdminStatusBadge(label: payment.estado),
+                          const SizedBox(height: 8),
+                          if (payment.isPending)
+                            FilledButton(
+                              onPressed: _acting
+                                  ? null
+                                  : () => _markPaymentPaid(payment),
+                              child: const Text('Marcar pagado'),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(DateTime? value) {
+    if (value == null) return 'Sin fecha';
+    return DateFormat('dd/MM/yyyy').format(value.toLocal());
+  }
+}
+
+class _AdminMetricCard extends StatelessWidget {
+  const _AdminMetricCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 220,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: Theme.of(
+              context,
+            ).colorScheme.primary.withValues(alpha: 0.12),
+            child: Icon(icon, color: Theme.of(context).colorScheme.primary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdminInfoPill extends StatelessWidget {
+  const _AdminInfoPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(label),
+    );
+  }
+}
+
+class _AdminStatusBadge extends StatelessWidget {
+  const _AdminStatusBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final upper = label.toUpperCase();
+    final color = switch (upper) {
+      'FINALIZADA' => Colors.orange,
+      'APROBADA' => Colors.green,
+      'PAGADA' => Colors.teal,
+      'PENDIENTE' => Colors.deepOrange,
+      'RECHAZADA' => Colors.red,
+      _ => Theme.of(context).colorScheme.primary,
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        upper,
+        style: TextStyle(color: color, fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+}
+
+class _PaymentPeriodFormValue {
+  const _PaymentPeriodFormValue({
+    required this.technicianId,
+    required this.start,
+    required this.end,
+  });
+
+  final String technicianId;
+  final DateTime start;
+  final DateTime end;
+}
+
+class _CreateFuelPaymentDialog extends StatefulWidget {
+  const _CreateFuelPaymentDialog({
+    required this.technicians,
+    this.initialTechnicianId,
+  });
+
+  final List<UserModel> technicians;
+  final String? initialTechnicianId;
+
+  @override
+  State<_CreateFuelPaymentDialog> createState() =>
+      _CreateFuelPaymentDialogState();
+}
+
+class _CreateFuelPaymentDialogState extends State<_CreateFuelPaymentDialog> {
+  late String _technicianId;
+  late DateTime _start;
+  late DateTime _end;
+
+  @override
+  void initState() {
+    super.initState();
+    _technicianId = widget.initialTechnicianId ?? widget.technicians.first.id;
+    final now = DateTime.now();
+    _start = DateTime(now.year, now.month, 1);
+    _end = DateTime(now.year, now.month, now.day, 23, 59, 59);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dateFormat = DateFormat('dd/MM/yyyy');
+
+    return AlertDialog(
+      title: const Text('Generar pago de combustible'),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DropdownButtonFormField<String>(
+              initialValue: _technicianId,
+              decoration: const InputDecoration(labelText: 'Técnico'),
+              items: widget.technicians
+                  .map(
+                    (technician) => DropdownMenuItem<String>(
+                      value: technician.id,
+                      child: Text(technician.nombreCompleto),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() => _technicianId = value);
+              },
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Fecha inicial'),
+              subtitle: Text(dateFormat.format(_start)),
+              trailing: const Icon(Icons.calendar_today_outlined),
+              onTap: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: _start,
+                  firstDate: DateTime(2024),
+                  lastDate: DateTime(2100),
+                );
+                if (picked == null) return;
+                setState(
+                  () =>
+                      _start = DateTime(picked.year, picked.month, picked.day),
+                );
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Fecha final'),
+              subtitle: Text(dateFormat.format(_end)),
+              trailing: const Icon(Icons.calendar_today_outlined),
+              onTap: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: _end,
+                  firstDate: DateTime(2024),
+                  lastDate: DateTime(2100),
+                );
+                if (picked == null) return;
+                setState(
+                  () => _end = DateTime(
+                    picked.year,
+                    picked.month,
+                    picked.day,
+                    23,
+                    59,
+                    59,
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (_end.isBefore(_start)) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'La fecha final no puede ser menor que la inicial.',
+                  ),
+                ),
+              );
+              return;
+            }
+            Navigator.pop(
+              context,
+              _PaymentPeriodFormValue(
+                technicianId: _technicianId,
+                start: _start,
+                end: _end,
+              ),
+            );
+          },
+          child: const Text('Generar'),
+        ),
+      ],
+    );
   }
 }
 
@@ -514,6 +1286,22 @@ class _AdminAttendancePage extends StatelessWidget {
 
   const _AdminAttendancePage({required this.data});
 
+  String _formatMinutes(dynamic raw) {
+    final minutes = raw is num ? raw.toInt() : 0;
+    final sign = minutes < 0 ? '-' : '';
+    final absolute = minutes.abs();
+    final hours = absolute ~/ 60;
+    final remainingMinutes = absolute % 60;
+    return '$sign${hours}h ${remainingMinutes.toString().padLeft(2, '0')}m';
+  }
+
+  Color _balanceColor(BuildContext context, dynamic raw) {
+    final minutes = raw is num ? raw.toInt() : 0;
+    if (minutes > 0) return Colors.green.shade700;
+    if (minutes < 0) return Theme.of(context).colorScheme.error;
+    return Colors.blueGrey;
+  }
+
   @override
   Widget build(BuildContext context) {
     final totals = (data['totals'] is Map)
@@ -533,6 +1321,46 @@ class _AdminAttendancePage extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _AdminAttendanceMetricCard(
+                label: 'Horas a favor',
+                value: _formatMinutes(totals['favorableMinutes']),
+                color: Colors.green.shade700,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _AdminAttendanceMetricCard(
+                label: 'Horas en contra',
+                value: _formatMinutes(totals['unfavorableMinutes']),
+                color: Theme.of(context).colorScheme.error,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _AdminAttendanceMetricCard(
+                label: 'Balance neto',
+                value: _formatMinutes(totals['balanceMinutes']),
+                color: _balanceColor(context, totals['balanceMinutes']),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _AdminAttendanceMetricCard(
+                label: 'Horas laboradas',
+                value: _formatMinutes(totals['workedMinutes']),
+                color: AppTheme.primaryColor,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
         ...users.map((item) {
           final row = item is Map
               ? item.cast<String, dynamic>()
@@ -548,13 +1376,98 @@ class _AdminAttendancePage extends StatelessWidget {
               title: Text(
                 '${user['nombreCompleto'] ?? 'Usuario'} (${user['role'] ?? ''})',
               ),
-              subtitle: Text(
-                'Incidentes: ${aggregate['incidentsCount'] ?? 0} · Tardanza(min): ${aggregate['tardinessMinutes'] ?? 0} · No laborado(min): ${aggregate['notWorkedMinutes'] ?? 0}',
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Incidentes: ${aggregate['incidentsCount'] ?? 0} · Tardanza: ${_formatMinutes(aggregate['tardinessMinutes'])} · No laborado: ${_formatMinutes(aggregate['unfavorableMinutes'])}',
+                  ),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _AdminAttendanceBadge(
+                        label: 'A favor',
+                        value: _formatMinutes(aggregate['favorableMinutes']),
+                        color: Colors.green.shade700,
+                      ),
+                      _AdminAttendanceBadge(
+                        label: 'En contra',
+                        value: _formatMinutes(aggregate['unfavorableMinutes']),
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      _AdminAttendanceBadge(
+                        label: 'Balance',
+                        value: _formatMinutes(aggregate['balanceMinutes']),
+                        color: _balanceColor(context, aggregate['balanceMinutes']),
+                      ),
+                    ],
+                  ),
+                ],
               ),
+              isThreeLine: true,
             ),
           );
         }),
       ],
+    );
+  }
+}
+
+class _AdminAttendanceMetricCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+
+  const _AdminAttendanceMetricCard({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: TextStyle(color: color, fontSize: 12)),
+            const SizedBox(height: 4),
+            Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AdminAttendanceBadge extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+
+  const _AdminAttendanceBadge({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withAlpha(25),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withAlpha(70)),
+      ),
+      child: Text(
+        '$label: $value',
+        style: TextStyle(color: color, fontWeight: FontWeight.w600),
+      ),
     );
   }
 }

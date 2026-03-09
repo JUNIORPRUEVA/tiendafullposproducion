@@ -5,6 +5,10 @@ export interface AttendanceSummaryTotals {
   tardyCount: number;
   earlyLeaveCount: number;
   incompleteCount: number;
+  workedMinutes: number;
+  favorableMinutes: number;
+  unfavorableMinutes: number;
+  balanceMinutes: number;
   notWorkedMinutes: number;
 }
 
@@ -13,6 +17,9 @@ export interface AttendanceAggregateMetrics {
   earlyLeaveMinutes: number;
   notWorkedMinutes: number;
   workedMinutes: number;
+  favorableMinutes: number;
+  unfavorableMinutes: number;
+  balanceMinutes: number;
   incompleteDays: number;
   incidentsCount: number;
 }

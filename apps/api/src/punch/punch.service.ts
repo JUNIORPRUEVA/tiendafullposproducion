@@ -89,6 +89,10 @@ export class PunchService {
       tardyCount: 0,
       earlyLeaveCount: 0,
       incompleteCount: 0,
+      workedMinutes: 0,
+      favorableMinutes: 0,
+      unfavorableMinutes: 0,
+      balanceMinutes: 0,
       notWorkedMinutes: 0,
     };
 
@@ -120,6 +124,10 @@ export class PunchService {
         if (day.incomplete) {
           totals.incompleteCount += 1;
         }
+        totals.workedMinutes += day.workedMinutesNet ?? 0;
+        totals.favorableMinutes += day.favorableMinutes;
+        totals.unfavorableMinutes += day.unfavorableMinutes;
+        totals.balanceMinutes += day.balanceMinutes;
         totals.notWorkedMinutes += day.notWorkedMinutes;
       }
 
@@ -171,6 +179,10 @@ export class PunchService {
     return { user, punches, days, totals };
   }
 
+  async myAttendanceDetail(userId: string, query: AttendanceUserQueryDto): Promise<AttendanceDetailResponse> {
+    return this.attendanceDetail(userId, query);
+  }
+
   private computeDayMetricsList(punches: Punch[]): AttendanceDayMetrics[] {
     if (!punches.length) {
       return [];
@@ -188,6 +200,9 @@ export class PunchService {
       earlyLeaveMinutes: 0,
       notWorkedMinutes: 0,
       workedMinutes: 0,
+      favorableMinutes: 0,
+      unfavorableMinutes: 0,
+      balanceMinutes: 0,
       incompleteDays: 0,
       incidentsCount: 0,
     };
@@ -197,6 +212,9 @@ export class PunchService {
       aggregate.earlyLeaveMinutes += day.earlyLeaveMinutes;
       aggregate.notWorkedMinutes += day.notWorkedMinutes;
       aggregate.workedMinutes += day.workedMinutesNet ?? 0;
+      aggregate.favorableMinutes += day.favorableMinutes;
+      aggregate.unfavorableMinutes += day.unfavorableMinutes;
+      aggregate.balanceMinutes += day.balanceMinutes;
       if (day.incomplete) {
         aggregate.incompleteDays += 1;
       }

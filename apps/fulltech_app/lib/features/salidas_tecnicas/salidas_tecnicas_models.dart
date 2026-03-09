@@ -72,6 +72,87 @@ class TechServiceSummary {
   });
 }
 
+class TechUserSummary {
+  final String id;
+  final String nombreCompleto;
+
+  const TechUserSummary({required this.id, required this.nombreCompleto});
+
+  factory TechUserSummary.fromJson(Map<String, dynamic> json) {
+    return TechUserSummary(
+      id: (json['id'] ?? '').toString(),
+      nombreCompleto: (json['nombreCompleto'] ?? json['nombre'] ?? 'Técnico')
+          .toString(),
+    );
+  }
+}
+
+class TechFuelPayment {
+  final String id;
+  final String tecnicoId;
+  final DateTime? fechaInicio;
+  final DateTime? fechaFin;
+  final DateTime? fechaPago;
+  final double totalMonto;
+  final String estado;
+  final TechUserSummary? tecnico;
+  final String? payrollEntryId;
+  final String? payrollPeriodId;
+
+  const TechFuelPayment({
+    required this.id,
+    required this.tecnicoId,
+    this.fechaInicio,
+    this.fechaFin,
+    this.fechaPago,
+    required this.totalMonto,
+    required this.estado,
+    this.tecnico,
+    this.payrollEntryId,
+    this.payrollPeriodId,
+  });
+
+  bool get isPending => estado.toUpperCase() == 'PENDIENTE';
+  bool get isPaid => estado.toUpperCase() == 'PAGADO';
+
+  factory TechFuelPayment.fromJson(Map<String, dynamic> json) {
+    double parseNum(dynamic value) {
+      if (value == null) return 0;
+      if (value is num) return value.toDouble();
+      return double.tryParse(value.toString()) ?? 0;
+    }
+
+    DateTime? parseDate(dynamic value) {
+      if (value == null) return null;
+      return DateTime.tryParse(value.toString());
+    }
+
+    Map<String, dynamic>? asMap(dynamic value) {
+      if (value is Map<String, dynamic>) return value;
+      if (value is Map) return value.cast<String, dynamic>();
+      return null;
+    }
+
+    final tecnicoJson = asMap(json['tecnico']);
+    final payrollEntryJson = asMap(json['payrollEntry']);
+
+    return TechFuelPayment(
+      id: (json['id'] ?? '').toString(),
+      tecnicoId: (json['tecnicoId'] ?? '').toString(),
+      fechaInicio: parseDate(json['fechaInicio']),
+      fechaFin: parseDate(json['fechaFin']),
+      fechaPago: parseDate(json['fechaPago']),
+      totalMonto: parseNum(json['totalMonto']),
+      estado: (json['estado'] ?? '').toString(),
+      tecnico: tecnicoJson == null
+          ? null
+          : TechUserSummary.fromJson(tecnicoJson),
+      payrollEntryId: payrollEntryJson?['id']?.toString(),
+      payrollPeriodId: payrollEntryJson?['periodId']?.toString(),
+    );
+  }
+}
+
 class TechnicalDeparture {
   final String id;
   final String estado;
@@ -87,6 +168,8 @@ class TechnicalDeparture {
   final String? observacion;
   final TechVehicle? vehiculo;
   final TechServiceSummary? servicio;
+  final TechUserSummary? tecnico;
+  final TechFuelPayment? pagoCombustible;
 
   const TechnicalDeparture({
     required this.id,
@@ -103,6 +186,8 @@ class TechnicalDeparture {
     this.observacion,
     this.vehiculo,
     this.servicio,
+    this.tecnico,
+    this.pagoCombustible,
   });
 
   bool get canMarkArrival => estado.toUpperCase() == 'INICIADA';
@@ -124,6 +209,8 @@ class TechnicalDeparture {
     }
 
     final servicioJson = (json['servicio'] as Map?)?.cast<String, dynamic>();
+    final tecnicoJson = (json['tecnico'] as Map?)?.cast<String, dynamic>();
+    final pagoJson = (json['pagoCombustible'] as Map?)?.cast<String, dynamic>();
 
     return TechnicalDeparture(
       id: (json['id'] ?? '').toString(),
@@ -153,6 +240,12 @@ class TechnicalDeparture {
               status: (servicioJson['status'] ?? '').toString(),
               orderState: (servicioJson['orderState'] ?? '').toString(),
             ),
+      tecnico: tecnicoJson == null
+          ? null
+          : TechUserSummary.fromJson(tecnicoJson),
+      pagoCombustible: pagoJson == null
+          ? null
+          : TechFuelPayment.fromJson(pagoJson),
     );
   }
 }

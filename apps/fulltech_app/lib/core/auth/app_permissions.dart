@@ -26,12 +26,14 @@ enum AppPermission {
 
   // Accounting
   viewAccounting,
+  viewCompanyManual,
 
   // Admin
   viewAdminPanel,
   manageUsers,
   manageSettings,
   managePayroll,
+  manageCompanyManual,
   viewAdminTechDepartures,
 }
 
@@ -47,16 +49,17 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.manageWorkScheduling,
     AppPermission.viewOperations,
     AppPermission.viewPunch,
-    AppPermission.viewTechDepartures,
     AppPermission.viewCatalog,
     AppPermission.viewSales,
     AppPermission.viewQuotes,
     AppPermission.viewClients,
     AppPermission.viewAccounting,
+    AppPermission.viewCompanyManual,
     AppPermission.viewAdminPanel,
     AppPermission.manageUsers,
     AppPermission.manageSettings,
     AppPermission.managePayroll,
+    AppPermission.manageCompanyManual,
     AppPermission.viewAdminTechDepartures,
   },
   AppRole.asistente: {
@@ -70,6 +73,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.viewQuotes,
     AppPermission.viewClients,
     AppPermission.viewAccounting,
+    AppPermission.viewCompanyManual,
   },
   AppRole.vendedor: {
     AppPermission.viewProfile,
@@ -81,6 +85,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.viewSales,
     AppPermission.viewQuotes,
     AppPermission.viewClients,
+    AppPermission.viewCompanyManual,
   },
   AppRole.marketing: {
     AppPermission.viewProfile,
@@ -91,6 +96,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.viewCatalog,
     AppPermission.viewQuotes,
     AppPermission.viewClients,
+    AppPermission.viewCompanyManual,
   },
   AppRole.tecnico: {
     AppPermission.viewProfile,
@@ -99,6 +105,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.viewOperations,
     AppPermission.viewPunch,
     AppPermission.viewTechDepartures,
+    AppPermission.viewCompanyManual,
   },
   AppRole.unknown: {
     // Least privilege (still allow self areas to avoid redirect loops)

@@ -24,6 +24,7 @@ import '../../modules/clientes/cliente_form_screen.dart';
 import '../../modules/nomina/nomina_screen.dart';
 import '../../modules/nomina/mis_pagos_screen.dart';
 import '../../modules/configuracion/configuracion_screen.dart';
+import '../../modules/manual_interno/manual_interno_screen.dart';
 import '../../modules/cotizaciones/cotizaciones_historial_screen.dart';
 import '../../modules/cotizaciones/cotizaciones_screen.dart';
 import '../../modules/ventas/mis_ventas_screen.dart';
@@ -178,6 +179,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                 pickForEditor: pickForEditor,
               );
             },
+          ),
+          GoRoute(
+            path: Routes.manualInterno,
+            builder: (context, state) => const ManualInternoScreen(),
           ),
           GoRoute(
             path: Routes.configuracion,

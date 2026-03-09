@@ -26,6 +26,7 @@ class AttendanceDayMetrics {
   final String date;
   final DateTime? entry;
   final DateTime? exit;
+  final int expectedWorkMinutes;
   final int lunchMinutes;
   final bool lunchComplete;
   final int permisoMinutes;
@@ -33,6 +34,9 @@ class AttendanceDayMetrics {
   final int tardinessMinutes;
   final int earlyLeaveMinutes;
   final int? workedMinutesNet;
+  final int favorableMinutes;
+  final int unfavorableMinutes;
+  final int balanceMinutes;
   final int notWorkedMinutes;
   final bool incomplete;
   final bool isWeekend;
@@ -42,6 +46,7 @@ class AttendanceDayMetrics {
     required this.date,
     this.entry,
     this.exit,
+    required this.expectedWorkMinutes,
     required this.lunchMinutes,
     required this.lunchComplete,
     required this.permisoMinutes,
@@ -49,6 +54,9 @@ class AttendanceDayMetrics {
     required this.tardinessMinutes,
     required this.earlyLeaveMinutes,
     this.workedMinutesNet,
+    required this.favorableMinutes,
+    required this.unfavorableMinutes,
+    required this.balanceMinutes,
     required this.notWorkedMinutes,
     required this.incomplete,
     required this.isWeekend,
@@ -61,6 +69,7 @@ class AttendanceDayMetrics {
       date: json['date'] ?? '',
       entry: _parseDate(json['entry']),
       exit: _parseDate(json['exit']),
+      expectedWorkMinutes: json['expectedWorkMinutes'] ?? 0,
       lunchMinutes: json['lunchMinutes'] ?? 0,
       lunchComplete: json['lunchComplete'] ?? false,
       permisoMinutes: json['permisoMinutes'] ?? 0,
@@ -68,6 +77,9 @@ class AttendanceDayMetrics {
       tardinessMinutes: json['tardinessMinutes'] ?? 0,
       earlyLeaveMinutes: json['earlyLeaveMinutes'] ?? 0,
       workedMinutesNet: json['workedMinutesNet'],
+      favorableMinutes: json['favorableMinutes'] ?? 0,
+      unfavorableMinutes: json['unfavorableMinutes'] ?? 0,
+      balanceMinutes: json['balanceMinutes'] ?? 0,
       notWorkedMinutes: json['notWorkedMinutes'] ?? 0,
       incomplete: json['incomplete'] ?? false,
       isWeekend: json['isWeekend'] ?? false,
@@ -86,6 +98,9 @@ class AttendanceAggregateMetrics {
   final int earlyLeaveMinutes;
   final int notWorkedMinutes;
   final int workedMinutes;
+  final int favorableMinutes;
+  final int unfavorableMinutes;
+  final int balanceMinutes;
   final int incompleteDays;
   final int incidentsCount;
 
@@ -94,6 +109,9 @@ class AttendanceAggregateMetrics {
     required this.earlyLeaveMinutes,
     required this.notWorkedMinutes,
     required this.workedMinutes,
+    required this.favorableMinutes,
+    required this.unfavorableMinutes,
+    required this.balanceMinutes,
     required this.incompleteDays,
     required this.incidentsCount,
   });
@@ -104,6 +122,9 @@ class AttendanceAggregateMetrics {
       earlyLeaveMinutes: json['earlyLeaveMinutes'] ?? 0,
       notWorkedMinutes: json['notWorkedMinutes'] ?? 0,
       workedMinutes: json['workedMinutes'] ?? 0,
+      favorableMinutes: json['favorableMinutes'] ?? 0,
+      unfavorableMinutes: json['unfavorableMinutes'] ?? 0,
+      balanceMinutes: json['balanceMinutes'] ?? 0,
       incompleteDays: json['incompleteDays'] ?? 0,
       incidentsCount: json['incidentsCount'] ?? 0,
     );
@@ -163,12 +184,20 @@ class AttendanceSummaryTotals {
   final int tardyCount;
   final int earlyLeaveCount;
   final int incompleteCount;
+  final int workedMinutes;
+  final int favorableMinutes;
+  final int unfavorableMinutes;
+  final int balanceMinutes;
   final int notWorkedMinutes;
 
   AttendanceSummaryTotals({
     required this.tardyCount,
     required this.earlyLeaveCount,
     required this.incompleteCount,
+    required this.workedMinutes,
+    required this.favorableMinutes,
+    required this.unfavorableMinutes,
+    required this.balanceMinutes,
     required this.notWorkedMinutes,
   });
 
@@ -177,6 +206,10 @@ class AttendanceSummaryTotals {
       tardyCount: json['tardyCount'] ?? 0,
       earlyLeaveCount: json['earlyLeaveCount'] ?? 0,
       incompleteCount: json['incompleteCount'] ?? 0,
+      workedMinutes: json['workedMinutes'] ?? 0,
+      favorableMinutes: json['favorableMinutes'] ?? 0,
+      unfavorableMinutes: json['unfavorableMinutes'] ?? 0,
+      balanceMinutes: json['balanceMinutes'] ?? 0,
       notWorkedMinutes: json['notWorkedMinutes'] ?? 0,
     );
   }

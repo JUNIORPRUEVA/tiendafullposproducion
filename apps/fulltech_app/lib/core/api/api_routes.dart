@@ -21,6 +21,7 @@ class ApiRoutes {
   // Ponche
   static const punch = '/punch';
   static const punchMe = '/punch/me';
+    static const punchMeAttendance = '/punch/me/attendance';
   static const punchAdmin = '/admin/punch';
   static const punchAttendanceSummary = '/admin/attendance/summary';
   static String punchAttendanceUser(String id) => '/admin/attendance/user/$id';
@@ -91,6 +92,15 @@ class ApiRoutes {
       '/tecnico/salidas-tecnicas/$id/llegada';
   static String tecnicoSalidaFinalizar(String id) =>
       '/tecnico/salidas-tecnicas/$id/finalizar';
+  static const adminSalidasTecnicas = '/admin/salidas-tecnicas';
+  static String adminSalidaAprobar(String id) =>
+      '/admin/salidas-tecnicas/$id/aprobar';
+  static String adminSalidaRechazar(String id) =>
+      '/admin/salidas-tecnicas/$id/rechazar';
+  static const adminPagosCombustibleTecnicos =
+      '/admin/pagos-combustible-tecnicos';
+  static String adminPagoCombustiblePagado(String id) =>
+      '/admin/pagos-combustible-tecnicos/$id/pagado';
 
   // Nómina
   static const payrollPeriods = '/payroll/periods';
@@ -118,6 +128,11 @@ class ApiRoutes {
   static const payrollTotals = '/payroll/totals';
   static const payrollMyHistory = '/payroll/my-history';
   static const payrollMyGoal = '/payroll/my-goal';
+
+    // Manual interno
+    static const companyManualEntries = '/company-manual';
+    static const companyManualSummary = '/company-manual/summary';
+    static String companyManualEntryDetail(String id) => '/company-manual/$id';
 
   // Cotizaciones (nube)
   static const cotizaciones = '/cotizaciones';

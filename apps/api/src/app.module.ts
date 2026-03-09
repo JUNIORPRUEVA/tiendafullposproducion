@@ -18,6 +18,7 @@ import { CotizacionesModule } from './cotizaciones/cotizaciones.module';
 import { LocationsModule } from './locations/locations.module';
 import { SalidasTecnicasModule } from './salidas-tecnicas/salidas-tecnicas.module';
 import { WorkSchedulingModule } from './work-scheduling/work-scheduling.module';
+import { CompanyManualModule } from './company-manual/company-manual.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { WorkSchedulingModule } from './work-scheduling/work-scheduling.module';
     LocationsModule,
     SalidasTecnicasModule,
     WorkSchedulingModule,
+    CompanyManualModule,
   ]
 })
 export class AppModule {}

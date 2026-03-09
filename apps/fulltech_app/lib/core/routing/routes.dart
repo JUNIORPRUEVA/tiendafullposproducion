@@ -29,6 +29,7 @@ class Routes {
   static const clienteEditar = '/clientes/:id/editar';
   static const nomina = '/nomina';
   static const misPagos = '/mis-pagos';
+  static const manualInterno = '/manual-interno';
   static const configuracion = '/configuracion';
   static const administracion = '/administracion';
 

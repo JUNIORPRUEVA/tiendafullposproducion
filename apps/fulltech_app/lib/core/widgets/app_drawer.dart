@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
+import '../../modules/manual_interno/company_manual_repository.dart';
 import '../auth/auth_provider.dart';
 import '../auth/app_permissions.dart';
 import '../models/user_model.dart';
@@ -18,6 +20,16 @@ class AppDrawer extends ConsumerWidget {
       if (role == null) return false;
       return hasPermission(role, permission);
     }
+
+    final manualSummary = can(AppPermission.viewCompanyManual)
+        ? ref.watch(companyManualSummaryProvider)
+        : null;
+    final showManualIndicator =
+        manualSummary?.maybeWhen(
+          data: (value) => value.unreadCount > 0,
+          orElse: () => false,
+        ) ??
+        false;
 
     final colorScheme = Theme.of(context).colorScheme;
     final mediaQuery = MediaQuery.of(context);
@@ -243,6 +255,18 @@ class AppDrawer extends ConsumerWidget {
 
                     SizedBox(height: isCompactMobile ? 2 : 4),
                     _DrawerSectionTitle('Cuenta', compact: isCompactMobile),
+                    if (can(AppPermission.viewCompanyManual))
+                      _DrawerMenuItem(
+                        icon: Icons.menu_book_outlined,
+                        title: 'Manual Interno',
+                        compact: isCompactMobile,
+                        selected: isActiveRoute(Routes.manualInterno),
+                        showIndicator: showManualIndicator,
+                        onTap: () {
+                          Navigator.pop(context);
+                          context.go(Routes.manualInterno);
+                        },
+                      ),
                     if (can(AppPermission.manageSettings))
                       _DrawerMenuItem(
                         icon: Icons.settings_outlined,
@@ -360,6 +384,7 @@ class _DrawerMenuItem extends StatelessWidget {
   final String title;
   final bool compact;
   final bool selected;
+  final bool showIndicator;
   final VoidCallback onTap;
 
   const _DrawerMenuItem({
@@ -367,6 +392,7 @@ class _DrawerMenuItem extends StatelessWidget {
     required this.title,
     required this.compact,
     required this.selected,
+    this.showIndicator = false,
     required this.onTap,
   });
 
@@ -416,12 +442,27 @@ class _DrawerMenuItem extends StatelessWidget {
               color: selected ? colorScheme.primary : null,
             ),
           ),
-          trailing: Icon(
-            Icons.chevron_right_rounded,
-            size: compact ? 18 : 19,
-            color: selected
-                ? colorScheme.primary
-                : colorScheme.onSurfaceVariant,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (showIndicator)
+                Container(
+                  width: compact ? 8 : 9,
+                  height: compact ? 8 : 9,
+                  margin: const EdgeInsets.only(right: 10),
+                  decoration: BoxDecoration(
+                    color: colorScheme.error,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: compact ? 18 : 19,
+                color: selected
+                    ? colorScheme.primary
+                    : colorScheme.onSurfaceVariant,
+              ),
+            ],
           ),
           onTap: onTap,
           contentPadding: EdgeInsets.symmetric(

@@ -152,6 +152,69 @@ class NominaScreen extends ConsumerWidget {
                       children: [
                         _NominaSummaryCard(state: state),
                         const SizedBox(height: 12),
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.local_gas_station_outlined,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.primary,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        'Combustible técnico y nómina',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                const Text(
+                                  'La revisión operativa de salidas, aprobación y pagos de combustible se administra visualmente desde Administración > Combustible. Desde Nómina solo se importan los pagos ya marcados como pagados.',
+                                ),
+                                const SizedBox(height: 14),
+                                Wrap(
+                                  spacing: 12,
+                                  runSpacing: 12,
+                                  children: [
+                                    FilledButton.icon(
+                                      onPressed: () =>
+                                          context.go(Routes.administracion),
+                                      icon: const Icon(
+                                        Icons.admin_panel_settings_outlined,
+                                      ),
+                                      label: const Text('Abrir administración'),
+                                    ),
+                                    OutlinedButton.icon(
+                                      onPressed: state.loading
+                                          ? null
+                                          : () => _importOpenPeriodFuelPayments(
+                                              context,
+                                              ref,
+                                              state,
+                                            ),
+                                      icon: const Icon(Icons.payments_outlined),
+                                      label: const Text('Importar a nómina'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
                         if (state.error != null)
                           Card(
                             color: Theme.of(context).colorScheme.errorContainer,

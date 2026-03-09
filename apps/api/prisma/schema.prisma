@@ -69,6 +69,23 @@ enum PayrollEntryType {
   OTRO
 }
 
+enum CompanyManualEntryKind {
+  GENERAL_RULE
+  ROLE_RULE
+  POLICY
+  WARRANTY_POLICY
+  RESPONSIBILITY
+  PRODUCT_SERVICE
+  PRICE_RULE
+  SERVICE_RULE
+  MODULE_GUIDE
+}
+
+enum CompanyManualAudience {
+  GENERAL
+  ROLE_SPECIFIC
+}
+
 enum ServiceType {
   INSTALLATION
   MAINTENANCE
@@ -575,6 +592,30 @@ model PayrollEntry {
   @@index([periodId, employeeId])
   @@index([pagoCombustibleTecnicoId])
   @@index([date])
+}
+
+model CompanyManualEntry {
+  id              String                @id @default(uuid()) @db.Uuid
+  ownerId         String                @db.Uuid
+  title           String
+  summary         String?
+  content         String
+  kind            CompanyManualEntryKind
+  audience        CompanyManualAudience @default(GENERAL)
+  targetRoles     Role[]                @default([])
+  moduleKey       String?
+  published       Boolean               @default(true)
+  sortOrder       Int                   @default(0)
+  createdByUserId String                @db.Uuid
+  updatedByUserId String?               @db.Uuid
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@index([ownerId])
+  @@index([ownerId, published])
+  @@index([ownerId, kind])
+  @@index([ownerId, audience])
+  @@index([updatedAt])
 }
 
 model Service {

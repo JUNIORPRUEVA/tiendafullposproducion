@@ -51,7 +51,24 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
   }
 
   Future<void> _load() async {
-    final userId = (ref.read(authStateProvider).user?.id ?? '').trim();
+    final authUser = ref.read(authStateProvider).user;
+    final userId = (authUser?.id ?? '').trim();
+    final isTech = (authUser?.role ?? '').toUpperCase() == 'TECNICO';
+
+    if (!isTech) {
+      if (!mounted) return;
+      setState(() {
+        _vehicles = const [];
+        _history = const [];
+        _services = const [];
+        _openDeparture = null;
+        _selectedVehicleId = null;
+        _selectedServiceId = null;
+        _loading = false;
+      });
+      return;
+    }
+
     if (userId.isEmpty) {
       if (mounted) {
         setState(() => _loading = false);
@@ -64,11 +81,7 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
         _repo.listVehicles(),
         _repo.getOpenDeparture(),
         _repo.listHistory(),
-        _operationsRepo.listServices(
-          assignedTo: userId,
-          page: 1,
-          pageSize: 80,
-        ),
+        _operationsRepo.listServices(assignedTo: userId, page: 1, pageSize: 80),
       ]);
 
       if (!mounted) return;
@@ -102,9 +115,7 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
 
   bool _isServiceEligibleForDeparture(ServiceModel service) {
     final status = service.status.trim().toLowerCase();
-    return status != 'completed' &&
-        status != 'closed' &&
-        status != 'cancelled';
+    return status != 'completed' && status != 'closed' && status != 'cancelled';
   }
 
   String? _resolveSelectedVehicleId(List<TechVehicle> vehicles) {
@@ -118,9 +129,9 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
     }
 
     final preferred = vehicles.cast<TechVehicle?>().firstWhere(
-          (vehicle) => vehicle?.esEmpresa == false,
-          orElse: () => vehicles.isEmpty ? null : vehicles.first,
-        );
+      (vehicle) => vehicle?.esEmpresa == false,
+      orElse: () => vehicles.isEmpty ? null : vehicles.first,
+    );
     return preferred?.id;
   }
 
@@ -138,16 +149,19 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
 
   Future<void> _startDeparture() async {
     final vehicle = _vehicles.cast<TechVehicle?>().firstWhere(
-          (item) => item?.id == _selectedVehicleId,
-          orElse: () => null,
-        );
+      (item) => item?.id == _selectedVehicleId,
+      orElse: () => null,
+    );
     final service = _services.cast<ServiceModel?>().firstWhere(
-          (item) => item?.id == _selectedServiceId,
-          orElse: () => null,
-        );
+      (item) => item?.id == _selectedServiceId,
+      orElse: () => null,
+    );
 
     if (vehicle == null) {
-      await AppFeedback.showError(context, 'Selecciona un vehículo para iniciar la salida.');
+      await AppFeedback.showError(
+        context,
+        'Selecciona un vehículo para iniciar la salida.',
+      );
       return;
     }
     if (service == null) {
@@ -170,7 +184,10 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
       _noteController.clear();
       await _load();
       if (!mounted) return;
-      await AppFeedback.showInfo(context, 'Salida técnica iniciada correctamente.');
+      await AppFeedback.showInfo(
+        context,
+        'Salida técnica iniciada correctamente.',
+      );
     });
   }
 
@@ -257,6 +274,7 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
   Future<Position?> _capturePosition() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
+      if (!mounted) return null;
       await AppFeedback.showError(
         context,
         'Activa la ubicación del dispositivo para continuar.',
@@ -271,6 +289,7 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
 
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
+      if (!mounted) return null;
       await AppFeedback.showError(
         context,
         'La app necesita permiso de ubicación para registrar la salida.',
@@ -284,6 +303,7 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
         timeLimit: const Duration(seconds: 12),
       );
     } catch (e) {
+      if (!mounted) return null;
       await AppFeedback.showError(
         context,
         'No se pudo obtener la ubicación actual: $e',
@@ -303,20 +323,39 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
       drawer: AppDrawer(currentUser: currentUser),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
+          : !isTech
+          ? ListView(
+              padding: const EdgeInsets.all(16),
+              children: const [
+                Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Acceso solo para técnicos',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Esta pantalla usa endpoints exclusivos del rol técnico para gestionar vehículos propios y salidas de campo. Si entras con un usuario administrador o de otro rol, la app no debe intentar consumir esas rutas.',
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Si necesitas una vista administrativa de salidas técnicas, esa debe conectarse a los endpoints admin del backend, no a los endpoints de técnico autenticado.',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            )
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  if (!isTech)
-                    const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Text(
-                          'Esta pantalla está enfocada en técnicos. Un administrador puede usarla para revisar el flujo, pero las acciones operativas están diseñadas para el técnico autenticado.',
-                        ),
-                      ),
-                    ),
                   _buildSummaryCard(context),
                   const SizedBox(height: 16),
                   _buildActiveDepartureCard(context),
@@ -332,7 +371,9 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
 
   Widget _buildSummaryCard(BuildContext context) {
     final ownVehicles = _vehicles.where((vehicle) => !vehicle.esEmpresa).length;
-    final companyVehicles = _vehicles.where((vehicle) => vehicle.esEmpresa).length;
+    final companyVehicles = _vehicles
+        .where((vehicle) => vehicle.esEmpresa)
+        .length;
 
     return Card(
       child: Padding(
@@ -360,8 +401,9 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
               icon: Icons.local_gas_station_outlined,
               label: 'Reembolso actual',
               value: _openDeparture == null
-                  ? 'RD$0'
-                  : 'RD\$${_openDeparture!.montoCombustible.toStringAsFixed(2)}',
+                  ? 'RD\$0'
+                  : 'RD\$' +
+                        _openDeparture!.montoCombustible.toStringAsFixed(2),
             ),
           ],
         ),
@@ -394,11 +436,17 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              _InfoLine('Servicio', openDeparture.servicio?.title ?? 'Sin servicio'),
-              _InfoLine('Vehículo', openDeparture.vehiculo?.displayName ?? 'Sin vehículo'),
+              _InfoLine(
+                'Servicio',
+                openDeparture.servicio?.title ?? 'Sin servicio',
+              ),
+              _InfoLine(
+                'Vehículo',
+                openDeparture.vehiculo?.displayName ?? 'Sin vehículo',
+              ),
               _InfoLine(
                 'Reembolso estimado',
-                'RD\$${openDeparture.montoCombustible.toStringAsFixed(2)}',
+                'RD\$' + openDeparture.montoCombustible.toStringAsFixed(2),
               ),
               if ((openDeparture.kmEstimados ?? 0) > 0)
                 _InfoLine(
@@ -414,7 +462,7 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
                 maxLines: 3,
                 decoration: const InputDecoration(
                   labelText: 'Nota opcional',
-                  hintText: 'Ej. Llegada al local, regreso a base...'
+                  hintText: 'Ej. Llegada al local, regreso a base...',
                 ),
               ),
               const SizedBox(height: 16),
@@ -527,8 +575,12 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
   }
 
   Widget _buildVehiclesCard(BuildContext context) {
-    final ownVehicles = _vehicles.where((vehicle) => !vehicle.esEmpresa).toList();
-    final companyVehicles = _vehicles.where((vehicle) => vehicle.esEmpresa).toList();
+    final ownVehicles = _vehicles
+        .where((vehicle) => !vehicle.esEmpresa)
+        .toList();
+    final companyVehicles = _vehicles
+        .where((vehicle) => vehicle.esEmpresa)
+        .toList();
 
     return Card(
       child: Padding(
@@ -585,7 +637,9 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 8),
-              ...companyVehicles.map((vehicle) => _VehicleTile(vehicle: vehicle)),
+              ...companyVehicles.map(
+                (vehicle) => _VehicleTile(vehicle: vehicle),
+              ),
             ],
           ],
         ),
@@ -602,38 +656,45 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
           children: [
             Text(
               'Historial reciente',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 12),
             if (_history.isEmpty)
               const Text('Todavía no hay salidas registradas.')
             else
-              ..._history.take(15).map(
-                (departure) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.route_outlined),
-                  title: Text(departure.servicio?.title ?? 'Servicio'),
-                  subtitle: Text(
-                    [
-                      departure.vehiculo?.displayName,
-                      departure.fecha == null
-                          ? null
-                          : DateFormat('dd/MM/yyyy HH:mm').format(departure.fecha!.toLocal()),
-                    ].whereType<String>().join(' · '),
+              ..._history
+                  .take(15)
+                  .map(
+                    (departure) => ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.route_outlined),
+                      title: Text(departure.servicio?.title ?? 'Servicio'),
+                      subtitle: Text(
+                        [
+                          departure.vehiculo?.displayName,
+                          departure.fecha == null
+                              ? null
+                              : DateFormat(
+                                  'dd/MM/yyyy HH:mm',
+                                ).format(departure.fecha!.toLocal()),
+                        ].whereType<String>().join(' · '),
+                      ),
+                      trailing: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          _StateBadge(label: departure.estado),
+                          const SizedBox(height: 6),
+                          Text(
+                            'RD\$' +
+                                departure.montoCombustible.toStringAsFixed(2),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                  trailing: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      _StateBadge(label: departure.estado),
-                      const SizedBox(height: 6),
-                      Text('RD\$${departure.montoCombustible.toStringAsFixed(2)}'),
-                    ],
-                  ),
-                ),
-              ),
           ],
         ),
       ),
@@ -761,7 +822,11 @@ class _VehicleTile extends StatelessWidget {
 
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      leading: Icon(vehicle.esEmpresa ? Icons.business_outlined : Icons.two_wheeler_outlined),
+      leading: Icon(
+        vehicle.esEmpresa
+            ? Icons.business_outlined
+            : Icons.two_wheeler_outlined,
+      ),
       title: Text(vehicle.displayName),
       subtitle: Text(
         [vehicle.tipo, vehicle.combustibleTipo, fuel, tank]
@@ -831,7 +896,9 @@ class _VehicleDialogState extends State<_VehicleDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(widget.vehicle == null ? 'Agregar vehículo propio' : 'Editar vehículo'),
+      title: Text(
+        widget.vehicle == null ? 'Agregar vehículo propio' : 'Editar vehículo',
+      ),
       content: SingleChildScrollView(
         child: SizedBox(
           width: 460,
@@ -847,7 +914,7 @@ class _VehicleDialogState extends State<_VehicleDialog> {
                 controller: _typeController,
                 decoration: const InputDecoration(
                   labelText: 'Tipo',
-                  hintText: 'motor, carro, jeepeta, guagua...'
+                  hintText: 'motor, carro, jeepeta, guagua...',
                 ),
               ),
               const SizedBox(height: 12),
@@ -863,27 +930,37 @@ class _VehicleDialogState extends State<_VehicleDialog> {
               const SizedBox(height: 12),
               TextField(
                 controller: _plateController,
-                decoration: const InputDecoration(labelText: 'Placa o identificación'),
+                decoration: const InputDecoration(
+                  labelText: 'Placa o identificación',
+                ),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _fuelTypeController,
                 decoration: const InputDecoration(
                   labelText: 'Tipo de combustible',
-                  hintText: 'gasolina_regular, gasolina_premium, diesel...'
+                  hintText: 'gasolina_regular, gasolina_premium, diesel...',
                 ),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _performanceController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Rendimiento km/L'),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Rendimiento km/L',
+                ),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _tankController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Capacidad tanque (L)'),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Capacidad tanque (L)',
+                ),
               ),
               if (widget.vehicle != null) ...[
                 const SizedBox(height: 12),
@@ -919,7 +996,9 @@ class _VehicleDialogState extends State<_VehicleDialog> {
             if (!value.isValid) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('Completa nombre, tipo, combustible y rendimiento.'),
+                  content: Text(
+                    'Completa nombre, tipo, combustible y rendimiento.',
+                  ),
                 ),
               );
               return;

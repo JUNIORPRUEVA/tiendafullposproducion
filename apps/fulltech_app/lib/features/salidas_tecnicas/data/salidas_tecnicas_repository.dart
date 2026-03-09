@@ -60,6 +60,92 @@ class SalidasTecnicasRepository {
         .toList(growable: false);
   }
 
+  Future<List<TechnicalDeparture>> listAdminDepartures({
+    String? tecnicoId,
+    String? estado,
+  }) async {
+    final map = await _getMap(
+      ApiRoutes.adminSalidasTecnicas,
+      queryParameters: {
+        if (tecnicoId != null && tecnicoId.trim().isNotEmpty)
+          'tecnicoId': tecnicoId.trim(),
+        if (estado != null && estado.trim().isNotEmpty) 'estado': estado.trim(),
+      },
+    );
+    final items = (map['items'] as List?) ?? const [];
+    return items
+        .whereType<Map>()
+        .map((row) => TechnicalDeparture.fromJson(row.cast<String, dynamic>()))
+        .toList(growable: false);
+  }
+
+  Future<TechnicalDeparture> approveDeparture(
+    String id, {
+    String? observacion,
+  }) async {
+    final map = await _postMap(ApiRoutes.adminSalidaAprobar(id), {
+      if (observacion != null && observacion.trim().isNotEmpty)
+        'observacion': observacion.trim(),
+    });
+    return TechnicalDeparture.fromJson(map);
+  }
+
+  Future<TechnicalDeparture> rejectDeparture(
+    String id, {
+    required String observacion,
+  }) async {
+    final map = await _postMap(ApiRoutes.adminSalidaRechazar(id), {
+      'observacion': observacion.trim(),
+    });
+    return TechnicalDeparture.fromJson(map);
+  }
+
+  Future<List<TechFuelPayment>> listAdminFuelPayments({
+    String? tecnicoId,
+  }) async {
+    final map = await _getMap(
+      ApiRoutes.adminPagosCombustibleTecnicos,
+      queryParameters: {
+        if (tecnicoId != null && tecnicoId.trim().isNotEmpty)
+          'tecnicoId': tecnicoId.trim(),
+      },
+    );
+    final items = (map['items'] as List?) ?? const [];
+    return items
+        .whereType<Map>()
+        .map((row) => TechFuelPayment.fromJson(row.cast<String, dynamic>()))
+        .toList(growable: false);
+  }
+
+  Future<TechFuelPayment> createFuelPaymentPeriod({
+    required String tecnicoId,
+    required DateTime fechaInicio,
+    required DateTime fechaFin,
+  }) async {
+    final map = await _postMap(ApiRoutes.adminPagosCombustibleTecnicos, {
+      'tecnicoId': tecnicoId,
+      'fechaInicio': fechaInicio.toIso8601String(),
+      'fechaFin': fechaFin.toIso8601String(),
+    });
+    final pago = map['pago'];
+    if (pago is Map<String, dynamic>) {
+      return TechFuelPayment.fromJson(pago);
+    }
+    if (pago is Map) {
+      return TechFuelPayment.fromJson(pago.cast<String, dynamic>());
+    }
+    throw ApiException('Respuesta inválida al crear pago de combustible');
+  }
+
+  Future<Map<String, dynamic>> markFuelPaymentPaid(
+    String id, {
+    DateTime? fechaPago,
+  }) async {
+    return _postMap(ApiRoutes.adminPagoCombustiblePagado(id), {
+      if (fechaPago != null) 'fechaPago': fechaPago.toIso8601String(),
+    });
+  }
+
   Future<TechnicalDeparture> startDeparture({
     required String servicioId,
     required String vehiculoId,
@@ -110,9 +196,12 @@ class SalidasTecnicasRepository {
     return TechnicalDeparture.fromJson(map);
   }
 
-  Future<Map<String, dynamic>> _getMap(String path) async {
+  Future<Map<String, dynamic>> _getMap(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+  }) async {
     try {
-      final response = await _dio.get(path);
+      final response = await _dio.get(path, queryParameters: queryParameters);
       return _castMap(response.data);
     } on DioException catch (e) {
       throw ApiException(_messageFrom(e, 'No se pudo cargar salidas técnicas'));

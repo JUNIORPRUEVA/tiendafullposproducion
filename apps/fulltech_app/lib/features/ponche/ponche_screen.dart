@@ -8,6 +8,8 @@ import '../../core/errors/api_exception.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/models/punch_model.dart';
 import './application/punch_controller.dart';
+import './data/punch_repository.dart';
+import './models/attendance_models.dart';
 
 class PoncheScreen extends ConsumerStatefulWidget {
   const PoncheScreen({super.key});
@@ -17,6 +19,32 @@ class PoncheScreen extends ConsumerStatefulWidget {
 }
 
 class _PoncheScreenState extends ConsumerState<PoncheScreen> {
+  Future<AttendanceDetailModel>? _attendanceFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _attendanceFuture = _loadAttendanceDetail();
+  }
+
+  Future<AttendanceDetailModel> _loadAttendanceDetail() {
+    return ref.read(punchRepositoryProvider).fetchMyAttendanceDetail();
+  }
+
+  String _formatMinutes(int minutes) {
+    final sign = minutes < 0 ? '-' : '';
+    final absolute = minutes.abs();
+    final hours = absolute ~/ 60;
+    final remainingMinutes = absolute % 60;
+    return '$sign${hours}h ${remainingMinutes.toString().padLeft(2, '0')}m';
+  }
+
+  Color _balanceColor(int minutes) {
+    if (minutes > 0) return Colors.green.shade700;
+    if (minutes < 0) return Colors.red.shade700;
+    return Colors.blueGrey;
+  }
+
   void _showPunchOptions(PunchState state) {
     showModalBottomSheet(
       context: context,
@@ -56,6 +84,9 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
   }
 
   void _showHistory(PunchState state) {
+    setState(() {
+      _attendanceFuture = _loadAttendanceDetail();
+    });
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -83,39 +114,116 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 12),
-                if (state.loading)
-                  const Expanded(
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else if (state.items.isEmpty)
-                  const Expanded(
-                    child: Center(
-                      child: Text('Aún no hay ponches registrados'),
-                    ),
-                  )
-                else
-                  Expanded(
-                    child: ListView.separated(
-                      controller: controller,
-                      itemCount: state.items.length,
-                      separatorBuilder: (context, index) =>
-                          const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final punch = state.items[index];
-                        final time = DateFormat(
-                          'dd/MM/yyyy · hh:mm a',
-                        ).format(punch.timestamp.toLocal());
-                        return ListTile(
-                          leading: Icon(
-                            _iconFor(punch.type),
-                            color: AppTheme.primaryColor,
+                Expanded(
+                  child: FutureBuilder<AttendanceDetailModel>(
+                    future: _attendanceFuture,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState != ConnectionState.done) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if (snapshot.hasError || !snapshot.hasData) {
+                        return Center(
+                          child: Text(
+                            'No se pudo cargar el balance de horas.',
+                            style: TextStyle(color: Colors.red.shade700),
                           ),
-                          title: Text(punch.type.label),
-                          subtitle: Text(time),
                         );
-                      },
-                    ),
+                      }
+
+                      final detail = snapshot.data!;
+                      final totals = detail.totals;
+                      final balanceColor = _balanceColor(totals.balanceMinutes);
+                      final recentPunches = detail.punches.take(12).toList();
+
+                      if (detail.days.isEmpty && recentPunches.isEmpty) {
+                        return const Center(
+                          child: Text('Aún no hay ponches registrados'),
+                        );
+                      }
+
+                      return ListView(
+                        controller: controller,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _AttendanceSummaryTile(
+                                  label: 'Horas a favor',
+                                  value: _formatMinutes(totals.favorableMinutes),
+                                  color: Colors.green.shade700,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _AttendanceSummaryTile(
+                                  label: 'Horas en contra',
+                                  value: _formatMinutes(totals.unfavorableMinutes),
+                                  color: Colors.red.shade700,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _AttendanceSummaryTile(
+                                  label: 'Balance neto',
+                                  value: _formatMinutes(totals.balanceMinutes),
+                                  color: balanceColor,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _AttendanceSummaryTile(
+                                  label: 'Horas laboradas',
+                                  value: _formatMinutes(totals.workedMinutes),
+                                  color: AppTheme.primaryColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Balance por día',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          ...detail.days.map(
+                            (day) => _AttendanceDayCard(
+                              day: day,
+                              formatMinutes: _formatMinutes,
+                              balanceColor: _balanceColor(day.balanceMinutes),
+                            ),
+                          ),
+                          if (recentPunches.isNotEmpty) ...[
+                            const SizedBox(height: 16),
+                            const Text(
+                              'Últimos registros',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 8),
+                            ...recentPunches.map(
+                              (punch) => ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(
+                                  _iconFor(punch.type),
+                                  color: AppTheme.primaryColor,
+                                ),
+                                title: Text(punch.type.label),
+                                subtitle: Text(
+                                  DateFormat(
+                                    'dd/MM/yyyy · hh:mm a',
+                                  ).format(punch.timestamp.toLocal()),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      );
+                    },
                   ),
+                ),
                 const SizedBox(height: 8),
               ],
             ),
@@ -130,6 +238,9 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
       final punch = await ref
           .read(punchControllerProvider.notifier)
           .register(type);
+      setState(() {
+        _attendanceFuture = _loadAttendanceDetail();
+      });
       if (!mounted) return;
       final time = DateFormat('hh:mm a').format(punch.timestamp.toLocal());
       ScaffoldMessenger.of(context).showSnackBar(
@@ -350,6 +461,134 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
       default:
         return 'Fuera';
     }
+  }
+}
+
+class _AttendanceSummaryTile extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+
+  const _AttendanceSummaryTile({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withAlpha(70)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: TextStyle(fontSize: 12, color: color)),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AttendanceDayCard extends StatelessWidget {
+  final AttendanceDayMetrics day;
+  final String Function(int minutes) formatMinutes;
+  final Color balanceColor;
+
+  const _AttendanceDayCard({
+    required this.day,
+    required this.formatMinutes,
+    required this.balanceColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dateText = day.date.isEmpty
+        ? 'Sin fecha'
+        : DateFormat('dd/MM/yyyy').format(DateTime.parse(day.date));
+    final entryText = day.entry == null
+        ? '---'
+        : DateFormat('hh:mm a').format(day.entry!.toLocal());
+    final exitText = day.exit == null
+        ? '---'
+        : DateFormat('hh:mm a').format(day.exit!.toLocal());
+    final label = day.balanceMinutes > 0
+        ? 'A favor'
+        : day.balanceMinutes < 0
+        ? 'En contra'
+        : 'Al día';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    dateText,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: balanceColor.withAlpha(25),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '$label: ${formatMinutes(day.balanceMinutes)}',
+                    style: TextStyle(
+                      color: balanceColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text('Entrada: $entryText · Salida: $exitText'),
+            const SizedBox(height: 4),
+            Text(
+              'Laborado: ${formatMinutes(day.workedMinutesNet ?? 0)} · A favor: ${formatMinutes(day.favorableMinutes)} · En contra: ${formatMinutes(day.unfavorableMinutes)}',
+            ),
+            if (day.tardinessMinutes > 0 || day.earlyLeaveMinutes > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Tardanza: ${formatMinutes(day.tardinessMinutes)} · Salida temprana: ${formatMinutes(day.earlyLeaveMinutes)}',
+                  style: TextStyle(color: Colors.orange.shade800),
+                ),
+              ),
+            if (day.incomplete)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Jornada incompleta',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

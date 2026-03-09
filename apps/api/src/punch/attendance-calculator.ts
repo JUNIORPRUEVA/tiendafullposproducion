@@ -30,6 +30,7 @@ export interface AttendanceDayMetrics {
   date: string;
   entry?: Date;
   exit?: Date;
+  expectedWorkMinutes: number;
   lunchMinutes: number;
   lunchComplete: boolean;
   permisoMinutes: number;
@@ -37,6 +38,9 @@ export interface AttendanceDayMetrics {
   tardinessMinutes: number;
   earlyLeaveMinutes: number;
   workedMinutesNet?: number;
+  favorableMinutes: number;
+  unfavorableMinutes: number;
+  balanceMinutes: number;
   notWorkedMinutes: number;
   incomplete: boolean;
   isWeekend: boolean;
@@ -84,6 +88,13 @@ export class AttendanceCalculator {
 
     const incomplete = !entry || !exit;
     const notWorkedMinutes = this.calculateNotWorked(config, isWeekend, incomplete, workedMinutesNet);
+    const favorableMinutes = this.calculateFavorableMinutes(
+      config,
+      isWeekend,
+      workedMinutesNet,
+    );
+    const unfavorableMinutes = isWeekend ? 0 : notWorkedMinutes;
+    const balanceMinutes = favorableMinutes - unfavorableMinutes;
 
     const incidents = this.buildIncidents(
       config,
@@ -99,6 +110,7 @@ export class AttendanceCalculator {
       date: dateKey,
       entry: entry?.timestamp,
       exit: exit?.timestamp,
+      expectedWorkMinutes: isWeekend ? 0 : config.workdayMinutes,
       lunchMinutes: lunch.minutes,
       lunchComplete: lunch.complete,
       permisoMinutes: permiso.minutes,
@@ -106,6 +118,9 @@ export class AttendanceCalculator {
       tardinessMinutes,
       earlyLeaveMinutes,
       workedMinutesNet,
+      favorableMinutes,
+      unfavorableMinutes,
+      balanceMinutes,
       notWorkedMinutes,
       incomplete,
       isWeekend,
@@ -183,6 +198,22 @@ export class AttendanceCalculator {
       return config.workdayMinutes;
     }
     return Math.max(0, config.workdayMinutes - workedMinutes);
+  }
+
+  private static calculateFavorableMinutes(
+    config: AttendanceConfig,
+    isWeekend: boolean,
+    workedMinutes?: number
+  ) {
+    if (workedMinutes == null || workedMinutes <= 0) {
+      return 0;
+    }
+
+    if (isWeekend) {
+      return workedMinutes;
+    }
+
+    return Math.max(0, workedMinutes - config.workdayMinutes);
   }
 
   private static buildIncidents(

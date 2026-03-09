@@ -40,6 +40,8 @@ class RouteAccess {
         return AppPermission.viewClients;
       case Routes.nomina:
         return AppPermission.managePayroll;
+      case Routes.manualInterno:
+        return AppPermission.viewCompanyManual;
       case Routes.contabilidad:
       case Routes.contabilidadCierresDiarios:
       case Routes.contabilidadFacturaFiscal:
