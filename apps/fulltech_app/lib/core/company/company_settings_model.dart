@@ -3,6 +3,11 @@ class CompanySettings {
   final String rnc;
   final String phone;
   final String address;
+  final String legalRepresentativeName;
+  final String legalRepresentativeCedula;
+  final String legalRepresentativeRole;
+  final String legalRepresentativeNationality;
+  final String legalRepresentativeCivilStatus;
   final String? logoBase64;
   final String openAiApiKey;
   final String openAiModel;
@@ -19,6 +24,11 @@ class CompanySettings {
     required this.rnc,
     required this.phone,
     required this.address,
+    required this.legalRepresentativeName,
+    required this.legalRepresentativeCedula,
+    required this.legalRepresentativeRole,
+    required this.legalRepresentativeNationality,
+    required this.legalRepresentativeCivilStatus,
     this.logoBase64,
     required this.openAiApiKey,
     required this.openAiModel,
@@ -37,6 +47,11 @@ class CompanySettings {
       rnc: '',
       phone: '',
       address: '',
+      legalRepresentativeName: '',
+      legalRepresentativeCedula: '',
+      legalRepresentativeRole: '',
+      legalRepresentativeNationality: '',
+      legalRepresentativeCivilStatus: '',
       logoBase64: null,
       openAiApiKey: '',
       openAiModel: 'gpt-4o-mini',
@@ -55,6 +70,11 @@ class CompanySettings {
     String? rnc,
     String? phone,
     String? address,
+    String? legalRepresentativeName,
+    String? legalRepresentativeCedula,
+    String? legalRepresentativeRole,
+    String? legalRepresentativeNationality,
+    String? legalRepresentativeCivilStatus,
     String? logoBase64,
     String? openAiApiKey,
     String? openAiModel,
@@ -72,6 +92,16 @@ class CompanySettings {
       rnc: rnc ?? this.rnc,
       phone: phone ?? this.phone,
       address: address ?? this.address,
+      legalRepresentativeName:
+          legalRepresentativeName ?? this.legalRepresentativeName,
+      legalRepresentativeCedula:
+          legalRepresentativeCedula ?? this.legalRepresentativeCedula,
+      legalRepresentativeRole:
+          legalRepresentativeRole ?? this.legalRepresentativeRole,
+      legalRepresentativeNationality:
+          legalRepresentativeNationality ?? this.legalRepresentativeNationality,
+      legalRepresentativeCivilStatus:
+          legalRepresentativeCivilStatus ?? this.legalRepresentativeCivilStatus,
       logoBase64: clearLogo ? null : (logoBase64 ?? this.logoBase64),
       openAiApiKey: openAiApiKey ?? this.openAiApiKey,
       openAiModel: openAiModel ?? this.openAiModel,
@@ -92,6 +122,11 @@ class CompanySettings {
     'rnc': rnc,
     'phone': phone,
     'address': address,
+    'legalRepresentativeName': legalRepresentativeName,
+    'legalRepresentativeCedula': legalRepresentativeCedula,
+    'legalRepresentativeRole': legalRepresentativeRole,
+    'legalRepresentativeNationality': legalRepresentativeNationality,
+    'legalRepresentativeCivilStatus': legalRepresentativeCivilStatus,
     'logoBase64': logoBase64,
     'openAiApiKey': openAiApiKey,
     'openAiModel': openAiModel,
@@ -110,13 +145,23 @@ class CompanySettings {
       rnc: (map['rnc'] ?? '').toString(),
       phone: (map['phone'] ?? '').toString(),
       address: (map['address'] ?? '').toString(),
+      legalRepresentativeName: (map['legalRepresentativeName'] ?? '')
+          .toString(),
+      legalRepresentativeCedula: (map['legalRepresentativeCedula'] ?? '')
+          .toString(),
+      legalRepresentativeRole: (map['legalRepresentativeRole'] ?? '')
+          .toString(),
+      legalRepresentativeNationality:
+          (map['legalRepresentativeNationality'] ?? '').toString(),
+      legalRepresentativeCivilStatus:
+          (map['legalRepresentativeCivilStatus'] ?? '').toString(),
       logoBase64: map['logoBase64']?.toString(),
       openAiApiKey: (map['openAiApiKey'] ?? '').toString(),
       openAiModel: (map['openAiModel'] ?? 'gpt-4o-mini').toString(),
       hasOpenAiApiKey: map['hasOpenAiApiKey'] == true,
       evolutionApiBaseUrl: (map['evolutionApiBaseUrl'] ?? '').toString(),
-      evolutionApiInstanceName:
-          (map['evolutionApiInstanceName'] ?? '').toString(),
+      evolutionApiInstanceName: (map['evolutionApiInstanceName'] ?? '')
+          .toString(),
       evolutionApiApiKey: (map['evolutionApiApiKey'] ?? '').toString(),
       hasEvolutionApiApiKey: map['hasEvolutionApiApiKey'] == true,
       productsSource: (map['productsSource'] ?? 'LOCAL').toString(),

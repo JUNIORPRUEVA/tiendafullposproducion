@@ -7,6 +7,24 @@ import { UpdateSettingsDto } from './dto/update-settings.dto';
 type Actor = { role?: Role | string };
 
 type ProductsSource = 'FULLPOS' | 'FULLPOS_DIRECT' | 'LOCAL';
+type AppConfigResponseShape = {
+  companyName?: string | null;
+  rnc?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  legalRepresentativeName?: string | null;
+  legalRepresentativeCedula?: string | null;
+  legalRepresentativeRole?: string | null;
+  legalRepresentativeNationality?: string | null;
+  legalRepresentativeCivilStatus?: string | null;
+  logoBase64?: string | null;
+  openAiApiKey?: string | null;
+  openAiModel?: string | null;
+  evolutionApiBaseUrl?: string | null;
+  evolutionApiInstanceName?: string | null;
+  evolutionApiApiKey?: string | null;
+  updatedAt?: Date | null;
+};
 
 @Injectable()
 export class SettingsService {
@@ -85,7 +103,40 @@ export class SettingsService {
     return cleaned.length === 0 ? null : cleaned;
   }
 
-  private toResponse(config: Awaited<ReturnType<SettingsService['ensureConfig']>>, actor?: Actor) {
+  private sanitizeLogoBase64(value?: string | null) {
+    const cleaned = this.sanitizeNullable(value);
+    if (cleaned == null) return null;
+
+    const normalized = cleaned
+      .replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '')
+      .replace(/\s+/g, '');
+
+    let bytes: Buffer;
+    try {
+      bytes = Buffer.from(normalized, 'base64');
+    } catch {
+      throw new BadRequestException('El logo enviado no tiene un formato base64 valido.');
+    }
+
+    if (bytes.length === 0) {
+      throw new BadRequestException('El logo enviado esta vacio o no es una imagen valida.');
+    }
+
+    const comparableInput = normalized.replace(/=+$/, '');
+    const comparableOutput = bytes.toString('base64').replace(/=+$/, '');
+    if (comparableInput !== comparableOutput) {
+      throw new BadRequestException('El logo enviado no tiene un formato base64 valido.');
+    }
+
+    const maxLogoBytes = 5 * 1024 * 1024;
+    if (bytes.length > maxLogoBytes) {
+      throw new BadRequestException('El logo excede el tamano maximo permitido de 5 MB.');
+    }
+
+    return normalized;
+  }
+
+  private toResponse(config: AppConfigResponseShape, actor?: Actor) {
     const isAdmin = `${actor?.role ?? ''}`.toUpperCase() === 'ADMIN';
     const productsSource = this.resolveProductsSource();
 
@@ -94,6 +145,11 @@ export class SettingsService {
       rnc: config.rnc,
       phone: config.phone,
       address: config.address,
+      legalRepresentativeName: config.legalRepresentativeName,
+      legalRepresentativeCedula: config.legalRepresentativeCedula,
+      legalRepresentativeRole: config.legalRepresentativeRole,
+      legalRepresentativeNationality: config.legalRepresentativeNationality,
+      legalRepresentativeCivilStatus: config.legalRepresentativeCivilStatus,
       logoBase64: config.logoBase64,
       openAiModel: config.openAiModel,
       hasOpenAiApiKey: !!config.openAiApiKey,
@@ -120,6 +176,11 @@ export class SettingsService {
           rnc: '',
           phone: '',
           address: '',
+          legalRepresentativeName: '',
+          legalRepresentativeCedula: '',
+          legalRepresentativeRole: '',
+          legalRepresentativeNationality: '',
+          legalRepresentativeCivilStatus: '',
           logoBase64: null,
           openAiModel: 'gpt-4o-mini',
           hasOpenAiApiKey: false,
@@ -154,8 +215,43 @@ export class SettingsService {
           ...(dto.address != null
               ? { address: this.sanitizeText(dto.address) }
               : {}),
+          ...(dto.legalRepresentativeName != null
+              ? {
+                  legalRepresentativeName: this.sanitizeText(
+                    dto.legalRepresentativeName,
+                  ),
+                }
+              : {}),
+          ...(dto.legalRepresentativeCedula != null
+              ? {
+                  legalRepresentativeCedula: this.sanitizeText(
+                    dto.legalRepresentativeCedula,
+                  ),
+                }
+              : {}),
+          ...(dto.legalRepresentativeRole != null
+              ? {
+                  legalRepresentativeRole: this.sanitizeText(
+                    dto.legalRepresentativeRole,
+                  ),
+                }
+              : {}),
+          ...(dto.legalRepresentativeNationality != null
+              ? {
+                  legalRepresentativeNationality: this.sanitizeText(
+                    dto.legalRepresentativeNationality,
+                  ),
+                }
+              : {}),
+          ...(dto.legalRepresentativeCivilStatus != null
+              ? {
+                  legalRepresentativeCivilStatus: this.sanitizeText(
+                    dto.legalRepresentativeCivilStatus,
+                  ),
+                }
+              : {}),
           ...(dto.logoBase64 != null
-              ? { logoBase64: this.sanitizeNullable(dto.logoBase64) }
+              ? { logoBase64: this.sanitizeLogoBase64(dto.logoBase64) }
               : {}),
           ...(dto.openAiApiKey != null
               ? { openAiApiKey: this.sanitizeNullable(dto.openAiApiKey) }

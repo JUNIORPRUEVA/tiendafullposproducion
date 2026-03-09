@@ -14,7 +14,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/auth_provider.dart';
-import '../../core/auth/app_role.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/models/user_model.dart';
 import '../../core/models/punch_model.dart';
@@ -53,7 +52,6 @@ class OperacionesScreen extends ConsumerStatefulWidget {
 class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     with WidgetsBindingObserver {
   final _searchCtrl = TextEditingController();
-  bool _openingSalidasTecnicas = false;
 
   Future<void> _openQuickCreateFromAppBar() async {
     const title = 'Crear orden de servicio';
@@ -321,41 +319,12 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     );
   }
 
-  Future<void> _openSalidasTecnicasDialog() async {
-    debugPrint('[OperacionesScreen] FAB Salidas técnicas presionado');
-    if (_openingSalidasTecnicas) {
-      debugPrint(
-        '[OperacionesScreen] Ignorando tap: navegación ya en progreso',
-      );
-      return;
-    }
-
-    _openingSalidasTecnicas = true;
-    try {
-      if (!mounted) return;
-      // Open the full module screen so the technician has access to the Drawer
-      // for navigation without leaving the module.
-      context.push(Routes.salidasTecnicas);
-      debugPrint('[OperacionesScreen] Navegación a Salidas técnicas disparada');
-    } catch (e, st) {
-      debugPrint('[OperacionesScreen] Error al abrir Salidas técnicas: $e');
-      debugPrintStack(stackTrace: st);
-      if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text('No se pudo abrir Salidas técnicas')),
-      );
-    } finally {
-      _openingSalidasTecnicas = false;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
     final state = ref.watch(operationsControllerProvider);
     final notifier = ref.read(operationsControllerProvider.notifier);
     final scheme = Theme.of(context).colorScheme;
-    final isTecnico = authState.user?.appRole == AppRole.tecnico;
 
     final gradientTop = Color.alphaBlend(
       scheme.primary.withValues(alpha: 0.10),
@@ -426,15 +395,6 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
             onPressed: _openCatalogoDialog,
             child: const _CatalogoFabIcon(),
           ),
-          if (isTecnico) ...[
-            const SizedBox(height: 12),
-            FloatingActionButton.small(
-              heroTag: 'fab-salidas-tecnicas',
-              tooltip: 'Salidas técnicas',
-              onPressed: _openSalidasTecnicasDialog,
-              child: const Icon(Icons.directions_car_filled_outlined),
-            ),
-          ],
           const SizedBox(height: 12),
           FloatingActionButton.small(
             heroTag: 'fab-ponche',
@@ -7289,6 +7249,20 @@ class _AgendaGpsFullMapScreenState extends State<_AgendaGpsFullMapScreen> {
     if (_locating) return;
     setState(() => _locating = true);
     try {
+      // On Windows desktop, location plugins can hang the app ("No responde")
+      // depending on OS/location settings. Fail fast with a clear message.
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Ubicación no disponible en Windows. Usa Android/iOS para GPS.',
+            ),
+          ),
+        );
+        return;
+      }
+
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         if (!mounted) return;

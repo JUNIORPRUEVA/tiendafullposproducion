@@ -10,6 +10,7 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../../core/models/user_model.dart';
 import '../../modules/nomina/data/nomina_repository.dart';
+import '../../modules/nomina/nomina_models.dart';
 import 'data/users_repository.dart';
 import 'utils/work_contract_pdf_service.dart';
 
@@ -48,44 +49,34 @@ class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
 
   Future<_ContractPdfState> _buildPdf() async {
     final auth = ref.read(authStateProvider);
-    final user = auth.user;
-    if (user == null) {
+    final authUser = auth.user;
+    if (authUser == null) {
       throw StateError('Usuario no autenticado');
     }
 
+    final usersRepo = ref.read(usersRepositoryProvider);
     final settingsRepo = ref.read(companySettingsRepositoryProvider);
     final nominaRepo = ref.read(nominaRepositoryProvider);
 
+    UserModel user;
+    try {
+      user = await usersRepo.fetchMe();
+    } catch (_) {
+      user = authUser;
+    }
+
     final company = await settingsRepo.getSettings();
 
-    String? salario;
-    String? periodicidadPago;
-
-    try {
-      final history = await nominaRepo.listMyPayrollHistory();
-      final latest = history.isEmpty
-          ? null
-          : history.reduce((a, b) => a.periodEnd.isAfter(b.periodEnd) ? a : b);
-      final baseSalary = latest?.baseSalary;
-      if (baseSalary != null && baseSalary > 0) {
-        final fmt = NumberFormat.currency(symbol: 'RD\$', decimalDigits: 2);
-        salario = fmt.format(baseSalary);
-
-        // La nómina del sistema suele ser por período (típicamente quincenal),
-        // pero esto puede variar. Se deja como fallback si no se define otra regla.
-        periodicidadPago = 'Quincenal';
-      }
-    } catch (_) {
-      // Si nómina falla, dejamos el salario en blanco.
-    }
+    final payrollSnapshot = await _resolvePayrollSnapshot(user, nominaRepo);
 
     final bytes = await buildWorkContractPdf(
       employee: user,
       company: company,
-      salario: salario,
+      salario: payrollSnapshot.salaryFormatted,
       moneda: 'DOP',
-      periodicidadPago: periodicidadPago,
-      metodoPago: 'Transferencia',
+      periodicidadPago: payrollSnapshot.paymentFrequency,
+      metodoPago: payrollSnapshot.paymentMethod,
+      puesto: payrollSnapshot.position,
     );
 
     final safeName = user.nombreCompleto.trim().isEmpty
@@ -96,6 +87,123 @@ class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
         'contrato_${safeName}_${dateFmt.format(DateTime.now())}.pdf';
 
     return _ContractPdfState(bytes: bytes, fileName: fileName, employee: user);
+  }
+
+  Future<_PayrollContractSnapshot> _resolvePayrollSnapshot(
+    UserModel user,
+    NominaRepository nominaRepo,
+  ) async {
+    PayrollEmployee? payrollEmployee;
+    double? baseSalary;
+    String? paymentFrequency;
+
+    try {
+      final employees = await nominaRepo.listEmployees(activeOnly: false);
+      payrollEmployee = _matchPayrollEmployee(user, employees);
+
+      if (payrollEmployee != null) {
+        final periods = await nominaRepo.listPeriods();
+        periods.sort((a, b) => b.endDate.compareTo(a.endDate));
+
+        for (final period in periods) {
+          final config = await nominaRepo.getEmployeeConfig(
+            period.id,
+            payrollEmployee.id,
+          );
+          if (config == null || config.baseSalary <= 0) {
+            continue;
+          }
+          baseSalary = config.baseSalary;
+          paymentFrequency = _inferPaymentFrequency(
+            period.startDate,
+            period.endDate,
+          );
+          break;
+        }
+      }
+    } catch (_) {
+      // Si no se puede leer nómina activa, usamos el historial como respaldo.
+    }
+
+    try {
+      if (baseSalary == null || baseSalary <= 0) {
+        final history = await nominaRepo.listMyPayrollHistory();
+        final latest = history.isEmpty
+            ? null
+            : history.reduce(
+                (a, b) => a.periodEnd.isAfter(b.periodEnd) ? a : b,
+              );
+        if (latest != null && latest.baseSalary > 0) {
+          baseSalary = latest.baseSalary;
+          paymentFrequency ??= _inferPaymentFrequency(
+            latest.periodStart,
+            latest.periodEnd,
+          );
+        }
+      }
+    } catch (_) {
+      // Si el historial falla también, el contrato se genera con placeholders.
+    }
+
+    final currency = NumberFormat.currency(
+      locale: 'es_DO',
+      symbol: 'RD\$ ',
+      decimalDigits: 2,
+    );
+    final payrollPosition = payrollEmployee?.puesto?.trim();
+
+    return _PayrollContractSnapshot(
+      salaryFormatted: baseSalary != null && baseSalary > 0
+          ? currency.format(baseSalary)
+          : null,
+      paymentFrequency: paymentFrequency ?? 'Quincenal',
+      paymentMethod: _resolvePaymentMethod(user),
+      position: (payrollPosition == null || payrollPosition.isEmpty)
+          ? null
+          : payrollPosition,
+    );
+  }
+
+  PayrollEmployee? _matchPayrollEmployee(
+    UserModel user,
+    List<PayrollEmployee> employees,
+  ) {
+    final exactId = employees.where((employee) => employee.id == user.id);
+    if (exactId.isNotEmpty) return exactId.first;
+
+    final normalizedName = user.nombreCompleto.trim().toLowerCase();
+    final normalizedPhone = user.telefono.trim();
+
+    for (final employee in employees) {
+      final sameName = employee.nombre.trim().toLowerCase() == normalizedName;
+      if (!sameName) continue;
+
+      if (normalizedPhone.isEmpty) {
+        return employee;
+      }
+
+      if ((employee.telefono ?? '').trim() == normalizedPhone) {
+        return employee;
+      }
+    }
+
+    return null;
+  }
+
+  String _inferPaymentFrequency(DateTime start, DateTime end) {
+    final days = end.difference(start).inDays.abs() + 1;
+    if (days <= 8) return 'Semanal';
+    if (days <= 17) return 'Quincenal';
+    if (days <= 35) return 'Mensual';
+    return 'Periodicidad variable';
+  }
+
+  String _resolvePaymentMethod(UserModel user) {
+    final account = (user.cuentaNominaPreferencial ?? '').trim();
+    if (account.isEmpty) {
+      return 'Transferencia bancaria';
+    }
+    return 'Transferencia bancaria a cuenta $account';
   }
 
   Future<void> _signNow(UserModel user) async {
@@ -299,5 +407,19 @@ class _ContractPdfState {
     required this.bytes,
     required this.fileName,
     required this.employee,
+  });
+}
+
+class _PayrollContractSnapshot {
+  final String? salaryFormatted;
+  final String paymentFrequency;
+  final String paymentMethod;
+  final String? position;
+
+  const _PayrollContractSnapshot({
+    required this.salaryFormatted,
+    required this.paymentFrequency,
+    required this.paymentMethod,
+    required this.position,
   });
 }

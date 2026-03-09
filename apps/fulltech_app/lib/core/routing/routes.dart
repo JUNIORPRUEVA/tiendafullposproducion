@@ -9,7 +9,6 @@ class Routes {
   static const userDetail = '/users/:id';
   static const ponche = '/ponche';
   static const operaciones = '/operaciones';
-  static const salidasTecnicas = '/salidas-tecnicas';
   static const horarios = '/horarios';
   static const operacionesAgenda = '/operaciones/agenda';
   static const operacionesMapaClientes = '/operaciones/mapa-clientes';
@@ -31,7 +30,6 @@ class Routes {
   static const misPagos = '/mis-pagos';
   static const configuracion = '/configuracion';
   static const administracion = '/administracion';
-  static const administracionSalidasTecnicas = '/administracion/salidas-tecnicas';
 
   static String clienteDetail(String id) => '/clientes/$id';
   static String clienteEdit(String id) => '/clientes/$id/editar';

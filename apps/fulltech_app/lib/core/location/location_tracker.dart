@@ -20,11 +20,20 @@ class LocationTracker {
 
   bool get isRunning => _running;
 
-  Future<void> start() async {
+  Future<void> start({
+    bool requestPermission = true,
+    Duration warmUpDelay = Duration.zero,
+  }) async {
     if (_running) return;
     _running = true;
 
-    await _ensurePermission();
+    if (warmUpDelay > Duration.zero) {
+      await Future.delayed(warmUpDelay);
+      if (!_running) return;
+    }
+
+    await _ensurePermission(requestIfNeeded: requestPermission);
+    if (!_running) return;
 
     _timer?.cancel();
     _timer = Timer.periodic(interval, (_) {
@@ -44,11 +53,11 @@ class LocationTracker {
     stop();
   }
 
-  Future<void> _ensurePermission() async {
+  Future<void> _ensurePermission({required bool requestIfNeeded}) async {
     if (!await Geolocator.isLocationServiceEnabled()) return;
 
     var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
+    if (requestIfNeeded && permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
   }

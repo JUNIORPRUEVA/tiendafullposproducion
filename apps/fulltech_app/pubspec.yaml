@@ -50,6 +50,7 @@ dependencies:
   validators: ^3.0.0
   file_picker: ^8.1.2
   http_parser: ^4.0.2
+  image: ^4.5.4
   path_provider: ^2.1.5
   google_mlkit_text_recognition: ^0.15.0
   sqflite: ^2.4.1

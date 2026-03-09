@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
+
+import '../debug/trace_log.dart';
 import '../api/api_routes.dart';
 import 'token_storage.dart';
 
@@ -16,10 +20,44 @@ class AuthInterceptor extends Interceptor {
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
-    final token = await tokenStorage.getAccessToken();
-    if (token != null && token.isNotEmpty) {
-      options.headers['Authorization'] = 'Bearer $token';
+    final seq = TraceLog.nextSeq();
+    final sw = Stopwatch()..start();
+    TraceLog.log(
+      'AuthInterceptor',
+      'onRequest start -> ${options.method} ${options.uri}',
+      seq: seq,
+    );
+
+    try {
+      final token = await tokenStorage.getAccessToken().timeout(
+        const Duration(seconds: 2),
+      );
+      if (token != null && token.isNotEmpty) {
+        options.headers['Authorization'] = 'Bearer $token';
+      }
+      TraceLog.log(
+        'AuthInterceptor',
+        'onRequest token=${token == null ? 'null' : (token.isEmpty ? 'empty' : 'present')} (${sw.elapsedMilliseconds}ms)',
+        seq: seq,
+      );
+    } on TimeoutException catch (e, st) {
+      TraceLog.log(
+        'AuthInterceptor',
+        'onRequest getAccessToken() TIMEOUT -> continuing without token',
+        seq: seq,
+        error: e,
+        stackTrace: st,
+      );
+    } catch (e, st) {
+      TraceLog.log(
+        'AuthInterceptor',
+        'onRequest getAccessToken() ERROR -> continuing without token',
+        seq: seq,
+        error: e,
+        stackTrace: st,
+      );
     }
+
     handler.next(options);
   }
 
@@ -55,7 +93,36 @@ class AuthInterceptor extends Interceptor {
   void onError(DioException err, ErrorInterceptorHandler handler) async {
     if (err.response?.statusCode == 401 &&
         !_isAuthRefreshPath(err.requestOptions.path)) {
-      final refreshToken = await tokenStorage.getRefreshToken();
+      final seq = TraceLog.nextSeq();
+      TraceLog.log(
+        'AuthInterceptor',
+        'onError 401 -> attempting refresh',
+        seq: seq,
+      );
+
+      String? refreshToken;
+      try {
+        refreshToken = await tokenStorage.getRefreshToken().timeout(
+          const Duration(seconds: 2),
+        );
+      } on TimeoutException catch (e, st) {
+        TraceLog.log(
+          'AuthInterceptor',
+          'getRefreshToken() TIMEOUT',
+          seq: seq,
+          error: e,
+          stackTrace: st,
+        );
+      } catch (e, st) {
+        TraceLog.log(
+          'AuthInterceptor',
+          'getRefreshToken() ERROR',
+          seq: seq,
+          error: e,
+          stackTrace: st,
+        );
+      }
+
       if (refreshToken != null && refreshToken.isNotEmpty) {
         try {
           _refreshFuture ??= _refresh(refreshToken).whenComplete(() {

@@ -38,7 +38,7 @@ enum AppPermission {
 /// Role → permissions map. This is the *only* place to change access rules.
 ///
 /// IMPORTANT: Technician is intentionally restricted to a technician-focused
-/// experience (operations + punch + salidas técnicas + self areas).
+/// experience (operations + punch + self areas).
 const Map<AppRole, Set<AppPermission>> rolePermissions = {
   AppRole.admin: {
     AppPermission.viewProfile,

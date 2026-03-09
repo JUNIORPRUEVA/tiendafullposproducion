@@ -25,8 +25,6 @@ class RouteAccess {
         return AppPermission.viewOperations;
       case Routes.ponche:
         return AppPermission.viewPunch;
-      case Routes.salidasTecnicas:
-        return AppPermission.viewTechDepartures;
       case Routes.catalogo:
         return AppPermission.viewCatalog;
       case Routes.ventas:
@@ -47,8 +45,6 @@ class RouteAccess {
         return AppPermission.viewAccounting;
       case Routes.administracion:
         return AppPermission.viewAdminPanel;
-      case Routes.administracionSalidasTecnicas:
-        return AppPermission.viewAdminTechDepartures;
       case Routes.configuracion:
         return AppPermission.manageSettings;
       case Routes.users:

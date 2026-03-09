@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image/image.dart' as img;
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/company/company_settings_model.dart';
@@ -19,10 +20,18 @@ class ConfiguracionScreen extends ConsumerStatefulWidget {
 }
 
 class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
+  static const int _maxLogoBytes = 2 * 1024 * 1024;
+  static const int _maxLogoDimension = 1200;
+
   final _nameCtrl = TextEditingController();
   final _rncCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
+  final _legalRepresentativeNameCtrl = TextEditingController();
+  final _legalRepresentativeCedulaCtrl = TextEditingController();
+  final _legalRepresentativeRoleCtrl = TextEditingController();
+  final _legalRepresentativeNationalityCtrl = TextEditingController();
+  final _legalRepresentativeCivilStatusCtrl = TextEditingController();
   final _openAiApiKeyCtrl = TextEditingController();
   final _evolutionApiBaseUrlCtrl = TextEditingController();
   final _evolutionApiInstanceNameCtrl = TextEditingController();
@@ -46,6 +55,11 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     _rncCtrl.dispose();
     _phoneCtrl.dispose();
     _addressCtrl.dispose();
+    _legalRepresentativeNameCtrl.dispose();
+    _legalRepresentativeCedulaCtrl.dispose();
+    _legalRepresentativeRoleCtrl.dispose();
+    _legalRepresentativeNationalityCtrl.dispose();
+    _legalRepresentativeCivilStatusCtrl.dispose();
     _openAiApiKeyCtrl.dispose();
     _evolutionApiBaseUrlCtrl.dispose();
     _evolutionApiInstanceNameCtrl.dispose();
@@ -56,22 +70,28 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final settings = await ref.read(companySettingsRepositoryProvider).getSettings();
+      final settings = await ref
+          .read(companySettingsRepositoryProvider)
+          .getSettings();
       if (!mounted) return;
       _nameCtrl.text = settings.companyName;
       _rncCtrl.text = settings.rnc;
       _phoneCtrl.text = settings.phone;
       _addressCtrl.text = settings.address;
+      _legalRepresentativeNameCtrl.text = settings.legalRepresentativeName;
+      _legalRepresentativeCedulaCtrl.text = settings.legalRepresentativeCedula;
+      _legalRepresentativeRoleCtrl.text = settings.legalRepresentativeRole;
+      _legalRepresentativeNationalityCtrl.text =
+          settings.legalRepresentativeNationality;
+      _legalRepresentativeCivilStatusCtrl.text =
+          settings.legalRepresentativeCivilStatus;
       _logoBase64 = settings.logoBase64;
       _openAiApiKeyCtrl.text = settings.openAiApiKey;
       _evolutionApiBaseUrlCtrl.text = settings.evolutionApiBaseUrl;
       _evolutionApiInstanceNameCtrl.text = settings.evolutionApiInstanceName;
       _evolutionApiApiKeyCtrl.text = settings.evolutionApiApiKey;
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e')),
-      );
+      _showMessage('$e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -84,10 +104,17 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
       withData: true,
     );
 
+    if (!mounted) return;
     final file = result?.files.firstOrNull;
     if (file == null || file.bytes == null) return;
 
-    setState(() => _logoBase64 = base64Encode(file.bytes!));
+    try {
+      final preparedBytes = _prepareLogoBytes(file.bytes!);
+      setState(() => _logoBase64 = base64Encode(preparedBytes));
+      _showMessage('Logo cargado correctamente.');
+    } catch (e) {
+      _showMessage('$e');
+    }
   }
 
   Uint8List? _logoBytes() {
@@ -100,6 +127,77 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     }
   }
 
+  Uint8List _prepareLogoBytes(Uint8List rawBytes) {
+    final decoded = img.decodeImage(rawBytes);
+    if (decoded == null) {
+      throw Exception('La imagen seleccionada no es valida.');
+    }
+
+    var current = img.bakeOrientation(decoded);
+    current = _resizeToFit(current, _maxLogoDimension);
+
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final quality = (88 - (attempt * 10)).clamp(50, 88).toInt();
+      final pngBytes = Uint8List.fromList(img.encodePng(current, level: 6));
+      final jpgBytes = Uint8List.fromList(
+        img.encodeJpg(current, quality: quality),
+      );
+
+      if (current.hasAlpha && pngBytes.length <= _maxLogoBytes) {
+        return pngBytes;
+      }
+      if (jpgBytes.length <= _maxLogoBytes) {
+        return jpgBytes;
+      }
+      if (!current.hasAlpha && pngBytes.length <= _maxLogoBytes) {
+        return pngBytes;
+      }
+
+      if (current.width <= 320 && current.height <= 320) {
+        break;
+      }
+
+      current = img.copyResize(
+        current,
+        width: (current.width * 0.82).round(),
+        height: (current.height * 0.82).round(),
+        interpolation: img.Interpolation.average,
+      );
+    }
+
+    throw Exception(
+      'El logo sigue siendo demasiado pesado. Usa una imagen menor de 2 MB o con menos resolucion.',
+    );
+  }
+
+  img.Image _resizeToFit(img.Image image, int maxDimension) {
+    if (image.width <= maxDimension && image.height <= maxDimension) {
+      return image;
+    }
+
+    final aspectRatio = image.width / image.height;
+    final width = image.width >= image.height
+        ? maxDimension
+        : (maxDimension * aspectRatio).round();
+    final height = image.height > image.width
+        ? maxDimension
+        : (maxDimension / aspectRatio).round();
+
+    return img.copyResize(
+      image,
+      width: width,
+      height: height,
+      interpolation: img.Interpolation.average,
+    );
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _save() async {
     setState(() => _saving = true);
     final settings = CompanySettings(
@@ -107,6 +205,13 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
       rnc: _rncCtrl.text.trim(),
       phone: _phoneCtrl.text.trim(),
       address: _addressCtrl.text.trim(),
+      legalRepresentativeName: _legalRepresentativeNameCtrl.text.trim(),
+      legalRepresentativeCedula: _legalRepresentativeCedulaCtrl.text.trim(),
+      legalRepresentativeRole: _legalRepresentativeRoleCtrl.text.trim(),
+      legalRepresentativeNationality: _legalRepresentativeNationalityCtrl.text
+          .trim(),
+      legalRepresentativeCivilStatus: _legalRepresentativeCivilStatusCtrl.text
+          .trim(),
       logoBase64: _logoBase64,
       openAiApiKey: _openAiApiKeyCtrl.text.trim(),
       openAiModel: '',
@@ -119,15 +224,9 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
 
     try {
       await ref.read(companySettingsRepositoryProvider).saveSettings(settings);
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Configuración guardada')));
+      _showMessage('Configuracion guardada');
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e')),
-      );
+      _showMessage('$e');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -195,6 +294,48 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
+                        const Divider(),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Datos legales para contrato laboral',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _legalRepresentativeNameCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Representante legal',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _legalRepresentativeCedulaCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Cédula del representante',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _legalRepresentativeRoleCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Cargo del representante',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _legalRepresentativeNationalityCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Nacionalidad del representante',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _legalRepresentativeCivilStatusCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Estado civil del representante',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
                         Row(
                           children: [
                             OutlinedButton.icon(
@@ -205,8 +346,10 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
                             const SizedBox(width: 8),
                             if (_logoBase64 != null)
                               OutlinedButton.icon(
-                                onPressed: () =>
-                                    setState(() => _logoBase64 = null),
+                                onPressed: () {
+                                  setState(() => _logoBase64 = null);
+                                  _showMessage('Logo eliminado.');
+                                },
                                 icon: const Icon(Icons.delete_outline),
                                 label: const Text('Quitar logo'),
                               ),

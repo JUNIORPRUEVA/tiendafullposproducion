@@ -1,13 +1,20 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../debug/trace_log.dart';
+import '../models/user_model.dart';
+
 class TokenStorage {
   static const _accessTokenKey = 'accessToken';
   static const _refreshTokenKey = 'refreshToken';
+  static const _userSnapshotKey = 'authUserSnapshot';
   final _secureStorage = const FlutterSecureStorage();
   String? _memoryAccessToken;
   String? _memoryRefreshToken;
+  UserModel? _memoryUserSnapshot;
 
   bool get _useSecureStorage {
     if (kIsWeb) return false;
@@ -15,9 +22,16 @@ class TokenStorage {
         defaultTargetPlatform == TargetPlatform.iOS;
   }
 
-  Future<SharedPreferences> _prefs() => SharedPreferences.getInstance();
+  static const Duration _prefsTimeout = Duration(seconds: 2);
+  static const Duration _secureTimeout = Duration(seconds: 2);
+
+  Future<SharedPreferences> _prefs() {
+    return SharedPreferences.getInstance().timeout(_prefsTimeout);
+  }
 
   Future<void> saveTokens(String accessToken, [String? refreshToken]) async {
+    final seq = TraceLog.nextSeq();
+    TraceLog.log('TokenStorage', 'saveTokens() start', seq: seq);
     _memoryAccessToken = accessToken;
     if (refreshToken != null && refreshToken.isNotEmpty) {
       _memoryRefreshToken = refreshToken;
@@ -25,17 +39,15 @@ class TokenStorage {
 
     await _saveInPrefs(accessToken, refreshToken); // Keep a durable fallback
     await _saveInSecure(accessToken, refreshToken);
+    TraceLog.log('TokenStorage', 'saveTokens() end', seq: seq);
   }
 
   Future<String?> getAccessToken() async {
+    final seq = TraceLog.nextSeq();
+    TraceLog.log('TokenStorage', 'getAccessToken() start', seq: seq);
     if (_memoryAccessToken != null && _memoryAccessToken!.isNotEmpty) {
+      TraceLog.log('TokenStorage', 'getAccessToken() memory hit', seq: seq);
       return _memoryAccessToken;
-    }
-
-    final secure = await _readSecure(_accessTokenKey);
-    if (secure != null && secure.isNotEmpty) {
-      _memoryAccessToken = secure;
-      return secure;
     }
 
     try {
@@ -43,22 +55,36 @@ class TokenStorage {
       final value = prefs.getString(_accessTokenKey);
       if (value != null && value.isNotEmpty) {
         _memoryAccessToken = value;
+        TraceLog.log('TokenStorage', 'getAccessToken() prefs hit', seq: seq);
+        return value;
       }
-      return value;
-    } catch (_) {
-      return null;
+    } catch (e, st) {
+      TraceLog.log(
+        'TokenStorage',
+        'getAccessToken() prefs ERROR',
+        seq: seq,
+        error: e,
+        stackTrace: st,
+      );
     }
+
+    final secure = await _readSecure(_accessTokenKey);
+    if (secure != null && secure.isNotEmpty) {
+      _memoryAccessToken = secure;
+      TraceLog.log('TokenStorage', 'getAccessToken() secure hit', seq: seq);
+      return secure;
+    }
+
+    TraceLog.log('TokenStorage', 'getAccessToken() miss', seq: seq);
+    return null;
   }
 
   Future<String?> getRefreshToken() async {
+    final seq = TraceLog.nextSeq();
+    TraceLog.log('TokenStorage', 'getRefreshToken() start', seq: seq);
     if (_memoryRefreshToken != null && _memoryRefreshToken!.isNotEmpty) {
+      TraceLog.log('TokenStorage', 'getRefreshToken() memory hit', seq: seq);
       return _memoryRefreshToken;
-    }
-
-    final secure = await _readSecure(_refreshTokenKey);
-    if (secure != null && secure.isNotEmpty) {
-      _memoryRefreshToken = secure;
-      return secure;
     }
 
     try {
@@ -66,27 +92,99 @@ class TokenStorage {
       final value = prefs.getString(_refreshTokenKey);
       if (value != null && value.isNotEmpty) {
         _memoryRefreshToken = value;
+        TraceLog.log('TokenStorage', 'getRefreshToken() prefs hit', seq: seq);
+        return value;
       }
-      return value;
-    } catch (_) {
+    } catch (e, st) {
+      TraceLog.log(
+        'TokenStorage',
+        'getRefreshToken() prefs ERROR',
+        seq: seq,
+        error: e,
+        stackTrace: st,
+      );
+    }
+
+    final secure = await _readSecure(_refreshTokenKey);
+    if (secure != null && secure.isNotEmpty) {
+      _memoryRefreshToken = secure;
+      TraceLog.log('TokenStorage', 'getRefreshToken() secure hit', seq: seq);
+      return secure;
+    }
+
+    TraceLog.log('TokenStorage', 'getRefreshToken() miss', seq: seq);
+    return null;
+  }
+
+  Future<void> saveUserSnapshot(UserModel user) async {
+    _memoryUserSnapshot = user;
+    try {
+      final prefs = await _prefs();
+      await prefs.setString(_userSnapshotKey, jsonEncode(user.toJson()));
+    } catch (e, st) {
+      TraceLog.log(
+        'TokenStorage',
+        'saveUserSnapshot() ERROR',
+        error: e,
+        stackTrace: st,
+      );
+    }
+  }
+
+  Future<UserModel?> getUserSnapshot() async {
+    final seq = TraceLog.nextSeq();
+    TraceLog.log('TokenStorage', 'getUserSnapshot() start', seq: seq);
+    if (_memoryUserSnapshot != null) {
+      TraceLog.log('TokenStorage', 'getUserSnapshot() memory hit', seq: seq);
+      return _memoryUserSnapshot;
+    }
+
+    try {
+      final prefs = await _prefs();
+      final raw = prefs.getString(_userSnapshotKey);
+      if (raw == null || raw.trim().isEmpty) {
+        TraceLog.log('TokenStorage', 'getUserSnapshot() miss', seq: seq);
+        return null;
+      }
+
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+
+      final user = UserModel.fromJson(decoded.cast<String, dynamic>());
+      _memoryUserSnapshot = user;
+      TraceLog.log('TokenStorage', 'getUserSnapshot() prefs hit', seq: seq);
+      return user;
+    } catch (e, st) {
+      TraceLog.log(
+        'TokenStorage',
+        'getUserSnapshot() ERROR',
+        seq: seq,
+        error: e,
+        stackTrace: st,
+      );
       return null;
     }
   }
 
   Future<void> clearTokens() async {
+    final seq = TraceLog.nextSeq();
+    TraceLog.log('TokenStorage', 'clearTokens() start', seq: seq);
     _memoryAccessToken = null;
     _memoryRefreshToken = null;
+    _memoryUserSnapshot = null;
 
     try {
       final prefs = await _prefs();
       await prefs.remove(_accessTokenKey);
       await prefs.remove(_refreshTokenKey);
+      await prefs.remove(_userSnapshotKey);
     } catch (_) {
       // Ignore prefs failures and still clear secure storage.
     }
 
     await _deleteSecure(_accessTokenKey);
     await _deleteSecure(_refreshTokenKey);
+    TraceLog.log('TokenStorage', 'clearTokens() end', seq: seq);
   }
 
   Future<void> _saveInPrefs(String accessToken, [String? refreshToken]) async {
@@ -96,7 +194,13 @@ class TokenStorage {
       if (refreshToken != null && refreshToken.isNotEmpty) {
         await prefs.setString(_refreshTokenKey, refreshToken);
       }
-    } catch (_) {
+    } catch (e, st) {
+      TraceLog.log(
+        'TokenStorage',
+        '_saveInPrefs ERROR',
+        error: e,
+        stackTrace: st,
+      );
       // Keep in-memory tokens as fallback for this session.
     }
   }
@@ -104,11 +208,21 @@ class TokenStorage {
   Future<void> _saveInSecure(String accessToken, [String? refreshToken]) async {
     if (!_useSecureStorage) return;
     try {
-      await _secureStorage.write(key: _accessTokenKey, value: accessToken);
+      await _secureStorage
+          .write(key: _accessTokenKey, value: accessToken)
+          .timeout(_secureTimeout);
       if (refreshToken != null && refreshToken.isNotEmpty) {
-        await _secureStorage.write(key: _refreshTokenKey, value: refreshToken);
+        await _secureStorage
+            .write(key: _refreshTokenKey, value: refreshToken)
+            .timeout(_secureTimeout);
       }
-    } catch (_) {
+    } catch (e, st) {
+      TraceLog.log(
+        'TokenStorage',
+        '_saveInSecure ERROR',
+        error: e,
+        stackTrace: st,
+      );
       // Silently fall back to prefs when secure storage is unavailable
     }
   }
@@ -116,8 +230,14 @@ class TokenStorage {
   Future<String?> _readSecure(String key) async {
     if (!_useSecureStorage) return null;
     try {
-      return await _secureStorage.read(key: key);
-    } catch (_) {
+      return await _secureStorage.read(key: key).timeout(_secureTimeout);
+    } catch (e, st) {
+      TraceLog.log(
+        'TokenStorage',
+        '_readSecure ERROR key=$key',
+        error: e,
+        stackTrace: st,
+      );
       return null;
     }
   }
@@ -125,8 +245,14 @@ class TokenStorage {
   Future<void> _deleteSecure(String key) async {
     if (!_useSecureStorage) return;
     try {
-      await _secureStorage.delete(key: key);
-    } catch (_) {
+      await _secureStorage.delete(key: key).timeout(_secureTimeout);
+    } catch (e, st) {
+      TraceLog.log(
+        'TokenStorage',
+        '_deleteSecure ERROR key=$key',
+        error: e,
+        stackTrace: st,
+      );
       // Ignore secure storage failures on platforms without support
     }
   }

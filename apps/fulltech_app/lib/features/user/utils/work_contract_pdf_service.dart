@@ -23,6 +23,37 @@ const _spanishMonths = <String>[
   'diciembre',
 ];
 
+String _fallbackText(
+  String? value, {
+  String fallback = '____________________________',
+}) {
+  final cleaned = (value ?? '').trim();
+  return cleaned.isEmpty ? fallback : cleaned;
+}
+
+String _compactRoleLabel(String? raw) {
+  final cleaned = (raw ?? '').trim();
+  if (cleaned.isEmpty) return 'Colaborador';
+
+  final normalized = cleaned.toLowerCase().replaceAll('_', ' ');
+  final words = normalized.split(RegExp(r'\s+'));
+  return words
+      .where((word) => word.isNotEmpty)
+      .map((word) => '${word[0].toUpperCase()}${word.substring(1)}')
+      .join(' ');
+}
+
+String _formatDateShort(DateTime? date) {
+  if (date == null) return 'No registrado';
+  return DateFormat('dd/MM/yyyy').format(date);
+}
+
+String _salaryFrequencyLabel(String? periodicidadPago) {
+  final normalized = (periodicidadPago ?? '').trim().toLowerCase();
+  if (normalized.isEmpty) return 'mensual';
+  return normalized;
+}
+
 String _dateToSpanishLong(DateTime date) {
   final month = _spanishMonths[(date.month - 1).clamp(0, 11)];
   return 'día ${date.day} del mes de $month del año ${date.year}';
@@ -211,22 +242,32 @@ Future<Uint8List> buildWorkContractPdf({
   String? moneda,
   String? periodicidadPago,
   String? metodoPago,
+  String? puesto,
 }) async {
   final today = DateTime.now();
 
-  // Contrato oficial: texto fijo como fue provisto.
-  const companyName = 'FULLTECH, SRL';
-
-  // Datos fijos como aparecen en el contrato oficial provisto.
-  const employerRncLine = '133 08020 6';
-  const representativeName = 'YÚNIOR LÓPEZ DE LA ROSA';
-  const representativeNationality = 'dominicano';
-  const representativeCivil = 'soltero';
-  const representativeCedula = '40238377333';
-  const representativeRole = 'gerente';
-
-  const companyAddress =
-      'la calle beller numero 9 centro, en la ciudad de Higüey, Provincia la Altagracia, República Dominicana';
+  final companyName = _fallbackText(
+    company?.companyName,
+    fallback: 'FULLTECH, SRL',
+  );
+  final employerRncLine = _fallbackText(company?.rnc);
+  final representativeName = _fallbackText(company?.legalRepresentativeName);
+  final representativeNationality = _fallbackText(
+    company?.legalRepresentativeNationality,
+  );
+  final representativeCivil = _fallbackText(
+    company?.legalRepresentativeCivilStatus,
+  );
+  final representativeCedula = _fallbackText(
+    company?.legalRepresentativeCedula,
+  );
+  final representativeRole = _fallbackText(company?.legalRepresentativeRole);
+  final companyAddress = _fallbackText(company?.address);
+  final companyPhone = _fallbackText(company?.phone, fallback: 'No registrado');
+  final signingPlace = _fallbackText(
+    lugar ?? company?.address,
+    fallback: companyAddress,
+  );
 
   final nombreEmpleado = employee.nombreCompleto.trim().isNotEmpty
       ? employee.nombreCompleto.trim()
@@ -241,6 +282,16 @@ Future<Uint8List> buildWorkContractPdf({
   final salarioText = salarioRaw.isNotEmpty
       ? _salaryToContractText(salarioRaw)
       : '____________________________';
+  final puestoEmpleado = _fallbackText(
+    puesto,
+    fallback: _compactRoleLabel(employee.role),
+  );
+  final frecuenciaPago = _fallbackText(periodicidadPago, fallback: 'Mensual');
+  final metodoPagoText = _fallbackText(
+    metodoPago,
+    fallback: 'Transferencia bancaria',
+  );
+  final monedaText = _fallbackText(moneda, fallback: 'DOP');
 
   final doc = pw.Document(title: 'Contrato de trabajo', author: companyName);
 
@@ -321,6 +372,45 @@ Future<Uint8List> buildWorkContractPdf({
     );
   }
 
+  pw.Widget infoTable(String title, List<List<String>> rows) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(
+          title,
+          style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+        ),
+        pw.SizedBox(height: 6),
+        pw.Table(
+          border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.6),
+          columnWidths: {
+            0: const pw.FlexColumnWidth(1.5),
+            1: const pw.FlexColumnWidth(2.5),
+          },
+          children: rows
+              .map(
+                (row) => pw.TableRow(
+                  children: [
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.all(6),
+                      child: pw.Text(
+                        row[0],
+                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                      ),
+                    ),
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.all(6),
+                      child: pw.Text(row[1]),
+                    ),
+                  ],
+                ),
+              )
+              .toList(),
+        ),
+      ],
+    );
+  }
+
   doc.addPage(
     pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
@@ -334,6 +424,42 @@ Future<Uint8List> buildWorkContractPdf({
         pw.SizedBox(height: 10),
         centeredTitle('C O N T R A T O   D E    T R A B A J O'),
         pw.SizedBox(height: 8),
+        infoTable('DATOS DE LA EMPRESA', [
+          ['Empresa', companyName],
+          ['RNC', employerRncLine],
+          ['Telefono', companyPhone],
+          ['Direccion', companyAddress],
+          ['Representante legal', representativeName],
+          ['Cedula representante', representativeCedula],
+          ['Cargo representante', representativeRole],
+          ['Nacionalidad representante', representativeNationality],
+          ['Estado civil representante', representativeCivil],
+        ]),
+        pw.SizedBox(height: 10),
+        infoTable('DATOS DEL COLABORADOR', [
+          ['Nombre completo', nombreEmpleado],
+          ['Cedula', cedulaEmpleado],
+          [
+            'Telefono',
+            _fallbackText(employee.telefono, fallback: 'No registrado'),
+          ],
+          ['Correo', _fallbackText(employee.email, fallback: 'No registrado')],
+          ['Fecha de ingreso', _formatDateShort(startDate)],
+          ['Fecha de nacimiento', _formatDateShort(employee.fechaNacimiento)],
+          ['Cargo', puestoEmpleado],
+          [
+            'Cuenta de nomina',
+            _fallbackText(
+              employee.cuentaNominaPreferencial,
+              fallback: 'No registrada',
+            ),
+          ],
+          ['Salario', salarioRaw.isEmpty ? 'No configurado' : salarioRaw],
+          ['Periodicidad de pago', frecuenciaPago],
+          ['Metodo de pago', metodoPagoText],
+          ['Moneda', monedaText],
+        ]),
+        pw.SizedBox(height: 12),
         pw.Text('ENTRE:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
         pw.SizedBox(height: 10),
 
@@ -358,7 +484,7 @@ Future<Uint8List> buildWorkContractPdf({
 
         richLabel(
           'PRIMERO: ',
-          'Objeto del Contrato: EL EMPLEADOR por medio del presente documento contrata los servicios de EL EMPLEADO, quien acepta trabajar para el LA EMPRESA, en horario 9:00 am A 6:00 pm. Con una hora de almuerzo entre la 1:00pm a 2:00pm. de lunes a domingo, teniendo un día libre semanal y devengará por dicho concepto un salario mensual de $salarioText.',
+          'Objeto del Contrato: EL EMPLEADOR por medio del presente documento contrata los servicios de EL EMPLEADO en calidad de $puestoEmpleado, quien acepta trabajar para LA EMPRESA en horario 9:00 am a 6:00 pm. Con una hora de almuerzo entre la 1:00 pm y 2:00 pm, de lunes a domingo, teniendo un día libre semanal y devengará por dicho concepto un salario ${_salaryFrequencyLabel(periodicidadPago)} de $salarioText. El pago se realizará mediante $metodoPagoText.',
         ),
 
         richLabel(
@@ -408,7 +534,7 @@ Future<Uint8List> buildWorkContractPdf({
 
         pw.SizedBox(height: 14),
         spacedText(
-          'HECHO Y FIRMADO DE BUENA FE ENTRE LAS PARTES, en la calle Padre Bellini N°6, Higüey, sector Cambelen, en la ciudad de Higüey, Provincia la Altagracia, República Dominicana, el ${_dateToSpanishLong(startDate)}.',
+          'HECHO Y FIRMADO DE BUENA FE ENTRE LAS PARTES, en $signingPlace, el ${_dateToSpanishLong(startDate)}.',
         ),
 
         signatureBlock('POR EL EMPLEADOR:', 'POR EL EMPLEADO:'),

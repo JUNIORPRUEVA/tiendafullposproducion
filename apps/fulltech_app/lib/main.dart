@@ -1,61 +1,69 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'features/contabilidad/contabilidad_init.dart';
-import 'core/api/env.dart';
 import 'core/routing/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/loading/app_loading_overlay.dart';
 import 'core/loading/app_loading_screen.dart';
+import 'core/debug/app_error_reporter.dart';
+import 'core/debug/app_error_overlay.dart';
+import 'core/startup/app_startup_controller.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  _initializeDesktopSqlite();
-  runApp(const ProviderScope(child: AppBootstrap()));
+  runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+
+      FlutterError.onError = (details) {
+        FlutterError.presentError(details);
+        AppErrorReporter.instance.recordFlutterError(details);
+      };
+
+      PlatformDispatcher.instance.onError = (error, stack) {
+        AppErrorReporter.instance.record(error, stack, context: 'Platform');
+        return true;
+      };
+
+      _initializeDesktopSqlite();
+      runApp(const ProviderScope(child: AppBootstrap()));
+    },
+    (error, stack) {
+      AppErrorReporter.instance.record(error, stack, context: 'Zone');
+    },
+  );
 }
 
-class AppBootstrap extends StatefulWidget {
+class AppBootstrap extends ConsumerWidget {
   const AppBootstrap({super.key});
 
   @override
-  State<AppBootstrap> createState() => _AppBootstrapState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final startup = ref.watch(appStartupProvider);
+    final startupController = ref.read(appStartupProvider.notifier);
 
-class _AppBootstrapState extends State<AppBootstrap> {
-  late Future<void> _init;
-
-  @override
-  void initState() {
-    super.initState();
-    _init = Future.wait([
-      _ensureEnvLoaded(),
-      ensureContabilidadLocale(),
-    ]).then((_) => null);
-  }
-
-  @override
-  Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
-      home: FutureBuilder<void>(
-        future: _init,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const AppLoadingScreen(title: 'Iniciando…');
-          }
-          if (snapshot.hasError) {
-            return AppLoadingScreen(
-              title: 'No se pudo iniciar',
-              subtitle: 'Revisa la configuración y vuelve a abrir la app.',
-            );
-          }
-          return const MyApp();
-        },
-      ),
+      home: startup.hasError
+          ? AppLoadingScreen(
+              title: startup.title,
+              subtitle: startup.errorMessage ?? startup.subtitle,
+              statusLabel: startup.statusLabel,
+              showProgress: false,
+              actionLabel: 'Reintentar',
+              onAction: startupController.retry,
+            )
+          : startup.isReady
+          ? const MyApp()
+          : AppLoadingScreen(
+              title: startup.title,
+              subtitle: startup.subtitle,
+              statusLabel: startup.statusLabel,
+            ),
     );
   }
 }
@@ -68,40 +76,6 @@ void _initializeDesktopSqlite() {
       platform == TargetPlatform.macOS) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
-  }
-}
-
-Future<void> _ensureEnvLoaded() async {
-  const candidates = <String>[
-    '.env',
-    'assets/.env',
-    '.env.example',
-    'assets/.env.example',
-  ];
-
-  var loaded = false;
-  for (final file in candidates) {
-    try {
-      await dotenv.load(fileName: file);
-      loaded = true;
-      debugPrint('Loaded env file: $file');
-      break;
-    } on Object catch (error) {
-      debugPrint('Could not load $file: $error');
-    }
-  }
-
-  if (!loaded) {
-    debugPrint('No env file could be loaded.');
-  }
-
-  // Validate and log the selected API base URL.
-  try {
-    final baseUrl = Env.apiBaseUrl;
-    debugPrint('API_BASE_URL: $baseUrl');
-  } on Object catch (error) {
-    debugPrint('Invalid API_BASE_URL configuration: $error');
-    // Do not block app startup. Downstream API calls will surface errors if any.
   }
 }
 
@@ -120,7 +94,11 @@ class MyApp extends StatelessWidget {
           routerConfig: router,
           builder: (context, child) {
             return Stack(
-              children: [if (child != null) child, const AppLoadingOverlay()],
+              children: [
+                if (child != null) child,
+                const AppLoadingOverlay(),
+                const AppErrorOverlay(),
+              ],
             );
           },
         );

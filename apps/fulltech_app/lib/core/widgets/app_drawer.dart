@@ -116,17 +116,6 @@ class AppDrawer extends ConsumerWidget {
                           context.go(Routes.operaciones);
                         },
                       ),
-                    if (can(AppPermission.viewTechDepartures))
-                      _DrawerMenuItem(
-                        icon: Icons.directions_car_filled_outlined,
-                        title: 'Salidas técnicas',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(Routes.salidasTecnicas),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.salidasTecnicas);
-                        },
-                      ),
                     if (can(AppPermission.viewPunch))
                       _DrawerMenuItem(
                         icon: Icons.access_time_rounded,
@@ -213,19 +202,6 @@ class AppDrawer extends ConsumerWidget {
                         onTap: () {
                           Navigator.pop(context);
                           context.go(Routes.administracion);
-                        },
-                      ),
-                    if (can(AppPermission.viewAdminTechDepartures))
-                      _DrawerMenuItem(
-                        icon: Icons.directions_car_filled_outlined,
-                        title: 'Salidas técnicas (Admin)',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(
-                          Routes.administracionSalidasTecnicas,
-                        ),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.administracionSalidasTecnicas);
                         },
                       ),
 

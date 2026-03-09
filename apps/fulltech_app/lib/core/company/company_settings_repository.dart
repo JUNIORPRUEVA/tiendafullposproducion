@@ -64,6 +64,13 @@ class CompanySettingsRepository {
           'rnc': settings.rnc,
           'phone': settings.phone,
           'address': settings.address,
+          'legalRepresentativeName': settings.legalRepresentativeName,
+          'legalRepresentativeCedula': settings.legalRepresentativeCedula,
+          'legalRepresentativeRole': settings.legalRepresentativeRole,
+          'legalRepresentativeNationality':
+              settings.legalRepresentativeNationality,
+          'legalRepresentativeCivilStatus':
+              settings.legalRepresentativeCivilStatus,
           'logoBase64': settings.logoBase64,
           'openAiApiKey': settings.openAiApiKey,
           'evolutionApiBaseUrl': settings.evolutionApiBaseUrl,

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
@@ -8,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_routes.dart';
 import '../../../core/auth/auth_repository.dart';
 import '../../../core/cache/local_json_cache.dart';
+import '../../../core/debug/trace_log.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../modules/clientes/cliente_model.dart';
 import '../operations_models.dart';
@@ -221,44 +223,64 @@ class OperationsRepository {
     int pageSize = 50,
     Options? options,
   }) async {
+    final seq = TraceLog.nextSeq();
+    TraceLog.log(
+      'OperationsRepository',
+      'listServicesMini(page=$page pageSize=$pageSize) start',
+      seq: seq,
+    );
     try {
       if (!kIsWeb) {
         final sw = Stopwatch()..start();
-        final resPlain = await _dio.get(
-          ApiRoutes.services,
-          options: Options(
-            responseType: ResponseType.plain,
-            extra: {
-              'skipLoader': true,
-              ...?options?.extra,
-            },
-          ),
-          queryParameters: {
-            'page': page,
-            'pageSize': pageSize,
-          },
+        TraceLog.log(
+          'OperationsRepository',
+          'listServicesMini: dio.get(plain) ...',
+          seq: seq,
         );
+        final resPlain = await _dio
+            .get(
+              ApiRoutes.services,
+              options: Options(
+                responseType: ResponseType.plain,
+                extra: {'skipLoader': true, ...?options?.extra},
+              ),
+              queryParameters: {'page': page, 'pageSize': pageSize},
+            )
+            .timeout(const Duration(seconds: 25));
         final body = resPlain.data;
         final text = body is String ? body : body.toString();
         debugPrint(
           '[OperationsRepository] Services mini (plain) recibido en ${sw.elapsedMilliseconds}ms (chars=${text.length})',
         );
-        return compute(_extractServicesMiniItemsFromJson, text);
+        TraceLog.log(
+          'OperationsRepository',
+          'listServicesMini: compute(jsonDecode) ...',
+          seq: seq,
+        );
+        final items = await compute(
+          _extractServicesMiniItemsFromJson,
+          text,
+        ).timeout(const Duration(seconds: 20));
+        TraceLog.log(
+          'OperationsRepository',
+          'listServicesMini end OK (count=${items.length})',
+          seq: seq,
+        );
+        return items;
       }
 
-      final res = await _dio.get(
-        ApiRoutes.services,
-        options: Options(
-          extra: {
-            'skipLoader': true,
-            ...?options?.extra,
-          },
-        ),
-        queryParameters: {
-          'page': page,
-          'pageSize': pageSize,
-        },
+      TraceLog.log(
+        'OperationsRepository',
+        'listServicesMini: dio.get(json) ...',
+        seq: seq,
       );
+      final res = await _dio
+          .get(
+            ApiRoutes.services,
+            options: Options(extra: {'skipLoader': true, ...?options?.extra}),
+            queryParameters: {'page': page, 'pageSize': pageSize},
+          )
+          .timeout(const Duration(seconds: 25));
       final data = res.data;
       if (data is! Map) return const <Map<String, dynamic>>[];
       final items = data['items'];
@@ -276,6 +298,15 @@ class OperationsRepository {
             },
           )
           .toList(growable: false);
+    } on TimeoutException catch (e, st) {
+      TraceLog.log(
+        'OperationsRepository',
+        'listServicesMini TIMEOUT',
+        seq: seq,
+        error: e,
+        stackTrace: st,
+      );
+      throw ApiException('[TIMEOUT] No se pudieron cargar servicios');
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudieron cargar servicios'),

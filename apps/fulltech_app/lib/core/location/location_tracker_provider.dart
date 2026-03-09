@@ -26,7 +26,12 @@ final locationTrackingBootstrapProvider = Provider<void>((ref) {
       auth.isAuthenticated && canSendLocationByRole(auth.user?.role);
 
   if (canSendLocation) {
-    unawaited(tracker.start());
+    unawaited(
+      tracker.start(
+        requestPermission: false,
+        warmUpDelay: const Duration(seconds: 3),
+      ),
+    );
   } else {
     tracker.stop();
   }

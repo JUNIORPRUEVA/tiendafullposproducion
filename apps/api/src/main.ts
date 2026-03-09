@@ -11,7 +11,10 @@ import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { cors: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    cors: false,
+    bodyParser: false,
+  });
   app.set('trust proxy', 1);
 
   // Basic request logging (method/url/status/duration).
@@ -31,6 +34,12 @@ async function bootstrap() {
   });
 
   const config = app.get(ConfigService);
+  const bodySizeLimit = (config.get<string>('BODY_SIZE_LIMIT') ?? '10mb').trim() || '10mb';
+
+  app.use(express.json({ limit: bodySizeLimit }));
+  app.use(express.urlencoded({ extended: true, limit: bodySizeLimit }));
+  // eslint-disable-next-line no-console
+  console.log(`[http] request body limit: ${bodySizeLimit}`);
 
   // Global exception filter: logs errors (incl. Prisma meta) and returns safe JSON.
   app.useGlobalFilters(new GlobalExceptionFilter());

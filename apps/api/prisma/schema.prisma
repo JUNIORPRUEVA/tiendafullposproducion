@@ -265,6 +265,11 @@ model AppConfig {
   rnc          String   @default("")
   phone        String   @default("")
   address      String   @default("")
+  legalRepresentativeName         String  @default("") @map("legal_representative_name")
+  legalRepresentativeCedula       String  @default("") @map("legal_representative_cedula")
+  legalRepresentativeRole         String  @default("") @map("legal_representative_role")
+  legalRepresentativeNationality  String  @default("") @map("legal_representative_nationality")
+  legalRepresentativeCivilStatus  String  @default("") @map("legal_representative_civil_status")
   logoBase64   String?
   openAiApiKey String?
   openAiModel  String   @default("gpt-4o-mini")

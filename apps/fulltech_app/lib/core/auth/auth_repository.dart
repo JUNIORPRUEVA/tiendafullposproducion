@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_client.dart';
@@ -13,6 +12,33 @@ import 'auth_interceptor.dart';
 import 'token_storage.dart';
 import '../loading/app_loading_controller.dart';
 import '../loading/loading_interceptor.dart';
+
+enum SessionVerificationStatus { authenticated, invalid, deferred }
+
+class HydratedSession {
+  final bool hasToken;
+  final UserModel? user;
+
+  const HydratedSession({required this.hasToken, this.user});
+
+  const HydratedSession.empty() : this(hasToken: false);
+}
+
+class SessionVerificationResult {
+  final SessionVerificationStatus status;
+  final UserModel? user;
+
+  const SessionVerificationResult({required this.status, this.user});
+
+  const SessionVerificationResult.invalid()
+    : this(status: SessionVerificationStatus.invalid);
+
+  const SessionVerificationResult.deferred({UserModel? user})
+    : this(status: SessionVerificationStatus.deferred, user: user);
+
+  const SessionVerificationResult.authenticated(UserModel user)
+    : this(status: SessionVerificationStatus.authenticated, user: user);
+}
 
 final tokenStorageProvider = Provider<TokenStorage>((ref) => TokenStorage());
 
@@ -96,6 +122,20 @@ class AuthRepository {
     } catch (_) {}
   }
 
+  Future<HydratedSession> hydrateSession() async {
+    try {
+      final token = await _storage.getAccessToken().timeout(_storageTimeout);
+      if (token == null || token.isEmpty) {
+        return const HydratedSession.empty();
+      }
+
+      final user = await _storage.getUserSnapshot().timeout(_storageTimeout);
+      return HydratedSession(hasToken: true, user: user);
+    } catch (_) {
+      return const HydratedSession.empty();
+    }
+  }
+
   Future<UserModel> login(String email, String password) async {
     await _safeClearTokens();
     try {
@@ -135,14 +175,24 @@ class AuthRepository {
       }
       try {
         final me = await _dio.get(ApiRoutes.usersMe).timeout(_loginTimeout);
-        return UserModel.fromJson((me.data as Map).cast<String, dynamic>());
+        final user = UserModel.fromJson(
+          (me.data as Map).cast<String, dynamic>(),
+        );
+        await _storage.saveUserSnapshot(user);
+        return user;
       } on DioException {
         final fallbackUser = _userFromLoginResponse(res.data);
-        if (fallbackUser != null) return fallbackUser;
+        if (fallbackUser != null) {
+          await _storage.saveUserSnapshot(fallbackUser);
+          return fallbackUser;
+        }
         rethrow;
       } on TimeoutException {
         final fallbackUser = _userFromLoginResponse(res.data);
-        if (fallbackUser != null) return fallbackUser;
+        if (fallbackUser != null) {
+          await _storage.saveUserSnapshot(fallbackUser);
+          return fallbackUser;
+        }
         rethrow;
       }
     } on TimeoutException {
@@ -179,7 +229,11 @@ class AuthRepository {
         final res = await _dio
             .get(ApiRoutes.usersMe)
             .timeout(_bootstrapTimeout);
-        return UserModel.fromJson((res.data as Map).cast<String, dynamic>());
+        final user = UserModel.fromJson(
+          (res.data as Map).cast<String, dynamic>(),
+        );
+        await _storage.saveUserSnapshot(user);
+        return user;
       } on DioException catch (e) {
         // Si expira, intenta refresh y reintenta
         if (e.response?.statusCode == 401) {
@@ -188,20 +242,63 @@ class AuthRepository {
             final res = await _dio
                 .get(ApiRoutes.usersMe)
                 .timeout(_bootstrapTimeout);
-            return UserModel.fromJson(
+            final user = UserModel.fromJson(
               (res.data as Map).cast<String, dynamic>(),
             );
+            await _storage.saveUserSnapshot(user);
+            return user;
           }
+
+          await _safeClearTokens();
+          return null;
         }
 
-        await _safeClearTokens();
-        return null;
+        return _storage.getUserSnapshot();
       } on TimeoutException {
-        await _safeClearTokens();
-        return null;
+        return _storage.getUserSnapshot();
       }
     } catch (_) {
-      return null;
+      return _storage.getUserSnapshot();
+    }
+  }
+
+  Future<SessionVerificationResult> verifySession() async {
+    if (isFlutterTest) {
+      return const SessionVerificationResult.invalid();
+    }
+
+    final hydrated = await hydrateSession();
+    if (!hydrated.hasToken) {
+      return const SessionVerificationResult.invalid();
+    }
+
+    try {
+      final user = await getMeOrNull();
+      if (user != null) {
+        return SessionVerificationResult.authenticated(user);
+      }
+
+      final token = await _storage.getAccessToken().timeout(_storageTimeout);
+      if (token == null || token.isEmpty) {
+        return const SessionVerificationResult.invalid();
+      }
+
+      if (hydrated.user != null) {
+        return SessionVerificationResult.deferred(user: hydrated.user);
+      }
+
+      return const SessionVerificationResult.deferred();
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        await _safeClearTokens();
+        return const SessionVerificationResult.invalid();
+      }
+
+      return SessionVerificationResult.deferred(user: hydrated.user);
+    } on TimeoutException {
+      return SessionVerificationResult.deferred(user: hydrated.user);
+    } catch (_) {
+      return SessionVerificationResult.deferred(user: hydrated.user);
     }
   }
 

@@ -14,7 +14,7 @@ class ApiRoutes {
   static String blockUser(String id) => '/users/$id/block';
   static String unblockUser(String id) => '/users/$id/unblock';
   static const usersUpload = '/users/upload';
-    static const usersMeWorkContractSign = '/users/me/work-contract/sign';
+  static const usersMeWorkContractSign = '/users/me/work-contract/sign';
 
   // Ponche
   static const punch = '/punch';
@@ -55,7 +55,7 @@ class ApiRoutes {
 
   // Productos
   static const products = '/products';
-    static const catalogProducts = '/catalog/products';
+  static const catalogProducts = '/catalog/products';
   static const productsUpload = '/products/upload';
   static String productDetail(String id) => '/products/$id';
   static String updateProduct(String id) => '/products/$id';
@@ -72,8 +72,8 @@ class ApiRoutes {
   static String serviceDetail(String id) => '/services/$id';
   static String serviceStatus(String id) => '/services/$id/status';
   static String serviceOrderState(String id) => '/services/$id/order-state';
-    static String servicePhase(String id) => '/services/$id/phase';
-    static String servicePhases(String id) => '/services/$id/phases';
+  static String servicePhase(String id) => '/services/$id/phase';
+  static String servicePhases(String id) => '/services/$id/phases';
   static String serviceSchedule(String id) => '/services/$id/schedule';
   static String serviceAssign(String id) => '/services/$id/assign';
   static String serviceUpdate(String id) => '/services/$id/update';
@@ -81,20 +81,6 @@ class ApiRoutes {
   static String serviceWarranty(String id) => '/services/$id/warranty';
   static String customerServices(String id) => '/customers/$id/services';
   static const operationsDashboard = '/dashboard/operations';
-
-    // Salidas técnicas (técnico)
-    static const tecnicoVehiculos = '/tecnico/vehiculos';
-    static const tecnicoSalidasAbierta = '/tecnico/salidas-tecnicas/abierta';
-    static const tecnicoSalidasHistorial = '/tecnico/salidas-tecnicas/historial';
-    static const tecnicoSalidasIniciar = '/tecnico/salidas-tecnicas/iniciar';
-    static String tecnicoSalidasLlegada(String id) => '/tecnico/salidas-tecnicas/$id/llegada';
-    static String tecnicoSalidasFinalizar(String id) => '/tecnico/salidas-tecnicas/$id/finalizar';
-    static const tecnicoPagosCombustible = '/tecnico/pagos-combustible-tecnicos';
-
-    // Salidas técnicas (admin)
-    static const adminSalidasTecnicas = '/admin/salidas-tecnicas';
-    static String adminSalidaAprobar(String id) => '/admin/salidas-tecnicas/$id/aprobar';
-    static String adminSalidaRechazar(String id) => '/admin/salidas-tecnicas/$id/rechazar';
 
   // Nómina
   static const payrollPeriods = '/payroll/periods';
@@ -126,37 +112,37 @@ class ApiRoutes {
   static const cotizaciones = '/cotizaciones';
   static String cotizacionDetail(String id) => '/cotizaciones/$id';
 
-    // Horarios (Work Scheduling)
-    static const workSchedulingEmployees = '/work-scheduling/employees';
-    static String workSchedulingEmployee(String id) =>
+  // Horarios (Work Scheduling)
+  static const workSchedulingEmployees = '/work-scheduling/employees';
+  static String workSchedulingEmployee(String id) =>
       '/work-scheduling/employees/$id';
 
-    static const workSchedulingProfiles = '/work-scheduling/profiles';
-    static const workSchedulingProfilesUpsert =
+  static const workSchedulingProfiles = '/work-scheduling/profiles';
+  static const workSchedulingProfilesUpsert =
       '/work-scheduling/profiles/upsert';
 
-    static const workSchedulingCoverageRules = '/work-scheduling/coverage-rules';
-    static const workSchedulingCoverageRulesUpsert =
+  static const workSchedulingCoverageRules = '/work-scheduling/coverage-rules';
+  static const workSchedulingCoverageRulesUpsert =
       '/work-scheduling/coverage-rules/upsert';
 
-    static const workSchedulingExceptions = '/work-scheduling/exceptions';
-    static String workSchedulingException(String id) =>
+  static const workSchedulingExceptions = '/work-scheduling/exceptions';
+  static String workSchedulingException(String id) =>
       '/work-scheduling/exceptions/$id';
-    static String workSchedulingExceptionDelete(String id) =>
+  static String workSchedulingExceptionDelete(String id) =>
       '/work-scheduling/exceptions/$id/delete';
 
-    static const workSchedulingWeeksGenerate = '/work-scheduling/weeks/generate';
-    static String workSchedulingWeek(String weekStartDate) =>
+  static const workSchedulingWeeksGenerate = '/work-scheduling/weeks/generate';
+  static String workSchedulingWeek(String weekStartDate) =>
       '/work-scheduling/weeks/$weekStartDate';
 
-    static const workSchedulingManualMoveDayOff =
+  static const workSchedulingManualMoveDayOff =
       '/work-scheduling/manual/move-day-off';
-    static const workSchedulingManualSwapDayOff =
+  static const workSchedulingManualSwapDayOff =
       '/work-scheduling/manual/swap-day-off';
 
-    static const workSchedulingAudit = '/work-scheduling/audit';
-    static const workSchedulingReportMostChanges =
+  static const workSchedulingAudit = '/work-scheduling/audit';
+  static const workSchedulingReportMostChanges =
       '/work-scheduling/reports/most-changes';
-    static const workSchedulingReportLowCoverage =
+  static const workSchedulingReportLowCoverage =
       '/work-scheduling/reports/low-coverage';
 }

@@ -23,6 +23,31 @@ export class UpdateSettingsDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
+  legalRepresentativeName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  legalRepresentativeCedula?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  legalRepresentativeRole?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  legalRepresentativeNationality?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  legalRepresentativeCivilStatus?: string;
+
+  @IsOptional()
+  @IsString()
   logoBase64?: string;
 
   @IsOptional()
