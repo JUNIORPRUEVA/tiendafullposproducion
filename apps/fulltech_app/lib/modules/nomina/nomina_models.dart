@@ -112,6 +112,7 @@ class PayrollEmployee {
   final String nombre;
   final String? telefono;
   final String? puesto;
+  final double salarioBaseQuincenal;
   final double cuotaMinima;
   final double seguroLeyMonto;
   final bool activo;
@@ -124,6 +125,7 @@ class PayrollEmployee {
     required this.nombre,
     this.telefono,
     this.puesto,
+    this.salarioBaseQuincenal = 0,
     this.cuotaMinima = 0,
     this.seguroLeyMonto = 0,
     this.activo = true,
@@ -137,6 +139,7 @@ class PayrollEmployee {
     String? nombre,
     String? telefono,
     String? puesto,
+    double? salarioBaseQuincenal,
     double? cuotaMinima,
     double? seguroLeyMonto,
     bool? activo,
@@ -151,6 +154,8 @@ class PayrollEmployee {
       nombre: nombre ?? this.nombre,
       telefono: clearTelefono ? null : (telefono ?? this.telefono),
       puesto: clearPuesto ? null : (puesto ?? this.puesto),
+        salarioBaseQuincenal:
+          salarioBaseQuincenal ?? this.salarioBaseQuincenal,
       cuotaMinima: cuotaMinima ?? this.cuotaMinima,
       seguroLeyMonto: seguroLeyMonto ?? this.seguroLeyMonto,
       activo: activo ?? this.activo,
@@ -166,6 +171,8 @@ class PayrollEmployee {
       nombre: (map['nombre'] ?? '').toString(),
       telefono: map['telefono'] as String?,
       puesto: map['puesto'] as String?,
+        salarioBaseQuincenal:
+          (map['salario_base_quincenal'] as num?)?.toDouble() ?? 0,
       cuotaMinima: (map['cuota_minima'] as num?)?.toDouble() ?? 0,
       seguroLeyMonto:
           (map['seguro_ley_monto'] as num?)?.toDouble() ??
@@ -188,6 +195,7 @@ class PayrollEmployee {
       'nombre': nombre,
       'telefono': telefono,
       'puesto': puesto,
+      'salario_base_quincenal': salarioBaseQuincenal,
       'cuota_minima': cuotaMinima,
       'seguro_ley_monto': seguroLeyMonto,
       'seguro_ley_pct': seguroLeyMonto,

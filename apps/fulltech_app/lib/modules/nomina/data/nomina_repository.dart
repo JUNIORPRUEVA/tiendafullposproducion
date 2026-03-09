@@ -101,6 +101,7 @@ class NominaRepository {
       'nombre': employee.nombre,
       'telefono': employee.telefono,
       'puesto': employee.puesto,
+      'salarioBaseQuincenal': employee.salarioBaseQuincenal,
       'cuotaMinima': employee.cuotaMinima,
       'seguroLeyMonto': employee.seguroLeyMonto,
       'activo': employee.activo,

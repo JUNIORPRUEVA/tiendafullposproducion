@@ -837,270 +837,34 @@ class NominaScreen extends ConsumerWidget {
           .employees
           .map((item) => item.id)
           .toSet();
-      selectedUser = await _showUserPickerDialog(
-        context,
-        ref,
-        excludedUserIds: existingUserIds,
+      selectedUser = await showDialog<UserModel>(
+        context: context,
+        builder: (_) => _PayrollUserPickerDialog(
+          excludedUserIds: existingUserIds,
+        ),
       );
+      if (!context.mounted) return;
       if (selectedUser == null) return;
     }
 
-    final nameCtrl = TextEditingController(
-      text: employee?.nombre ?? selectedUser?.nombreCompleto ?? '',
+    final successMessage = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _PayrollEmployeeDialog(
+        employee: employee,
+        selectedUser: selectedUser,
+        traceSeq: flowSeq,
+      ),
     );
-    final phoneCtrl = TextEditingController(
-      text: employee?.telefono ?? selectedUser?.telefono ?? '',
+
+    if (successMessage == null || !scaffoldContext.mounted) return;
+
+    await AppFeedback.showInfo(
+      scaffoldContext,
+      successMessage,
+      fallbackContext: scaffoldContext,
+      scope: 'NominaEmployeeDialog',
     );
-    final roleCtrl = TextEditingController(
-      text: employee?.puesto ?? selectedUser?.role ?? '',
-    );
-    final salaryCtrl = TextEditingController(text: employee == null ? '0' : '');
-    final seguroLeyCtrl = TextEditingController(
-      text: (employee?.seguroLeyMonto ?? 0).toStringAsFixed(2),
-    );
-    final cuotaCtrl = TextEditingController(
-      text: (employee?.cuotaMinima ?? 0).toStringAsFixed(2),
-    );
-    var isSubmitting = false;
-
-    try {
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: !isSubmitting,
-        builder: (dialogContext) => StatefulBuilder(
-          builder: (dialogContext, setDialogState) => AlertDialog(
-            title: Text(
-              employee == null ? 'Agregar empleado' : 'Editar empleado',
-            ),
-            content: AbsorbPointer(
-              absorbing: isSubmitting,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: nameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Nombre completo',
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: phoneCtrl,
-                      decoration: const InputDecoration(labelText: 'Teléfono'),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: roleCtrl,
-                      decoration: const InputDecoration(labelText: 'Puesto'),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: salaryCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Salario base quincenal',
-                        helperText: 'Se aplica a la quincena abierta',
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: cuotaCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Cuota mínima (meta quincenal)',
-                        helperText: 'Meta de ventas quincenal del empleado',
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: seguroLeyCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Seguro de ley (monto)',
-                        helperText: 'Deducción fija por quincena',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: isSubmitting
-                    ? null
-                    : () => Navigator.of(dialogContext).pop(),
-                child: const Text('Cancelar'),
-              ),
-              FilledButton(
-                onPressed: isSubmitting
-                    ? null
-                    : () async {
-                        TraceLog.log(
-                          'NominaEmployeeDialog',
-                          'submit start dialogMounted=${dialogContext.mounted} scaffoldMounted=${scaffoldContext.mounted}',
-                          seq: flowSeq,
-                        );
-
-                        final salaryText = salaryCtrl.text.trim();
-                        final salary = salaryText.isEmpty
-                            ? null
-                            : double.tryParse(salaryText);
-
-                        TraceLog.log(
-                          'NominaEmployeeDialog',
-                          'submit validating salaryRaw="$salaryText" parsedSalary=$salary',
-                          seq: flowSeq,
-                        );
-
-                        if (employee == null && salary == null) {
-                          await AppFeedback.showError(
-                            scaffoldContext,
-                            'El salario base es obligatorio al agregar',
-                            fallbackContext: dialogContext,
-                            scope: 'NominaEmployeeDialog',
-                          );
-                          return;
-                        }
-                        if (salary != null && salary < 0) {
-                          await AppFeedback.showError(
-                            scaffoldContext,
-                            'El salario base debe ser un numero >= 0',
-                            fallbackContext: dialogContext,
-                            scope: 'NominaEmployeeDialog',
-                          );
-                          return;
-                        }
-
-                        final cuota = double.tryParse(cuotaCtrl.text.trim()) ?? -1;
-                        if (cuota < 0) {
-                          await AppFeedback.showError(
-                            scaffoldContext,
-                            'La cuota minima debe ser un numero >= 0',
-                            fallbackContext: dialogContext,
-                            scope: 'NominaEmployeeDialog',
-                          );
-                          return;
-                        }
-
-                        final seguroLey =
-                            double.tryParse(seguroLeyCtrl.text.trim()) ?? -1;
-                        if (seguroLey < 0) {
-                          await AppFeedback.showError(
-                            scaffoldContext,
-                            'El seguro de ley debe ser un monto >= 0',
-                            fallbackContext: dialogContext,
-                            scope: 'NominaEmployeeDialog',
-                          );
-                          return;
-                        }
-
-                        if (employee == null && selectedUser != null) {
-                          final alreadyExists = ref
-                              .read(nominaHomeControllerProvider)
-                              .employees
-                              .any((item) => item.id == selectedUser!.id);
-                          if (alreadyExists) {
-                            await AppFeedback.showError(
-                              scaffoldContext,
-                              'Este usuario ya esta agregado en nomina',
-                              fallbackContext: dialogContext,
-                              scope: 'NominaEmployeeDialog',
-                            );
-                            return;
-                          }
-                        }
-
-                        setDialogState(() => isSubmitting = true);
-                        TraceLog.log(
-                          'NominaEmployeeDialog',
-                          'submit saving id=${employee?.id ?? selectedUser?.id}',
-                          seq: flowSeq,
-                        );
-
-                        try {
-                          await ref
-                              .read(nominaHomeControllerProvider.notifier)
-                              .saveEmployee(
-                                id: employee?.id ?? selectedUser?.id,
-                                nombre: nameCtrl.text,
-                                telefono: phoneCtrl.text,
-                                puesto: roleCtrl.text,
-                                salarioBase: salary,
-                                cuotaMinima: cuota,
-                                seguroLeyMonto: seguroLey,
-                                activo: employee?.activo ?? true,
-                              );
-
-                          TraceLog.log(
-                            'NominaEmployeeDialog',
-                            'submit save ok dialogMounted=${dialogContext.mounted} scaffoldMounted=${scaffoldContext.mounted}',
-                            seq: flowSeq,
-                          );
-
-                          if (dialogContext.mounted) {
-                            Navigator.of(dialogContext).pop();
-                          }
-
-                          await AppFeedback.showInfo(
-                            scaffoldContext,
-                            employee == null
-                                ? 'Empleado agregado'
-                                : 'Empleado actualizado',
-                            fallbackContext: scaffoldContext,
-                            scope: 'NominaEmployeeDialog',
-                          );
-                        } catch (e, st) {
-                          TraceLog.log(
-                            'NominaEmployeeDialog',
-                            'submit save error',
-                            seq: flowSeq,
-                            error: e,
-                            stackTrace: st,
-                          );
-                          await AppFeedback.showError(
-                            scaffoldContext,
-                            'No se pudo guardar: $e',
-                            fallbackContext: dialogContext,
-                            scope: 'NominaEmployeeDialog',
-                          );
-                        } finally {
-                          TraceLog.log(
-                            'NominaEmployeeDialog',
-                            'submit finish dialogMounted=${dialogContext.mounted}',
-                            seq: flowSeq,
-                          );
-                          if (dialogContext.mounted) {
-                            setDialogState(() => isSubmitting = false);
-                          }
-                        }
-                      },
-                child: isSubmitting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Guardar'),
-              ),
-            ],
-          ),
-        ),
-      );
-    } finally {
-      nameCtrl.dispose();
-      phoneCtrl.dispose();
-      roleCtrl.dispose();
-      salaryCtrl.dispose();
-      seguroLeyCtrl.dispose();
-      cuotaCtrl.dispose();
-    }
   }
 
   Future<void> _showEmployeePayrollDialog(
@@ -1164,7 +928,7 @@ class NominaScreen extends ConsumerWidget {
                     Text('Quincena: ${open.title}'),
                     const SizedBox(height: 6),
                     Text(
-                      'Salario base: ${money.format(config?.baseSalary ?? 0)}',
+                      'Salario base: ${money.format(config?.baseSalary ?? employee.salarioBaseQuincenal)}',
                     ),
                     Text(
                       'Comisión por ventas (auto): ${money.format(totals.salesCommissionAuto)}',
@@ -1288,7 +1052,9 @@ class NominaScreen extends ConsumerWidget {
 
                               if (selectedType == PayrollEntryType.ausencia &&
                                   parsedAmount == null) {
-                                final daily = (config?.baseSalary ?? 0) / 15;
+                                final daily =
+                                  (config?.baseSalary ?? employee.salarioBaseQuincenal) /
+                                  15;
                                 amount = -(daily * qty);
                               } else {
                                 if (parsedAmount == null) {
@@ -1457,112 +1223,6 @@ class NominaScreen extends ConsumerWidget {
     final rows = await _loadOpenPeriodRows(ref, state);
     final bytes = await _buildOpenPeriodPayrollPdfBytes(open, rows);
     await Printing.layoutPdf(onLayout: (_) => bytes);
-  }
-
-  Future<UserModel?> _showUserPickerDialog(
-    BuildContext context,
-    WidgetRef ref, {
-    Set<String> excludedUserIds = const {},
-  }) async {
-    final searchCtrl = TextEditingController();
-    List<UserModel> users = const [];
-
-    try {
-      users = await ref.read(usersRepositoryProvider).fetchUsers();
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudieron cargar usuarios: $e')),
-        );
-      }
-      return null;
-    }
-
-    UserModel? selected;
-
-    return showDialog<UserModel>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          final query = searchCtrl.text.trim().toLowerCase();
-          final visible = users.where((u) {
-            if (excludedUserIds.contains(u.id)) return false;
-            if (query.isEmpty) return true;
-            return u.nombreCompleto.toLowerCase().contains(query) ||
-                u.email.toLowerCase().contains(query) ||
-                u.telefono.toLowerCase().contains(query);
-          }).toList();
-
-          return AlertDialog(
-            title: const Text('Seleccionar usuario'),
-            content: SizedBox(
-              width: 440,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: searchCtrl,
-                    onChanged: (_) => setDialogState(() {}),
-                    decoration: const InputDecoration(
-                      hintText: 'Buscar usuario...',
-                      prefixIcon: Icon(Icons.search),
-                      isDense: true,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  SizedBox(
-                    height: 300,
-                    child: visible.isEmpty
-                        ? const Center(
-                            child: Text('No hay usuarios para mostrar'),
-                          )
-                        : ListView.separated(
-                            itemCount: visible.length,
-                            separatorBuilder: (_, __) =>
-                                const Divider(height: 1),
-                            itemBuilder: (context, index) {
-                              final user = visible[index];
-                              return RadioListTile<String>(
-                                value: user.id,
-                                groupValue: selected?.id,
-                                dense: true,
-                                title: Text(
-                                  user.nombreCompleto,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                subtitle: Text(
-                                  user.telefono.isEmpty
-                                      ? user.email
-                                      : '${user.telefono} · ${user.email}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                onChanged: (_) =>
-                                    setDialogState(() => selected = user),
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancelar'),
-              ),
-              FilledButton(
-                onPressed: selected == null
-                    ? null
-                    : () => Navigator.pop(context, selected),
-                child: const Text('Seleccionar'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
   }
 
   Future<void> _showCreatePeriodDialog(
@@ -1769,6 +1429,406 @@ class NominaScreen extends ConsumerWidget {
   }
 }
 
+class _PayrollEmployeeDialog extends ConsumerStatefulWidget {
+  const _PayrollEmployeeDialog({
+    required this.employee,
+    required this.selectedUser,
+    required this.traceSeq,
+  });
+
+  final PayrollEmployee? employee;
+  final UserModel? selectedUser;
+  final int traceSeq;
+
+  @override
+  ConsumerState<_PayrollEmployeeDialog> createState() =>
+      _PayrollEmployeeDialogState();
+}
+
+class _PayrollEmployeeDialogState
+    extends ConsumerState<_PayrollEmployeeDialog> {
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _phoneCtrl;
+  late final TextEditingController _roleCtrl;
+  late final TextEditingController _salaryCtrl;
+  late final TextEditingController _seguroLeyCtrl;
+  late final TextEditingController _cuotaCtrl;
+
+  bool _isSubmitting = false;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(
+      text:
+          widget.employee?.nombre ?? widget.selectedUser?.nombreCompleto ?? '',
+    );
+    _phoneCtrl = TextEditingController(
+      text: widget.employee?.telefono ?? widget.selectedUser?.telefono ?? '',
+    );
+    _roleCtrl = TextEditingController(
+      text: widget.employee?.puesto ?? widget.selectedUser?.role ?? '',
+    );
+    _salaryCtrl = TextEditingController(
+      text: widget.employee == null
+          ? '0'
+          : widget.employee!.salarioBaseQuincenal > 0
+          ? widget.employee!.salarioBaseQuincenal.toStringAsFixed(2)
+          : '',
+    );
+    _seguroLeyCtrl = TextEditingController(
+      text: (widget.employee?.seguroLeyMonto ?? 0).toStringAsFixed(2),
+    );
+    _cuotaCtrl = TextEditingController(
+      text: (widget.employee?.cuotaMinima ?? 0).toStringAsFixed(2),
+    );
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _phoneCtrl.dispose();
+    _roleCtrl.dispose();
+    _salaryCtrl.dispose();
+    _seguroLeyCtrl.dispose();
+    _cuotaCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_isSubmitting) return;
+
+    TraceLog.log(
+      'NominaEmployeeDialog',
+      'submit start mounted=$mounted',
+      seq: widget.traceSeq,
+    );
+
+    final salaryText = _salaryCtrl.text.trim();
+    final salary = salaryText.isEmpty ? null : double.tryParse(salaryText);
+    final cuota = double.tryParse(_cuotaCtrl.text.trim()) ?? -1;
+    final seguroLey = double.tryParse(_seguroLeyCtrl.text.trim()) ?? -1;
+
+    String? validationError;
+    if (widget.employee == null && salary == null) {
+      validationError = 'El salario base es obligatorio al agregar';
+    } else if (salary != null && salary < 0) {
+      validationError = 'El salario base debe ser un numero >= 0';
+    } else if (cuota < 0) {
+      validationError = 'La cuota minima debe ser un numero >= 0';
+    } else if (seguroLey < 0) {
+      validationError = 'El seguro de ley debe ser un monto >= 0';
+    } else if (widget.employee == null && widget.selectedUser != null) {
+      final alreadyExists = ref
+          .read(nominaHomeControllerProvider)
+          .employees
+          .any((item) => item.id == widget.selectedUser!.id);
+      if (alreadyExists) {
+        validationError = 'Este usuario ya esta agregado en nomina';
+      }
+    }
+
+    if (validationError != null) {
+      if (!mounted) return;
+      setState(() => _errorText = validationError);
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _isSubmitting = true;
+      _errorText = null;
+    });
+
+    try {
+      await ref.read(nominaHomeControllerProvider.notifier).saveEmployee(
+            id: widget.employee?.id ?? widget.selectedUser?.id,
+            nombre: _nameCtrl.text,
+            telefono: _phoneCtrl.text,
+            puesto: _roleCtrl.text,
+            salarioBase: salary,
+            cuotaMinima: cuota,
+            seguroLeyMonto: seguroLey,
+            activo: widget.employee?.activo ?? true,
+          );
+
+      TraceLog.log(
+        'NominaEmployeeDialog',
+        'submit save ok mounted=$mounted',
+        seq: widget.traceSeq,
+      );
+
+      if (!mounted) return;
+      Navigator.of(context).pop(
+        widget.employee == null ? 'Empleado agregado' : 'Empleado actualizado',
+      );
+    } catch (e, st) {
+      TraceLog.log(
+        'NominaEmployeeDialog',
+        'submit save error',
+        seq: widget.traceSeq,
+        error: e,
+        stackTrace: st,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _isSubmitting = false;
+        _errorText = 'No se pudo guardar: $e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !_isSubmitting,
+      child: AlertDialog(
+        title: Text(
+          widget.employee == null ? 'Agregar empleado' : 'Editar empleado',
+        ),
+        content: SizedBox(
+          width: 420,
+          child: ListView(
+            shrinkWrap: true,
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              if (_errorText != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    _errorText!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+              TextField(
+                controller: _nameCtrl,
+                enabled: !_isSubmitting,
+                decoration: const InputDecoration(labelText: 'Nombre completo'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _phoneCtrl,
+                enabled: !_isSubmitting,
+                decoration: const InputDecoration(labelText: 'Teléfono'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _roleCtrl,
+                enabled: !_isSubmitting,
+                decoration: const InputDecoration(labelText: 'Puesto'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _salaryCtrl,
+                enabled: !_isSubmitting,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Salario base quincenal',
+                  helperText: 'Se aplica a la quincena abierta',
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _cuotaCtrl,
+                enabled: !_isSubmitting,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Cuota mínima (meta quincenal)',
+                  helperText: 'Meta de ventas quincenal del empleado',
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _seguroLeyCtrl,
+                enabled: !_isSubmitting,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Seguro de ley (monto)',
+                  helperText: 'Deducción fija por quincena',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: _isSubmitting ? null : _submit,
+            child: _isSubmitting
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PayrollUserPickerDialog extends ConsumerStatefulWidget {
+  const _PayrollUserPickerDialog({required this.excludedUserIds});
+
+  final Set<String> excludedUserIds;
+
+  @override
+  ConsumerState<_PayrollUserPickerDialog> createState() =>
+      _PayrollUserPickerDialogState();
+}
+
+class _PayrollUserPickerDialogState
+    extends ConsumerState<_PayrollUserPickerDialog> {
+  final TextEditingController _searchCtrl = TextEditingController();
+  List<UserModel> _users = const [];
+  UserModel? _selected;
+  bool _loading = true;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUsers();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadUsers() async {
+    try {
+      final users = await ref.read(usersRepositoryProvider).fetchUsers();
+      if (!mounted) return;
+      setState(() {
+        _users = users;
+        _loading = false;
+        _errorText = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _errorText = 'No se pudieron cargar usuarios: $e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _searchCtrl.text.trim().toLowerCase();
+    final visible = _users.where((user) {
+      if (widget.excludedUserIds.contains(user.id)) return false;
+      if (query.isEmpty) return true;
+      return user.nombreCompleto.toLowerCase().contains(query) ||
+          user.email.toLowerCase().contains(query) ||
+          user.telefono.toLowerCase().contains(query);
+    }).toList();
+
+    return AlertDialog(
+      title: const Text('Seleccionar usuario'),
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _searchCtrl,
+              onChanged: (_) {
+                if (!mounted) return;
+                setState(() {});
+              },
+              decoration: const InputDecoration(
+                hintText: 'Buscar usuario...',
+                prefixIcon: Icon(Icons.search),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 10),
+            if (_errorText != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Text(
+                  _errorText!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            SizedBox(
+              height: 300,
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : visible.isEmpty
+                      ? const Center(child: Text('No hay usuarios para mostrar'))
+                      : ListView.separated(
+                          itemCount: visible.length,
+                          separatorBuilder: (_, __) =>
+                              const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final user = visible[index];
+                            return RadioListTile<String>(
+                              value: user.id,
+                              groupValue: _selected?.id,
+                              dense: true,
+                              title: Text(
+                                user.nombreCompleto,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                user.telefono.isEmpty
+                                    ? user.email
+                                    : '${user.telefono} · ${user.email}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              onChanged: (_) {
+                                if (!mounted) return;
+                                setState(() => _selected = user);
+                              },
+                            );
+                          },
+                        ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: _selected == null
+              ? null
+              : () => Navigator.pop(context, _selected),
+          child: const Text('Seleccionar'),
+        ),
+      ],
+    );
+  }
+}
+
 class _NominaSummaryCard extends StatelessWidget {
   const _NominaSummaryCard({required this.state});
 
@@ -1869,6 +1929,7 @@ class _EmployeeCard extends StatelessWidget {
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         subtitle: Text(
+          'Salario base: ${money.format(employee.salarioBaseQuincenal)}\n'
           'Puesto: ${employee.puesto ?? 'N/A'}\n'
           'Cuota mínima: ${money.format(employee.cuotaMinima)} · Seguro ley: ${money.format(employee.seguroLeyMonto)}',
         ),

@@ -21,6 +21,12 @@ export class UpsertPayrollEmployeeDto {
   @Type(() => Number)
   @IsNumber()
   @Min(0)
+  salarioBaseQuincenal?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
   cuotaMinima?: number;
 
   @IsOptional()

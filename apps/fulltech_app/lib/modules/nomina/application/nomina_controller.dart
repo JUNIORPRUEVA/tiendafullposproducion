@@ -166,6 +166,7 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
       nombre: trimmedName,
       telefono: (telefono ?? '').trim().isEmpty ? null : telefono!.trim(),
       puesto: (puesto ?? '').trim().isEmpty ? null : puesto!.trim(),
+      salarioBaseQuincenal: salarioBase ?? existing?.salarioBaseQuincenal ?? 0,
       cuotaMinima: cuotaMinima,
       seguroLeyMonto: seguroLeyMonto,
       activo: activo,

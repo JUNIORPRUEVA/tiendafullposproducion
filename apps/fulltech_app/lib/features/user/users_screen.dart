@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api/env.dart';
 import '../../core/auth/auth_provider.dart';
-import '../../core/company/company_settings_repository.dart';
 import '../../core/models/user_model.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/string_utils.dart';
@@ -15,7 +14,6 @@ import '../../core/widgets/custom_app_bar.dart';
 import '../user/application/users_controller.dart';
 import 'utils/cedula_ocr_service.dart';
 import 'utils/work_contract_preview_screen.dart';
-import 'utils/work_contract_pdf_service.dart';
 
 String? _resolveUserDocUrl(String? url) {
   if (url == null || url.isEmpty) return null;
@@ -1110,36 +1108,16 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                         try {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                              content: Text('Generando contrato...'),
+                              content: Text('Abriendo contrato...'),
                             ),
                           );
-                          final settingsRepo = ref.read(
-                            companySettingsRepositoryProvider,
-                          );
-                          final company = await settingsRepo.getSettings();
-                          final bytes = await buildWorkContractPdf(
-                            employee: user,
-                            company: company,
-                          );
-                          final safeName = user.nombreCompleto.trim().isEmpty
-                              ? 'empleado'
-                              : user.nombreCompleto.trim().replaceAll(
-                                  RegExp(r'\s+'),
-                                  '_',
-                                );
-                          final dateFmt = DateFormat('yyyyMMdd');
-                          final fileName =
-                              'contrato_${safeName}_${dateFmt.format(DateTime.now())}.pdf';
-
                           if (!context.mounted) return;
                           final navigator = Navigator.of(context);
                           navigator.pop();
                           await navigator.push(
                             MaterialPageRoute(
-                              builder: (_) => WorkContractPreviewScreen(
-                                bytes: bytes,
-                                fileName: fileName,
-                              ),
+                              builder: (_) =>
+                                  WorkContractPreviewScreen(employee: user),
                             ),
                           );
                         } catch (e) {

@@ -169,6 +169,7 @@ export class PayrollService {
       nombre,
       telefono: dto.telefono?.trim() ? dto.telefono.trim() : null,
       puesto: dto.puesto?.trim() ? dto.puesto.trim() : null,
+      salarioBaseQuincenal: new Prisma.Decimal(dto.salarioBaseQuincenal ?? 0),
       cuotaMinima: new Prisma.Decimal(dto.cuotaMinima ?? 0),
       seguroLeyMonto: new Prisma.Decimal(dto.seguroLeyMonto ?? 0),
       activo: dto.activo ?? true,
@@ -276,7 +277,11 @@ export class PayrollService {
 
     const period = await this.getPeriodById(ownerId, periodId);
 
-    const base = this.toNumber(config?.baseSalary);
+    const base = this.toNumber(
+      config?.baseSalary ??
+        (employee as { salarioBaseQuincenal?: Prisma.Decimal | number | string | null } | null)
+          ?.salarioBaseQuincenal,
+    );
     let manualServiceCommissions = 0;
     let manualSalesCommissions = 0;
     let bonuses = 0;

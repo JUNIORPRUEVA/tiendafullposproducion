@@ -185,6 +185,7 @@ export class PayrollController {
     nombre: string;
     telefono: string | null;
     puesto: string | null;
+    salarioBaseQuincenal: unknown;
     cuotaMinima: unknown;
     seguroLeyMonto: unknown;
     activo: boolean;
@@ -197,6 +198,7 @@ export class PayrollController {
       nombre: employee.nombre,
       telefono: employee.telefono,
       puesto: employee.puesto,
+      salario_base_quincenal: Number(employee.salarioBaseQuincenal ?? 0),
       cuota_minima: Number(employee.cuotaMinima ?? 0),
       seguro_ley_monto: Number(employee.seguroLeyMonto ?? 0),
       activo: employee.activo ? 1 : 0,
