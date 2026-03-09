@@ -1,5 +1,5 @@
 import { Role } from '@prisma/client';
-import { IsArray, IsBoolean, IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsEmail, IsEnum, IsInt, IsObject, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class UpdateUserDto {
   @IsOptional()
@@ -78,6 +78,10 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   workContractWorkLocation?: string;
+
+  @IsOptional()
+  @IsObject()
+  workContractClauseOverrides?: Record<string, string>;
 
   @IsOptional()
   @IsString()

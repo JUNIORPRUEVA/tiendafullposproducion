@@ -9,6 +9,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { BlockUserDto } from './dto/block-user.dto';
 import { SelfUpdateUserDto } from './dto/self-update-user.dto';
 import { SignWorkContractDto } from './dto/sign-work-contract.dto';
+import { AiEditWorkContractDto } from './dto/ai-edit-work-contract.dto';
 import { Request } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -95,6 +96,12 @@ export class UsersController {
   @Roles(Role.ADMIN)
   birthdayGreeting(@Param('id') id: string) {
     return this.users.generateBirthdayGreeting(id);
+  }
+
+  @Post(':id/work-contract/ai-edit')
+  @Roles(Role.ADMIN)
+  aiEditWorkContract(@Param('id') id: string, @Body() dto: AiEditWorkContractDto) {
+    return this.users.applyAiWorkContractEdit(id, dto);
   }
 
   @Get('me')

@@ -204,6 +204,7 @@ model User {
   workContractPaymentMethod String?
   workContractWorkSchedule String?
   workContractWorkLocation String?
+  workContractClauseOverrides Json?
   workContractCustomClauses String?
   workContractStartDate    DateTime?
   edad             Int

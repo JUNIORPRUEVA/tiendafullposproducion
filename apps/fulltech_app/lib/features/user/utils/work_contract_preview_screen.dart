@@ -28,6 +28,7 @@ class _WorkContractPreviewScreenState
   late UserModel _employee;
   late Future<_ContractPreviewData> _pdfFuture;
   bool _saving = false;
+  bool _aiEditing = false;
 
   @override
   void initState() {
@@ -36,13 +37,22 @@ class _WorkContractPreviewScreenState
     _pdfFuture = _buildPdf(_employee);
   }
 
-  Future<_ContractPreviewData> _buildPdf(UserModel employee) async {
+  Future<_ContractBuildContext> _buildContractContext(UserModel employee) async {
     final company = await ref
         .read(companySettingsRepositoryProvider)
         .getSettings();
     final payrollSnapshot = await _resolvePayrollSnapshot(employee);
-
-    final bytes = await buildWorkContractPdf(
+    final fields = resolveWorkContractFields(
+      employee: employee,
+      company: company,
+      salario: payrollSnapshot.salaryFormatted,
+      moneda: 'DOP',
+      periodicidadPago: payrollSnapshot.paymentFrequency,
+      metodoPago: payrollSnapshot.paymentMethod,
+      puesto: payrollSnapshot.position,
+      fechaInicio: employee.workContractStartDate ?? employee.fechaIngreso,
+    );
+    final clauses = buildWorkContractClauses(
       employee: employee,
       company: company,
       salario: payrollSnapshot.salaryFormatted,
@@ -53,13 +63,39 @@ class _WorkContractPreviewScreenState
       fechaInicio: employee.workContractStartDate ?? employee.fechaIngreso,
     );
 
+    return _ContractBuildContext(
+      company: company,
+      payrollSnapshot: payrollSnapshot,
+      fields: fields,
+      clauses: clauses,
+    );
+  }
+
+  Future<_ContractPreviewData> _buildPdf(UserModel employee) async {
+    final contractContext = await _buildContractContext(employee);
+
+    final bytes = await buildWorkContractPdf(
+      employee: employee,
+      company: contractContext.company,
+      salario: contractContext.payrollSnapshot.salaryFormatted,
+      moneda: 'DOP',
+      periodicidadPago: contractContext.payrollSnapshot.paymentFrequency,
+      metodoPago: contractContext.payrollSnapshot.paymentMethod,
+      puesto: contractContext.payrollSnapshot.position,
+      fechaInicio: employee.workContractStartDate ?? employee.fechaIngreso,
+    );
+
     final safeName = employee.nombreCompleto.trim().isEmpty
         ? 'empleado'
         : employee.nombreCompleto.trim().replaceAll(RegExp(r'\s+'), '_');
     final fileName =
         'contrato_${safeName}_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf';
 
-    return _ContractPreviewData(bytes: bytes, fileName: fileName);
+    return _ContractPreviewData(
+      bytes: bytes,
+      fileName: fileName,
+      contractContext: contractContext,
+    );
   }
 
   Future<_PayrollContractSnapshot> _resolvePayrollSnapshot(
@@ -288,6 +324,30 @@ class _WorkContractPreviewScreenState
                       labelText: 'Cláusulas especiales',
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  FutureBuilder<_ContractBuildContext>(
+                    future: _buildContractContext(_employee),
+                    builder: (context, snapshot) {
+                      final clauses = snapshot.data?.clauses ?? const <WorkContractClause>[];
+                      return ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        childrenPadding: EdgeInsets.zero,
+                        title: Text('Cláusulas actuales (${clauses.length})'),
+                        subtitle: const Text(
+                          'Vista previa de las cláusulas que usa el contrato',
+                        ),
+                        children: clauses
+                            .map(
+                              (clause) => ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: Text('${clause.label} ${clause.title}'),
+                                subtitle: Text(clause.text),
+                              ),
+                            )
+                            .toList(),
+                      );
+                    },
+                  ),
                 ],
               ),
             ),
@@ -364,8 +424,13 @@ class _WorkContractPreviewScreenState
         title: Text('Contrato · ${_employee.nombreCompleto}'),
         actions: [
           IconButton(
+            tooltip: 'Editar con IA',
+            onPressed: _saving || _aiEditing ? null : _openAiEditDialog,
+            icon: const Icon(Icons.auto_awesome_outlined),
+          ),
+          IconButton(
             tooltip: 'Editar contrato',
-            onPressed: _saving ? null : _openEditDialog,
+            onPressed: _saving || _aiEditing ? null : _openEditDialog,
             icon: const Icon(Icons.edit_outlined),
           ),
           IconButton(
@@ -401,13 +466,195 @@ class _WorkContractPreviewScreenState
       ),
     );
   }
+
+  Future<void> _openAiEditDialog() async {
+    final previewContext = await _buildContractContext(_employee);
+    if (!mounted) return;
+
+    final instructionCtrl = TextEditingController();
+    final messenger = ScaffoldMessenger.of(context);
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        bool submitting = false;
+        String? errorText;
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Editar contrato con IA'),
+            content: SizedBox(
+              width: 620,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Describe en un solo párrafo qué quieres cambiar y la IA ajustará los campos y cláusulas correspondientes.',
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: instructionCtrl,
+                      maxLines: 6,
+                      decoration: const InputDecoration(
+                        labelText: 'Instrucción',
+                        hintText:
+                            'Ej: cambia la jornada a lunes a viernes de 8am a 5pm, agrega confidencialidad reforzada y deja el pago quincenal por transferencia.',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    if (errorText != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        errorText!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: EdgeInsets.zero,
+                      title: Text(
+                        'Ver cláusulas actuales (${previewContext.clauses.length})',
+                      ),
+                      subtitle: const Text(
+                        'La IA trabajará sobre estas cláusulas y campos actuales',
+                      ),
+                      children: [
+                        ...previewContext.clauses.map(
+                          (clause) => ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text('${clause.label} ${clause.title}'),
+                            subtitle: Text(clause.text),
+                          ),
+                        ),
+                        if (previewContext.fields.additionalClauses.isNotEmpty)
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('DECIMO SEGUNDO: Cláusulas Especiales'),
+                            subtitle: Text(
+                              previewContext.fields.additionalClauses,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: submitting ? null : () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: submitting
+                    ? null
+                    : () async {
+                        final instruction = instructionCtrl.text.trim();
+                        if (instruction.length < 10) {
+                          setDialogState(
+                            () => errorText =
+                                'Describe con más detalle el cambio que deseas.',
+                          );
+                          return;
+                        }
+
+                        setDialogState(() {
+                          submitting = true;
+                          errorText = null;
+                        });
+                        setState(() => _aiEditing = true);
+
+                        try {
+                          final result = await ref
+                              .read(usersRepositoryProvider)
+                              .applyAiWorkContractEdit(
+                                userId: _employee.id,
+                                instruction: instruction,
+                                currentFields: previewContext.fields.toApiPayload(
+                                  _employee,
+                                ),
+                                currentClauses: previewContext.clauses
+                                    .map(
+                                      (clause) => {
+                                        'key': clause.key,
+                                        'label': clause.label,
+                                        'title': clause.title,
+                                        'text': clause.text,
+                                      },
+                                    )
+                                    .toList(growable: false),
+                              );
+                          await ref
+                              .read(usersControllerProvider.notifier)
+                              .refresh();
+
+                          if (!mounted) return;
+                          setState(() {
+                            _employee = result.user;
+                            _pdfFuture = _buildPdf(result.user);
+                          });
+                          if (!dialogContext.mounted) return;
+                          Navigator.of(dialogContext).pop();
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                result.summary.trim().isEmpty
+                                    ? 'Contrato actualizado con IA'
+                                    : result.summary,
+                              ),
+                            ),
+                          );
+                        } catch (e) {
+                          if (!mounted) return;
+                          setDialogState(
+                            () => errorText = 'No se pudo aplicar la IA: $e',
+                          );
+                        } finally {
+                          if (mounted) setState(() => _aiEditing = false);
+                          if (dialogContext.mounted) {
+                            setDialogState(() => submitting = false);
+                          }
+                        }
+                      },
+                child: Text(submitting ? 'Aplicando...' : 'Aplicar con IA'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _ContractPreviewData {
   final Uint8List bytes;
   final String fileName;
+  final _ContractBuildContext contractContext;
 
-  const _ContractPreviewData({required this.bytes, required this.fileName});
+  const _ContractPreviewData({
+    required this.bytes,
+    required this.fileName,
+    required this.contractContext,
+  });
+}
+
+class _ContractBuildContext {
+  final dynamic company;
+  final _PayrollContractSnapshot payrollSnapshot;
+  final WorkContractResolvedFields fields;
+  final List<WorkContractClause> clauses;
+
+  const _ContractBuildContext({
+    required this.company,
+    required this.payrollSnapshot,
+    required this.fields,
+    required this.clauses,
+  });
 }
 
 class _PayrollContractSnapshot {

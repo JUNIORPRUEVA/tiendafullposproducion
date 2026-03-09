@@ -102,6 +102,23 @@ class UsersRepository {
     return UserModel.fromJson(res.data as Map<String, dynamic>);
   }
 
+  Future<WorkContractAiEditResult> applyAiWorkContractEdit({
+    required String userId,
+    required String instruction,
+    required Map<String, dynamic> currentFields,
+    required List<Map<String, dynamic>> currentClauses,
+  }) async {
+    final res = await _dio.post(
+      ApiRoutes.userWorkContractAiEdit(userId),
+      data: {
+        'instruction': instruction,
+        'currentFields': currentFields,
+        'currentClauses': currentClauses,
+      },
+    );
+    return WorkContractAiEditResult.fromJson(res.data as Map<String, dynamic>);
+  }
+
   Future<String> uploadUserDocument({
     required List<int> bytes,
     required String fileName,
@@ -124,5 +141,28 @@ class UsersRepository {
     final res = await _dio.post(ApiRoutes.usersUpload, data: formData);
     final data = res.data as Map<String, dynamic>;
     return (data['url'] ?? data['path'] ?? '') as String;
+  }
+}
+
+class WorkContractAiEditResult {
+  final UserModel user;
+  final String summary;
+  final String source;
+  final String? selectedModel;
+
+  const WorkContractAiEditResult({
+    required this.user,
+    required this.summary,
+    required this.source,
+    this.selectedModel,
+  });
+
+  factory WorkContractAiEditResult.fromJson(Map<String, dynamic> json) {
+    return WorkContractAiEditResult(
+      user: UserModel.fromJson(json['user'] as Map<String, dynamic>),
+      summary: (json['summary'] ?? '').toString(),
+      source: (json['source'] ?? '').toString(),
+      selectedModel: json['selectedModel']?.toString(),
+    );
   }
 }

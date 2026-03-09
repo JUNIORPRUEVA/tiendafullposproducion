@@ -19,6 +19,7 @@ class UserModel {
   final String? workContractPaymentMethod;
   final String? workContractWorkSchedule;
   final String? workContractWorkLocation;
+  final Map<String, String> workContractClauseOverrides;
   final String? workContractCustomClauses;
   final DateTime? workContractStartDate;
   final String? experienciaLaboral;
@@ -55,6 +56,7 @@ class UserModel {
     this.workContractPaymentMethod,
     this.workContractWorkSchedule,
     this.workContractWorkLocation,
+    this.workContractClauseOverrides = const {},
     this.workContractCustomClauses,
     this.workContractStartDate,
     this.experienciaLaboral,
@@ -86,6 +88,22 @@ class UserModel {
               .where((e) => e.isNotEmpty)
               .toList(growable: false)
         : const <String>[];
+    final clauseOverridesRaw = json['workContractClauseOverrides'];
+    final clauseOverrides = clauseOverridesRaw is Map
+        ? clauseOverridesRaw.entries
+              .where((entry) => entry.key is String && entry.value is String)
+              .map(
+                (entry) => MapEntry(
+                  entry.key as String,
+                  (entry.value as String).trim(),
+                ),
+              )
+              .where((entry) => entry.key.trim().isNotEmpty && entry.value.isNotEmpty)
+              .fold<Map<String, String>>(<String, String>{}, (map, entry) {
+                  map[entry.key.trim()] = entry.value;
+                  return map;
+                })
+        : <String, String>{};
 
     return UserModel(
       id: json['id'] ?? '',
@@ -108,6 +126,7 @@ class UserModel {
       workContractPaymentMethod: json['workContractPaymentMethod'],
       workContractWorkSchedule: json['workContractWorkSchedule'],
       workContractWorkLocation: json['workContractWorkLocation'],
+      workContractClauseOverrides: clauseOverrides,
       workContractCustomClauses: json['workContractCustomClauses'],
       workContractStartDate: json['workContractStartDate'] != null
           ? DateTime.tryParse(json['workContractStartDate'])
@@ -168,6 +187,7 @@ class UserModel {
       'workContractPaymentMethod': workContractPaymentMethod,
       'workContractWorkSchedule': workContractWorkSchedule,
       'workContractWorkLocation': workContractWorkLocation,
+      'workContractClauseOverrides': workContractClauseOverrides,
       'workContractCustomClauses': workContractCustomClauses,
       'workContractStartDate': workContractStartDate?.toIso8601String(),
       'experienciaLaboral': experienciaLaboral,

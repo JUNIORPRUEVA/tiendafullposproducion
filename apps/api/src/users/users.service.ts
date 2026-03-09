@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { CreateUserDto } from './dto/create-user.dto';
 import { SignWorkContractDto } from './dto/sign-work-contract.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { AiEditWorkContractDto } from './dto/ai-edit-work-contract.dto';
 import * as bcrypt from 'bcryptjs';
 import { SelfUpdateUserDto } from './dto/self-update-user.dto';
 import { ConfigService } from '@nestjs/config';
@@ -49,6 +50,145 @@ export class UsersService {
       : ((appConfig?.openAiModel ?? '').trim() || 'gpt-4o-mini');
     const companyName = (appConfig?.companyName ?? '').trim();
     return { apiKey, model, companyName };
+  }
+
+  private getOpenAiModelCandidates(preferredModel: string) {
+    const autoCandidatesEnv = (process.env.OPENAI_MODEL_CANDIDATES ?? '').trim();
+    const autoCandidates = autoCandidatesEnv.length > 0
+      ? autoCandidatesEnv
+          .split(',')
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0)
+      : ['gpt-5', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini'];
+
+    return [preferredModel, ...autoCandidates].filter(
+      (value, index, list) => value.length > 0 && list.indexOf(value) === index,
+    );
+  }
+
+  private extractJsonObject(raw: string) {
+    const trimmed = raw.trim();
+    const fenced = trimmed.startsWith('```')
+      ? trimmed.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim()
+      : trimmed;
+    const firstBrace = fenced.indexOf('{');
+    const lastBrace = fenced.lastIndexOf('}');
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      return fenced.slice(firstBrace, lastBrace + 1);
+    }
+    return fenced;
+  }
+
+  private normalizeStringMap(value: unknown) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return {} as Record<string, string>;
+    }
+
+    const entries = Object.entries(value as Record<string, unknown>)
+      .map(([key, raw]) => [key.trim(), this.normalizeOptionalString(raw)] as const)
+      .filter(([key, raw]) => key.length > 0 && raw);
+
+    return Object.fromEntries(entries) as Record<string, string>;
+  }
+
+  private normalizeNullableStringMap(value: unknown) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return {} as Record<string, string | null>;
+    }
+
+    const output: Record<string, string | null> = {};
+    for (const [rawKey, rawValue] of Object.entries(value as Record<string, unknown>)) {
+      const key = rawKey.trim();
+      if (!key) continue;
+      if (rawValue === null) {
+        output[key] = null;
+        continue;
+      }
+      const cleaned = this.normalizeOptionalString(rawValue);
+      if (cleaned) {
+        output[key] = cleaned;
+      }
+    }
+    return output;
+  }
+
+  private parseAiFieldUpdates(value: unknown) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return {} as Record<string, unknown>;
+    }
+    return value as Record<string, unknown>;
+  }
+
+  private async requestOpenAiContractEdit(dto: AiEditWorkContractDto) {
+    const { apiKey, model, companyName } = await this.getOpenAiRuntimeConfig();
+    if (!apiKey) {
+      throw new BadRequestException('Configura la API key de OpenAI en Ajustes > Configuración de API.');
+    }
+
+    const modelCandidates = this.getOpenAiModelCandidates(model);
+    const prompt = JSON.stringify({
+      companyName: companyName || 'FULLTECH',
+      instruction: dto.instruction,
+      currentFields: dto.currentFields ?? {},
+      currentClauses: dto.currentClauses,
+    });
+
+    for (const candidate of modelCandidates) {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: candidate,
+          temperature: 0.2,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Eres un asistente legal administrativo que ajusta contratos laborales dominicanos. Responde solo JSON válido. No inventes identidades, montos o datos no presentes. Mantén lenguaje formal. Usa fieldUpdates para cambios de campos contractuales y clauseOverrides para reemplazar el texto completo de cláusulas existentes por su key. Si se pide volver al texto base de una cláusula, usa null en esa key. Si se pide eliminar cláusulas especiales o una fecha contractual, usa null en fieldUpdates. No agregues claves fuera de summary, fieldUpdates y clauseOverrides.',
+            },
+            {
+              role: 'user',
+              content:
+                `${prompt}\n\nDevuelve exactamente este JSON: {"summary":"...","fieldUpdates":{"workContractJobTitle":string|null,"workContractSalary":string|null,"workContractPaymentFrequency":string|null,"workContractPaymentMethod":string|null,"workContractWorkSchedule":string|null,"workContractWorkLocation":string|null,"workContractCustomClauses":string|null,"workContractStartDate":"YYYY-MM-DD"|null},"clauseOverrides":{"clave":string|null}}. Omite en fieldUpdates lo que no cambie. En clauseOverrides usa solo keys existentes en currentClauses.`,
+            },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        continue;
+      }
+
+      const payload = (await response.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
+      const content = payload.choices?.[0]?.message?.content?.trim();
+      if (!content) {
+        continue;
+      }
+
+      try {
+        const parsed = JSON.parse(this.extractJsonObject(content)) as {
+          summary?: unknown;
+          fieldUpdates?: unknown;
+          clauseOverrides?: unknown;
+        };
+
+        return {
+          selectedModel: candidate,
+          summary: this.normalizeOptionalString(parsed.summary) ?? 'Contrato actualizado con IA.',
+          fieldUpdates: this.parseAiFieldUpdates(parsed.fieldUpdates),
+          clauseOverrides: this.normalizeNullableStringMap(parsed.clauseOverrides),
+        };
+      } catch {
+        continue;
+      }
+    }
+
+    throw new BadRequestException('No se pudo generar una respuesta válida desde OpenAI para este contrato.');
   }
 
   private isBirthdayToday(birthDate: Date) {
@@ -192,6 +332,7 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
       workContractPaymentMethod: row.workContractPaymentMethod ?? null,
       workContractWorkSchedule: row.workContractWorkSchedule ?? null,
       workContractWorkLocation: row.workContractWorkLocation ?? null,
+      workContractClauseOverrides: row.workContractClauseOverrides ?? null,
       workContractCustomClauses: row.workContractCustomClauses ?? null,
       workContractStartDate: row.workContractStartDate ?? null,
       edad: row.edad ?? 0,
@@ -232,6 +373,7 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         "workContractPaymentMethod",
         "workContractWorkSchedule",
         "workContractWorkLocation",
+        "workContractClauseOverrides",
         "workContractCustomClauses",
         "workContractStartDate",
         COALESCE(edad, 0) AS edad,
@@ -270,6 +412,15 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         "workContractSignatureUrl",
         "workContractSignedAt",
         "workContractVersion",
+        "workContractJobTitle",
+        "workContractSalary",
+        "workContractPaymentFrequency",
+        "workContractPaymentMethod",
+        "workContractWorkSchedule",
+        "workContractWorkLocation",
+        "workContractClauseOverrides",
+        "workContractCustomClauses",
+        "workContractStartDate",
         COALESCE(edad, 0) AS edad,
         COALESCE("tieneHijos", false) AS "tieneHijos",
         COALESCE("estaCasado", false) AS "estaCasado",
@@ -314,6 +465,15 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
       workContractSignatureUrl: null,
       workContractSignedAt: null,
       workContractVersion: null,
+      workContractJobTitle: null,
+      workContractSalary: null,
+      workContractPaymentFrequency: null,
+      workContractPaymentMethod: null,
+      workContractWorkSchedule: null,
+      workContractWorkLocation: null,
+      workContractClauseOverrides: null,
+      workContractCustomClauses: null,
+      workContractStartDate: null,
       edad: null,
       tieneHijos: false,
       estaCasado: false,
@@ -356,6 +516,7 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
           workContractPaymentMethod: true,
           workContractWorkSchedule: true,
           workContractWorkLocation: true,
+          workContractClauseOverrides: true,
           workContractCustomClauses: true,
           workContractStartDate: true,
           edad: true,
@@ -426,6 +587,10 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         workContractPaymentMethod: this.normalizeOptionalString(dto.workContractPaymentMethod),
         workContractWorkSchedule: this.normalizeOptionalString(dto.workContractWorkSchedule),
         workContractWorkLocation: this.normalizeOptionalString(dto.workContractWorkLocation),
+        workContractClauseOverrides: (() => {
+          const cleaned = this.normalizeStringMap(dto.workContractClauseOverrides);
+          return Object.keys(cleaned).length > 0 ? cleaned : undefined;
+        })(),
         workContractCustomClauses: this.normalizeOptionalString(dto.workContractCustomClauses),
         workContractStartDate: dto.workContractStartDate ? new Date(dto.workContractStartDate) : undefined,
         edad: dto.edad,
@@ -460,6 +625,7 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         workContractPaymentMethod: true,
         workContractWorkSchedule: true,
         workContractWorkLocation: true,
+        workContractClauseOverrides: true,
         workContractCustomClauses: true,
         workContractStartDate: true,
         edad: true,
@@ -502,6 +668,7 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         workContractPaymentMethod: true,
         workContractWorkSchedule: true,
         workContractWorkLocation: true,
+        workContractClauseOverrides: true,
         workContractCustomClauses: true,
         workContractStartDate: true,
         edad: true,
@@ -621,6 +788,10 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
     if (dto.workContractPaymentMethod !== undefined) data.workContractPaymentMethod = this.normalizeOptionalString(dto.workContractPaymentMethod) ?? null;
     if (dto.workContractWorkSchedule !== undefined) data.workContractWorkSchedule = this.normalizeOptionalString(dto.workContractWorkSchedule) ?? null;
     if (dto.workContractWorkLocation !== undefined) data.workContractWorkLocation = this.normalizeOptionalString(dto.workContractWorkLocation) ?? null;
+    if (dto.workContractClauseOverrides !== undefined) {
+      const cleaned = this.normalizeStringMap(dto.workContractClauseOverrides);
+      data.workContractClauseOverrides = Object.keys(cleaned).length > 0 ? cleaned as Prisma.InputJsonValue : Prisma.DbNull;
+    }
     if (dto.workContractCustomClauses !== undefined) data.workContractCustomClauses = this.normalizeOptionalString(dto.workContractCustomClauses) ?? null;
     if (dto.workContractStartDate !== undefined) data.workContractStartDate = dto.workContractStartDate ? new Date(dto.workContractStartDate) : null;
     if (this.hasValue(dto.edad)) data.edad = dto.edad;
@@ -649,6 +820,78 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
     });
 
     return this.findById(id);
+  }
+
+  async applyAiWorkContractEdit(id: string, dto: AiEditWorkContractDto) {
+    const user = await this.findById(id);
+    const allowedClauseKeys = new Set(
+      dto.currentClauses
+        .map((clause) => clause.key.trim())
+        .filter((key) => key.length > 0),
+    );
+    if (allowedClauseKeys.size === 0) {
+      throw new BadRequestException('No se recibieron cláusulas actuales para editar.');
+    }
+
+    const aiResult = await this.requestOpenAiContractEdit(dto);
+    const fieldUpdates = aiResult.fieldUpdates;
+    const existingOverrides = this.normalizeStringMap(user.workContractClauseOverrides);
+    const nextOverrides = { ...existingOverrides };
+
+    for (const [key, value] of Object.entries(aiResult.clauseOverrides)) {
+      if (!allowedClauseKeys.has(key)) continue;
+      if (value === null) {
+        delete nextOverrides[key];
+        continue;
+      }
+      const cleaned = this.normalizeOptionalString(value);
+      if (cleaned) {
+        nextOverrides[key] = cleaned;
+      }
+    }
+
+    const data: Prisma.UserUpdateInput = {};
+    const assignStringField = (field: keyof Prisma.UserUpdateInput, rawValue: unknown) => {
+      if (rawValue === undefined) return;
+      (data as Record<string, unknown>)[field as string] = rawValue === null
+        ? null
+        : this.normalizeOptionalString(rawValue) ?? null;
+    };
+
+    assignStringField('workContractJobTitle', fieldUpdates.workContractJobTitle);
+    assignStringField('workContractSalary', fieldUpdates.workContractSalary);
+    assignStringField('workContractPaymentFrequency', fieldUpdates.workContractPaymentFrequency);
+    assignStringField('workContractPaymentMethod', fieldUpdates.workContractPaymentMethod);
+    assignStringField('workContractWorkSchedule', fieldUpdates.workContractWorkSchedule);
+    assignStringField('workContractWorkLocation', fieldUpdates.workContractWorkLocation);
+    assignStringField('workContractCustomClauses', fieldUpdates.workContractCustomClauses);
+
+    if (Object.prototype.hasOwnProperty.call(fieldUpdates, 'workContractStartDate')) {
+      const rawDate = fieldUpdates.workContractStartDate;
+      if (rawDate === null) {
+        data.workContractStartDate = null;
+      } else {
+        const value = this.normalizeOptionalString(rawDate);
+        data.workContractStartDate = value ? new Date(value) : null;
+      }
+    }
+
+    data.workContractClauseOverrides = Object.keys(nextOverrides).length > 0
+      ? nextOverrides as Prisma.InputJsonValue
+      : Prisma.DbNull;
+
+    await this.prisma.user.update({
+      where: { id },
+      data,
+      select: { id: true },
+    });
+
+    return {
+      source: 'openai',
+      selectedModel: aiResult.selectedModel,
+      summary: aiResult.summary,
+      user: await this.findById(id),
+    };
   }
 
   async updateSelf(id: string, dto: SelfUpdateUserDto) {
