@@ -43,7 +43,7 @@ export class CompanyManualService {
 
     let unreadCount = count;
     const latestUpdatedAt = latest._max.updatedAt ?? null;
-    if (seenAt?.trim().isNotEmpty) {
+    if (seenAt?.trim()) {
       const seenDate = new Date(seenAt);
       if (!Number.isNaN(seenDate.getTime())) {
         unreadCount = await this.prisma.companyManualEntry.count({
@@ -73,12 +73,12 @@ export class CompanyManualService {
     const data = {
       ownerId,
       title,
-      summary: summary?.isNotEmpty == true ? summary : null,
+      summary: summary && summary.length > 0 ? summary : null,
       content,
       kind: dto.kind,
       audience: dto.audience,
       targetRoles,
-      moduleKey: moduleKey?.isNotEmpty == true ? moduleKey : null,
+      moduleKey: moduleKey && moduleKey.length > 0 ? moduleKey : null,
       published: dto.published ?? true,
       sortOrder: dto.sortOrder ?? 0,
       updatedByUserId: user.id,
@@ -138,7 +138,7 @@ export class CompanyManualService {
 
     if (query.kind) where.kind = query.kind as CompanyManualEntryKind;
     if (query.audience) where.audience = query.audience as CompanyManualAudience;
-    if (query.moduleKey?.trim().isNotEmpty) {
+    if (query.moduleKey?.trim()) {
       where.moduleKey = query.moduleKey.trim().toLowerCase();
     }
     if (query.role) {
