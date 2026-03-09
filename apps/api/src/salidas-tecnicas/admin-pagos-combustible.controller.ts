@@ -35,7 +35,8 @@ export class AdminPagosCombustibleController {
 
   @Post('admin/pagos-combustible-tecnicos/:id/pagado')
   @Roles(Role.ADMIN)
-  marcarPagado(@Param('id') id: string, @Body() dto: AdminMarcarPagoPagadoDto) {
-    return this.salidas.adminMarcarPagoPagado(id, dto.fechaPago);
+  marcarPagado(@Req() req: Request, @Param('id') id: string, @Body() dto: AdminMarcarPagoPagadoDto) {
+    const actor = req.user as { id: string; role: Role };
+    return this.salidas.adminMarcarPagoPagado(actor.id, id, dto.fechaPago);
   }
 }

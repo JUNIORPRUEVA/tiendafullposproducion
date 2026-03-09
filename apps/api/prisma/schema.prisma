@@ -223,7 +223,8 @@ model User {
   updatedAt        DateTime @updatedAt
 
   clients Client[]
-  payrollEmployees PayrollEmployee[]
+  payrollEmployees PayrollEmployee[] @relation("PayrollOwner")
+  payrollProfile PayrollEmployee? @relation("PayrollEmployeeUser")
   payrollPeriods PayrollPeriod[]
   payrollEmployeeConfigs PayrollEmployeeConfig[]
   payrollEntries PayrollEntry[]
@@ -492,6 +493,7 @@ model PayablePayment {
 model PayrollEmployee {
   id        String   @id @default(uuid()) @db.Uuid
   ownerId   String   @db.Uuid
+  userId    String?  @unique @db.Uuid @map("user_id")
   nombre    String
   telefono  String?
   puesto    String?
@@ -502,11 +504,13 @@ model PayrollEmployee {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner User @relation("PayrollOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  user User? @relation("PayrollEmployeeUser", fields: [userId], references: [id], onDelete: SetNull)
   configs PayrollEmployeeConfig[]
   entries PayrollEntry[]
 
   @@index([ownerId])
+  @@index([userId])
   @@index([ownerId, nombre])
 }
 
@@ -554,6 +558,7 @@ model PayrollEntry {
   ownerId    String           @db.Uuid
   periodId   String           @db.Uuid
   employeeId String           @db.Uuid
+  pagoCombustibleTecnicoId String? @unique @db.Uuid @map("pago_combustible_tecnico_id")
   date       DateTime
   type       PayrollEntryType
   concept    String
@@ -564,9 +569,11 @@ model PayrollEntry {
   owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   period PayrollPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
   employee PayrollEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  pagoCombustibleTecnico PagoCombustibleTecnico? @relation(fields: [pagoCombustibleTecnicoId], references: [id], onDelete: SetNull)
 
   @@index([ownerId])
   @@index([periodId, employeeId])
+  @@index([pagoCombustibleTecnicoId])
   @@index([date])
 }
 
@@ -628,9 +635,12 @@ model Vehiculo {
   id                 String   @id @default(uuid()) @db.Uuid
   nombre             String
   tipo               String
+  marca              String?
+  modelo             String?
   placa              String?
   combustibleTipo    String   @map("combustible_tipo")
   rendimientoKmLitro Decimal? @db.Decimal(10, 2) @map("rendimiento_km_litro")
+  capacidadTanqueLitros Decimal? @db.Decimal(10, 2) @map("capacidad_tanque_litros")
   esEmpresa          Boolean  @default(false) @map("es_empresa")
   tecnicoIdPropietario String? @db.Uuid @map("tecnico_id_propietario")
   activo             Boolean  @default(true)
@@ -674,6 +684,7 @@ model PagoCombustibleTecnico {
 
   tecnico User @relation(fields: [tecnicoId], references: [id], onDelete: Restrict)
   salidas SalidaTecnica[]
+  payrollEntry PayrollEntry?
 
   @@unique([tecnicoId, fechaInicio, fechaFin])
   @@index([tecnicoId])

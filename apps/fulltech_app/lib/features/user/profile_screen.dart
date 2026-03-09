@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/routing/routes.dart';
 import '../../core/utils/string_utils.dart';
 import '../../core/models/user_model.dart';
 import '../user/data/users_repository.dart';
@@ -135,6 +137,31 @@ class ProfileScreen extends ConsumerWidget {
                             ],
                           ),
                         ),
+                        if ((user.role ?? '').toUpperCase() == 'TECNICO')
+                          _SectionCard(
+                            title: 'Salidas técnicas',
+                            icon: Icons.route_outlined,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  'Administra tus vehículos propios, inicia salidas de campo y registra llegada/finalización para calcular combustible.',
+                                  style: theme.textTheme.bodyMedium,
+                                ),
+                                const SizedBox(height: 14),
+                                FilledButton.icon(
+                                  onPressed: () =>
+                                      context.go(Routes.salidasTecnicas),
+                                  icon: const Icon(
+                                    Icons.directions_car_outlined,
+                                  ),
+                                  label: const Text(
+                                    'Gestionar vehículos y salidas',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         if ((user.cuentaNominaPreferencial ?? '')
                             .trim()
                             .isNotEmpty)
@@ -199,8 +226,7 @@ class ProfileScreen extends ConsumerWidget {
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: OutlinedButton.icon(
-                                      onPressed: () =>
-                                          _openContract(context),
+                                      onPressed: () => _openContract(context),
                                       icon: const Icon(
                                         Icons.description_outlined,
                                       ),
@@ -287,9 +313,9 @@ class ProfileScreen extends ConsumerWidget {
   }
 
   Future<void> _openContract(BuildContext context) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const WorkContractScreen()),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const WorkContractScreen()));
   }
 
   void _showEditDialog(BuildContext context, WidgetRef ref, UserModel user) {

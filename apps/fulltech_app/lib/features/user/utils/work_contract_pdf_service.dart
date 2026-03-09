@@ -91,10 +91,16 @@ String _compactRoleLabel(String? raw) {
 
   final normalized = cleaned.toLowerCase().replaceAll('_', ' ');
   final words = normalized.split(RegExp(r'\s+'));
-  return words
+  final formatted = words
       .where((word) => word.isNotEmpty)
-      .map((word) => '${word[0].toUpperCase()}${word.substring(1)}')
+      .map((word) {
+        if (word.length == 1) return word.toUpperCase();
+        final firstLetter = word.substring(0, 1).toUpperCase();
+        final remainder = word.substring(1);
+        return '$firstLetter$remainder';
+      })
       .join(' ');
+  return formatted.isEmpty ? 'Colaborador' : formatted;
 }
 
 String _formatDateShort(DateTime? date) {

@@ -15,8 +15,8 @@ class ApiRoutes {
   static String unblockUser(String id) => '/users/$id/unblock';
   static const usersUpload = '/users/upload';
   static const usersMeWorkContractSign = '/users/me/work-contract/sign';
-    static String userWorkContractAiEdit(String id) =>
-            '/users/$id/work-contract/ai-edit';
+  static String userWorkContractAiEdit(String id) =>
+      '/users/$id/work-contract/ai-edit';
 
   // Ponche
   static const punch = '/punch';
@@ -83,6 +83,14 @@ class ApiRoutes {
   static String serviceWarranty(String id) => '/services/$id/warranty';
   static String customerServices(String id) => '/customers/$id/services';
   static const operationsDashboard = '/dashboard/operations';
+  static const tecnicoVehiculos = '/tecnico/vehiculos';
+  static const tecnicoSalidaAbierta = '/tecnico/salidas-tecnicas/abierta';
+  static const tecnicoSalidasHistorial = '/tecnico/salidas-tecnicas/historial';
+  static const tecnicoSalidasIniciar = '/tecnico/salidas-tecnicas/iniciar';
+  static String tecnicoSalidaLlegada(String id) =>
+      '/tecnico/salidas-tecnicas/$id/llegada';
+  static String tecnicoSalidaFinalizar(String id) =>
+      '/tecnico/salidas-tecnicas/$id/finalizar';
 
   // Nómina
   static const payrollPeriods = '/payroll/periods';
@@ -105,6 +113,7 @@ class ApiRoutes {
 
   static const payrollEntries = '/payroll/entries';
   static String payrollEntryDetail(String id) => '/payroll/entries/$id';
+  static const payrollImportFuel = '/payroll/import/fuel';
 
   static const payrollTotals = '/payroll/totals';
   static const payrollMyHistory = '/payroll/my-history';

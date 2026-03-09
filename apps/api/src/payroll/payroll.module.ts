@@ -5,5 +5,6 @@ import { PayrollService } from './payroll.service';
 @Module({
   controllers: [PayrollController],
   providers: [PayrollService],
+  exports: [PayrollService],
 })
 export class PayrollModule {}

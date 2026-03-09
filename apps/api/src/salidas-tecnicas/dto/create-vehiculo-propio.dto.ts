@@ -11,6 +11,14 @@ export class CreateVehiculoPropioDto {
 
   @IsOptional()
   @IsString()
+  marca?: string;
+
+  @IsOptional()
+  @IsString()
+  modelo?: string;
+
+  @IsOptional()
+  @IsString()
   placa?: string;
 
   @IsString()
@@ -21,6 +29,11 @@ export class CreateVehiculoPropioDto {
   @IsNumber()
   @Min(0.01)
   rendimientoKmLitro?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0.01)
+  capacidadTanqueLitros?: number;
 
   // fuerza vehículo propio
   @IsOptional()

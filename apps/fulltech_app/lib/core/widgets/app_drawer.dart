@@ -116,6 +116,17 @@ class AppDrawer extends ConsumerWidget {
                           context.go(Routes.operaciones);
                         },
                       ),
+                    if (can(AppPermission.viewTechDepartures))
+                      _DrawerMenuItem(
+                        icon: Icons.route_outlined,
+                        title: 'Salidas técnicas',
+                        compact: isCompactMobile,
+                        selected: isActiveRoute(Routes.salidasTecnicas),
+                        onTap: () {
+                          Navigator.pop(context);
+                          context.go(Routes.salidasTecnicas);
+                        },
+                      ),
                     if (can(AppPermission.viewPunch))
                       _DrawerMenuItem(
                         icon: Icons.access_time_rounded,

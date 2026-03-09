@@ -97,6 +97,13 @@ class NominaScreen extends ConsumerWidget {
               icon: const Icon(Icons.refresh),
             ),
             IconButton(
+              tooltip: 'Importar combustible',
+              onPressed: state.loading
+                  ? null
+                  : () => _importOpenPeriodFuelPayments(context, ref, state),
+              icon: const Icon(Icons.local_gas_station_outlined),
+            ),
+            IconButton(
               tooltip: 'Nueva quincena',
               onPressed: () => _showCreatePeriodDialog(context, ref),
               icon: const Icon(Icons.add),
@@ -233,7 +240,8 @@ class NominaScreen extends ConsumerWidget {
                               ),
                             ),
                             OutlinedButton.icon(
-                              onPressed: () => _showEmployeeDialog(context, ref),
+                              onPressed: () =>
+                                  _showEmployeeDialog(context, ref),
                               icon: const Icon(Icons.add),
                               label: const Text('Agregar'),
                               style: OutlinedButton.styleFrom(
@@ -281,6 +289,66 @@ class NominaScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _importOpenPeriodFuelPayments(
+    BuildContext context,
+    WidgetRef ref,
+    NominaHomeState state,
+  ) async {
+    final open = state.openPeriod;
+    if (open == null) {
+      AppFeedback.showError(
+        context,
+        'No hay una quincena abierta para importar combustible.',
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Importar combustible'),
+        content: Text(
+          'Se importarán a la quincena abierta los pagos de combustible ya pagados y aún no vinculados a nómina.\n\n'
+          'Quincena: ${open.title}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Importar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      final result = await ref
+          .read(nominaRepositoryProvider)
+          .importFuelPayments(periodId: open.id);
+      await ref.read(nominaHomeControllerProvider.notifier).load();
+      if (!context.mounted) return;
+
+      final importedCount = (result['importedCount'] as num?)?.toInt() ?? 0;
+      final skippedCount = (result['skippedCount'] as num?)?.toInt() ?? 0;
+      AppFeedback.showInfo(
+        context,
+        importedCount > 0
+            ? 'Combustible importado: $importedCount movimiento(s).'
+            : skippedCount > 0
+            ? 'No hubo movimientos nuevos; se omitieron $skippedCount registro(s).'
+            : 'No había pagos de combustible pendientes para esta quincena.',
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      AppFeedback.showError(context, 'No se pudo importar combustible: $e');
+    }
   }
 
   Future<void> _confirmDeleteEmployee(
@@ -839,9 +907,8 @@ class NominaScreen extends ConsumerWidget {
           .toSet();
       selectedUser = await showDialog<UserModel>(
         context: context,
-        builder: (_) => _PayrollUserPickerDialog(
-          excludedUserIds: existingUserIds,
-        ),
+        builder: (_) =>
+            _PayrollUserPickerDialog(excludedUserIds: existingUserIds),
       );
       if (!context.mounted) return;
       if (selectedUser == null) return;
@@ -1034,7 +1101,8 @@ class NominaScreen extends ConsumerWidget {
                                 );
                                 return;
                               }
-                              final qty = double.tryParse(qtyCtrl.text.trim()) ?? 1;
+                              final qty =
+                                  double.tryParse(qtyCtrl.text.trim()) ?? 1;
                               if (qty <= 0) {
                                 await AppFeedback.showError(
                                   scaffoldContext,
@@ -1053,8 +1121,9 @@ class NominaScreen extends ConsumerWidget {
                               if (selectedType == PayrollEntryType.ausencia &&
                                   parsedAmount == null) {
                                 final daily =
-                                  (config?.baseSalary ?? employee.salarioBaseQuincenal) /
-                                  15;
+                                    (config?.baseSalary ??
+                                        employee.salarioBaseQuincenal) /
+                                    15;
                                 amount = -(daily * qty);
                               } else {
                                 if (parsedAmount == null) {
@@ -1178,7 +1247,10 @@ class NominaScreen extends ConsumerWidget {
                                   await repo.deleteEntry(entry.id);
                                   await reload(setStateDialog);
                                 },
-                                icon: const Icon(Icons.delete_outline, size: 18),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 18,
+                                ),
                               ),
                             ],
                           ),
@@ -1542,7 +1614,9 @@ class _PayrollEmployeeDialogState
     });
 
     try {
-      await ref.read(nominaHomeControllerProvider.notifier).saveEmployee(
+      await ref
+          .read(nominaHomeControllerProvider.notifier)
+          .saveEmployee(
             id: widget.employee?.id ?? widget.selectedUser?.id,
             nombre: _nameCtrl.text,
             telefono: _phoneCtrl.text,
@@ -1779,36 +1853,35 @@ class _PayrollUserPickerDialogState
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
                   : visible.isEmpty
-                      ? const Center(child: Text('No hay usuarios para mostrar'))
-                      : ListView.separated(
-                          itemCount: visible.length,
-                          separatorBuilder: (_, __) =>
-                              const Divider(height: 1),
-                          itemBuilder: (context, index) {
-                            final user = visible[index];
-                            return RadioListTile<String>(
-                              value: user.id,
-                              groupValue: _selected?.id,
-                              dense: true,
-                              title: Text(
-                                user.nombreCompleto,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              subtitle: Text(
-                                user.telefono.isEmpty
-                                    ? user.email
-                                    : '${user.telefono} · ${user.email}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              onChanged: (_) {
-                                if (!mounted) return;
-                                setState(() => _selected = user);
-                              },
-                            );
+                  ? const Center(child: Text('No hay usuarios para mostrar'))
+                  : ListView.separated(
+                      itemCount: visible.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final user = visible[index];
+                        return RadioListTile<String>(
+                          value: user.id,
+                          groupValue: _selected?.id,
+                          dense: true,
+                          title: Text(
+                            user.nombreCompleto,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            user.telefono.isEmpty
+                                ? user.email
+                                : '${user.telefono} · ${user.email}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onChanged: (_) {
+                            if (!mounted) return;
+                            setState(() => _selected = user);
                           },
-                        ),
+                        );
+                      },
+                    ),
             ),
           ],
         ),

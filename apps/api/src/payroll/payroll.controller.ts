@@ -8,6 +8,7 @@ import { CreatePayrollPeriodDto } from './dto/create-payroll-period.dto';
 import { AddPayrollEntryDto, PayrollEntriesQueryDto } from './dto/payroll-entry.dto';
 import { PayrollTotalsQueryDto } from './dto/payroll-query.dto';
 import { OverlapPeriodQueryDto } from './dto/overlap-period-query.dto';
+import { ImportFuelPaymentsDto } from './dto/import-fuel-payments.dto';
 import { UpsertPayrollConfigDto } from './dto/upsert-payroll-config.dto';
 import { UpsertPayrollEmployeeDto } from './dto/upsert-payroll-employee.dto';
 import { PayrollService } from './payroll.service';
@@ -144,6 +145,13 @@ export class PayrollController {
     return this.mapEntry(entry);
   }
 
+  @Post('import/fuel')
+  @Roles(Role.ADMIN)
+  async importFuelPayments(@Req() req: Request, @Body() dto: ImportFuelPaymentsDto) {
+    const ownerId = await this.ownerIdFrom(req);
+    return this.payroll.importFuelPayments(ownerId, dto);
+  }
+
   @Delete('entries/:id')
   @Roles(Role.ADMIN)
   async deleteEntry(@Req() req: Request, @Param('id') id: string) {
@@ -182,6 +190,7 @@ export class PayrollController {
   private mapEmployee(employee: {
     id: string;
     ownerId: string;
+    userId?: string | null;
     nombre: string;
     telefono: string | null;
     puesto: string | null;
@@ -195,6 +204,7 @@ export class PayrollController {
     return {
       id: employee.id,
       owner_id: employee.ownerId,
+      user_id: employee.userId ?? null,
       nombre: employee.nombre,
       telefono: employee.telefono,
       puesto: employee.puesto,
@@ -266,6 +276,7 @@ export class PayrollController {
     ownerId: string;
     periodId: string;
     employeeId: string;
+    pagoCombustibleTecnicoId?: string | null;
     date: Date;
     type: string;
     concept: string;
@@ -278,6 +289,7 @@ export class PayrollController {
       owner_id: entry.ownerId,
       period_id: entry.periodId,
       employee_id: entry.employeeId,
+      pago_combustible_tecnico_id: entry.pagoCombustibleTecnicoId ?? null,
       date: entry.date.toISOString(),
       type: entry.type,
       concept: entry.concept,

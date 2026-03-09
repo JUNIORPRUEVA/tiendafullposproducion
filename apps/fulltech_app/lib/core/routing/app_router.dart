@@ -9,6 +9,7 @@ import '../../features/user/profile_screen.dart';
 import '../../features/user/users_screen.dart';
 import '../../features/ponche/ponche_screen.dart';
 import '../../features/operaciones/operaciones_screen.dart';
+import '../../features/salidas_tecnicas/tecnico_salidas_screen.dart';
 import '../../features/operaciones/operaciones_mapa_clientes_screen.dart';
 import '../../features/operaciones/operaciones_reglas_screen.dart';
 import '../../features/contabilidad/contabilidad_screen.dart';
@@ -112,6 +113,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.operaciones,
             builder: (context, state) => const OperacionesScreen(),
+          ),
+          GoRoute(
+            path: Routes.salidasTecnicas,
+            builder: (context, state) => const TecnicoSalidasScreen(),
           ),
           GoRoute(
             path: Routes.operacionesAgenda,

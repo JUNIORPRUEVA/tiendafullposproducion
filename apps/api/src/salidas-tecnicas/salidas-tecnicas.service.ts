@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import {
   PagoCombustibleTecnicoEstado,
+  PayrollPeriodStatus,
   Prisma,
   Role,
   SalidaTecnicaEstado,
@@ -14,6 +15,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OperationsService } from '../operations/operations-main.service';
+import { PayrollService } from '../payroll/payroll.service';
 import { haversineKm, round2 } from './geo.util';
 
 @Injectable()
@@ -21,6 +23,7 @@ export class SalidasTecnicasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly operations: OperationsService,
+    private readonly payroll: PayrollService,
   ) {}
 
   async listVehiculosForTecnico(tecnicoId: string) {
@@ -39,9 +42,12 @@ export class SalidasTecnicasService {
     dto: {
       nombre: string;
       tipo: string;
+      marca?: string;
+      modelo?: string;
       placa?: string;
       combustibleTipo: string;
       rendimientoKmLitro?: number;
+      capacidadTanqueLitros?: number;
       esEmpresa?: boolean;
     },
   ) {
@@ -51,24 +57,45 @@ export class SalidasTecnicasService {
       data: {
         nombre: dto.nombre.trim(),
         tipo: dto.tipo.trim(),
+        marca: dto.marca?.trim() || null,
+        modelo: dto.modelo?.trim() || null,
         placa: dto.placa?.trim() || null,
         combustibleTipo: dto.combustibleTipo.trim(),
         rendimientoKmLitro:
           dto.rendimientoKmLitro !== undefined && dto.rendimientoKmLitro !== null
             ? new Prisma.Decimal(dto.rendimientoKmLitro)
             : null,
+        capacidadTanqueLitros:
+          dto.capacidadTanqueLitros !== undefined && dto.capacidadTanqueLitros !== null
+            ? new Prisma.Decimal(dto.capacidadTanqueLitros)
+            : null,
         esEmpresa,
         tecnicoIdPropietario: esEmpresa ? null : tecnicoId,
         activo: true,
       },
     });
+
+    if (!esEmpresa) {
+      await this.syncTecnicoVehiculoFlag(tecnicoId);
+    }
+
     return created;
   }
 
   async updateVehiculoPropio(
     tecnicoId: string,
     vehiculoId: string,
-    dto: { nombre?: string; tipo?: string; placa?: string; combustibleTipo?: string; rendimientoKmLitro?: number; activo?: boolean },
+    dto: {
+      nombre?: string;
+      tipo?: string;
+      marca?: string;
+      modelo?: string;
+      placa?: string;
+      combustibleTipo?: string;
+      rendimientoKmLitro?: number;
+      capacidadTanqueLitros?: number;
+      activo?: boolean;
+    },
   ) {
     const vehiculo = await this.prisma.vehiculo.findUnique({ where: { id: vehiculoId } });
     if (!vehiculo || vehiculo.esEmpresa) throw new NotFoundException('Vehículo no encontrado');
@@ -77,10 +104,15 @@ export class SalidasTecnicasService {
     const data: Prisma.VehiculoUpdateInput = {
       ...(dto.nombre !== undefined ? { nombre: dto.nombre.trim() } : {}),
       ...(dto.tipo !== undefined ? { tipo: dto.tipo.trim() } : {}),
+      ...(dto.marca !== undefined ? { marca: dto.marca?.trim() || null } : {}),
+      ...(dto.modelo !== undefined ? { modelo: dto.modelo?.trim() || null } : {}),
       ...(dto.placa !== undefined ? { placa: dto.placa?.trim() || null } : {}),
       ...(dto.combustibleTipo !== undefined ? { combustibleTipo: dto.combustibleTipo.trim() } : {}),
       ...(dto.rendimientoKmLitro !== undefined
         ? { rendimientoKmLitro: new Prisma.Decimal(dto.rendimientoKmLitro) }
+        : {}),
+      ...(dto.capacidadTanqueLitros !== undefined
+        ? { capacidadTanqueLitros: new Prisma.Decimal(dto.capacidadTanqueLitros) }
         : {}),
       ...(dto.activo !== undefined ? { activo: dto.activo } : {}),
     };
@@ -89,7 +121,9 @@ export class SalidasTecnicasService {
       throw new BadRequestException('No hay cambios para guardar');
     }
 
-    return this.prisma.vehiculo.update({ where: { id: vehiculoId }, data });
+    const updated = await this.prisma.vehiculo.update({ where: { id: vehiculoId }, data });
+    await this.syncTecnicoVehiculoFlag(tecnicoId);
+    return updated;
   }
 
   async listMisSalidas(
@@ -502,15 +536,15 @@ export class SalidasTecnicasService {
     });
   }
 
-  async adminMarcarPagoPagado(pagoId: string, fechaPagoRaw?: string) {
+  async adminMarcarPagoPagado(actorId: string, pagoId: string, fechaPagoRaw?: string) {
     const pago = await this.prisma.pagoCombustibleTecnico.findUnique({ where: { id: pagoId } });
     if (!pago) throw new NotFoundException('Pago no encontrado');
 
     const fechaPago = fechaPagoRaw ? new Date(fechaPagoRaw) : new Date();
     if (Number.isNaN(fechaPago.getTime())) throw new BadRequestException('fechaPago inválida');
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.pagoCombustibleTecnico.update({
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.pagoCombustibleTecnico.update({
         where: { id: pagoId },
         data: { estado: PagoCombustibleTecnicoEstado.PAGADO, fechaPago },
       });
@@ -520,13 +554,43 @@ export class SalidasTecnicasService {
         data: { estado: SalidaTecnicaEstado.PAGADA },
       });
 
-      return updated;
+      return row;
     });
+
+    const ownerId = await this.payroll.resolveCompanyOwnerId(actorId);
+    const matchingOpenPeriod = await this.prisma.payrollPeriod.findFirst({
+      where: {
+        ownerId,
+        status: PayrollPeriodStatus.OPEN,
+        startDate: { lte: fechaPago },
+        endDate: { gte: fechaPago },
+      },
+      select: { id: true },
+    });
+
+    let payrollImported = false;
+    if (matchingOpenPeriod) {
+      try {
+        const imported = await this.payroll.importFuelPayments(ownerId, {
+          periodId: matchingOpenPeriod.id,
+        });
+        payrollImported = imported.items.some((item) => item.pagoId === pagoId);
+      } catch {
+        payrollImported = false;
+      }
+    }
+
+    return {
+      pago: updated,
+      payrollImported,
+      payrollPeriodId: matchingOpenPeriod?.id ?? null,
+    };
   }
 
   async listMisPagosCombustible(tecnicoId: string) {
     const items = await this.prisma.pagoCombustibleTecnico.findMany({
       where: { tecnicoId },
+      include: { payrollEntry: { select: { id: true, periodId: true } } },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
@@ -536,11 +600,30 @@ export class SalidasTecnicasService {
   async listPagosAdmin(tecnicoId?: string) {
     const items = await this.prisma.pagoCombustibleTecnico.findMany({
       where: tecnicoId ? { tecnicoId } : {},
-      include: { tecnico: { select: { id: true, nombreCompleto: true } } },
+      include: {
+        tecnico: { select: { id: true, nombreCompleto: true } },
+        payrollEntry: { select: { id: true, periodId: true } },
+      },
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
     return { items };
+  }
+
+  private async syncTecnicoVehiculoFlag(tecnicoId: string) {
+    const activeOwnVehicles = await this.prisma.vehiculo.count({
+      where: {
+        tecnicoIdPropietario: tecnicoId,
+        esEmpresa: false,
+        activo: true,
+      },
+    });
+
+    await this.prisma.user.update({
+      where: { id: tecnicoId },
+      data: { vehiculo: activeOwnVehicles > 0 },
+      select: { id: true },
+    });
   }
 
   private parseSalidaEstado(value: string): SalidaTecnicaEstado {

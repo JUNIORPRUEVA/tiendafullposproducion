@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { OperationsModule } from '../operations/operations.module';
+import { PayrollModule } from '../payroll/payroll.module';
 import { SalidasTecnicasService } from './salidas-tecnicas.service';
 import { TecnicoVehiculosController } from './tecnico-vehiculos.controller';
 import { TecnicoSalidasTecnicasController } from './tecnico-salidas-tecnicas.controller';
@@ -8,7 +9,7 @@ import { AdminSalidasTecnicasController } from './admin-salidas-tecnicas.control
 import { AdminPagosCombustibleController } from './admin-pagos-combustible.controller';
 
 @Module({
-  imports: [PrismaModule, OperationsModule],
+  imports: [PrismaModule, OperationsModule, PayrollModule],
   controllers: [
     TecnicoVehiculosController,
     TecnicoSalidasTecnicasController,

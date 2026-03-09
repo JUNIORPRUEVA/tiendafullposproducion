@@ -23,6 +23,8 @@ class RouteAccess {
       case Routes.operacionesMapaClientes:
       case Routes.operacionesReglas:
         return AppPermission.viewOperations;
+      case Routes.salidasTecnicas:
+        return AppPermission.viewTechDepartures;
       case Routes.ponche:
         return AppPermission.viewPunch;
       case Routes.catalogo:
@@ -67,6 +69,9 @@ class RouteAccess {
     }
     if (path.startsWith('${Routes.operaciones}/')) {
       return AppPermission.viewOperations;
+    }
+    if (path.startsWith('${Routes.salidasTecnicas}/')) {
+      return AppPermission.viewTechDepartures;
     }
 
     return null;

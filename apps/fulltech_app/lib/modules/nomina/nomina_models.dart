@@ -109,6 +109,7 @@ extension PayrollEntryTypeX on PayrollEntryType {
 class PayrollEmployee {
   final String id;
   final String ownerId;
+  final String? userId;
   final String nombre;
   final String? telefono;
   final String? puesto;
@@ -122,6 +123,7 @@ class PayrollEmployee {
   const PayrollEmployee({
     required this.id,
     required this.ownerId,
+    this.userId,
     required this.nombre,
     this.telefono,
     this.puesto,
@@ -136,6 +138,7 @@ class PayrollEmployee {
   PayrollEmployee copyWith({
     String? id,
     String? ownerId,
+    String? userId,
     String? nombre,
     String? telefono,
     String? puesto,
@@ -151,11 +154,11 @@ class PayrollEmployee {
     return PayrollEmployee(
       id: id ?? this.id,
       ownerId: ownerId ?? this.ownerId,
+      userId: userId ?? this.userId,
       nombre: nombre ?? this.nombre,
       telefono: clearTelefono ? null : (telefono ?? this.telefono),
       puesto: clearPuesto ? null : (puesto ?? this.puesto),
-        salarioBaseQuincenal:
-          salarioBaseQuincenal ?? this.salarioBaseQuincenal,
+      salarioBaseQuincenal: salarioBaseQuincenal ?? this.salarioBaseQuincenal,
       cuotaMinima: cuotaMinima ?? this.cuotaMinima,
       seguroLeyMonto: seguroLeyMonto ?? this.seguroLeyMonto,
       activo: activo ?? this.activo,
@@ -168,10 +171,11 @@ class PayrollEmployee {
     return PayrollEmployee(
       id: (map['id'] ?? '').toString(),
       ownerId: (map['owner_id'] ?? '').toString(),
+      userId: map['user_id']?.toString(),
       nombre: (map['nombre'] ?? '').toString(),
       telefono: map['telefono'] as String?,
       puesto: map['puesto'] as String?,
-        salarioBaseQuincenal:
+      salarioBaseQuincenal:
           (map['salario_base_quincenal'] as num?)?.toDouble() ?? 0,
       cuotaMinima: (map['cuota_minima'] as num?)?.toDouble() ?? 0,
       seguroLeyMonto:
@@ -192,6 +196,7 @@ class PayrollEmployee {
     return {
       'id': id,
       'owner_id': ownerId,
+      'user_id': userId,
       'nombre': nombre,
       'telefono': telefono,
       'puesto': puesto,
@@ -321,6 +326,7 @@ class PayrollEntry {
   final String ownerId;
   final String periodId;
   final String employeeId;
+  final String? pagoCombustibleTecnicoId;
   final DateTime date;
   final PayrollEntryType type;
   final String concept;
@@ -333,6 +339,7 @@ class PayrollEntry {
     required this.ownerId,
     required this.periodId,
     required this.employeeId,
+    this.pagoCombustibleTecnicoId,
     required this.date,
     required this.type,
     required this.concept,
@@ -347,6 +354,7 @@ class PayrollEntry {
       ownerId: (map['owner_id'] ?? '').toString(),
       periodId: (map['period_id'] ?? '').toString(),
       employeeId: (map['employee_id'] ?? '').toString(),
+      pagoCombustibleTecnicoId: map['pago_combustible_tecnico_id']?.toString(),
       date: DateTime.parse((map['date']).toString()),
       type: PayrollEntryTypeX.fromDb((map['type'] ?? 'OTRO').toString()),
       concept: (map['concept'] ?? '').toString(),
@@ -364,6 +372,7 @@ class PayrollEntry {
       'owner_id': ownerId,
       'period_id': periodId,
       'employee_id': employeeId,
+      'pago_combustible_tecnico_id': pagoCombustibleTecnicoId,
       'date': date.toIso8601String(),
       'type': type.dbValue,
       'concept': concept,

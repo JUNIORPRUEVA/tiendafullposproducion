@@ -11,6 +11,14 @@ export class UpdateVehiculoPropioDto {
 
   @IsOptional()
   @IsString()
+  marca?: string;
+
+  @IsOptional()
+  @IsString()
+  modelo?: string;
+
+  @IsOptional()
+  @IsString()
   placa?: string;
 
   @IsOptional()
@@ -21,6 +29,11 @@ export class UpdateVehiculoPropioDto {
   @IsNumber()
   @Min(0.01)
   rendimientoKmLitro?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0.01)
+  capacidadTanqueLitros?: number;
 
   @IsOptional()
   @IsBoolean()

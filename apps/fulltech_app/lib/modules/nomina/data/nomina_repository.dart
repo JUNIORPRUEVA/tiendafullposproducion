@@ -180,6 +180,17 @@ class NominaRepository {
     return PayrollEntry.fromMap(data);
   }
 
+  Future<Map<String, dynamic>> importFuelPayments({
+    required String periodId,
+    String? employeeId,
+  }) {
+    return _postMap(ApiRoutes.payrollImportFuel, {
+      'periodId': periodId,
+      if (employeeId != null && employeeId.trim().isNotEmpty)
+        'employeeId': employeeId.trim(),
+    });
+  }
+
   Future<void> deleteEntry(String entryId) async {
     await _delete(ApiRoutes.payrollEntryDetail(entryId));
   }
@@ -343,7 +354,9 @@ class NominaRepository {
 
   Future<void> _patch(String path) async {
     try {
-      await _dio.patch(path, options: _requestOptions()).timeout(_requestTimeout);
+      await _dio
+          .patch(path, options: _requestOptions())
+          .timeout(_requestTimeout);
     } on TimeoutException {
       throw ApiException(_timeoutMessage('actualizar nómina'));
     } on DioException catch (e) {
@@ -356,7 +369,9 @@ class NominaRepository {
 
   Future<void> _delete(String path) async {
     try {
-      await _dio.delete(path, options: _requestOptions()).timeout(_requestTimeout);
+      await _dio
+          .delete(path, options: _requestOptions())
+          .timeout(_requestTimeout);
     } on TimeoutException {
       throw ApiException(_timeoutMessage('eliminar el movimiento'));
     } on DioException catch (e) {

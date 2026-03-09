@@ -9,7 +9,6 @@ import '../../../core/company/company_settings_repository.dart';
 import '../../../core/models/user_model.dart';
 import '../../../modules/nomina/data/nomina_repository.dart';
 import '../../../modules/nomina/nomina_models.dart';
-import '../application/users_controller.dart';
 import '../data/users_repository.dart';
 import 'work_contract_pdf_service.dart';
 
@@ -197,6 +196,7 @@ class _WorkContractPreviewScreenState
   }
 
   Future<void> _openEditDialog() async {
+    final scaffoldMessenger = ScaffoldMessenger.maybeOf(context);
     final jobTitleCtrl = TextEditingController(
       text: _employee.workContractJobTitle ?? '',
     );
@@ -362,7 +362,6 @@ class _WorkContractPreviewScreenState
                   ? null
                   : () async {
                       final navigator = Navigator.of(context);
-                      final messenger = ScaffoldMessenger.of(context);
                       setState(() => _saving = true);
                       try {
                         final payload = <String, dynamic>{
@@ -385,9 +384,6 @@ class _WorkContractPreviewScreenState
                         final updated = await ref
                             .read(usersRepositoryProvider)
                             .updateUser(_employee.id, payload);
-                        await ref
-                            .read(usersControllerProvider.notifier)
-                            .refresh();
 
                         if (!mounted) return;
                         setState(() {
@@ -395,14 +391,14 @@ class _WorkContractPreviewScreenState
                           _pdfFuture = _buildPdf(updated);
                         });
                         navigator.pop();
-                        messenger.showSnackBar(
+                        scaffoldMessenger?.showSnackBar(
                           const SnackBar(
                             content: Text('Contrato actualizado y regenerado'),
                           ),
                         );
                       } catch (e) {
                         if (!mounted) return;
-                        messenger.showSnackBar(
+                        scaffoldMessenger?.showSnackBar(
                           SnackBar(content: Text('No se pudo guardar: $e')),
                         );
                       } finally {
@@ -472,7 +468,7 @@ class _WorkContractPreviewScreenState
     if (!mounted) return;
 
     final instructionCtrl = TextEditingController();
-    final messenger = ScaffoldMessenger.of(context);
+    final scaffoldMessenger = ScaffoldMessenger.maybeOf(context);
 
     await showDialog<void>(
       context: context,
@@ -589,9 +585,6 @@ class _WorkContractPreviewScreenState
                                     )
                                     .toList(growable: false),
                               );
-                          await ref
-                              .read(usersControllerProvider.notifier)
-                              .refresh();
 
                           if (!mounted) return;
                           setState(() {
@@ -600,7 +593,7 @@ class _WorkContractPreviewScreenState
                           });
                           if (!dialogContext.mounted) return;
                           Navigator.of(dialogContext).pop();
-                          messenger.showSnackBar(
+                          scaffoldMessenger?.showSnackBar(
                             SnackBar(
                               content: Text(
                                 result.summary.trim().isEmpty
