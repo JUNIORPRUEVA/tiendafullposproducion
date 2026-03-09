@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/nomina_repository.dart';
@@ -188,7 +190,20 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
       );
     }
 
-    await load();
+    final nextEmployees = [...state.employees];
+    final existingIndex = nextEmployees.indexWhere(
+      (item) => item.id == savedEmployee.id,
+    );
+    if (existingIndex >= 0) {
+      nextEmployees[existingIndex] = savedEmployee;
+    } else {
+      nextEmployees.add(savedEmployee);
+    }
+    nextEmployees.sort((left, right) => left.nombre.compareTo(right.nombre));
+
+    state = state.copyWith(employees: nextEmployees, clearError: true);
+
+    unawaited(load());
   }
 
   Future<void> deleteEmployee(String employeeId) async {

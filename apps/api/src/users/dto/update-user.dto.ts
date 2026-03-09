@@ -56,6 +56,38 @@ export class UpdateUserDto {
   cuentaNominaPreferencial?: string;
 
   @IsOptional()
+  @IsString()
+  workContractJobTitle?: string;
+
+  @IsOptional()
+  @IsString()
+  workContractSalary?: string;
+
+  @IsOptional()
+  @IsString()
+  workContractPaymentFrequency?: string;
+
+  @IsOptional()
+  @IsString()
+  workContractPaymentMethod?: string;
+
+  @IsOptional()
+  @IsString()
+  workContractWorkSchedule?: string;
+
+  @IsOptional()
+  @IsString()
+  workContractWorkLocation?: string;
+
+  @IsOptional()
+  @IsString()
+  workContractCustomClauses?: string;
+
+  @IsOptional()
+  @IsDateString()
+  workContractStartDate?: string;
+
+  @IsOptional()
   @IsArray()
   @IsString({ each: true })
   habilidades?: string[];

@@ -199,6 +199,7 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     setState(() => _saving = true);
     final settings = CompanySettings(
       companyName: _nameCtrl.text.trim(),
@@ -224,6 +225,7 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
 
     try {
       await ref.read(companySettingsRepositoryProvider).saveSettings(settings);
+      ref.invalidate(companySettingsProvider);
       _showMessage('Configuracion guardada');
     } catch (e) {
       _showMessage('$e');
@@ -255,6 +257,26 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                if (_saving)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text(
+                              'Guardando configuración...',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                            SizedBox(height: 8),
+                            LinearProgressIndicator(),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(12),

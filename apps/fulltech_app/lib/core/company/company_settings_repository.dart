@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -18,6 +20,7 @@ final companySettingsProvider = FutureProvider<CompanySettings>((ref) async {
 
 class CompanySettingsRepository {
   final Dio _dio;
+  static const Duration _settingsTimeout = Duration(seconds: 20);
 
   CompanySettingsRepository(this._dio);
 
@@ -40,8 +43,17 @@ class CompanySettingsRepository {
 
   Future<CompanySettings> getSettings() async {
     try {
-      final res = await _dio.get(ApiRoutes.settings);
+      final res = await _dio
+          .get(
+            ApiRoutes.settings,
+            options: Options(extra: const {'skipLoader': true}),
+          )
+          .timeout(_settingsTimeout);
       return CompanySettings.fromMap((res.data as Map).cast<String, dynamic>());
+    } on TimeoutException {
+      throw ApiException(
+        'La configuración tardó demasiado en cargar. Inténtalo de nuevo.',
+      );
     } on DioException catch (e) {
       if (e.response?.statusCode == 404) {
         return CompanySettings.empty();
@@ -57,26 +69,33 @@ class CompanySettingsRepository {
 
   Future<void> saveSettings(CompanySettings settings) async {
     try {
-      await _dio.patch(
-        ApiRoutes.settings,
-        data: {
-          'companyName': settings.companyName,
-          'rnc': settings.rnc,
-          'phone': settings.phone,
-          'address': settings.address,
-          'legalRepresentativeName': settings.legalRepresentativeName,
-          'legalRepresentativeCedula': settings.legalRepresentativeCedula,
-          'legalRepresentativeRole': settings.legalRepresentativeRole,
-          'legalRepresentativeNationality':
-              settings.legalRepresentativeNationality,
-          'legalRepresentativeCivilStatus':
-              settings.legalRepresentativeCivilStatus,
-          'logoBase64': settings.logoBase64,
-          'openAiApiKey': settings.openAiApiKey,
-          'evolutionApiBaseUrl': settings.evolutionApiBaseUrl,
-          'evolutionApiInstanceName': settings.evolutionApiInstanceName,
-          'evolutionApiApiKey': settings.evolutionApiApiKey,
-        },
+      await _dio
+          .patch(
+            ApiRoutes.settings,
+            options: Options(extra: const {'skipLoader': true}),
+            data: {
+              'companyName': settings.companyName,
+              'rnc': settings.rnc,
+              'phone': settings.phone,
+              'address': settings.address,
+              'legalRepresentativeName': settings.legalRepresentativeName,
+              'legalRepresentativeCedula': settings.legalRepresentativeCedula,
+              'legalRepresentativeRole': settings.legalRepresentativeRole,
+              'legalRepresentativeNationality':
+                  settings.legalRepresentativeNationality,
+              'legalRepresentativeCivilStatus':
+                  settings.legalRepresentativeCivilStatus,
+              'logoBase64': settings.logoBase64,
+              'openAiApiKey': settings.openAiApiKey,
+              'evolutionApiBaseUrl': settings.evolutionApiBaseUrl,
+              'evolutionApiInstanceName': settings.evolutionApiInstanceName,
+              'evolutionApiApiKey': settings.evolutionApiApiKey,
+            },
+          )
+          .timeout(_settingsTimeout);
+    } on TimeoutException {
+      throw ApiException(
+        'Guardar la configuración tardó demasiado. El backend no respondió a tiempo.',
       );
     } on DioException catch (e) {
       if (e.response?.statusCode == 404) {

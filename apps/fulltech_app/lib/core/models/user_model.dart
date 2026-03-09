@@ -13,6 +13,14 @@ class UserModel {
   final String? workContractSignatureUrl;
   final DateTime? workContractSignedAt;
   final String? workContractVersion;
+  final String? workContractJobTitle;
+  final String? workContractSalary;
+  final String? workContractPaymentFrequency;
+  final String? workContractPaymentMethod;
+  final String? workContractWorkSchedule;
+  final String? workContractWorkLocation;
+  final String? workContractCustomClauses;
+  final DateTime? workContractStartDate;
   final String? experienciaLaboral;
   final DateTime? fechaIngreso;
   final DateTime? fechaNacimiento;
@@ -41,6 +49,14 @@ class UserModel {
     this.workContractSignatureUrl,
     this.workContractSignedAt,
     this.workContractVersion,
+    this.workContractJobTitle,
+    this.workContractSalary,
+    this.workContractPaymentFrequency,
+    this.workContractPaymentMethod,
+    this.workContractWorkSchedule,
+    this.workContractWorkLocation,
+    this.workContractCustomClauses,
+    this.workContractStartDate,
     this.experienciaLaboral,
     this.fechaIngreso,
     this.fechaNacimiento,
@@ -65,10 +81,10 @@ class UserModel {
     final habilidadesRaw = json['habilidades'];
     final habilidades = habilidadesRaw is List
         ? habilidadesRaw
-            .whereType<String>()
-            .map((e) => e.trim())
-            .where((e) => e.isNotEmpty)
-            .toList(growable: false)
+              .whereType<String>()
+              .map((e) => e.trim())
+              .where((e) => e.isNotEmpty)
+              .toList(growable: false)
         : const <String>[];
 
     return UserModel(
@@ -81,11 +97,21 @@ class UserModel {
       fotoCedulaUrl: json['fotoCedulaUrl'],
       fotoLicenciaUrl: json['fotoLicenciaUrl'],
       fotoPersonalUrl: json['fotoPersonalUrl'],
-        workContractSignatureUrl: json['workContractSignatureUrl'],
-        workContractSignedAt: json['workContractSignedAt'] != null
+      workContractSignatureUrl: json['workContractSignatureUrl'],
+      workContractSignedAt: json['workContractSignedAt'] != null
           ? DateTime.tryParse(json['workContractSignedAt'])
           : null,
-        workContractVersion: json['workContractVersion'],
+      workContractVersion: json['workContractVersion'],
+      workContractJobTitle: json['workContractJobTitle'],
+      workContractSalary: json['workContractSalary'],
+      workContractPaymentFrequency: json['workContractPaymentFrequency'],
+      workContractPaymentMethod: json['workContractPaymentMethod'],
+      workContractWorkSchedule: json['workContractWorkSchedule'],
+      workContractWorkLocation: json['workContractWorkLocation'],
+      workContractCustomClauses: json['workContractCustomClauses'],
+      workContractStartDate: json['workContractStartDate'] != null
+          ? DateTime.tryParse(json['workContractStartDate'])
+          : null,
       experienciaLaboral: json['experienciaLaboral'],
       fechaIngreso: json['fechaIngreso'] != null
           ? DateTime.tryParse(json['fechaIngreso'])
@@ -136,6 +162,14 @@ class UserModel {
       'workContractSignatureUrl': workContractSignatureUrl,
       'workContractSignedAt': workContractSignedAt?.toIso8601String(),
       'workContractVersion': workContractVersion,
+      'workContractJobTitle': workContractJobTitle,
+      'workContractSalary': workContractSalary,
+      'workContractPaymentFrequency': workContractPaymentFrequency,
+      'workContractPaymentMethod': workContractPaymentMethod,
+      'workContractWorkSchedule': workContractWorkSchedule,
+      'workContractWorkLocation': workContractWorkLocation,
+      'workContractCustomClauses': workContractCustomClauses,
+      'workContractStartDate': workContractStartDate?.toIso8601String(),
       'experienciaLaboral': experienciaLaboral,
       'fechaIngreso': fechaIngreso?.toIso8601String(),
       'fechaNacimiento': fechaNacimiento?.toIso8601String(),

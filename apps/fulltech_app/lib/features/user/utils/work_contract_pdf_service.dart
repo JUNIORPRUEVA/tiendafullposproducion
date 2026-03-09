@@ -54,6 +54,11 @@ String _salaryFrequencyLabel(String? periodicidadPago) {
   return normalized;
 }
 
+String _normalizeParagraph(String? raw, {String fallback = ''}) {
+  final cleaned = (raw ?? '').replaceAll(RegExp(r'\s+'), ' ').trim();
+  return cleaned.isEmpty ? fallback : cleaned;
+}
+
 String _dateToSpanishLong(DateTime date) {
   final month = _spanishMonths[(date.month - 1).clamp(0, 11)];
   return 'día ${date.day} del mes de $month del año ${date.year}';
@@ -276,22 +281,41 @@ Future<Uint8List> buildWorkContractPdf({
       ? employee.cedula!.trim()
       : '____________________________';
 
-  final startDate = fechaInicio ?? employee.fechaIngreso ?? today;
+  final startDate =
+      fechaInicio ??
+      employee.workContractStartDate ??
+      employee.fechaIngreso ??
+      today;
 
-  final salarioRaw = (salario ?? '').trim();
+  final salarioRaw = (salario ?? employee.workContractSalary ?? '').trim();
   final salarioText = salarioRaw.isNotEmpty
       ? _salaryToContractText(salarioRaw)
       : '____________________________';
   final puestoEmpleado = _fallbackText(
-    puesto,
+    puesto ?? employee.workContractJobTitle,
     fallback: _compactRoleLabel(employee.role),
   );
-  final frecuenciaPago = _fallbackText(periodicidadPago, fallback: 'Mensual');
+  final frecuenciaPago = _fallbackText(
+    periodicidadPago ?? employee.workContractPaymentFrequency,
+    fallback: 'Mensual',
+  );
   final metodoPagoText = _fallbackText(
-    metodoPago,
+    metodoPago ?? employee.workContractPaymentMethod,
     fallback: 'Transferencia bancaria',
   );
   final monedaText = _fallbackText(moneda, fallback: 'DOP');
+  final horarioTrabajo = _normalizeParagraph(
+    employee.workContractWorkSchedule,
+    fallback:
+        'de 9:00 a.m. a 6:00 p.m., con una hora de almuerzo de 1:00 p.m. a 2:00 p.m., de lunes a domingo, con un dia libre semanal',
+  );
+  final lugarTrabajo = _normalizeParagraph(
+    employee.workContractWorkLocation ?? lugar ?? company?.address,
+    fallback: companyAddress,
+  );
+  final clausulasEspeciales = _normalizeParagraph(
+    employee.workContractCustomClauses,
+  );
 
   final doc = pw.Document(title: 'Contrato de trabajo', author: companyName);
 
@@ -300,7 +324,8 @@ Future<Uint8List> buildWorkContractPdf({
       padding: const pw.EdgeInsets.only(bottom: 8),
       child: pw.Text(
         text,
-        style: const pw.TextStyle(fontSize: 11, height: 1.25),
+        textAlign: pw.TextAlign.justify,
+        style: const pw.TextStyle(fontSize: 12, height: 1.4),
       ),
     );
   }
@@ -319,6 +344,7 @@ Future<Uint8List> buildWorkContractPdf({
             pw.TextSpan(text: rest),
           ],
         ),
+        textAlign: pw.TextAlign.justify,
       ),
     );
   }
@@ -372,109 +398,31 @@ Future<Uint8List> buildWorkContractPdf({
     );
   }
 
-  pw.Widget infoTable(String title, List<List<String>> rows) {
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Text(
-          title,
-          style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
-        ),
-        pw.SizedBox(height: 6),
-        pw.Table(
-          border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.6),
-          columnWidths: {
-            0: const pw.FlexColumnWidth(1.5),
-            1: const pw.FlexColumnWidth(2.5),
-          },
-          children: rows
-              .map(
-                (row) => pw.TableRow(
-                  children: [
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.all(6),
-                      child: pw.Text(
-                        row[0],
-                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                      ),
-                    ),
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.all(6),
-                      child: pw.Text(row[1]),
-                    ),
-                  ],
-                ),
-              )
-              .toList(),
-        ),
-      ],
-    );
-  }
-
   doc.addPage(
     pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.all(28),
+      margin: const pw.EdgeInsets.fromLTRB(22, 22, 22, 26),
       build: (context) => [
         pw.Text(
           companyName,
-          style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+          textAlign: pw.TextAlign.center,
+          style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
         ),
-        pw.Text(employerRncLine, style: const pw.TextStyle(fontSize: 11)),
+        pw.Center(
+          child: pw.Text(
+            'RNC: $employerRncLine',
+            style: const pw.TextStyle(fontSize: 11),
+          ),
+        ),
         pw.SizedBox(height: 10),
         centeredTitle('C O N T R A T O   D E    T R A B A J O'),
-        pw.SizedBox(height: 8),
-        infoTable('DATOS DE LA EMPRESA', [
-          ['Empresa', companyName],
-          ['RNC', employerRncLine],
-          ['Telefono', companyPhone],
-          ['Direccion', companyAddress],
-          ['Representante legal', representativeName],
-          ['Cedula representante', representativeCedula],
-          ['Cargo representante', representativeRole],
-          ['Nacionalidad representante', representativeNationality],
-          ['Estado civil representante', representativeCivil],
-        ]),
-        pw.SizedBox(height: 10),
-        infoTable('DATOS DEL COLABORADOR', [
-          ['Nombre completo', nombreEmpleado],
-          ['Cedula', cedulaEmpleado],
-          [
-            'Telefono',
-            _fallbackText(employee.telefono, fallback: 'No registrado'),
-          ],
-          ['Correo', _fallbackText(employee.email, fallback: 'No registrado')],
-          ['Fecha de ingreso', _formatDateShort(startDate)],
-          ['Fecha de nacimiento', _formatDateShort(employee.fechaNacimiento)],
-          ['Cargo', puestoEmpleado],
-          [
-            'Cuenta de nomina',
-            _fallbackText(
-              employee.cuentaNominaPreferencial,
-              fallback: 'No registrada',
-            ),
-          ],
-          ['Salario', salarioRaw.isEmpty ? 'No configurado' : salarioRaw],
-          ['Periodicidad de pago', frecuenciaPago],
-          ['Metodo de pago', metodoPagoText],
-          ['Moneda', monedaText],
-        ]),
         pw.SizedBox(height: 12),
-        pw.Text('ENTRE:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-        pw.SizedBox(height: 10),
-
         spacedText(
-          'De una parte, $companyName., sociedad constituida, organizada y existente de conformidad con las leyes de la República Dominicana, con domicilio social en $companyAddress, en su calidad de administradora y operadora de negocios de elaboración de alimentos (comida rápida) en lo adelante, “LA EMPRESA”, representado para todos los fines del presente documento por $representativeName, $representativeNationality, mayor de edad, $representativeCivil, provisto de la Cédula de Identidad y Electoral No. $representativeCedula, en su calidad de $representativeRole, que a los fines del presente contrato se denominará: EL EMPLEADOR;',
+          'En la ciudad de Higuey, provincia La Altagracia, Republica Dominicana, a los ${_dateToSpanishLong(today)}, se suscribe el presente contrato individual de trabajo entre, de una parte, $companyName, sociedad comercial organizada conforme a las leyes de la Republica Dominicana, inscrita en el Registro Nacional de Contribuyentes bajo el No. $employerRncLine, con domicilio social en $companyAddress, telefono $companyPhone, debidamente representada por $representativeName, de nacionalidad $representativeNationality, mayor de edad, de estado civil $representativeCivil, titular de la cedula de identidad y electoral No. $representativeCedula, quien actua en su calidad de $representativeRole, y que en lo adelante se denominara EL EMPLEADOR; y de la otra parte, $nombreEmpleado, de nacionalidad dominicana, mayor de edad, titular de la cedula de identidad y electoral No. $cedulaEmpleado, telefono ${_fallbackText(employee.telefono, fallback: 'no registrado')}, correo electronico ${_fallbackText(employee.email, fallback: 'no registrado')}, fecha de nacimiento ${_formatDateShort(employee.fechaNacimiento)}, fecha de ingreso ${_formatDateShort(startDate)}, cuenta de nomina ${_fallbackText(employee.cuentaNominaPreferencial, fallback: 'no registrada')}, quien en lo adelante se denominara EL EMPLEADO.',
         ),
-
         spacedText(
-          'Y, de la otra parte, $nombreEmpleado, de nacionalidad dominicana, mayor de edad, provisto de la Cédula de Identidad y Electoral No. $cedulaEmpleado, con domicilio y residencia en la ciudad de Higüey, Provincia la Altagracia, República Dominicana, quien en lo adelante se denominará: EL EMPLEADO.',
+          'Las partes, libre y voluntariamente, convienen en celebrar el presente contrato de trabajo por tiempo indefinido, de conformidad con las disposiciones del Codigo de Trabajo de la Republica Dominicana, sujeto a las clausulas que se indican a continuacion:',
         ),
-
-        spacedText(
-          'Ambas partes conjuntamente denominadas en lo adelante, Las Partes:',
-        ),
-
         pw.SizedBox(height: 6),
         pw.Text(
           'HAN CONVENIDO LO SIGUIENTE:',
@@ -484,57 +432,73 @@ Future<Uint8List> buildWorkContractPdf({
 
         richLabel(
           'PRIMERO: ',
-          'Objeto del Contrato: EL EMPLEADOR por medio del presente documento contrata los servicios de EL EMPLEADO en calidad de $puestoEmpleado, quien acepta trabajar para LA EMPRESA en horario 9:00 am a 6:00 pm. Con una hora de almuerzo entre la 1:00 pm y 2:00 pm, de lunes a domingo, teniendo un día libre semanal y devengará por dicho concepto un salario ${_salaryFrequencyLabel(periodicidadPago)} de $salarioText. El pago se realizará mediante $metodoPagoText.',
+          'Objeto del Contrato: EL EMPLEADOR contrata los servicios personales de EL EMPLEADO para desempenarse en el cargo de $puestoEmpleado, prestando sus servicios en $lugarTrabajo, en el horario $horarioTrabajo, obligandose EL EMPLEADO a ejecutar sus funciones con diligencia, lealtad y apego a las instrucciones razonables de EL EMPLEADOR. Por dichos servicios, EL EMPLEADO devengara un salario ${_salaryFrequencyLabel(frecuenciaPago)} en moneda $monedaText ascendente a $salarioText, pagadero mediante $metodoPagoText.',
         ),
 
         richLabel(
           'SEGUNDO: ',
-          'Duración del Contrato: El presente contrato será por tiempo indefinido y comenzará a partir del ${_dateToSpanishLong(startDate)}.',
+          'Duracion del Contrato: El presente contrato es por tiempo indefinido y surtira efecto a partir del ${_dateToSpanishLong(startDate)}, fecha desde la cual EL EMPLEADO queda formalmente incorporado a las labores de EL EMPLEADOR.',
         ),
 
         richLabel(
           'TERCERO: ',
-          'EL EMPLEADOR proveerá a EL EMPLEADO de seguro de salud durante la vigencia del presente contrato, así como los beneficios otorgados por el Código de Trabajo de la República Dominicana.',
+          'Beneficios y Seguridad Social: EL EMPLEADOR garantizara a EL EMPLEADO la afiliacion correspondiente al sistema de seguridad social y los beneficios laborales reconocidos por el Codigo de Trabajo de la Republica Dominicana, siempre conforme a los requisitos y plazos establecidos por la ley.',
         ),
 
         pw.SizedBox(height: 4),
         spacedText(
-          'PÁRRAFO I: En caso de que el presente contrato sea rescindido por cualquiera de las partes, antes de los 3 meses, EL EMPLEADO automáticamente perderá los beneficios anteriormente señalados.',
+          'PARRAFO I: Durante el periodo inicial de la relacion laboral, los beneficios adicionales o complementarios otorgados por EL EMPLEADOR podran estar sujetos a politicas internas, sin perjuicio de los derechos minimos irrenunciables consagrados en la legislacion laboral dominicana.',
         ),
 
         richLabel(
           'CUARTO: ',
-          'EL EMPLEADO se compromete a cumplir el horario regular de trabajo establecido por EL EMPLEADOR, el cual puede ser modificado dependiendo de las necesidades de LA EMPRESA, lo que le será avisado previamente a EL EMPLEADO; en el entendido que en caso de que EL EMPLEADO no pueda asistir a su jornada de trabajo por cualquier causa, aún esta sea justificada, EL EMPLEADO deberá hacer los arreglos necesarios y deberá notificarlo a LA EMPRESA con antelación.',
+          'Jornada y Disciplina: EL EMPLEADO se compromete a cumplir la jornada, reglamentos internos, medidas de seguridad, politicas de asistencia y demas instrucciones de servicio establecidas por EL EMPLEADOR. Cualquier variacion razonable de horario, turnos o funciones conexas sera comunicada oportunamente, conforme a la necesidad operativa de la empresa y dentro de los limites de la ley.',
         ),
 
         richLabel(
           'QUINTO: ',
-          'EL EMPLEADO, se compromete a asistir y a participar en las actividades y actos que celebre EL EMPLEADOR, tales como: Reuniones laborales, eventos que queden contratados fuera del local comercial.',
+          'Obligaciones Generales: EL EMPLEADO se obliga a asistir puntualmente a sus labores, participar en reuniones, capacitaciones, eventos y actividades relacionadas con sus funciones cuando sea requerido, asi como mantener una conducta respetuosa, profesional y alineada con los intereses legitimos de EL EMPLEADOR.',
         ),
 
         richLabel(
           'SEXTO: ',
-          'A EL EMPLEADO, sin perjuicio de cualquier período, determinado por EL EMPLEADOR, le corresponderá, un periodo de vacaciones cada año, en la fecha que establezcan por mutuo acuerdo según calendario del equipo.',
+          'Descanso y Vacaciones: EL EMPLEADO tendra derecho al descanso semanal, vacaciones, salario de navidad y demas prestaciones y derechos que le correspondan conforme al tiempo laborado y a las disposiciones vigentes del Codigo de Trabajo de la Republica Dominicana.',
+        ),
+
+        richLabel(
+          'SEPTIMO: ',
+          'Confidencialidad y Buen Uso: EL EMPLEADO guardara reserva sobre la informacion comercial, operativa, administrativa y tecnica a la que tenga acceso con motivo de sus funciones, y utilizara adecuadamente los equipos, materiales, documentos, sistemas y recursos puestos a su disposicion por EL EMPLEADOR.',
+        ),
+
+        richLabel(
+          'OCTAVO: ',
+          'Lugar de Prestacion: EL EMPLEADO desempenara sus funciones principalmente en $lugarTrabajo, sin perjuicio de traslados, visitas, actividades externas, soporte, reuniones o asignaciones compatibles con la naturaleza de su cargo cuando las necesidades del servicio asi lo requieran.',
         ),
 
         richLabel(
           'NOVENO: ',
-          'El incumplimiento de cualquiera de las obligaciones contraídas por EL EMPLEADO establecidas en este contrato y/o por las causas enunciadas por el Código de Trabajo de la República Dominicana dará lugar a la rescisión del presente contrato.',
+          'Terminacion: El incumplimiento de las obligaciones asumidas por EL EMPLEADO, asi como cualquiera de las causas previstas en el Codigo de Trabajo de la Republica Dominicana, podra dar lugar a la suspension o terminacion de la relacion laboral con las consecuencias legales correspondientes.',
         ),
 
         richLabel(
           'DECIMO: ',
-          'El presente contrato deja sin ningún valor y efecto jurídico cualquier acuerdo suscrito con anterioridad.',
+          'Integridad del Contrato: El presente documento deja sin efecto cualquier acuerdo verbal o escrito anterior relativo al mismo objeto, salvo aquellos derechos ya adquiridos por EL EMPLEADO conforme a la ley.',
         ),
 
         richLabel(
           'DECIMO PRIMERO: ',
-          'Las partes aceptan todas y cada una de las estipulaciones pactadas por el presente documento y para lo no previsto en el mismo se remiten al Código de Trabajo de la República Dominicana y al Derecho Común que regirá a título supletorio sus relaciones.',
+          'Ley Aplicable: Para todo lo no previsto expresamente en este contrato, las partes se remiten al Codigo de Trabajo de la Republica Dominicana, sus reglamentos complementarios y al derecho comun en caracter supletorio.',
         ),
+
+        if (clausulasEspeciales.isNotEmpty)
+          richLabel(
+            'DECIMO SEGUNDO: ',
+            'Clausulas Especiales: $clausulasEspeciales',
+          ),
 
         pw.SizedBox(height: 14),
         spacedText(
-          'HECHO Y FIRMADO DE BUENA FE ENTRE LAS PARTES, en $signingPlace, el ${_dateToSpanishLong(startDate)}.',
+          'Leido que fue el presente contrato y encontrandolo conforme con su voluntad, las partes lo firman en dos originales de un mismo tenor y efecto, en $signingPlace, a los ${_dateToSpanishLong(today)}.',
         ),
 
         signatureBlock('POR EL EMPLEADOR:', 'POR EL EMPLEADO:'),

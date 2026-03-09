@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -15,6 +17,7 @@ class NominaRepository {
   NominaRepository(this.ref, this._dio);
 
   static const String _companyPayrollScope = 'cloud_company_payroll';
+  static const Duration _requestTimeout = Duration(seconds: 15);
 
   final Ref ref;
   final Dio _dio;
@@ -107,7 +110,14 @@ class NominaRepository {
 
   Future<void> deleteEmployee(String employeeId) async {
     try {
-      await _dio.delete(ApiRoutes.payrollEmployeeDetail(employeeId));
+      await _dio
+          .delete(
+            ApiRoutes.payrollEmployeeDetail(employeeId),
+            options: _requestOptions(),
+          )
+          .timeout(_requestTimeout);
+    } on TimeoutException {
+      throw ApiException(_timeoutMessage('eliminar el empleado de nómina'));
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e, 'No se pudo eliminar el empleado de nómina'),
@@ -234,7 +244,9 @@ class NominaRepository {
     Map<String, dynamic>? query,
   }) async {
     try {
-      final res = await _dio.get(path, queryParameters: query);
+      final res = await _dio
+          .get(path, queryParameters: query, options: _requestOptions())
+          .timeout(_requestTimeout);
       if (res.data is Map<String, dynamic>) {
         return res.data as Map<String, dynamic>;
       }
@@ -242,6 +254,8 @@ class NominaRepository {
         return (res.data as Map).cast<String, dynamic>();
       }
       throw ApiException('Respuesta inválida del servidor');
+    } on TimeoutException {
+      throw ApiException(_timeoutMessage('consultar nómina'));
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e, 'Error consultando nómina'),
@@ -255,7 +269,9 @@ class NominaRepository {
     Map<String, dynamic>? query,
   }) async {
     try {
-      final res = await _dio.get(path, queryParameters: query);
+      final res = await _dio
+          .get(path, queryParameters: query, options: _requestOptions())
+          .timeout(_requestTimeout);
       if (res.data == null) return null;
       if (res.data is Map<String, dynamic>) {
         return res.data as Map<String, dynamic>;
@@ -264,6 +280,8 @@ class NominaRepository {
         return (res.data as Map).cast<String, dynamic>();
       }
       return null;
+    } on TimeoutException {
+      throw ApiException(_timeoutMessage('consultar nómina'));
     } on DioException catch (e) {
       if (e.response?.statusCode == 404) return null;
       throw ApiException(
@@ -278,13 +296,17 @@ class NominaRepository {
     Map<String, dynamic>? query,
   }) async {
     try {
-      final res = await _dio.get(path, queryParameters: query);
+      final res = await _dio
+          .get(path, queryParameters: query, options: _requestOptions())
+          .timeout(_requestTimeout);
       final data = res.data;
       if (data is! List) return const [];
       return data
           .whereType<Map>()
           .map((row) => row.cast<String, dynamic>())
           .toList();
+    } on TimeoutException {
+      throw ApiException(_timeoutMessage('consultar nómina'));
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e, 'Error consultando nómina'),
@@ -298,7 +320,9 @@ class NominaRepository {
     Map<String, dynamic> body,
   ) async {
     try {
-      final res = await _dio.post(path, data: body);
+      final res = await _dio
+          .post(path, data: body, options: _requestOptions())
+          .timeout(_requestTimeout);
       if (res.data is Map<String, dynamic>) {
         return res.data as Map<String, dynamic>;
       }
@@ -306,6 +330,8 @@ class NominaRepository {
         return (res.data as Map).cast<String, dynamic>();
       }
       throw ApiException('Respuesta inválida del servidor');
+    } on TimeoutException {
+      throw ApiException(_timeoutMessage('guardar cambios de nómina'));
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e, 'No se pudo guardar nómina'),
@@ -316,7 +342,9 @@ class NominaRepository {
 
   Future<void> _patch(String path) async {
     try {
-      await _dio.patch(path);
+      await _dio.patch(path, options: _requestOptions()).timeout(_requestTimeout);
+    } on TimeoutException {
+      throw ApiException(_timeoutMessage('actualizar nómina'));
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e, 'No se pudo actualizar nómina'),
@@ -327,7 +355,9 @@ class NominaRepository {
 
   Future<void> _delete(String path) async {
     try {
-      await _dio.delete(path);
+      await _dio.delete(path, options: _requestOptions()).timeout(_requestTimeout);
+    } on TimeoutException {
+      throw ApiException(_timeoutMessage('eliminar el movimiento'));
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e, 'No se pudo eliminar movimiento'),
@@ -352,5 +382,13 @@ class NominaRepository {
   double _num(dynamic value) {
     if (value is num) return value.toDouble();
     return double.tryParse('$value') ?? 0;
+  }
+
+  Options _requestOptions({Map<String, dynamic>? extra}) {
+    return Options(extra: {'skipLoader': true, ...?extra});
+  }
+
+  String _timeoutMessage(String action) {
+    return 'La operación de nómina tardó demasiado al $action. Inténtalo de nuevo.';
   }
 }

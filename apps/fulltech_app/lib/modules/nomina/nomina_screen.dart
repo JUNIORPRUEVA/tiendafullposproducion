@@ -9,8 +9,10 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/debug/trace_log.dart';
 import '../../core/models/user_model.dart';
 import '../../core/routing/routes.dart';
+import '../../core/utils/app_feedback.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../features/user/data/users_repository.dart';
 import 'application/nomina_controller.dart';
@@ -231,8 +233,7 @@ class NominaScreen extends ConsumerWidget {
                               ),
                             ),
                             OutlinedButton.icon(
-                              onPressed: () =>
-                                  _showEmployeeDialog(context, ref),
+                              onPressed: () => _showEmployeeDialog(context, ref),
                               icon: const Icon(Icons.add),
                               label: const Text('Agregar'),
                               style: OutlinedButton.styleFrom(
@@ -821,6 +822,14 @@ class NominaScreen extends ConsumerWidget {
     WidgetRef ref, {
     PayrollEmployee? employee,
   }) async {
+    final scaffoldContext = context;
+    final flowSeq = TraceLog.nextSeq();
+    TraceLog.log(
+      'NominaEmployeeDialog',
+      'open employeeId=${employee?.id ?? 'new'} scaffoldMounted=${scaffoldContext.mounted}',
+      seq: flowSeq,
+    );
+
     UserModel? selectedUser;
     if (employee == null) {
       final existingUserIds = ref
@@ -852,163 +861,246 @@ class NominaScreen extends ConsumerWidget {
     final cuotaCtrl = TextEditingController(
       text: (employee?.cuotaMinima ?? 0).toStringAsFixed(2),
     );
+    var isSubmitting = false;
 
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(employee == null ? 'Agregar empleado' : 'Editar empleado'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(labelText: 'Nombre completo'),
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: !isSubmitting,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            title: Text(
+              employee == null ? 'Agregar empleado' : 'Editar empleado',
+            ),
+            content: AbsorbPointer(
+              absorbing: isSubmitting,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Nombre completo',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: phoneCtrl,
+                      decoration: const InputDecoration(labelText: 'Teléfono'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: roleCtrl,
+                      decoration: const InputDecoration(labelText: 'Puesto'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: salaryCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Salario base quincenal',
+                        helperText: 'Se aplica a la quincena abierta',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: cuotaCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Cuota mínima (meta quincenal)',
+                        helperText: 'Meta de ventas quincenal del empleado',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: seguroLeyCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Seguro de ley (monto)',
+                        helperText: 'Deducción fija por quincena',
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: phoneCtrl,
-                decoration: const InputDecoration(labelText: 'Teléfono'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSubmitting
+                    ? null
+                    : () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancelar'),
               ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: roleCtrl,
-                decoration: const InputDecoration(labelText: 'Puesto'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: salaryCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Salario base quincenal',
-                  helperText: 'Se aplica a la quincena abierta',
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: cuotaCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Cuota mínima (meta quincenal)',
-                  helperText: 'Meta de ventas quincenal del empleado',
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: seguroLeyCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Seguro de ley (monto)',
-                  helperText: 'Deducción fija por quincena',
-                ),
+              FilledButton(
+                onPressed: isSubmitting
+                    ? null
+                    : () async {
+                        TraceLog.log(
+                          'NominaEmployeeDialog',
+                          'submit start dialogMounted=${dialogContext.mounted} scaffoldMounted=${scaffoldContext.mounted}',
+                          seq: flowSeq,
+                        );
+
+                        final salaryText = salaryCtrl.text.trim();
+                        final salary = salaryText.isEmpty
+                            ? null
+                            : double.tryParse(salaryText);
+
+                        TraceLog.log(
+                          'NominaEmployeeDialog',
+                          'submit validating salaryRaw="$salaryText" parsedSalary=$salary',
+                          seq: flowSeq,
+                        );
+
+                        if (employee == null && salary == null) {
+                          await AppFeedback.showError(
+                            scaffoldContext,
+                            'El salario base es obligatorio al agregar',
+                            fallbackContext: dialogContext,
+                            scope: 'NominaEmployeeDialog',
+                          );
+                          return;
+                        }
+                        if (salary != null && salary < 0) {
+                          await AppFeedback.showError(
+                            scaffoldContext,
+                            'El salario base debe ser un numero >= 0',
+                            fallbackContext: dialogContext,
+                            scope: 'NominaEmployeeDialog',
+                          );
+                          return;
+                        }
+
+                        final cuota = double.tryParse(cuotaCtrl.text.trim()) ?? -1;
+                        if (cuota < 0) {
+                          await AppFeedback.showError(
+                            scaffoldContext,
+                            'La cuota minima debe ser un numero >= 0',
+                            fallbackContext: dialogContext,
+                            scope: 'NominaEmployeeDialog',
+                          );
+                          return;
+                        }
+
+                        final seguroLey =
+                            double.tryParse(seguroLeyCtrl.text.trim()) ?? -1;
+                        if (seguroLey < 0) {
+                          await AppFeedback.showError(
+                            scaffoldContext,
+                            'El seguro de ley debe ser un monto >= 0',
+                            fallbackContext: dialogContext,
+                            scope: 'NominaEmployeeDialog',
+                          );
+                          return;
+                        }
+
+                        if (employee == null && selectedUser != null) {
+                          final alreadyExists = ref
+                              .read(nominaHomeControllerProvider)
+                              .employees
+                              .any((item) => item.id == selectedUser!.id);
+                          if (alreadyExists) {
+                            await AppFeedback.showError(
+                              scaffoldContext,
+                              'Este usuario ya esta agregado en nomina',
+                              fallbackContext: dialogContext,
+                              scope: 'NominaEmployeeDialog',
+                            );
+                            return;
+                          }
+                        }
+
+                        setDialogState(() => isSubmitting = true);
+                        TraceLog.log(
+                          'NominaEmployeeDialog',
+                          'submit saving id=${employee?.id ?? selectedUser?.id}',
+                          seq: flowSeq,
+                        );
+
+                        try {
+                          await ref
+                              .read(nominaHomeControllerProvider.notifier)
+                              .saveEmployee(
+                                id: employee?.id ?? selectedUser?.id,
+                                nombre: nameCtrl.text,
+                                telefono: phoneCtrl.text,
+                                puesto: roleCtrl.text,
+                                salarioBase: salary,
+                                cuotaMinima: cuota,
+                                seguroLeyMonto: seguroLey,
+                                activo: employee?.activo ?? true,
+                              );
+
+                          TraceLog.log(
+                            'NominaEmployeeDialog',
+                            'submit save ok dialogMounted=${dialogContext.mounted} scaffoldMounted=${scaffoldContext.mounted}',
+                            seq: flowSeq,
+                          );
+
+                          if (dialogContext.mounted) {
+                            Navigator.of(dialogContext).pop();
+                          }
+
+                          await AppFeedback.showInfo(
+                            scaffoldContext,
+                            employee == null
+                                ? 'Empleado agregado'
+                                : 'Empleado actualizado',
+                            fallbackContext: scaffoldContext,
+                            scope: 'NominaEmployeeDialog',
+                          );
+                        } catch (e, st) {
+                          TraceLog.log(
+                            'NominaEmployeeDialog',
+                            'submit save error',
+                            seq: flowSeq,
+                            error: e,
+                            stackTrace: st,
+                          );
+                          await AppFeedback.showError(
+                            scaffoldContext,
+                            'No se pudo guardar: $e',
+                            fallbackContext: dialogContext,
+                            scope: 'NominaEmployeeDialog',
+                          );
+                        } finally {
+                          TraceLog.log(
+                            'NominaEmployeeDialog',
+                            'submit finish dialogMounted=${dialogContext.mounted}',
+                            seq: flowSeq,
+                          );
+                          if (dialogContext.mounted) {
+                            setDialogState(() => isSubmitting = false);
+                          }
+                        }
+                      },
+                child: isSubmitting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Guardar'),
               ),
             ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final salaryText = salaryCtrl.text.trim();
-              final salary = salaryText.isEmpty
-                  ? null
-                  : double.tryParse(salaryText);
-              if (employee == null && salary == null) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('El salario base es obligatorio al agregar'),
-                  ),
-                );
-                return;
-              }
-              if (salary != null && salary < 0) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('El salario base debe ser un número >= 0'),
-                  ),
-                );
-                return;
-              }
-              final cuota = double.tryParse(cuotaCtrl.text.trim()) ?? -1;
-              if (cuota < 0) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('La cuota mínima debe ser un número >= 0'),
-                  ),
-                );
-                return;
-              }
-              final seguroLey =
-                  double.tryParse(seguroLeyCtrl.text.trim()) ?? -1;
-              if (seguroLey < 0) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('El seguro de ley debe ser un monto >= 0'),
-                  ),
-                );
-                return;
-              }
-
-              if (employee == null && selectedUser != null) {
-                final alreadyExists = ref
-                    .read(nominaHomeControllerProvider)
-                    .employees
-                    .any((item) => item.id == selectedUser!.id);
-                if (alreadyExists) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Este usuario ya está agregado en nómina'),
-                    ),
-                  );
-                  return;
-                }
-              }
-
-              try {
-                await ref
-                    .read(nominaHomeControllerProvider.notifier)
-                    .saveEmployee(
-                      id: employee?.id ?? selectedUser?.id,
-                      nombre: nameCtrl.text,
-                      telefono: phoneCtrl.text,
-                      puesto: roleCtrl.text,
-                      salarioBase: salary,
-                      cuotaMinima: cuota,
-                      seguroLeyMonto: seguroLey,
-                      activo: employee?.activo ?? true,
-                    );
-                if (!context.mounted) return;
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      employee == null
-                          ? 'Empleado agregado'
-                          : 'Empleado actualizado',
-                    ),
-                  ),
-                );
-              } catch (e) {
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('No se pudo guardar: $e')),
-                );
-              }
-            },
-            child: const Text('Guardar'),
-          ),
-        ],
-      ),
-    );
+      );
+    } finally {
+      nameCtrl.dispose();
+      phoneCtrl.dispose();
+      roleCtrl.dispose();
+      salaryCtrl.dispose();
+      seguroLeyCtrl.dispose();
+      cuotaCtrl.dispose();
+    }
   }
 
   Future<void> _showEmployeePayrollDialog(
@@ -1016,12 +1108,23 @@ class NominaScreen extends ConsumerWidget {
     WidgetRef ref,
     PayrollEmployee employee,
   ) async {
+    final scaffoldContext = context;
+    final flowSeq = TraceLog.nextSeq();
+    TraceLog.log(
+      'NominaEmployeePayrollDialog',
+      'open employeeId=${employee.id} scaffoldMounted=${scaffoldContext.mounted}',
+      seq: flowSeq,
+    );
+
     final state = ref.read(nominaHomeControllerProvider);
     final open = state.openPeriod;
     if (open == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('No hay quincena abierta')));
+      await AppFeedback.showError(
+        scaffoldContext,
+        'No hay quincena abierta',
+        fallbackContext: scaffoldContext,
+        scope: 'NominaEmployeePayrollDialog',
+      );
       return;
     }
 
@@ -1036,6 +1139,7 @@ class NominaScreen extends ConsumerWidget {
     final amountCtrl = TextEditingController();
     final qtyCtrl = TextEditingController(text: '1');
     PayrollEntryType selectedType = PayrollEntryType.descuento;
+    var isSavingEntry = false;
 
     Future<void> reload(StateSetter setStateDialog) async {
       entries = await repo.listEntries(open.id, employee.id);
@@ -1045,240 +1149,293 @@ class NominaScreen extends ConsumerWidget {
 
     if (!context.mounted) return;
 
-    await showDialog<void>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setStateDialog) => AlertDialog(
-          title: Text('Nómina de ${employee.nombre}'),
-          content: SizedBox(
-            width: 560,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Quincena: ${open.title}'),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Salario base: ${money.format(config?.baseSalary ?? 0)}',
-                  ),
-                  Text(
-                    'Comisión por ventas (auto): ${money.format(totals.salesCommissionAuto)}',
-                    style: TextStyle(
-                      color: totals.salesGoalReached
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(context).colorScheme.error,
-                      fontWeight: FontWeight.w700,
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (context, setStateDialog) => AlertDialog(
+            title: Text('Nómina de ${employee.nombre}'),
+            content: SizedBox(
+              width: 560,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Quincena: ${open.title}'),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Salario base: ${money.format(config?.baseSalary ?? 0)}',
                     ),
-                  ),
-                  Text(
-                    'Meta (puntos): ${money.format(totals.salesGoal)} · Puntos: ${money.format(totals.salesAmountThisPeriod)}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  Text(
-                    totals.salesGoalReached
-                        ? 'Meta alcanzada en puntos: comisión por ventas habilitada automáticamente.'
-                        : 'Meta no alcanzada en puntos: comisión por ventas en RD\$0.00.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  Text('Seguro ley: ${money.format(totals.seguroLey)}'),
-                  Text(
-                    'Total neto: ${money.format(totals.total)}',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Agregar ajuste',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<PayrollEntryType>(
-                    value: selectedType,
-                    items: PayrollEntryType.values
-                        .map(
-                          (type) => DropdownMenuItem(
-                            value: type,
-                            child: Text(type.label),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setStateDialog(() => selectedType = value);
-                      }
-                    },
-                    decoration: const InputDecoration(labelText: 'Tipo'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: conceptCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Concepto',
-                      hintText:
-                          'Ej: Ausencia 12/02, bonificación por meta, combustible...',
+                    Text(
+                      'Comisión por ventas (auto): ${money.format(totals.salesCommissionAuto)}',
+                      style: TextStyle(
+                        color: totals.salesGoalReached
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.error,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: qtyCtrl,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: const InputDecoration(
-                            labelText: 'Cantidad',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: amountCtrl,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: const InputDecoration(
-                            labelText: 'Monto (opcional en ausencia)',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  FilledButton.icon(
-                    onPressed: () async {
-                      final concept = conceptCtrl.text.trim();
-                      if (concept.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Debes escribir un concepto'),
-                          ),
-                        );
-                        return;
-                      }
-                      final qty = double.tryParse(qtyCtrl.text.trim()) ?? 1;
-                      if (qty <= 0) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('La cantidad debe ser > 0'),
-                          ),
-                        );
-                        return;
-                      }
-
-                      final parsedAmount = double.tryParse(
-                        amountCtrl.text.trim(),
-                      );
-                      double amount;
-
-                      if (selectedType == PayrollEntryType.ausencia &&
-                          parsedAmount == null) {
-                        final daily = (config?.baseSalary ?? 0) / 15;
-                        amount = -(daily * qty);
-                      } else {
-                        if (parsedAmount == null) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Monto inválido')),
-                          );
-                          return;
+                    Text(
+                      'Meta (puntos): ${money.format(totals.salesGoal)} · Puntos: ${money.format(totals.salesAmountThisPeriod)}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    Text(
+                      totals.salesGoalReached
+                          ? 'Meta alcanzada en puntos: comisión por ventas habilitada automáticamente.'
+                          : 'Meta no alcanzada en puntos: comisión por ventas en RD\$0.00.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    Text('Seguro ley: ${money.format(totals.seguroLey)}'),
+                    Text(
+                      'Total neto: ${money.format(totals.total)}',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Agregar ajuste',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<PayrollEntryType>(
+                      value: selectedType,
+                      items: PayrollEntryType.values
+                          .map(
+                            (type) => DropdownMenuItem(
+                              value: type,
+                              child: Text(type.label),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setStateDialog(() => selectedType = value);
                         }
-                        amount = parsedAmount;
-                      }
-
-                      if (selectedType.isDeduction && amount > 0) {
-                        amount = -amount;
-                      }
-                      if (!selectedType.isDeduction &&
-                          selectedType != PayrollEntryType.otro &&
-                          amount < 0) {
-                        amount = amount.abs();
-                      }
-
-                      await repo.addEntry(
-                        PayrollEntry(
-                          id: '',
-                          ownerId: repo.ownerId,
-                          periodId: open.id,
-                          employeeId: employee.id,
-                          date: DateTime.now(),
-                          type: selectedType,
-                          concept: concept,
-                          amount: amount,
-                          cantidad: qty,
-                        ),
-                      );
-
-                      conceptCtrl.clear();
-                      amountCtrl.clear();
-                      qtyCtrl.text = '1';
-                      await reload(setStateDialog);
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Ajuste guardado')),
-                      );
-                    },
-                    icon: const Icon(Icons.add),
-                    label: const Text('Agregar ajuste'),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Movimientos de la quincena',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 6),
-                  if (entries.isEmpty)
-                    const Text('Sin movimientos registrados')
-                  else
-                    ...entries.map(
-                      (entry) => ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(
-                          '${entry.type.label}: ${entry.concept}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          DateFormat('dd/MM/yyyy').format(entry.date),
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              money.format(entry.amount),
-                              style: TextStyle(
-                                color: entry.amount < 0
-                                    ? Theme.of(context).colorScheme.error
-                                    : Theme.of(context).colorScheme.primary,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            IconButton(
-                              tooltip: 'Eliminar',
-                              onPressed: () async {
-                                await repo.deleteEntry(entry.id);
-                                await reload(setStateDialog);
-                              },
-                              icon: const Icon(Icons.delete_outline, size: 18),
-                            ),
-                          ],
-                        ),
+                      },
+                      decoration: const InputDecoration(labelText: 'Tipo'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: conceptCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Concepto',
+                        hintText:
+                            'Ej: Ausencia 12/02, bonificación por meta, combustible...',
                       ),
                     ),
-                ],
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: qtyCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            decoration: const InputDecoration(
+                              labelText: 'Cantidad',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: amountCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            decoration: const InputDecoration(
+                              labelText: 'Monto (opcional en ausencia)',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton.icon(
+                      onPressed: isSavingEntry
+                          ? null
+                          : () async {
+                              TraceLog.log(
+                                'NominaEmployeePayrollDialog',
+                                'add adjustment start dialogMounted=${context.mounted} scaffoldMounted=${scaffoldContext.mounted}',
+                                seq: flowSeq,
+                              );
+                              final concept = conceptCtrl.text.trim();
+                              if (concept.isEmpty) {
+                                await AppFeedback.showError(
+                                  scaffoldContext,
+                                  'Debes escribir un concepto',
+                                  fallbackContext: context,
+                                  scope: 'NominaEmployeePayrollDialog',
+                                );
+                                return;
+                              }
+                              final qty = double.tryParse(qtyCtrl.text.trim()) ?? 1;
+                              if (qty <= 0) {
+                                await AppFeedback.showError(
+                                  scaffoldContext,
+                                  'La cantidad debe ser > 0',
+                                  fallbackContext: context,
+                                  scope: 'NominaEmployeePayrollDialog',
+                                );
+                                return;
+                              }
+
+                              final parsedAmount = double.tryParse(
+                                amountCtrl.text.trim(),
+                              );
+                              double amount;
+
+                              if (selectedType == PayrollEntryType.ausencia &&
+                                  parsedAmount == null) {
+                                final daily = (config?.baseSalary ?? 0) / 15;
+                                amount = -(daily * qty);
+                              } else {
+                                if (parsedAmount == null) {
+                                  await AppFeedback.showError(
+                                    scaffoldContext,
+                                    'Monto invalido',
+                                    fallbackContext: context,
+                                    scope: 'NominaEmployeePayrollDialog',
+                                  );
+                                  return;
+                                }
+                                amount = parsedAmount;
+                              }
+
+                              if (selectedType.isDeduction && amount > 0) {
+                                amount = -amount;
+                              }
+                              if (!selectedType.isDeduction &&
+                                  selectedType != PayrollEntryType.otro &&
+                                  amount < 0) {
+                                amount = amount.abs();
+                              }
+
+                              setStateDialog(() => isSavingEntry = true);
+
+                              try {
+                                await repo.addEntry(
+                                  PayrollEntry(
+                                    id: '',
+                                    ownerId: repo.ownerId,
+                                    periodId: open.id,
+                                    employeeId: employee.id,
+                                    date: DateTime.now(),
+                                    type: selectedType,
+                                    concept: concept,
+                                    amount: amount,
+                                    cantidad: qty,
+                                  ),
+                                );
+
+                                conceptCtrl.clear();
+                                amountCtrl.clear();
+                                qtyCtrl.text = '1';
+                                await reload(setStateDialog);
+                                TraceLog.log(
+                                  'NominaEmployeePayrollDialog',
+                                  'add adjustment saved dialogMounted=${context.mounted} scaffoldMounted=${scaffoldContext.mounted}',
+                                  seq: flowSeq,
+                                );
+                                await AppFeedback.showInfo(
+                                  scaffoldContext,
+                                  'Ajuste guardado',
+                                  fallbackContext: context,
+                                  scope: 'NominaEmployeePayrollDialog',
+                                );
+                              } catch (e, st) {
+                                TraceLog.log(
+                                  'NominaEmployeePayrollDialog',
+                                  'add adjustment error',
+                                  seq: flowSeq,
+                                  error: e,
+                                  stackTrace: st,
+                                );
+                                await AppFeedback.showError(
+                                  scaffoldContext,
+                                  'No se pudo guardar el ajuste: $e',
+                                  fallbackContext: context,
+                                  scope: 'NominaEmployeePayrollDialog',
+                                );
+                              } finally {
+                                if (context.mounted) {
+                                  setStateDialog(() => isSavingEntry = false);
+                                }
+                              }
+                            },
+                      icon: const Icon(Icons.add),
+                      label: isSavingEntry
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Agregar ajuste'),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Movimientos de la quincena',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    if (entries.isEmpty)
+                      const Text('Sin movimientos registrados')
+                    else
+                      ...entries.map(
+                        (entry) => ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            '${entry.type.label}: ${entry.concept}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            DateFormat('dd/MM/yyyy').format(entry.date),
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                money.format(entry.amount),
+                                style: TextStyle(
+                                  color: entry.amount < 0
+                                      ? Theme.of(context).colorScheme.error
+                                      : Theme.of(context).colorScheme.primary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: 'Eliminar',
+                                onPressed: () async {
+                                  await repo.deleteEntry(entry.id);
+                                  await reload(setStateDialog);
+                                },
+                                icon: const Icon(Icons.delete_outline, size: 18),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cerrar'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cerrar'),
-            ),
-          ],
         ),
-      ),
-    );
+      );
+    } finally {
+      conceptCtrl.dispose();
+      amountCtrl.dispose();
+      qtyCtrl.dispose();
+    }
 
     if (!context.mounted) return;
     await ref.read(nominaHomeControllerProvider.notifier).load();
@@ -1412,97 +1569,162 @@ class NominaScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
   ) async {
+    final scaffoldContext = context;
+    final flowSeq = TraceLog.nextSeq();
+    var isSubmitting = false;
     final titleCtrl = TextEditingController();
     DateTime start = DateTime.now();
     DateTime end = DateTime.now().add(const Duration(days: 14));
 
-    await showDialog<void>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setStateDialog) => AlertDialog(
-          title: const Text('Nueva quincena'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleCtrl,
-                decoration: const InputDecoration(labelText: 'Título'),
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: !isSubmitting,
+        builder: (context) => StatefulBuilder(
+          builder: (context, setStateDialog) => AlertDialog(
+            title: const Text('Nueva quincena'),
+            content: AbsorbPointer(
+              absorbing: isSubmitting,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: titleCtrl,
+                    decoration: const InputDecoration(labelText: 'Título'),
+                  ),
+                  const SizedBox(height: 12),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Inicio'),
+                    subtitle: Text(DateFormat('dd/MM/yyyy').format(start)),
+                    trailing: const Icon(Icons.date_range),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: start,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2100),
+                      );
+                      if (picked != null) {
+                        setStateDialog(() => start = picked);
+                      }
+                    },
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Fin'),
+                    subtitle: Text(DateFormat('dd/MM/yyyy').format(end)),
+                    trailing: const Icon(Icons.date_range),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: end,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2100),
+                      );
+                      if (picked != null) {
+                        setStateDialog(() => end = picked);
+                      }
+                    },
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Inicio'),
-                subtitle: Text(DateFormat('dd/MM/yyyy').format(start)),
-                trailing: const Icon(Icons.date_range),
-                onTap: () async {
-                  final picked = await showDatePicker(
-                    context: context,
-                    initialDate: start,
-                    firstDate: DateTime(2020),
-                    lastDate: DateTime(2100),
-                  );
-                  if (picked != null) {
-                    setStateDialog(() => start = picked);
-                  }
-                },
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSubmitting ? null : () => Navigator.pop(context),
+                child: const Text('Cancelar'),
               ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Fin'),
-                subtitle: Text(DateFormat('dd/MM/yyyy').format(end)),
-                trailing: const Icon(Icons.date_range),
-                onTap: () async {
-                  final picked = await showDatePicker(
-                    context: context,
-                    initialDate: end,
-                    firstDate: DateTime(2020),
-                    lastDate: DateTime(2100),
-                  );
-                  if (picked != null) {
-                    setStateDialog(() => end = picked);
-                  }
-                },
+              FilledButton(
+                onPressed: isSubmitting
+                    ? null
+                    : () async {
+                        TraceLog.log(
+                          'NominaCreatePeriodDialog',
+                          'submit start dialogMounted=${context.mounted} scaffoldMounted=${scaffoldContext.mounted}',
+                          seq: flowSeq,
+                        );
+
+                        final title = titleCtrl.text.trim();
+                        if (title.isEmpty) {
+                          await AppFeedback.showError(
+                            scaffoldContext,
+                            'Debes indicar un titulo',
+                            fallbackContext: context,
+                            scope: 'NominaCreatePeriodDialog',
+                          );
+                          return;
+                        }
+
+                        setStateDialog(() => isSubmitting = true);
+
+                        try {
+                          await ref
+                              .read(nominaHomeControllerProvider.notifier)
+                              .createPeriod(
+                                start: start,
+                                end: end,
+                                title: title,
+                              );
+
+                          TraceLog.log(
+                            'NominaCreatePeriodDialog',
+                            'submit success dialogMounted=${context.mounted} scaffoldMounted=${scaffoldContext.mounted}',
+                            seq: flowSeq,
+                          );
+
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                          }
+
+                          await AppFeedback.showInfo(
+                            scaffoldContext,
+                            'Quincena creada correctamente',
+                            fallbackContext: scaffoldContext,
+                            scope: 'NominaCreatePeriodDialog',
+                          );
+                        } catch (e, st) {
+                          TraceLog.log(
+                            'NominaCreatePeriodDialog',
+                            'submit error',
+                            seq: flowSeq,
+                            error: e,
+                            stackTrace: st,
+                          );
+
+                          await AppFeedback.showError(
+                            scaffoldContext,
+                            'No se pudo crear: $e',
+                            fallbackContext: context,
+                            scope: 'NominaCreatePeriodDialog',
+                          );
+                        } finally {
+                          TraceLog.log(
+                            'NominaCreatePeriodDialog',
+                            'submit finish dialogMounted=${context.mounted}',
+                            seq: flowSeq,
+                          );
+
+                          if (context.mounted) {
+                            setStateDialog(() => isSubmitting = false);
+                          }
+                        }
+                      },
+                child: isSubmitting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Crear'),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final title = titleCtrl.text.trim();
-                if (title.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Debes indicar un título')),
-                  );
-                  return;
-                }
-                try {
-                  await ref
-                      .read(nominaHomeControllerProvider.notifier)
-                      .createPeriod(start: start, end: end, title: title);
-                  if (!context.mounted) return;
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Quincena creada correctamente'),
-                    ),
-                  );
-                } catch (e) {
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('No se pudo crear: $e')),
-                  );
-                }
-              },
-              child: const Text('Crear'),
-            ),
-          ],
         ),
-      ),
-    );
+      );
+    } finally {
+      titleCtrl.dispose();
+    }
   }
 
   Future<void> _confirmClosePeriod(

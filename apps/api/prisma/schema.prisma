@@ -198,6 +198,14 @@ model User {
   workContractSignatureUrl String?
   workContractSignedAt     DateTime?
   workContractVersion      String?
+  workContractJobTitle     String?
+  workContractSalary       String?
+  workContractPaymentFrequency String?
+  workContractPaymentMethod String?
+  workContractWorkSchedule String?
+  workContractWorkLocation String?
+  workContractCustomClauses String?
+  workContractStartDate    DateTime?
   edad             Int
   tieneHijos       Boolean  @default(false)
   estaCasado       Boolean  @default(false)

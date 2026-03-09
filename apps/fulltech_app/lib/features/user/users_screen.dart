@@ -368,6 +368,27 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
     final cuentaNominaCtrl = TextEditingController(
       text: user?.cuentaNominaPreferencial ?? '',
     );
+    final contractJobTitleCtrl = TextEditingController(
+      text: user?.workContractJobTitle ?? '',
+    );
+    final contractSalaryCtrl = TextEditingController(
+      text: user?.workContractSalary ?? '',
+    );
+    final contractPaymentFrequencyCtrl = TextEditingController(
+      text: user?.workContractPaymentFrequency ?? '',
+    );
+    final contractPaymentMethodCtrl = TextEditingController(
+      text: user?.workContractPaymentMethod ?? '',
+    );
+    final contractWorkScheduleCtrl = TextEditingController(
+      text: user?.workContractWorkSchedule ?? '',
+    );
+    final contractWorkLocationCtrl = TextEditingController(
+      text: user?.workContractWorkLocation ?? '',
+    );
+    final contractCustomClausesCtrl = TextEditingController(
+      text: user?.workContractCustomClauses ?? '',
+    );
     final passwordCtrl = TextEditingController();
     final habilidadCtrl = TextEditingController();
     String selectedRole = user?.role ?? 'ASISTENTE';
@@ -379,6 +400,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
     bool licenciaConducir = user?.licenciaConducir ?? false;
     DateTime? fechaIngreso = user?.fechaIngreso;
     DateTime? fechaNacimiento = user?.fechaNacimiento;
+    DateTime? workContractStartDate = user?.workContractStartDate;
     final habilidades = [...user?.habilidades ?? const <String>[]];
     String? fotoCedulaUrl = user?.fotoCedulaUrl;
     String? fotoLicenciaUrl = user?.fotoLicenciaUrl;
@@ -602,6 +624,111 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                     hintText: 'Ej: Banco, tipo, # cuenta o # IBAN',
                   ),
                 ),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Personalización del contrato',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Si llenas estos campos, el contrato de este usuario usará estos valores en lugar de los automáticos.',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: contractJobTitleCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Cargo contractual (opcional)',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: contractSalaryCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Salario contractual (opcional)',
+                    hintText: 'Ej: RD\$ 25,000.00',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: contractPaymentFrequencyCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Periodicidad de pago (opcional)',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: contractPaymentMethodCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Método de pago (opcional)',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Fecha de inicio contractual (opcional)'),
+                  subtitle: Text(
+                    workContractStartDate == null
+                        ? 'Usar fecha de ingreso'
+                        : DateFormat(
+                            'dd/MM/yyyy',
+                          ).format(workContractStartDate!),
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (workContractStartDate != null)
+                        IconButton(
+                          tooltip: 'Quitar fecha',
+                          onPressed: () =>
+                              setModalState(() => workContractStartDate = null),
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      const Icon(Icons.calendar_today_outlined),
+                    ],
+                  ),
+                  onTap: () async {
+                    final now = DateTime.now();
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: workContractStartDate ?? fechaIngreso ?? now,
+                      firstDate: DateTime(1990),
+                      lastDate: DateTime(now.year + 5),
+                    );
+                    if (picked != null) {
+                      setModalState(() => workContractStartDate = picked);
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: contractWorkScheduleCtrl,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Horario contractual (opcional)',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: contractWorkLocationCtrl,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Lugar de trabajo contractual (opcional)',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: contractCustomClausesCtrl,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Cláusulas especiales (opcional)',
+                  ),
+                ),
                 const SizedBox(height: 12),
                 Align(
                   alignment: Alignment.centerLeft,
@@ -820,6 +947,21 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                   'fechaIngreso': fechaIngreso?.toIso8601String(),
                   'fechaNacimiento': fechaNacimiento?.toIso8601String(),
                   'cuentaNominaPreferencial': cuentaNominaCtrl.text.trim(),
+                  'workContractJobTitle': contractJobTitleCtrl.text.trim(),
+                  'workContractSalary': contractSalaryCtrl.text.trim(),
+                  'workContractPaymentFrequency': contractPaymentFrequencyCtrl
+                      .text
+                      .trim(),
+                  'workContractPaymentMethod': contractPaymentMethodCtrl.text
+                      .trim(),
+                  'workContractWorkSchedule': contractWorkScheduleCtrl.text
+                      .trim(),
+                  'workContractWorkLocation': contractWorkLocationCtrl.text
+                      .trim(),
+                  'workContractCustomClauses': contractCustomClausesCtrl.text
+                      .trim(),
+                  'workContractStartDate': workContractStartDate
+                      ?.toIso8601String(),
                   'habilidades': habilidades,
                   'tieneHijos': tieneHijos,
                   'estaCasado': estaCasado,

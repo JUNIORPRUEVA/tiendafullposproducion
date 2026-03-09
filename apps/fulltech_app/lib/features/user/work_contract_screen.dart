@@ -68,6 +68,7 @@ class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
     final company = await settingsRepo.getSettings();
 
     final payrollSnapshot = await _resolvePayrollSnapshot(user, nominaRepo);
+    final contractStartDate = user.workContractStartDate ?? user.fechaIngreso;
 
     final bytes = await buildWorkContractPdf(
       employee: user,
@@ -77,6 +78,7 @@ class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
       periodicidadPago: payrollSnapshot.paymentFrequency,
       metodoPago: payrollSnapshot.paymentMethod,
       puesto: payrollSnapshot.position,
+      fechaInicio: contractStartDate,
     );
 
     final safeName = user.nombreCompleto.trim().isEmpty
@@ -153,12 +155,21 @@ class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
     final payrollPosition = payrollEmployee?.puesto?.trim();
 
     return _PayrollContractSnapshot(
-      salaryFormatted: baseSalary != null && baseSalary > 0
+      salaryFormatted: (user.workContractSalary ?? '').trim().isNotEmpty
+          ? user.workContractSalary!.trim()
+          : baseSalary != null && baseSalary > 0
           ? currency.format(baseSalary)
           : null,
-      paymentFrequency: paymentFrequency ?? 'Quincenal',
-      paymentMethod: _resolvePaymentMethod(user),
-      position: (payrollPosition == null || payrollPosition.isEmpty)
+      paymentFrequency:
+          (user.workContractPaymentFrequency ?? '').trim().isNotEmpty
+          ? user.workContractPaymentFrequency!.trim()
+          : paymentFrequency ?? 'Quincenal',
+      paymentMethod: (user.workContractPaymentMethod ?? '').trim().isNotEmpty
+          ? user.workContractPaymentMethod!.trim()
+          : _resolvePaymentMethod(user),
+      position: (user.workContractJobTitle ?? '').trim().isNotEmpty
+          ? user.workContractJobTitle!.trim()
+          : (payrollPosition == null || payrollPosition.isEmpty)
           ? null
           : payrollPosition,
     );

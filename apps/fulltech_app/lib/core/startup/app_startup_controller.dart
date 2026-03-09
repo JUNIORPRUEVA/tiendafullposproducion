@@ -67,9 +67,7 @@ final appStartupProvider =
     });
 
 class AppStartupController extends StateNotifier<AppStartupState> {
-  AppStartupController() : super(AppStartupState.initial()) {
-    unawaited(start());
-  }
+  AppStartupController() : super(AppStartupState.initial());
 
   Future<void>? _startFuture;
 
@@ -83,7 +81,12 @@ class AppStartupController extends StateNotifier<AppStartupState> {
       return _startFuture!;
     }
 
-    final future = _runStartup();
+    late final Future<void> future;
+    future = _runStartup().whenComplete(() {
+      if (identical(_startFuture, future)) {
+        _startFuture = null;
+      }
+    });
     _startFuture = future;
     return future;
   }
@@ -146,7 +149,6 @@ class AppStartupController extends StateNotifier<AppStartupState> {
         error: error,
         stackTrace: stackTrace,
       );
-      rethrow;
     }
   }
 

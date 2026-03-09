@@ -186,6 +186,14 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
       workContractSignatureUrl: row.workContractSignatureUrl ?? null,
       workContractSignedAt: row.workContractSignedAt ?? null,
       workContractVersion: row.workContractVersion ?? null,
+      workContractJobTitle: row.workContractJobTitle ?? null,
+      workContractSalary: row.workContractSalary ?? null,
+      workContractPaymentFrequency: row.workContractPaymentFrequency ?? null,
+      workContractPaymentMethod: row.workContractPaymentMethod ?? null,
+      workContractWorkSchedule: row.workContractWorkSchedule ?? null,
+      workContractWorkLocation: row.workContractWorkLocation ?? null,
+      workContractCustomClauses: row.workContractCustomClauses ?? null,
+      workContractStartDate: row.workContractStartDate ?? null,
       edad: row.edad ?? 0,
       tieneHijos: row.tieneHijos ?? false,
       estaCasado: row.estaCasado ?? false,
@@ -218,6 +226,14 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         "workContractSignatureUrl",
         "workContractSignedAt",
         "workContractVersion",
+        "workContractJobTitle",
+        "workContractSalary",
+        "workContractPaymentFrequency",
+        "workContractPaymentMethod",
+        "workContractWorkSchedule",
+        "workContractWorkLocation",
+        "workContractCustomClauses",
+        "workContractStartDate",
         COALESCE(edad, 0) AS edad,
         COALESCE("tieneHijos", false) AS "tieneHijos",
         COALESCE("estaCasado", false) AS "estaCasado",
@@ -334,6 +350,14 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
           workContractSignatureUrl: true,
           workContractSignedAt: true,
           workContractVersion: true,
+          workContractJobTitle: true,
+          workContractSalary: true,
+          workContractPaymentFrequency: true,
+          workContractPaymentMethod: true,
+          workContractWorkSchedule: true,
+          workContractWorkLocation: true,
+          workContractCustomClauses: true,
+          workContractStartDate: true,
           edad: true,
           tieneHijos: true,
           estaCasado: true,
@@ -396,6 +420,14 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         fotoCedulaUrl: this.normalizeOptionalString(dto.fotoCedulaUrl),
         fotoLicenciaUrl: this.normalizeOptionalString(dto.fotoLicenciaUrl),
         fotoPersonalUrl: this.normalizeOptionalString(dto.fotoPersonalUrl),
+        workContractJobTitle: this.normalizeOptionalString(dto.workContractJobTitle),
+        workContractSalary: this.normalizeOptionalString(dto.workContractSalary),
+        workContractPaymentFrequency: this.normalizeOptionalString(dto.workContractPaymentFrequency),
+        workContractPaymentMethod: this.normalizeOptionalString(dto.workContractPaymentMethod),
+        workContractWorkSchedule: this.normalizeOptionalString(dto.workContractWorkSchedule),
+        workContractWorkLocation: this.normalizeOptionalString(dto.workContractWorkLocation),
+        workContractCustomClauses: this.normalizeOptionalString(dto.workContractCustomClauses),
+        workContractStartDate: dto.workContractStartDate ? new Date(dto.workContractStartDate) : undefined,
         edad: dto.edad,
         tieneHijos: dto.tieneHijos ?? false,
         estaCasado: dto.estaCasado ?? false,
@@ -422,6 +454,14 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         workContractSignatureUrl: true,
         workContractSignedAt: true,
         workContractVersion: true,
+        workContractJobTitle: true,
+        workContractSalary: true,
+        workContractPaymentFrequency: true,
+        workContractPaymentMethod: true,
+        workContractWorkSchedule: true,
+        workContractWorkLocation: true,
+        workContractCustomClauses: true,
+        workContractStartDate: true,
         edad: true,
         tieneHijos: true,
         estaCasado: true,
@@ -456,6 +496,14 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         workContractSignatureUrl: true,
         workContractSignedAt: true,
         workContractVersion: true,
+        workContractJobTitle: true,
+        workContractSalary: true,
+        workContractPaymentFrequency: true,
+        workContractPaymentMethod: true,
+        workContractWorkSchedule: true,
+        workContractWorkLocation: true,
+        workContractCustomClauses: true,
+        workContractStartDate: true,
         edad: true,
         tieneHijos: true,
         estaCasado: true,
@@ -567,6 +615,14 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
     if (this.hasValue(dto.fotoCedulaUrl)) data.fotoCedulaUrl = this.normalizeOptionalString(dto.fotoCedulaUrl) ?? null;
     if (this.hasValue(dto.fotoLicenciaUrl)) data.fotoLicenciaUrl = this.normalizeOptionalString(dto.fotoLicenciaUrl) ?? null;
     if (this.hasValue(dto.fotoPersonalUrl)) data.fotoPersonalUrl = this.normalizeOptionalString(dto.fotoPersonalUrl) ?? null;
+    if (dto.workContractJobTitle !== undefined) data.workContractJobTitle = this.normalizeOptionalString(dto.workContractJobTitle) ?? null;
+    if (dto.workContractSalary !== undefined) data.workContractSalary = this.normalizeOptionalString(dto.workContractSalary) ?? null;
+    if (dto.workContractPaymentFrequency !== undefined) data.workContractPaymentFrequency = this.normalizeOptionalString(dto.workContractPaymentFrequency) ?? null;
+    if (dto.workContractPaymentMethod !== undefined) data.workContractPaymentMethod = this.normalizeOptionalString(dto.workContractPaymentMethod) ?? null;
+    if (dto.workContractWorkSchedule !== undefined) data.workContractWorkSchedule = this.normalizeOptionalString(dto.workContractWorkSchedule) ?? null;
+    if (dto.workContractWorkLocation !== undefined) data.workContractWorkLocation = this.normalizeOptionalString(dto.workContractWorkLocation) ?? null;
+    if (dto.workContractCustomClauses !== undefined) data.workContractCustomClauses = this.normalizeOptionalString(dto.workContractCustomClauses) ?? null;
+    if (dto.workContractStartDate !== undefined) data.workContractStartDate = dto.workContractStartDate ? new Date(dto.workContractStartDate) : null;
     if (this.hasValue(dto.edad)) data.edad = dto.edad;
     if (this.hasValue(dto.tieneHijos)) data.tieneHijos = dto.tieneHijos;
     if (this.hasValue(dto.estaCasado)) data.estaCasado = dto.estaCasado;

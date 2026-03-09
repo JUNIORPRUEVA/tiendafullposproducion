@@ -37,11 +37,29 @@ Future<void> main() async {
   );
 }
 
-class AppBootstrap extends ConsumerWidget {
+class AppBootstrap extends ConsumerStatefulWidget {
   const AppBootstrap({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AppBootstrap> createState() => _AppBootstrapState();
+}
+
+class _AppBootstrapState extends ConsumerState<AppBootstrap> {
+  bool _startupRequested = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_startupRequested) return;
+    _startupRequested = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(ref.read(appStartupProvider.notifier).start());
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final startup = ref.watch(appStartupProvider);
     final startupController = ref.read(appStartupProvider.notifier);
 
