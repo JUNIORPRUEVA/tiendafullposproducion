@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../../core/models/product_model.dart';
+import '../../core/realtime/catalog_realtime_service.dart';
 import '../../core/routing/app_route_observer.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/string_utils.dart';
@@ -39,9 +40,10 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
   String _category = 'Todas';
   DateTime? _lastAutoSyncAt;
   Timer? _liveSyncTimer;
+  StreamSubscription<CatalogRealtimeMessage>? _realtimeSubscription;
   bool _routeObserverSubscribed = false;
   RouteObserver<ModalRoute<dynamic>>? _routeObserver;
-  static const Duration _liveSyncInterval = Duration(seconds: 30);
+  static const Duration _liveSyncInterval = Duration(minutes: 2);
 
   bool get _hasActiveFilter => _category != 'Todas';
 
@@ -49,8 +51,17 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _subscribeRealtime();
     _scheduleAutoSync();
     _startLiveSync();
+  }
+
+  void _subscribeRealtime() {
+    _realtimeSubscription?.cancel();
+    _realtimeSubscription = ref
+        .read(catalogRealtimeServiceProvider)
+        .stream
+        .listen((_) => _scheduleCatalogSync());
   }
 
   @override
@@ -149,6 +160,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
       _routeObserver = null;
     }
     _stopLiveSync();
+    _realtimeSubscription?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }

@@ -10,6 +10,7 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/models/product_model.dart';
+import '../../core/realtime/catalog_realtime_service.dart';
 import '../../core/routing/app_route_observer.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/product_image_url.dart';
@@ -57,13 +58,15 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   DateTime? _lastSuccessfulRemoteSyncAt;
   DateTime? _lastAutoSyncAt;
   Timer? _liveSyncTimer;
-  static const Duration _liveSyncInterval = Duration(seconds: 30);
+  StreamSubscription<CatalogRealtimeMessage>? _realtimeSubscription;
+  static const Duration _liveSyncInterval = Duration(minutes: 2);
   static const Duration _silentRefreshMinInterval = Duration(seconds: 20);
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _subscribeRealtime();
     _loadProducts(forceRemote: true);
     _startLiveSync();
   }
@@ -91,6 +94,14 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     observer.subscribe(this, route);
     _routeObserver = observer;
     _routeObserverSubscribed = true;
+  }
+
+  void _subscribeRealtime() {
+    _realtimeSubscription?.cancel();
+    _realtimeSubscription = ref
+        .read(catalogRealtimeServiceProvider)
+        .stream
+        .listen((_) => _loadProducts(forceRemote: true, silent: true));
   }
 
   void _startLiveSync() {
@@ -218,6 +229,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       _routeObserver = null;
     }
     _stopLiveSync();
+    _realtimeSubscription?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }

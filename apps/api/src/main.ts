@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
+import { CatalogRealtimeRelayService } from './products/catalog-realtime-relay.service';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -73,7 +74,11 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
   });
 
+  const realtimeRelay = app.get(CatalogRealtimeRelayService);
+  realtimeRelay.attach(app.getHttpServer() as unknown as import('node:http').Server);
+
   await app.listen(port, '0.0.0.0');
+  realtimeRelay.start();
   // eslint-disable-next-line no-console
   console.log(`API listening on http://0.0.0.0:${port}`);
 }

@@ -62,6 +62,7 @@ dependencies:
   geolocator: ^11.1.0
   flutter_map: ^6.1.0
   latlong2: ^0.9.1
+  socket_io_client: ^3.1.2
   url_launcher: ^6.3.0
   signature: ^6.3.0
 

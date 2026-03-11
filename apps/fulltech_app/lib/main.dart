@@ -9,8 +9,10 @@ import 'core/routing/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/loading/app_loading_overlay.dart';
 import 'core/loading/app_loading_screen.dart';
+import 'core/auth/auth_provider.dart';
 import 'core/debug/app_error_reporter.dart';
 import 'core/debug/app_error_overlay.dart';
+import 'core/realtime/catalog_realtime_service.dart';
 import 'core/startup/app_startup_controller.dart';
 
 Future<void> main() async {
@@ -105,6 +107,25 @@ class MyApp extends StatelessWidget {
     return Consumer(
       builder: (context, ref, _) {
         final router = ref.watch(routerProvider);
+        final authState = ref.watch(authStateProvider);
+        ref.listen<AuthState>(authStateProvider, (previous, next) {
+          if (next.isAuthenticated) {
+            unawaited(ref.read(catalogRealtimeServiceProvider).connect(next));
+          } else if (previous?.isAuthenticated == true &&
+              !next.isAuthenticated) {
+            ref.read(catalogRealtimeServiceProvider).disconnect();
+          }
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          if (authState.isAuthenticated) {
+            unawaited(
+              ref.read(catalogRealtimeServiceProvider).connect(authState),
+            );
+          } else {
+            ref.read(catalogRealtimeServiceProvider).disconnect();
+          }
+        });
         return MaterialApp.router(
           title: 'FullTech',
           debugShowCheckedModeBanner: false,

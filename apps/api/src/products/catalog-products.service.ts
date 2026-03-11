@@ -121,6 +121,8 @@ type FullposDirectSchema = {
 
 type DirectProductRow = Record<string, unknown>;
 
+const FULLTECH_ALLOWED_FULLPOS_COMPANY_ID = '2';
+
 @Injectable()
 export class CatalogProductsService {
   private readonly logger = new Logger(CatalogProductsService.name);
@@ -151,8 +153,8 @@ export class CatalogProductsService {
     this.fullposDirectCompanyId = (
       config.get<string>('FULLPOS_DIRECT_COMPANY_ID') ??
       config.get<string>('FULLPOS_COMPANY_ID') ??
-      ''
-    ).trim();
+      FULLTECH_ALLOWED_FULLPOS_COMPANY_ID
+    ).trim() || FULLTECH_ALLOWED_FULLPOS_COMPANY_ID;
     this.fullposDirectProductsTable = (config.get<string>('FULLPOS_DIRECT_PRODUCTS_TABLE') ?? '').trim();
     this.fullposDirectCompanyColumn = (config.get<string>('FULLPOS_DIRECT_COMPANY_COLUMN') ?? '').trim();
     this.fullposValidateImages = rawValidateImages.length > 0
@@ -303,6 +305,11 @@ export class CatalogProductsService {
     }
     if (!this.fullposDirectCompanyId) {
       throw new ServiceUnavailableException('FULLPOS_DIRECT_COMPANY_ID no está configurado');
+    }
+    if (this.fullposDirectCompanyId !== FULLTECH_ALLOWED_FULLPOS_COMPANY_ID) {
+      throw new ServiceUnavailableException(
+        `FULLTECH solo permite catalogo de FULLPOS company ${FULLTECH_ALLOWED_FULLPOS_COMPANY_ID}`,
+      );
     }
     if (!this.fullposDirectPool) {
       throw new ServiceUnavailableException('No se pudo inicializar la conexión directa a FULLPOS');

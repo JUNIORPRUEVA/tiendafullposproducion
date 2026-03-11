@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/cache/fulltech_cache_manager.dart';
 import '../../core/models/product_model.dart';
+import '../../core/realtime/catalog_realtime_service.dart';
 import '../../core/routing/app_route_observer.dart';
 import '../../core/utils/product_image_url.dart';
 import '../../core/widgets/app_drawer.dart';
@@ -32,7 +33,8 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
   final TextEditingController _noteCtrl = TextEditingController();
   DateTime? _lastAutoSyncAt;
   Timer? _liveSyncTimer;
-  static const Duration _liveSyncInterval = Duration(seconds: 30);
+  StreamSubscription<CatalogRealtimeMessage>? _realtimeSubscription;
+  static const Duration _liveSyncInterval = Duration(minutes: 2);
   static const Duration _silentRefreshMinInterval = Duration(seconds: 20);
 
   static const _productsCacheKey = 'ventas_products_cache_v4';
@@ -80,8 +82,17 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _subscribeRealtime();
     _loadProducts(forceRemote: true);
     _startLiveSync();
+  }
+
+  void _subscribeRealtime() {
+    _realtimeSubscription?.cancel();
+    _realtimeSubscription = ref
+        .read(catalogRealtimeServiceProvider)
+        .stream
+        .listen((_) => _loadProducts(forceRemote: true, silent: true));
   }
 
   @override
@@ -171,6 +182,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
       _routeObserver = null;
     }
     _stopLiveSync();
+    _realtimeSubscription?.cancel();
     _searchCtrl.dispose();
     _noteCtrl.dispose();
     super.dispose();
