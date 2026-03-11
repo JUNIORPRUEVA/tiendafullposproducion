@@ -13,8 +13,8 @@ import '../../core/models/product_model.dart';
 import '../../core/realtime/catalog_realtime_service.dart';
 import '../../core/routing/app_route_observer.dart';
 import '../../core/routing/routes.dart';
-import '../../core/utils/product_image_url.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/product_network_image.dart';
 import '../clientes/cliente_model.dart';
 import '../ventas/data/ventas_repository.dart';
 import 'cotizacion_models.dart';
@@ -1119,39 +1119,28 @@ class _ProductThumbCard extends StatelessWidget {
                   child: (product.displayFotoUrl ?? '').trim().isEmpty
                       ? const Icon(Icons.inventory_2_outlined, size: 17)
                       : ClipOval(
-                          child: Image.network(
-                            product.displayFotoUrl!,
-                            width: 38,
-                            height: 38,
+                          child: ProductNetworkImage(
+                            imageUrl: product.displayFotoUrl!,
+                            productId: product.id,
+                            productName: product.nombre,
+                            originalUrl: product.originalFotoUrl,
                             fit: BoxFit.cover,
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return const Center(
-                                child: SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
+                            loading: const Center(
+                              child: SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
                                 ),
-                              );
-                            },
-                            errorBuilder: (context, error, stackTrace) {
-                              debugLogProductImageFailure(
-                                productId: product.id,
-                                productName: product.nombre,
-                                originalUrl: product.originalFotoUrl,
-                                attemptedUrl: product.displayFotoUrl!,
-                                error: error,
-                              );
-                              return Center(
-                                child: Icon(
-                                  Icons.broken_image_outlined,
-                                  size: 18,
-                                  color: Theme.of(context).colorScheme.outline,
-                                ),
-                              );
-                            },
+                              ),
+                            ),
+                            fallback: Center(
+                              child: Icon(
+                                Icons.broken_image_outlined,
+                                size: 18,
+                                color: Theme.of(context).colorScheme.outline,
+                              ),
+                            ),
                           ),
                         ),
                 ),
