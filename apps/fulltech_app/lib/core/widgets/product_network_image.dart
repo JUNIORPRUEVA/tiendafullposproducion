@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../cache/fulltech_cache_manager.dart';
 import '../utils/product_image_url.dart';
 
 class ProductNetworkImage extends StatefulWidget {
@@ -13,6 +15,8 @@ class ProductNetworkImage extends StatefulWidget {
   final Widget fallback;
   final Widget? loading;
   final int maxRetries;
+  final double? width;
+  final double? height;
 
   const ProductNetworkImage({
     super.key,
@@ -24,6 +28,8 @@ class ProductNetworkImage extends StatefulWidget {
     this.fit = BoxFit.cover,
     this.loading,
     this.maxRetries = 3,
+    this.width,
+    this.height,
   });
 
   @override
@@ -61,18 +67,23 @@ class _ProductNetworkImageState extends State<ProductNetworkImage> {
   Widget build(BuildContext context) {
     final imageUrl = _buildAttemptUrl(widget.imageUrl, _retryAttempt);
 
-    return Image.network(
-      imageUrl,
+    return CachedNetworkImage(
+      imageUrl: imageUrl,
       key: ValueKey(imageUrl),
+      cacheManager: FulltechImageCacheManager.instance,
+      useOldImageOnUrlChange: true,
       fit: widget.fit,
-      loadingBuilder: (context, child, loadingProgress) {
-        if (loadingProgress == null) return child;
-        return widget.loading ?? widget.fallback;
+      width: widget.width,
+      height: widget.height,
+      fadeInDuration: const Duration(milliseconds: 140),
+      fadeOutDuration: Duration.zero,
+      placeholder: (context, _) {
+        return widget.fallback;
       },
-      errorBuilder: (context, error, stackTrace) {
+      errorWidget: (context, _, error) {
         if (_retryAttempt < widget.maxRetries) {
           _scheduleRetry();
-          return widget.loading ?? widget.fallback;
+          return widget.fallback;
         }
 
         debugLogProductImageFailure(

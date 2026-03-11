@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/cache/fulltech_cache_manager.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/models/product_model.dart';
 import '../data/catalog_repository.dart';
@@ -120,6 +121,11 @@ class CatalogController extends StateNotifier<CatalogState> {
       final items = applyCatalogSyncVersion(merged, syncVersion);
       state = state.copyWith(items: items, loading: false);
       await _saveToCache(items);
+      Future<void>.microtask(
+        () => FulltechImageCacheManager.warmImageUrls(
+          items.map((item) => item.displayFotoUrl),
+        ),
+      );
       _lastSuccessfulRemoteSyncAt = DateTime.now();
     } catch (e) {
       final message = e is ApiException

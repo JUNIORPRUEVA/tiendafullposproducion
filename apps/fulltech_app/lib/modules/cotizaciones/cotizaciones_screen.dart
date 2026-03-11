@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/cache/fulltech_cache_manager.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/models/product_model.dart';
@@ -268,6 +269,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         _loadingProducts = false;
         _error = null;
       });
+      Future<void>.microtask(
+        () => FulltechImageCacheManager.warmImageUrls(
+          rows.map((item) => item.displayFotoUrl),
+        ),
+      );
       _lastSuccessfulRemoteSyncAt = DateTime.now();
     } catch (e) {
       if (!mounted) return;

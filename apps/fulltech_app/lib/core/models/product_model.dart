@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../api/env.dart';
 import '../utils/product_image_url.dart';
 
@@ -127,10 +129,7 @@ class ProductModel {
           json['imageUrl'] ??
           json['image_url'],
     );
-    final createdAt = _firstParsedDate([
-      json['createdAt'],
-      json['created_at'],
-    ]);
+    final createdAt = _firstParsedDate([json['createdAt'], json['created_at']]);
     final updatedAt = _firstParsedDate([
       json['updatedAt'],
       json['updated_at'],
@@ -150,14 +149,13 @@ class ProductModel {
           json['_catalogSyncVersion'],
     );
     final activoValue = json['activo'];
-    final activo =
-        activoValue is bool
-            ? activoValue
-            : (json['estado']?.toString().toLowerCase() != 'inactivo');
+    final activo = activoValue is bool
+        ? activoValue
+        : (json['estado']?.toString().toLowerCase() != 'inactivo');
     final normalizedFotoUrl = normalizeProductImageUrl(
       imageUrl: foto,
       baseUrl: Env.apiBaseUrl,
-      proxyUploadsOnWeb: true,
+      proxyUploadsOnWeb: kIsWeb,
     );
     final imageVersion =
         _versionFromDate(imageUpdatedAt ?? updatedAt) ?? explicitImageVersion;
@@ -213,11 +211,14 @@ class ProductModel {
   }
 
   String? get displayFotoUrl {
+    final sourceImageUrl = kIsWeb
+        ? (fotoUrl ?? originalFotoUrl)
+        : (originalFotoUrl ?? fotoUrl);
     final url = buildProductImageUrl(
-      imageUrl: fotoUrl ?? originalFotoUrl,
+      imageUrl: sourceImageUrl,
       version: imageVersion,
       baseUrl: Env.apiBaseUrl,
-      proxyUploadsOnWeb: true,
+      proxyUploadsOnWeb: kIsWeb,
     );
     return url.isEmpty ? null : url;
   }
@@ -245,10 +246,9 @@ List<ProductModel> applyCatalogSyncVersion(
 ) {
   return items
       .map(
-        (item) =>
-            (item.imageVersion?.trim().isNotEmpty ?? false)
-                ? item
-                : item.copyWith(imageVersion: syncVersion),
+        (item) => (item.imageVersion?.trim().isNotEmpty ?? false)
+            ? item
+            : item.copyWith(imageVersion: syncVersion),
       )
       .toList(growable: false);
 }
