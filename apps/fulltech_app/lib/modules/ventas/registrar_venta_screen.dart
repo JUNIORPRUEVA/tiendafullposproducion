@@ -686,6 +686,16 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
                                 ),
                                 const SizedBox(height: 1),
                                 Text(
+                                  p.categoriaLabel,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.92),
+                                    fontSize: compactCard ? 8.3 : 9.2,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
                                   _money(p.precio),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,

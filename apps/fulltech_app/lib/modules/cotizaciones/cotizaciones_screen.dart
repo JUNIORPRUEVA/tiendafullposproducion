@@ -1166,6 +1166,14 @@ class _ProductThumbCard extends StatelessWidget {
                   ),
                 ),
                 Text(
+                  product.categoriaLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontSize: 10),
+                ),
+                Text(
                   money(product.precio),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

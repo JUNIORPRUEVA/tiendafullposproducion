@@ -852,6 +852,16 @@ class _ProductCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
+                    product.categoriaLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.92),
+                      fontSize: compact ? 9.5 : 10.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  Text(
                     'Precio \$${product.precio.toStringAsFixed(2)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
