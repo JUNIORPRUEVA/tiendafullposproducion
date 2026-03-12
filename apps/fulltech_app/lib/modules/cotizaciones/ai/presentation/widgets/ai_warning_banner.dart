@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../domain/models/ai_warning.dart';
-import 'ai_warning_card.dart';
 
 class AiWarningBanner extends StatelessWidget {
   const AiWarningBanner({
@@ -21,92 +20,127 @@ class AiWarningBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     if (warnings.isEmpty && !analyzing) return const SizedBox.shrink();
     final theme = Theme.of(context);
+    final primaryWarning = warnings.isNotEmpty ? warnings.first : null;
+    final warningCount = warnings
+        .where((item) => item.type == AiWarningType.warning)
+        .length;
+    final hasActionableRule =
+        (primaryWarning?.relatedRuleId ?? '').trim().isNotEmpty ||
+        (primaryWarning?.relatedRuleTitle ?? '').trim().isNotEmpty;
+    final tone = switch (primaryWarning?.type) {
+      AiWarningType.warning => theme.colorScheme.error,
+      AiWarningType.success => theme.colorScheme.primary,
+      AiWarningType.info || null => theme.colorScheme.secondary,
+    };
+    final icon = analyzing
+        ? Icons.auto_awesome_rounded
+        : switch (primaryWarning?.type) {
+            AiWarningType.warning => Icons.warning_amber_rounded,
+            AiWarningType.success => Icons.verified_rounded,
+            AiWarningType.info || null => Icons.info_outline_rounded,
+          };
+    final headline = analyzing
+        ? 'Revisando reglas oficiales...'
+        : primaryWarning?.title ?? 'Asistente FULLTECH';
+    final detail = analyzing
+        ? 'Analizando la cotización actual sin bloquear tu trabajo.'
+        : primaryWarning?.description ??
+              'Sin novedades relevantes en esta cotización.';
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            theme.colorScheme.surface,
-            theme.colorScheme.surfaceContainerLowest,
-          ],
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.55),
-        ),
+        color: tone.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: tone.withValues(alpha: 0.16)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
           children: [
-            Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(
-                    Icons.auto_awesome_rounded,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: tone.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: analyzing
+                  ? Padding(
+                      padding: const EdgeInsets.all(7),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: tone,
+                      ),
+                    )
+                  : Icon(icon, color: tone, size: 18),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
                     children: [
-                      Text(
-                        'Asistente FULLTECH',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w900,
+                      Flexible(
+                        child: Text(
+                          headline,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        analyzing
-                            ? 'Revisando la cotización con reglas oficiales...'
-                            : 'Advertencias y confirmaciones no bloqueantes para esta cotización.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
+                      if (warningCount > 1) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: tone.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            '$warningCount alertas',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: tone,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
-                ),
-                if (analyzing)
-                  const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-              ],
-            ),
-            if (warnings.isNotEmpty) ...[
-              const SizedBox(height: 14),
-              Column(
-                children: [
-                  for (
-                    var index = 0;
-                    index < warnings.length && index < 3;
-                    index++
-                  ) ...[
-                    AiWarningCard(
-                      warning: warnings[index],
-                      onOpenRule: () => onOpenRule(warnings[index]),
-                      onAskAi: onAskAi,
+                  const SizedBox(height: 2),
+                  Text(
+                    detail,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
-                    if (index < warnings.length - 1 && index < 2)
-                      const SizedBox(height: 10),
-                  ],
+                  ),
                 ],
               ),
-            ],
+            ),
+            if (primaryWarning != null && hasActionableRule)
+              TextButton(
+                onPressed: () => onOpenRule(primaryWarning),
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: const Text('Regla'),
+              ),
+            if (primaryWarning != null)
+              IconButton(
+                tooltip: 'Preguntar a IA',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => onAskAi(primaryWarning),
+                icon: const Icon(Icons.auto_awesome_outlined, size: 18),
+              ),
           ],
         ),
       ),

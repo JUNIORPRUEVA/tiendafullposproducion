@@ -1599,7 +1599,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
           child: _buildStatusChips(),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
           child: AiWarningBanner(
             warnings: aiState.visibleWarnings,
             analyzing: aiState.analyzing || aiState.loadingRules,
@@ -1631,7 +1631,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
             ),
             onAskAi: _askAiAboutWarning,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
           Expanded(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,

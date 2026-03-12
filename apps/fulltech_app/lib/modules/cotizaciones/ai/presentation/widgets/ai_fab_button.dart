@@ -24,14 +24,21 @@ class AiFabButton extends StatelessWidget {
           ),
         ],
       ),
-      child: FloatingActionButton.extended(
-        onPressed: onPressed,
-        elevation: 0,
-        backgroundColor: theme.colorScheme.primary,
-        foregroundColor: theme.colorScheme.onPrimary,
-        icon: const Icon(Icons.auto_awesome_rounded),
-        label: Text(isDesktop ? 'Asistente FULLTECH' : 'IA'),
-      ),
+      child: isDesktop
+          ? FloatingActionButton.small(
+              onPressed: onPressed,
+              elevation: 0,
+              backgroundColor: theme.colorScheme.primary,
+              foregroundColor: theme.colorScheme.onPrimary,
+              child: const Icon(Icons.auto_awesome_rounded),
+            )
+          : FloatingActionButton.small(
+              onPressed: onPressed,
+              elevation: 0,
+              backgroundColor: theme.colorScheme.primary,
+              foregroundColor: theme.colorScheme.onPrimary,
+              child: const Icon(Icons.auto_awesome_rounded),
+            ),
     );
   }
 }

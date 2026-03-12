@@ -543,7 +543,7 @@ export class CotizacionesService {
       ...(context.extraCharges ?? []),
       ...(context.items ?? []).flatMap((item) => [item.productName, item.category, item.notes]),
     ]
-      .filter((item): item is string => typeof item === 'string' && item.trim().isNotEmpty)
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
       .join(' ')
       .toLowerCase();
 
