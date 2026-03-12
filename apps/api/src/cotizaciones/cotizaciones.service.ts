@@ -33,6 +33,8 @@ export class CotizacionesService {
   private readonly logger = new Logger(CotizacionesService.name);
   private static readonly noRuleMessage =
     'No encontré una regla oficial para eso dentro del sistema.';
+  private static readonly rulesOnlyReminder =
+    'Solo puedo responder con base en reglas oficiales del Manual Interno.';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -302,22 +304,44 @@ export class CotizacionesService {
       unsupported?: unknown;
     }>({
       runtime,
-      temperature: 0.1,
+      temperature: 0,
       systemPrompt:
-        'Eres el asistente interno de FULLTECH dentro del módulo de cotización. Solo puedes responder usando las reglas oficiales proporcionadas por el sistema. No inventes precios, no supongas condiciones, no uses conocimiento externo. Si una respuesta no está definida en las reglas disponibles, debes decir claramente que no encontraste una regla oficial. Tu función es ayudar al vendedor, validar cotizaciones y advertir sobre posibles inconsistencias sin bloquear el flujo de trabajo. Siempre que menciones una regla, intenta devolver el identificador o título de la regla relacionada. Responde únicamente JSON válido.',
+        'Eres el asistente interno de FULLTECH dentro del módulo de cotización. Debes responder 100% con base en las reglas oficiales del Manual Interno enviadas en la solicitud. No inventes precios, no resumas conocimiento externo, no completes huecos con supuestos y no des consejos no sustentados por una regla enviada. Toda respuesta útil debe quedar apoyada por al menos una regla citada de las proporcionadas. Si la pregunta no está cubierta por las reglas disponibles, debes responder exactamente que no encontraste una regla oficial. Si el usuario solo saluda o escribe algo ambiguo, responde de forma breve recordando que solo trabajas con reglas oficiales y pidiéndole una pregunta concreta sobre políticas, precios, garantía, DVR, instalación u otra regla del manual. Responde únicamente JSON válido.',
       userPrompt:
-        `${JSON.stringify({ message, context: dto.context, rules })}\n\nDevuelve exactamente este JSON: {"content":"string","relatedRuleId":"string|null","relatedRuleTitle":"string|null","citations":[{"id":"string","title":"string"}],"unsupported":false}. Si las reglas oficiales no cubren la pregunta, usa exactamente este texto en content: "${CotizacionesService.noRuleMessage}" y usa unsupported=true.`,
+        `${JSON.stringify({ message, context: dto.context, rules })}\n\nDevuelve exactamente este JSON: {"content":"string","relatedRuleId":"string|null","relatedRuleTitle":"string|null","citations":[{"id":"string","title":"string"}],"unsupported":false}. Reglas estrictas: 1) si respondes algo util, citations no puede ir vacio; 2) relatedRuleId o relatedRuleTitle debe apuntar a una regla enviada; 3) no agregues nada que no pueda leerse o inferirse directamente de las reglas; 4) si la pregunta no esta cubierta, usa exactamente este texto en content: "${CotizacionesService.noRuleMessage}" y usa unsupported=true; 5) si el mensaje es ambiguo o solo social, usa exactamente este texto en content: "${CotizacionesService.rulesOnlyReminder}" y usa unsupported=true.`,
     });
 
     const relatedRule = rules.find((item) => item.id === this.normalizeOptionalString(parsed.relatedRuleId));
     const citations = this.normalizeCitations(parsed.citations, rules);
     const content = this.normalizeOptionalString(parsed.content) ?? CotizacionesService.noRuleMessage;
 
+    const unsupported = parsed.unsupported === true;
+    const relatedRuleId = relatedRule?.id ?? this.normalizeOptionalString(parsed.relatedRuleId);
+    const relatedRuleTitle = relatedRule?.title ?? this.normalizeOptionalString(parsed.relatedRuleTitle);
+
+    if (content === CotizacionesService.rulesOnlyReminder) {
+      return {
+        source: 'rules-only',
+        content,
+        relatedRuleId: null,
+        relatedRuleTitle: null,
+        citations: [],
+      };
+    }
+
+    if (unsupported || content === CotizacionesService.noRuleMessage) {
+      return this.buildRuleOnlyChatFallback(message, rules);
+    }
+
+    if (citations.length === 0 && !relatedRuleId && !relatedRuleTitle) {
+      return this.buildRuleOnlyChatFallback(message, rules);
+    }
+
     return {
       source: 'openai',
       content,
-      relatedRuleId: relatedRule?.id ?? this.normalizeOptionalString(parsed.relatedRuleId),
-      relatedRuleTitle: relatedRule?.title ?? this.normalizeOptionalString(parsed.relatedRuleTitle),
+      relatedRuleId,
+      relatedRuleTitle,
       citations,
     };
   }
@@ -733,7 +757,12 @@ export class CotizacionesService {
   }
 
   private buildRuleOnlyChatFallback(message: string, rules: BusinessRuleRecord[]) {
-    const topRule = rules[0];
+    const normalizedMessage = message.trim().toLowerCase();
+    const hasMeaningfulQuestion = this.tokenize(normalizedMessage).length > 0;
+    const matchedRules = hasMeaningfulQuestion
+      ? this.rankRulesForPrompt(message, rules).slice(0, 2)
+      : [];
+    const topRule = matchedRules[0] ?? rules[0];
     if (!topRule) {
       return {
         source: 'rules-only',
@@ -744,18 +773,51 @@ export class CotizacionesService {
       };
     }
 
-    const excerpt = this.buildExcerpt(topRule.content);
-    const content = excerpt.length > 0
-      ? `${excerpt} Regla relacionada: ${topRule.title}.`
-      : `Según la regla oficial "${topRule.title}", debes revisar esta política antes de responder: ${message}`;
+    const selectedRules = matchedRules.length > 0 ? matchedRules : [topRule];
+    const citations = selectedRules.map((rule) => this.toRuleReference(rule));
+    const summaryParts = selectedRules
+      .map((rule, index) => {
+        const excerpt = this.buildExcerpt(rule.summary?.trim().length ? rule.summary : rule.content);
+        const prefix = index == 0 ? `Segun la regla oficial "${rule.title}"` : `Tambien aplica "${rule.title}"`;
+        return excerpt.length > 0 ? `${prefix}: ${excerpt}` : prefix;
+      })
+      .filter((item) => item.trim().length > 0);
+
+    const content = summaryParts.length > 0
+      ? summaryParts.join(' ')
+      : `Solo puedo responder con base en reglas oficiales. La regla mas cercana es "${topRule.title}".`;
 
     return {
       source: 'rules-only',
       content,
       relatedRuleId: topRule.id,
       relatedRuleTitle: topRule.title,
-      citations: [this.toRuleReference(topRule)],
+      citations,
     };
+  }
+
+  private rankRulesForPrompt(message: string, rules: BusinessRuleRecord[]) {
+    const tokens = new Set(this.tokenize(message));
+
+    return rules
+      .map((rule) => {
+        const ruleTokens = new Set(
+          this.tokenize([rule.title, rule.summary ?? '', rule.content, rule.module, rule.category].join(' ')),
+        );
+        let score = 0;
+        for (const token of tokens) {
+          if (ruleTokens.has(token)) {
+            score += token.length >= 5 ? 2 : 1;
+          }
+        }
+        if (rule.severity === 'critical' || rule.severity === 'warning') {
+          score += 1;
+        }
+        return { rule, score };
+      })
+      .filter((item) => item.score > 0)
+      .sort((left, right) => right.score - left.score)
+      .map((item) => item.rule);
   }
 
   private buildExcerpt(content: string) {

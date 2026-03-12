@@ -27,6 +27,7 @@ import 'ai/presentation/widgets/ai_fab_button.dart';
 import 'ai/presentation/widgets/ai_warning_banner.dart';
 import 'ai/presentation/widgets/quotation_rule_detail_sheet.dart';
 import 'cotizacion_models.dart';
+import 'data/cotizacion_catalog_local_data_source.dart';
 import 'data/cotizaciones_repository.dart';
 import 'utils/cotizacion_pdf_service.dart';
 
@@ -75,6 +76,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   StreamSubscription<CatalogRealtimeMessage>? _realtimeSubscription;
   static const Duration _liveSyncInterval = Duration(minutes: 2);
   static const Duration _silentRefreshMinInterval = Duration(seconds: 20);
+  static const Duration _catalogCacheFreshFor = Duration(minutes: 10);
 
   @override
   void initState() {
@@ -87,7 +89,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     _activeDesktopTicketId = initialDraft.id;
     WidgetsBinding.instance.addObserver(this);
     _subscribeRealtime();
-    _loadProducts(forceRemote: true);
+    unawaited(_bootstrapCatalog());
     _startLiveSync();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -290,19 +292,33 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       final rows = await ref
           .read(ventasRepositoryProvider)
           .fetchProducts(forceRefresh: forceRemote);
+      final catalogVersion = buildCatalogSyncVersion(rows);
+      final cachedRows = applyCatalogSyncVersion(rows, catalogVersion);
+      final syncedAt = DateTime.now();
+
+      unawaited(
+        ref
+            .read(cotizacionCatalogLocalDataSourceProvider)
+            .saveSnapshot(
+              cachedRows,
+              syncedAt: syncedAt,
+              catalogVersion: catalogVersion,
+            ),
+      );
+
       if (!mounted) return;
       setState(() {
-        _productos = rows;
+        _productos = cachedRows;
         _loadingProducts = false;
         _error = null;
       });
       unawaited(_syncQuotationAi(triggerAi: false));
       Future<void>.microtask(
         () => FulltechImageCacheManager.warmImageUrls(
-          rows.map((item) => item.displayFotoUrl),
+          cachedRows.map((item) => item.displayFotoUrl),
         ),
       );
-      _lastSuccessfulRemoteSyncAt = DateTime.now();
+      _lastSuccessfulRemoteSyncAt = syncedAt;
     } catch (e) {
       if (!mounted) return;
       if (silent && _productos.isNotEmpty) return;
@@ -315,6 +331,67 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         _remoteRefreshInFlight = false;
       }
     }
+  }
+
+  Future<void> _bootstrapCatalog() async {
+    try {
+      final localDataSource = ref.read(
+        cotizacionCatalogLocalDataSourceProvider,
+      );
+      final cacheSnapshot = await localDataSource.readSnapshot();
+      final uiState = await localDataSource.readUiState();
+      if (!mounted) return;
+
+      final hasCachedProducts = cacheSnapshot.items.isNotEmpty;
+      setState(() {
+        if (hasCachedProducts) {
+          _productos = cacheSnapshot.items;
+          _loadingProducts = false;
+          _error = null;
+        }
+        if (_searchCtrl.text.trim().isEmpty &&
+            uiState.searchQuery.trim().isNotEmpty) {
+          _searchCtrl.text = uiState.searchQuery;
+        }
+        if (_selectedCategory == null &&
+            (uiState.selectedCategory ?? '').trim().isNotEmpty) {
+          _selectedCategory = uiState.selectedCategory;
+        }
+      });
+
+      if (hasCachedProducts) {
+        unawaited(_syncQuotationAi(triggerAi: false));
+        Future<void>.microtask(
+          () => FulltechImageCacheManager.warmImageUrls(
+            cacheSnapshot.items.map((item) => item.displayFotoUrl),
+          ),
+        );
+      }
+
+      final shouldRefresh =
+          !hasCachedProducts ||
+          cacheSnapshot.lastSyncedAt == null ||
+          DateTime.now().difference(cacheSnapshot.lastSyncedAt!) >
+              _catalogCacheFreshFor;
+
+      if (shouldRefresh) {
+        await _loadProducts(forceRemote: true, silent: hasCachedProducts);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      await _loadProducts(forceRemote: true);
+    }
+  }
+
+  void _persistCatalogUiState() {
+    unawaited(
+      ref
+          .read(cotizacionCatalogLocalDataSourceProvider)
+          .saveUiState(
+            selectedCategory: _selectedCategory,
+            searchQuery: _searchCtrl.text,
+          ),
+    );
   }
 
   List<String> get _categories {
@@ -422,6 +499,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       changes();
       _writeActiveDesktopDraft();
     });
+    _persistCatalogUiState();
     unawaited(_syncQuotationAi());
   }
 

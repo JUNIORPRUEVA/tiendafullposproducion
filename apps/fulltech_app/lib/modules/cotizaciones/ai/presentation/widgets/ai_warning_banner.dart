@@ -18,7 +18,7 @@ class AiWarningBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (warnings.isEmpty && !analyzing) return const SizedBox.shrink();
+    if (warnings.isEmpty) return const SizedBox.shrink();
     final theme = Theme.of(context);
     final primaryWarning = warnings.isNotEmpty ? warnings.first : null;
     final warningCount = warnings
@@ -32,20 +32,15 @@ class AiWarningBanner extends StatelessWidget {
       AiWarningType.success => theme.colorScheme.primary,
       AiWarningType.info || null => theme.colorScheme.secondary,
     };
-    final icon = analyzing
-        ? Icons.auto_awesome_rounded
-        : switch (primaryWarning?.type) {
-            AiWarningType.warning => Icons.warning_amber_rounded,
-            AiWarningType.success => Icons.verified_rounded,
-            AiWarningType.info || null => Icons.info_outline_rounded,
-          };
-    final headline = analyzing
-        ? 'Revisando reglas oficiales...'
-        : primaryWarning?.title ?? 'Asistente FULLTECH';
-    final detail = analyzing
-        ? 'Analizando la cotización actual sin bloquear tu trabajo.'
-        : primaryWarning?.description ??
-              'Sin novedades relevantes en esta cotización.';
+    final icon = switch (primaryWarning?.type) {
+      AiWarningType.warning => Icons.warning_amber_rounded,
+      AiWarningType.success => Icons.verified_rounded,
+      AiWarningType.info || null => Icons.info_outline_rounded,
+    };
+    final headline = primaryWarning?.title ?? 'Asistente FULLTECH';
+    final detail =
+        primaryWarning?.description ??
+        'Sin novedades relevantes en esta cotización.';
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -64,15 +59,7 @@ class AiWarningBanner extends StatelessWidget {
                 color: tone.withValues(alpha: 0.14),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: analyzing
-                  ? Padding(
-                      padding: const EdgeInsets.all(7),
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: tone,
-                      ),
-                    )
-                  : Icon(icon, color: tone, size: 18),
+              child: Icon(icon, color: tone, size: 18),
             ),
             const SizedBox(width: 10),
             Expanded(

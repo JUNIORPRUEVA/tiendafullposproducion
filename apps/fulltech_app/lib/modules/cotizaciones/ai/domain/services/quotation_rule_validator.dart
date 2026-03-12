@@ -10,27 +10,15 @@ class QuotationRuleValidator {
     required QuotationContext context,
     required List<BusinessRule> rules,
   }) {
-    final warnings = <AiWarning>[];
-
     if (rules.isEmpty) {
-      return AiValidationResult(
+      return const AiValidationResult(
         isValid: true,
-        warnings: [
-          AiWarning(
-            id: 'rules-missing',
-            title: 'Sin reglas oficiales cargadas',
-            description:
-                'No hay reglas oficiales disponibles para validar esta cotización en este momento.',
-            type: AiWarningType.info,
-            relatedRuleId: null,
-            relatedRuleTitle: null,
-            suggestedAction: 'Verifica el módulo de reglas.',
-            createdAt: DateTime.now(),
-          ),
-        ],
-        summary: 'No hay reglas oficiales cargadas.',
+        warnings: [],
+        summary: 'Validación local sin reglas cargadas.',
       );
     }
+
+    final warnings = <AiWarning>[];
 
     final priceRule = _findRule(rules, const ['precio', 'minimo']);
     final dvrRule = _findRule(rules, const ['dvr', 'camara']);
@@ -157,29 +145,14 @@ class QuotationRuleValidator {
         ),
       );
     }
-
-    if (warnings.isEmpty) {
-      warnings.add(
-        AiWarning(
-          id: 'quotation-ok',
-          title: 'Cotización consistente',
-          description:
-              'La cotización parece correcta según las reglas oficiales disponibles y las validaciones locales actuales.',
-          type: AiWarningType.success,
-          relatedRuleId: null,
-          relatedRuleTitle: null,
-          suggestedAction: null,
-          createdAt: DateTime.now(),
-        ),
-      );
-    }
-
     return AiValidationResult(
       isValid: warnings.every(
         (warning) => warning.type != AiWarningType.warning,
       ),
       warnings: warnings,
-      summary: warnings.first.description,
+      summary: warnings.isEmpty
+          ? 'Sin alertas locales.'
+          : warnings.first.description,
     );
   }
 

@@ -32,10 +32,7 @@ class BusinessRulesRepository {
     }
 
     final entries = await _manualRepository.listEntries(includeHidden: false);
-    final rules = entries
-        .where(_isRelevantRule)
-        .map(_mapEntry)
-        .toList(growable: false);
+    final rules = entries.map(_mapEntry).toList(growable: false);
 
     _cachedRules = rules;
     _cachedAt = now;
@@ -70,40 +67,19 @@ class BusinessRulesRepository {
     return null;
   }
 
-  bool _isRelevantRule(CompanyManualEntry entry) {
-    final moduleKey = (entry.moduleKey ?? '').trim().toLowerCase();
-    const allowedModules = {'', 'cotizaciones', 'cotizacion', 'ventas'};
-    if (allowedModules.contains(moduleKey)) return true;
-
-    switch (entry.kind) {
-      case CompanyManualEntryKind.generalRule:
-      case CompanyManualEntryKind.policy:
-      case CompanyManualEntryKind.warrantyPolicy:
-      case CompanyManualEntryKind.productService:
-      case CompanyManualEntryKind.priceRule:
-      case CompanyManualEntryKind.serviceRule:
-      case CompanyManualEntryKind.moduleGuide:
-        return true;
-      case CompanyManualEntryKind.roleRule:
-      case CompanyManualEntryKind.responsibility:
-        return false;
-    }
-  }
-
   BusinessRule _mapEntry(CompanyManualEntry entry) {
+    final normalizedModule = (entry.moduleKey ?? '').trim().toLowerCase();
     final contentBlob = [
       entry.title,
       entry.summary ?? '',
       entry.content,
-      entry.moduleKey ?? '',
+      normalizedModule,
       entry.kind.label,
     ].join(' ');
 
     return BusinessRule(
       id: entry.id,
-      module: (entry.moduleKey ?? 'general').trim().toLowerCase().isEmpty
-          ? 'general'
-          : entry.moduleKey!.trim().toLowerCase(),
+      module: normalizedModule.isEmpty ? 'general' : normalizedModule,
       category: _mapCategory(entry.kind),
       title: entry.title,
       summary: entry.summary,

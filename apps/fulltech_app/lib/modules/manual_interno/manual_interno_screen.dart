@@ -24,6 +24,7 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
   String? _error;
   List<CompanyManualEntry> _entries = const [];
   CompanyManualEntryKind? _kindFilter;
+  String? _selectedEntryId;
 
   @override
   void initState() {
@@ -70,10 +71,15 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
         ref.invalidate(companyManualSummaryProvider);
       }
 
+      final selectedId = items.any((item) => item.id == _selectedEntryId)
+          ? _selectedEntryId
+          : (items.isEmpty ? null : items.first.id);
+
       if (!mounted) return;
       setState(() {
         _entries = items;
         _loading = false;
+        _selectedEntryId = selectedId;
       });
     } catch (e) {
       if (!mounted) return;
@@ -97,17 +103,19 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
         .toList(growable: false);
   }
 
-  Future<void> _openEditor({CompanyManualEntry? entry}) async {
+  Future<bool> _openEditor({CompanyManualEntry? entry}) async {
     final saved = await showDialog<bool>(
       context: context,
       builder: (_) => _CompanyManualEntryDialog(entry: entry),
     );
     if (saved == true) {
       await _loadEntries();
+      return true;
     }
+    return false;
   }
 
-  Future<void> _deleteEntry(CompanyManualEntry entry) async {
+  Future<bool> _deleteEntry(CompanyManualEntry entry) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -125,20 +133,88 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true) return false;
 
     setState(() => _saving = true);
     try {
       await ref.read(companyManualRepositoryProvider).deleteEntry(entry.id);
       await _loadEntries();
+      return true;
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('No se pudo eliminar: $e')));
+      return false;
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  CompanyManualEntry? _resolveSelectedEntry(List<CompanyManualEntry> entries) {
+    if (entries.isEmpty) return null;
+    for (final entry in entries) {
+      if (entry.id == _selectedEntryId) return entry;
+    }
+    return entries.first;
+  }
+
+  List<_ManualSectionData> _buildSections(List<CompanyManualEntry> entries) {
+    final sections = <_ManualSectionData>[];
+    for (final kind in CompanyManualEntryKind.values) {
+      final items = entries.where((entry) => entry.kind == kind).toList();
+      if (items.isEmpty) continue;
+      items.sort((a, b) {
+        final byOrder = a.sortOrder.compareTo(b.sortOrder);
+        if (byOrder != 0) return byOrder;
+        return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+      });
+      sections.add(_ManualSectionData(kind: kind, entries: items));
+    }
+    return sections;
+  }
+
+  void _openEntryDetail(CompanyManualEntry entry, bool canManage) {
+    final width = MediaQuery.of(context).size.width;
+    if (width >= 980) {
+      setState(() => _selectedEntryId = entry.id);
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _ManualEntryDetailScreen(
+          entry: entry,
+          canManage: canManage,
+          onEdit: canManage
+              ? () async {
+                  final saved = await _openEditor(entry: entry);
+                  if (saved && mounted && context.mounted) {
+                    Navigator.of(context).pop();
+                  }
+                }
+              : null,
+          onDelete: canManage
+              ? () async {
+                  final deleted = await _deleteEntry(entry);
+                  if (deleted && mounted && context.mounted) {
+                    Navigator.of(context).pop();
+                  }
+                }
+              : null,
+        ),
+      ),
+    );
+  }
+
+  String _formatDate(DateTime? value) {
+    if (value == null) return 'Sin fecha';
+    final day = value.day.toString().padLeft(2, '0');
+    final month = value.month.toString().padLeft(2, '0');
+    final year = value.year.toString();
+    final hour = value.hour.toString().padLeft(2, '0');
+    final minute = value.minute.toString().padLeft(2, '0');
+    return '$day/$month/$year $hour:$minute';
   }
 
   @override
@@ -148,6 +224,8 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
         user != null &&
         hasPermission(user.appRole, AppPermission.manageCompanyManual);
     final entries = _visibleEntries;
+    final sections = _buildSections(entries);
+    final selectedEntry = _resolveSelectedEntry(entries);
 
     return Scaffold(
       appBar: AppBar(
@@ -167,189 +245,149 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
         ],
       ),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: TextField(
-              controller: _searchCtrl,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                hintText: 'Buscar reglas, políticas, guías o módulos...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchCtrl.text.isEmpty
-                    ? null
-                    : IconButton(
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          setState(() {});
-                        },
-                        icon: const Icon(Icons.close),
-                      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Theme.of(context).colorScheme.primary.withValues(alpha: 0.07),
+              Theme.of(context).scaffoldBackgroundColor,
+              Theme.of(context).colorScheme.surface,
+            ],
+          ),
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: _ManualOverviewHeader(
+                totalTopics: entries.length,
+                totalSections: sections.length,
+                selectedFilter: _kindFilter?.label ?? 'Todo el manual',
               ),
             ),
-          ),
-          SizedBox(
-            height: 48,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ChoiceChip(
-                    label: const Text('Todo'),
-                    selected: _kindFilter == null,
-                    onSelected: (_) {
-                      setState(() => _kindFilter = null);
-                      _loadEntries();
-                    },
-                  ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: TextField(
+                controller: _searchCtrl,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  hintText: 'Buscar reglas, políticas, guías o módulos...',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _searchCtrl.text.isEmpty
+                      ? null
+                      : IconButton(
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() {});
+                          },
+                          icon: const Icon(Icons.close),
+                        ),
                 ),
-                for (final kind in CompanyManualEntryKind.values)
+              ),
+            ),
+            SizedBox(
+              height: 52,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                children: [
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
-                      label: Text(kind.label),
-                      selected: _kindFilter == kind,
+                      label: const Text('Todo'),
+                      selected: _kindFilter == null,
                       onSelected: (_) {
-                        setState(() => _kindFilter = kind);
+                        setState(() => _kindFilter = null);
                         _loadEntries();
                       },
                     ),
                   ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                ? Center(child: Text(_error!))
-                : entries.isEmpty
-                ? const Center(child: Text('No hay entradas para mostrar'))
-                : RefreshIndicator(
-                    onRefresh: _loadEntries,
-                    child: ListView.separated(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: entries.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (context, index) {
-                        final entry = entries[index];
-                        final roles = entry.targetRoles
-                            .map((role) => role.label)
-                            .join(', ');
-                        final updatedAt = entry.updatedAt ?? entry.createdAt;
-
-                        return Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(14),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            entry.title,
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .titleMedium
-                                                ?.copyWith(
-                                                  fontWeight: FontWeight.w700,
-                                                ),
-                                          ),
-                                          const SizedBox(height: 6),
-                                          Wrap(
-                                            spacing: 8,
-                                            runSpacing: 8,
-                                            children: [
-                                              Chip(
-                                                label: Text(entry.kind.label),
-                                              ),
-                                              Chip(
-                                                label: Text(
-                                                  entry.audience.label,
-                                                ),
-                                              ),
-                                              if (entry.moduleKey != null &&
-                                                  entry.moduleKey!.isNotEmpty)
-                                                Chip(
-                                                  label: Text(
-                                                    'Módulo: ${entry.moduleKey}',
-                                                  ),
-                                                ),
-                                              if (roles.isNotEmpty)
-                                                Chip(
-                                                  label: Text('Roles: $roles'),
-                                                ),
-                                              if (!entry.published)
-                                                const Chip(
-                                                  label: Text('Oculto'),
-                                                ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    if (canManage)
-                                      PopupMenuButton<String>(
-                                        onSelected: (value) {
-                                          if (value == 'edit') {
-                                            _openEditor(entry: entry);
-                                          } else if (value == 'delete') {
-                                            _deleteEntry(entry);
-                                          }
-                                        },
-                                        itemBuilder: (context) => const [
-                                          PopupMenuItem(
-                                            value: 'edit',
-                                            child: Text('Editar'),
-                                          ),
-                                          PopupMenuItem(
-                                            value: 'delete',
-                                            child: Text('Eliminar'),
-                                          ),
-                                        ],
-                                      ),
-                                  ],
-                                ),
-                                if (entry.summary != null &&
-                                    entry.summary!.isNotEmpty) ...[
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    entry.summary!,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(fontWeight: FontWeight.w600),
-                                  ),
-                                ],
-                                const SizedBox(height: 10),
-                                SelectableText(entry.content),
-                                if (updatedAt != null) ...[
-                                  const SizedBox(height: 10),
-                                  Text(
-                                    'Actualizado: ${updatedAt.day.toString().padLeft(2, '0')}/${updatedAt.month.toString().padLeft(2, '0')}/${updatedAt.year} ${updatedAt.hour.toString().padLeft(2, '0')}:${updatedAt.minute.toString().padLeft(2, '0')}',
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodySmall,
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        );
-                      },
+                  for (final kind in CompanyManualEntryKind.values)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text(kind.label),
+                        selected: _kindFilter == kind,
+                        onSelected: (_) {
+                          setState(() => _kindFilter = kind);
+                          _loadEntries();
+                        },
+                      ),
                     ),
-                  ),
-          ),
-        ],
+                ],
+              ),
+            ),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? Center(child: Text(_error!))
+                  : entries.isEmpty
+                  ? const Center(child: Text('No hay temas para mostrar'))
+                  : RefreshIndicator(
+                      onRefresh: _loadEntries,
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final isWide = constraints.maxWidth >= 980;
+                          final listPane = _ManualSectionsList(
+                            sections: sections,
+                            selectedEntryId: selectedEntry?.id,
+                            canManage: canManage,
+                            onOpenEntry: (entry) =>
+                                _openEntryDetail(entry, canManage),
+                            onEditEntry: (entry) => _openEditor(entry: entry),
+                            onDeleteEntry: _deleteEntry,
+                            formatDate: _formatDate,
+                          );
+
+                          if (!isWide) {
+                            return listPane;
+                          }
+
+                          return Row(
+                            children: [
+                              SizedBox(
+                                width: 420,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(
+                                    left: 16,
+                                    right: 8,
+                                    bottom: 16,
+                                  ),
+                                  child: listPane,
+                                ),
+                              ),
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.only(
+                                    left: 8,
+                                    right: 16,
+                                    bottom: 16,
+                                  ),
+                                  child: _ManualEntryDetailPane(
+                                    entry: selectedEntry,
+                                    canManage: canManage,
+                                    onEdit: selectedEntry == null
+                                        ? null
+                                        : () =>
+                                              _openEditor(entry: selectedEntry),
+                                    onDelete: selectedEntry == null
+                                        ? null
+                                        : () => _deleteEntry(selectedEntry),
+                                    formatDate: _formatDate,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+            ),
+          ],
+        ),
       ),
       floatingActionButton: canManage
           ? FloatingActionButton.extended(
@@ -359,6 +397,795 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
             )
           : null,
     );
+  }
+}
+
+class _ManualOverviewHeader extends StatelessWidget {
+  const _ManualOverviewHeader({
+    required this.totalTopics,
+    required this.totalSections,
+    required this.selectedFilter,
+  });
+
+  final int totalTopics;
+  final int totalSections;
+  final String selectedFilter;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(
+          colors: [scheme.primary, const Color(0xFF0F172A)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.primary.withValues(alpha: 0.18),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Wrap(
+        runSpacing: 16,
+        spacing: 16,
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Manual interno por secciones',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Explora los temas por tarjetas, entra al detalle y consulta cada regla o guía con más claridad.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.82),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _ManualMetricChip(
+                icon: Icons.layers_outlined,
+                label: 'Secciones',
+                value: '$totalSections',
+              ),
+              _ManualMetricChip(
+                icon: Icons.article_outlined,
+                label: 'Temas',
+                value: '$totalTopics',
+              ),
+              _ManualMetricChip(
+                icon: Icons.tune_outlined,
+                label: 'Filtro',
+                value: selectedFilter,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ManualMetricChip extends StatelessWidget {
+  const _ManualMetricChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white, size: 18),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.75),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ManualSectionsList extends StatelessWidget {
+  const _ManualSectionsList({
+    required this.sections,
+    required this.selectedEntryId,
+    required this.canManage,
+    required this.onOpenEntry,
+    required this.onEditEntry,
+    required this.onDeleteEntry,
+    required this.formatDate,
+  });
+
+  final List<_ManualSectionData> sections;
+  final String? selectedEntryId;
+  final bool canManage;
+  final ValueChanged<CompanyManualEntry> onOpenEntry;
+  final Future<bool> Function(CompanyManualEntry entry) onEditEntry;
+  final Future<bool> Function(CompanyManualEntry entry) onDeleteEntry;
+  final String Function(DateTime? value) formatDate;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      itemCount: sections.length,
+      itemBuilder: (context, index) {
+        final section = sections[index];
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: index == sections.length - 1 ? 0 : 20,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _ManualSectionHeader(section: section),
+              const SizedBox(height: 12),
+              for (final entry in section.entries)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _ManualTopicCard(
+                    entry: entry,
+                    isSelected: entry.id == selectedEntryId,
+                    canManage: canManage,
+                    onTap: () => onOpenEntry(entry),
+                    onEdit: () => onEditEntry(entry),
+                    onDelete: () => onDeleteEntry(entry),
+                    formatDate: formatDate,
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ManualSectionHeader extends StatelessWidget {
+  const _ManualSectionHeader({required this.section});
+
+  final _ManualSectionData section;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = section.accentColor;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(section.icon, color: color),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                section.title,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${section.entries.length} temas. ${section.description}',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ManualTopicCard extends StatelessWidget {
+  const _ManualTopicCard({
+    required this.entry,
+    required this.isSelected,
+    required this.canManage,
+    required this.onTap,
+    required this.onEdit,
+    required this.onDelete,
+    required this.formatDate,
+  });
+
+  final CompanyManualEntry entry;
+  final bool isSelected;
+  final bool canManage;
+  final VoidCallback onTap;
+  final Future<bool> Function() onEdit;
+  final Future<bool> Function() onDelete;
+  final String Function(DateTime? value) formatDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final roles = entry.targetRoles.map((role) => role.label).join(', ');
+    final updatedAt = entry.updatedAt ?? entry.createdAt;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(24),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? scheme.primary.withValues(alpha: 0.08)
+                : scheme.surface,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: isSelected
+                  ? scheme.primary.withValues(alpha: 0.45)
+                  : scheme.outlineVariant,
+              width: isSelected ? 1.4 : 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 18,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          entry.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _ManualTag(label: entry.kind.label),
+                            _ManualTag(label: entry.audience.label),
+                            if (entry.moduleKey != null &&
+                                entry.moduleKey!.isNotEmpty)
+                              _ManualTag(label: 'Módulo ${entry.moduleKey}'),
+                            if (!entry.published)
+                              const _ManualTag(label: 'Oculto'),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (canManage)
+                    PopupMenuButton<String>(
+                      tooltip: 'Opciones',
+                      onSelected: (value) async {
+                        if (value == 'edit') {
+                          await onEdit();
+                        } else if (value == 'delete') {
+                          await onDelete();
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(value: 'edit', child: Text('Editar')),
+                        PopupMenuItem(value: 'delete', child: Text('Eliminar')),
+                      ],
+                    ),
+                ],
+              ),
+              if (entry.summary != null && entry.summary!.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  entry.summary!,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurface.withValues(alpha: 0.72),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+              if (roles.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  'Aplica a: $roles',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Actualizado ${formatDate(updatedAt)}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Ver detalle',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.arrow_forward_rounded,
+                    color: scheme.primary,
+                    size: 18,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ManualTag extends StatelessWidget {
+  const _ManualTag({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: Theme.of(context).colorScheme.primary,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _ManualEntryDetailPane extends StatelessWidget {
+  const _ManualEntryDetailPane({
+    required this.entry,
+    required this.canManage,
+    required this.onEdit,
+    required this.onDelete,
+    required this.formatDate,
+  });
+
+  final CompanyManualEntry? entry;
+  final bool canManage;
+  final Future<bool> Function()? onEdit;
+  final Future<bool> Function()? onDelete;
+  final String Function(DateTime? value) formatDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedEntry = entry;
+    if (selectedEntry == null) {
+      return const _ManualEmptyDetail();
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 24,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          _ManualDetailHeader(
+            entry: selectedEntry,
+            canManage: canManage,
+            onEdit: onEdit,
+            onDelete: onDelete,
+            formatDate: formatDate,
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: _ManualEntryBody(entry: selectedEntry),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ManualDetailHeader extends StatelessWidget {
+  const _ManualDetailHeader({
+    required this.entry,
+    required this.canManage,
+    required this.onEdit,
+    required this.onDelete,
+    required this.formatDate,
+  });
+
+  final CompanyManualEntry entry;
+  final bool canManage;
+  final Future<bool> Function()? onEdit;
+  final Future<bool> Function()? onDelete;
+  final String Function(DateTime? value) formatDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final roles = entry.targetRoles.map((role) => role.label).join(', ');
+    final updatedAt = entry.updatedAt ?? entry.createdAt;
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      entry.title,
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _ManualTag(label: entry.kind.label),
+                        _ManualTag(label: entry.audience.label),
+                        if (entry.moduleKey != null &&
+                            entry.moduleKey!.isNotEmpty)
+                          _ManualTag(label: 'Módulo ${entry.moduleKey}'),
+                        if (roles.isNotEmpty) _ManualTag(label: 'Roles $roles'),
+                        if (!entry.published) const _ManualTag(label: 'Oculto'),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (canManage)
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: onEdit == null
+                          ? null
+                          : () async {
+                              await onEdit!.call();
+                            },
+                      icon: const Icon(Icons.edit_outlined),
+                      label: const Text('Editar'),
+                    ),
+                    FilledButton.icon(
+                      onPressed: onDelete == null
+                          ? null
+                          : () async {
+                              await onDelete!.call();
+                            },
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('Eliminar'),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Última actualización ${formatDate(updatedAt)}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ManualEntryBody extends StatelessWidget {
+  const _ManualEntryBody({required this.entry});
+
+  final CompanyManualEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (entry.summary != null && entry.summary!.isNotEmpty) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Theme.of(
+                context,
+              ).colorScheme.primary.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              entry.summary!,
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ),
+          const SizedBox(height: 18),
+        ],
+        SelectableText(
+          entry.content,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.65),
+        ),
+      ],
+    );
+  }
+}
+
+class _ManualEmptyDetail extends StatelessWidget {
+  const _ManualEmptyDetail();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.menu_book_outlined,
+                size: 48,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Selecciona un tema',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Abre una tarjeta del panel izquierdo para leer el contenido completo aquí.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ManualEntryDetailScreen extends StatelessWidget {
+  const _ManualEntryDetailScreen({
+    required this.entry,
+    required this.canManage,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final CompanyManualEntry entry;
+  final bool canManage;
+  final Future<void> Function()? onEdit;
+  final Future<void> Function()? onDelete;
+
+  String _formatDate(DateTime? value) {
+    if (value == null) return 'Sin fecha';
+    final day = value.day.toString().padLeft(2, '0');
+    final month = value.month.toString().padLeft(2, '0');
+    final year = value.year.toString();
+    final hour = value.hour.toString().padLeft(2, '0');
+    final minute = value.minute.toString().padLeft(2, '0');
+    return '$day/$month/$year $hour:$minute';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Detalle del manual'),
+        actions: [
+          if (canManage && onEdit != null)
+            IconButton(
+              tooltip: 'Editar',
+              onPressed: () async => onEdit!.call(),
+              icon: const Icon(Icons.edit_outlined),
+            ),
+          if (canManage && onDelete != null)
+            IconButton(
+              tooltip: 'Eliminar',
+              onPressed: () async => onDelete!.call(),
+              icon: const Icon(Icons.delete_outline),
+            ),
+        ],
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: _ManualEntryDetailPane(
+            entry: entry,
+            canManage: false,
+            onEdit: null,
+            onDelete: null,
+            formatDate: _formatDate,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ManualSectionData {
+  const _ManualSectionData({required this.kind, required this.entries});
+
+  final CompanyManualEntryKind kind;
+  final List<CompanyManualEntry> entries;
+
+  String get title => kind.label;
+
+  String get description {
+    switch (kind) {
+      case CompanyManualEntryKind.generalRule:
+        return 'Reglas base para la operación diaria.';
+      case CompanyManualEntryKind.roleRule:
+        return 'Lineamientos específicos según el rol.';
+      case CompanyManualEntryKind.policy:
+        return 'Políticas internas y criterios formales.';
+      case CompanyManualEntryKind.warrantyPolicy:
+        return 'Condiciones y manejo de garantías.';
+      case CompanyManualEntryKind.responsibility:
+        return 'Responsabilidades y compromisos del equipo.';
+      case CompanyManualEntryKind.productService:
+        return 'Información comercial de productos y servicios.';
+      case CompanyManualEntryKind.priceRule:
+        return 'Reglas para cotizar y fijar precios.';
+      case CompanyManualEntryKind.serviceRule:
+        return 'Estándares para la ejecución del servicio.';
+      case CompanyManualEntryKind.moduleGuide:
+        return 'Guías rápidas para usar módulos del sistema.';
+    }
+  }
+
+  IconData get icon {
+    switch (kind) {
+      case CompanyManualEntryKind.generalRule:
+        return Icons.rule_folder_outlined;
+      case CompanyManualEntryKind.roleRule:
+        return Icons.badge_outlined;
+      case CompanyManualEntryKind.policy:
+        return Icons.policy_outlined;
+      case CompanyManualEntryKind.warrantyPolicy:
+        return Icons.verified_user_outlined;
+      case CompanyManualEntryKind.responsibility:
+        return Icons.assignment_turned_in_outlined;
+      case CompanyManualEntryKind.productService:
+        return Icons.inventory_2_outlined;
+      case CompanyManualEntryKind.priceRule:
+        return Icons.sell_outlined;
+      case CompanyManualEntryKind.serviceRule:
+        return Icons.handyman_outlined;
+      case CompanyManualEntryKind.moduleGuide:
+        return Icons.menu_book_outlined;
+    }
+  }
+
+  Color get accentColor {
+    switch (kind) {
+      case CompanyManualEntryKind.generalRule:
+        return const Color(0xFF1D4ED8);
+      case CompanyManualEntryKind.roleRule:
+        return const Color(0xFF0F766E);
+      case CompanyManualEntryKind.policy:
+        return const Color(0xFF7C3AED);
+      case CompanyManualEntryKind.warrantyPolicy:
+        return const Color(0xFFEA580C);
+      case CompanyManualEntryKind.responsibility:
+        return const Color(0xFFBE123C);
+      case CompanyManualEntryKind.productService:
+        return const Color(0xFF0284C7);
+      case CompanyManualEntryKind.priceRule:
+        return const Color(0xFFCA8A04);
+      case CompanyManualEntryKind.serviceRule:
+        return const Color(0xFF15803D);
+      case CompanyManualEntryKind.moduleGuide:
+        return const Color(0xFF4338CA);
+    }
   }
 }
 

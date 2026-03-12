@@ -13,7 +13,9 @@ import '../domain/services/quotation_ai_service.dart';
 import '../domain/services/quotation_rule_validator.dart';
 
 final quotationAiControllerProvider =
-    StateNotifierProvider.autoDispose<QuotationAiController, QuotationAiState>((ref) {
+    StateNotifierProvider.autoDispose<QuotationAiController, QuotationAiState>((
+      ref,
+    ) {
       return QuotationAiController(
         ref: ref,
         aiService: ref.watch(quotationAiServiceProvider),
@@ -51,7 +53,7 @@ class QuotationAiState {
         id: 'assistant-intro',
         role: AiChatRole.assistant,
         content:
-            'Trabajo solo con reglas oficiales del sistema. Si una política no existe, te lo diré claramente.',
+            'Trabajo solo con reglas oficiales del Manual Interno. Si una pregunta no está definida por una regla oficial, te lo diré claramente.',
         createdAt: DateTime.now(),
       ),
     ],
@@ -101,7 +103,9 @@ class QuotationAiState {
       aiValidation: aiValidation ?? this.aiValidation,
       messages: messages ?? this.messages,
       visibleWarnings: visibleWarnings ?? this.visibleWarnings,
-      analysisError: clearAnalysisError ? null : (analysisError ?? this.analysisError),
+      analysisError: clearAnalysisError
+          ? null
+          : (analysisError ?? this.analysisError),
       chatError: clearChatError ? null : (chatError ?? this.chatError),
       hasLoadedRules: hasLoadedRules ?? this.hasLoadedRules,
     );
@@ -109,6 +113,11 @@ class QuotationAiState {
 }
 
 class QuotationAiController extends StateNotifier<QuotationAiState> {
+  static const String _noRuleMessage =
+      'No encontré una regla oficial para eso dentro del sistema.';
+  static const String _rulesOnlyReminder =
+      'Solo puedo responder con base en reglas oficiales del Manual Interno. Hazme una pregunta concreta sobre precios, garantia, DVR, instalacion o cualquier politica del manual.';
+
   QuotationAiController({
     required this.ref,
     required QuotationAiService aiService,
@@ -213,18 +222,12 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
         context: context,
         message: trimmed,
       );
-      _chatCache[cacheKey] = response;
-      _replaceLoadingMessage(response);
-      _logDebug('chat.response', response.content);
+      final resolvedResponse = _applyRuleOnlyFallback(response, trimmed);
+      _chatCache[cacheKey] = resolvedResponse;
+      _replaceLoadingMessage(resolvedResponse);
+      _logDebug('chat.response', resolvedResponse.content);
     } catch (error) {
-      final fallback = AiChatMessage(
-        id: 'assistant-error-${DateTime.now().microsecondsSinceEpoch}',
-        role: AiChatRole.assistant,
-        content:
-            'No pude consultar la IA en este momento. Las validaciones locales continúan activas.',
-        createdAt: DateTime.now(),
-        isError: true,
-      );
+      final fallback = _buildGuaranteedAssistantReply(trimmed, isError: true);
       _replaceLoadingMessage(fallback, chatError: '$error');
       _logDebug('chat.error', error);
     }
@@ -308,7 +311,10 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
 
     state = state.copyWith(
       localValidation: localValidation,
-      visibleWarnings: _mergeWarnings(localValidation.warnings, state.aiValidation.warnings),
+      visibleWarnings: _mergeWarnings(
+        localValidation.warnings,
+        state.aiValidation.warnings,
+      ),
     );
     _logDebug('local.validation', localValidation.summary);
   }
@@ -329,7 +335,10 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
     if (cached != null) {
       state = state.copyWith(
         aiValidation: cached,
-        visibleWarnings: _mergeWarnings(state.localValidation.warnings, cached.warnings),
+        visibleWarnings: _mergeWarnings(
+          state.localValidation.warnings,
+          cached.warnings,
+        ),
         clearAnalysisError: true,
       );
       return;
@@ -339,13 +348,17 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
     try {
       final aiValidation = await _aiService.analyzeQuotation(
         context: context,
-        instruction: 'Revisa esta cotización y genera advertencias no bloqueantes usando solo reglas oficiales.',
+        instruction:
+            'Revisa esta cotización y genera advertencias no bloqueantes usando solo reglas oficiales.',
       );
       _analysisCache[signature] = aiValidation;
       state = state.copyWith(
         analyzing: false,
         aiValidation: aiValidation,
-        visibleWarnings: _mergeWarnings(state.localValidation.warnings, aiValidation.warnings),
+        visibleWarnings: _mergeWarnings(
+          state.localValidation.warnings,
+          aiValidation.warnings,
+        ),
       );
       _logDebug('ai.validation', aiValidation.summary);
     } catch (error) {
@@ -371,6 +384,184 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
     );
   }
 
+  AiChatMessage _applyRuleOnlyFallback(AiChatMessage response, String message) {
+    final normalizedContent = response.content.trim();
+    if (normalizedContent.isNotEmpty && normalizedContent != _noRuleMessage) {
+      return response;
+    }
+    return _buildGuaranteedAssistantReply(
+      message,
+      seedMessage: response,
+      isError: response.isError,
+    );
+  }
+
+  AiChatMessage _buildGuaranteedAssistantReply(
+    String message, {
+    AiChatMessage? seedMessage,
+    bool isError = false,
+  }) {
+    if (_isAmbiguousPrompt(message)) {
+      return (seedMessage ?? _newAssistantMessage(_rulesOnlyReminder)).copyWith(
+        content: _rulesOnlyReminder,
+        relatedRuleId: null,
+        relatedRuleTitle: null,
+        citations: const [],
+        isError: isError,
+      );
+    }
+
+    if (state.rules.isEmpty) {
+      return (seedMessage ?? _newAssistantMessage(_noRuleMessage)).copyWith(
+        content:
+            'No tengo reglas oficiales cargadas del Manual Interno para responder esa pregunta en este momento.',
+        relatedRuleId: null,
+        relatedRuleTitle: null,
+        citations: const [],
+        isError: isError,
+      );
+    }
+
+    final fallbackRules = _findRelevantRules(
+      message,
+    ).take(2).toList(growable: false);
+    if (fallbackRules.isEmpty) {
+      return (seedMessage ?? _newAssistantMessage(_noRuleMessage)).copyWith(
+        content: _noRuleMessage,
+        relatedRuleId: null,
+        relatedRuleTitle: null,
+        citations: const [],
+        isError: isError,
+      );
+    }
+
+    final primaryRule = fallbackRules.first;
+    final summary = (primaryRule.summary ?? '').trim();
+    final excerpt = _buildExcerpt(primaryRule.content);
+    final details = <String>[];
+    if (summary.isNotEmpty) {
+      details.add(summary);
+    }
+    if (excerpt.isNotEmpty) {
+      details.add(excerpt);
+    }
+
+    final content = details.isEmpty
+        ? 'Segun el Manual Interno cargado en esta cotizacion, la regla mas cercana es "${primaryRule.title}".'
+        : 'Segun el Manual Interno cargado en esta cotizacion, la regla mas cercana es "${primaryRule.title}": ${details.join(' ')}';
+
+    return (seedMessage ?? _newAssistantMessage(content)).copyWith(
+      content: content,
+      relatedRuleId: primaryRule.id,
+      relatedRuleTitle: primaryRule.title,
+      citations: fallbackRules
+          .map((rule) => rule.toReference())
+          .toList(growable: false),
+      isError: isError,
+    );
+  }
+
+  AiChatMessage _newAssistantMessage(String content) {
+    return AiChatMessage(
+      id: 'assistant-${DateTime.now().microsecondsSinceEpoch}',
+      role: AiChatRole.assistant,
+      content: content,
+      createdAt: DateTime.now(),
+    );
+  }
+
+  bool _isAmbiguousPrompt(String message) {
+    final normalized = message.trim().toLowerCase();
+    if (normalized.isEmpty) return true;
+    const smallGreetings = {
+      'hola',
+      'hello',
+      'hi',
+      'buenas',
+      'saludos',
+      'ok',
+      'okei',
+      'gracias',
+    };
+    if (smallGreetings.contains(normalized)) return true;
+    return _tokenize(normalized).isEmpty;
+  }
+
+  List<BusinessRule> _findRelevantRules(String message) {
+    final tokens = _tokenize(
+      [
+        message,
+        state.context?.productType,
+        state.context?.productName,
+        state.context?.brand,
+        state.context?.installationType,
+        state.context?.currentDvrType,
+        state.context?.requiredDvrType,
+        state.context?.notes,
+      ].whereType<String>().join(' '),
+    );
+
+    final scored =
+        state.rules
+            .map((rule) {
+              final haystack = _tokenize(
+                [
+                  rule.title,
+                  rule.summary ?? '',
+                  rule.content,
+                  rule.module,
+                  rule.category,
+                  ...rule.keywords,
+                ].join(' '),
+              );
+              var score = 0;
+              for (final token in tokens) {
+                if (haystack.contains(token)) {
+                  score += token.length >= 5 ? 2 : 1;
+                }
+              }
+              if (rule.module == 'cotizaciones' ||
+                  rule.module == 'cotizacion') {
+                score += 2;
+              }
+              if (rule.severity == BusinessRuleSeverity.warning ||
+                  rule.severity == BusinessRuleSeverity.critical) {
+                score += 1;
+              }
+              return (rule: rule, score: score);
+            })
+            .where((item) => item.score > 0)
+            .toList(growable: false)
+          ..sort((left, right) => right.score.compareTo(left.score));
+
+    if (scored.isNotEmpty) {
+      return scored.map((item) => item.rule).toList(growable: false);
+    }
+
+    return state.rules.take(2).toList(growable: false);
+  }
+
+  Set<String> _tokenize(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r'[áàäâ]'), 'a')
+        .replaceAll(RegExp(r'[éèëê]'), 'e')
+        .replaceAll(RegExp(r'[íìïî]'), 'i')
+        .replaceAll(RegExp(r'[óòöô]'), 'o')
+        .replaceAll(RegExp(r'[úùüû]'), 'u')
+        .split(RegExp(r'[^a-z0-9]+'))
+        .map((item) => item.trim())
+        .where((item) => item.length >= 3)
+        .toSet();
+  }
+
+  String _buildExcerpt(String text) {
+    final normalized = text.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (normalized.isEmpty) return '';
+    if (normalized.length <= 220) return normalized;
+    return '${normalized.substring(0, 217)}...';
+  }
+
   List<AiWarning> _mergeWarnings(
     List<AiWarning> localWarnings,
     List<AiWarning> aiWarnings,
@@ -378,7 +569,8 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
     final merged = <AiWarning>[];
     final seen = <String>{};
     for (final warning in [...localWarnings, ...aiWarnings]) {
-      final key = '${warning.title}|${warning.relatedRuleId}|${warning.type.name}';
+      final key =
+          '${warning.title}|${warning.relatedRuleId}|${warning.type.name}';
       if (seen.add(key)) {
         merged.add(warning);
       }

@@ -47,6 +47,8 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
 
   bool get _hasActiveFilter => _category != 'Todas';
 
+  bool _isDesktopWidth(double width) => width >= 1100;
+
   @override
   void initState() {
     super.initState();
@@ -202,6 +204,14 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
         }).toList()..sort(
           (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
         );
+    final categoryCounts = <String, int>{
+      for (final category in categories)
+        category: category == 'Todas'
+            ? catalog.items.length
+            : catalog.items
+                  .where((product) => product.categoriaLabel == category)
+                  .length,
+    };
 
     final hasCategoryFilters = categories.length > 1;
 
@@ -412,6 +422,47 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
 
                   return LayoutBuilder(
                     builder: (context, constraints) {
+                      if (_isDesktopWidth(constraints.maxWidth)) {
+                        return _DesktopCatalogLayout(
+                          products: filtered,
+                          totalProducts: catalog.items.length,
+                          categories: categories,
+                          categoryCounts: categoryCounts,
+                          selectedCategory: _category,
+                          query: _searchCtrl.text.trim(),
+                          isAdmin: isAdmin,
+                          canManage: canManage,
+                          onSelectCategory: (value) {
+                            if (_category == value) return;
+                            setState(() => _category = value);
+                          },
+                          onClearFilters: () {
+                            setState(() {
+                              _category = 'Todas';
+                              _searchCtrl.clear();
+                            });
+                          },
+                          onRefresh: () => ref
+                              .read(catalogControllerProvider.notifier)
+                              .load(forceRemote: true),
+                          onViewProduct: (product) => _showProductDetails(
+                            product: product,
+                            showCost: isAdmin,
+                            canManage: canManage,
+                            onEdit: () => _openProductForm(
+                              product: product,
+                              categories: categoryOptions,
+                            ),
+                            onDelete: () => _confirmDelete(product),
+                          ),
+                          onEditProduct: (product) => _openProductForm(
+                            product: product,
+                            categories: categoryOptions,
+                          ),
+                          onDeleteProduct: _confirmDelete,
+                        );
+                      }
+
                       final width = constraints.maxWidth;
                       final columns = width >= 1320
                           ? 6
@@ -582,6 +633,20 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
     required VoidCallback onEdit,
     required VoidCallback onDelete,
   }) async {
+    if (_isDesktopWidth(MediaQuery.of(context).size.width)) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => _DesktopProductDetailDialog(
+          product: product,
+          showCost: showCost,
+          canManage: canManage,
+          onEdit: onEdit,
+          onDelete: onDelete,
+        ),
+      );
+      return;
+    }
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -731,6 +796,17 @@ class _ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (MediaQuery.sizeOf(context).width >= 1100) {
+      return _DesktopProductCard(
+        product: product,
+        showCost: showCost,
+        canManage: canManage,
+        onView: onView,
+        onEdit: onEdit,
+        onDelete: onDelete,
+      );
+    }
+
     final theme = Theme.of(context);
     final compact = MediaQuery.sizeOf(context).width < 700;
     final imageUrl = product.displayFotoUrl;
@@ -893,6 +969,843 @@ class _ProductCard extends StatelessWidget {
                       ),
                     ),
                 ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopCatalogLayout extends StatelessWidget {
+  const _DesktopCatalogLayout({
+    required this.products,
+    required this.totalProducts,
+    required this.categories,
+    required this.categoryCounts,
+    required this.selectedCategory,
+    required this.query,
+    required this.isAdmin,
+    required this.canManage,
+    required this.onSelectCategory,
+    required this.onClearFilters,
+    required this.onRefresh,
+    required this.onViewProduct,
+    required this.onEditProduct,
+    required this.onDeleteProduct,
+  });
+
+  final List<ProductModel> products;
+  final int totalProducts;
+  final List<String> categories;
+  final Map<String, int> categoryCounts;
+  final String selectedCategory;
+  final String query;
+  final bool isAdmin;
+  final bool canManage;
+  final ValueChanged<String> onSelectCategory;
+  final VoidCallback onClearFilters;
+  final Future<void> Function() onRefresh;
+  final ValueChanged<ProductModel> onViewProduct;
+  final ValueChanged<ProductModel> onEditProduct;
+  final ValueChanged<ProductModel> onDeleteProduct;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final width = MediaQuery.sizeOf(context).width;
+    final columns = width >= 1650
+        ? 6
+        : width >= 1320
+        ? 5
+        : 4;
+
+    return Row(
+      children: [
+        SizedBox(
+          width: 280,
+          child: _CatalogDesktopSidebar(
+            categories: categories,
+            categoryCounts: categoryCounts,
+            selectedCategory: selectedCategory,
+            onSelectCategory: onSelectCategory,
+          ),
+        ),
+        const SizedBox(width: 18),
+        Expanded(
+          child: Container(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 30,
+                  offset: const Offset(0, 18),
+                ),
+              ],
+            ),
+            child: RefreshIndicator(
+              onRefresh: onRefresh,
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+                    sliver: products.isEmpty
+                        ? SliverFillRemaining(
+                            hasScrollBody: false,
+                            child: _CatalogDesktopEmptyState(
+                              onClearFilters: onClearFilters,
+                              canClearFilters:
+                                  selectedCategory != 'Todas' ||
+                                  query.isNotEmpty,
+                            ),
+                          )
+                        : SliverGrid(
+                            delegate: SliverChildBuilderDelegate((context, i) {
+                              final product = products[i];
+                              return _ProductCard(
+                                product: product,
+                                showCost: isAdmin,
+                                canManage: canManage,
+                                onView: () => onViewProduct(product),
+                                onEdit: () => onEditProduct(product),
+                                onDelete: () => onDeleteProduct(product),
+                              );
+                            }, childCount: products.length),
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: columns,
+                                  mainAxisSpacing: 12,
+                                  crossAxisSpacing: 12,
+                                  mainAxisExtent: 198,
+                                ),
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CatalogDesktopSidebar extends StatelessWidget {
+  const _CatalogDesktopSidebar({
+    required this.categories,
+    required this.categoryCounts,
+    required this.selectedCategory,
+    required this.onSelectCategory,
+  });
+
+  final List<String> categories;
+  final Map<String, int> categoryCounts;
+  final String selectedCategory;
+  final ValueChanged<String> onSelectCategory;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            theme.colorScheme.primary.withValues(alpha: 0.92),
+            const Color(0xFF0B1220),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: [
+          BoxShadow(
+            color: theme.colorScheme.primary.withValues(alpha: 0.20),
+            blurRadius: 26,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 22, 22, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Categorías',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Navega el catálogo por familia de productos con una vista pensada para escritorio.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.78),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(color: Color(0x26FFFFFF), height: 1),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.all(14),
+              itemCount: categories.length,
+              itemBuilder: (context, index) {
+                final category = categories[index];
+                final selected = category == selectedCategory;
+                final count = categoryCounts[category] ?? 0;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(18),
+                      onTap: () => onSelectCategory(category),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? Colors.white
+                              : Colors.white.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: selected
+                                ? Colors.white
+                                : Colors.white.withValues(alpha: 0.10),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                category,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  color: selected
+                                      ? theme.colorScheme.primary
+                                      : Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: selected
+                                    ? theme.colorScheme.primary.withValues(
+                                        alpha: 0.10,
+                                      )
+                                    : Colors.white.withValues(alpha: 0.10),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                '$count',
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  color: selected
+                                      ? theme.colorScheme.primary
+                                      : Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopInfoChip extends StatelessWidget {
+  const _DesktopInfoChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.75),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: theme.colorScheme.primary),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label, style: theme.textTheme.labelSmall),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CatalogDesktopEmptyState extends StatelessWidget {
+  const _CatalogDesktopEmptyState({
+    required this.onClearFilters,
+    required this.canClearFilters,
+  });
+
+  final VoidCallback onClearFilters;
+  final bool canClearFilters;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.inventory_2_outlined,
+            size: 62,
+            color: Theme.of(context).colorScheme.outline,
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'No hay productos para esta vista',
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Prueba otra categoría o limpia los filtros para ver más resultados.',
+            style: Theme.of(context).textTheme.bodyMedium,
+            textAlign: TextAlign.center,
+          ),
+          if (canClearFilters) ...[
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: onClearFilters,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Restablecer vista'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopProductCard extends StatelessWidget {
+  const _DesktopProductCard({
+    required this.product,
+    required this.showCost,
+    required this.canManage,
+    required this.onView,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final ProductModel product;
+  final bool showCost;
+  final bool canManage;
+  final VoidCallback onView;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final imageUrl = product.displayFotoUrl;
+    final overlayDecoration = BoxDecoration(
+      color: Colors.black.withValues(alpha: 0.58),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+    );
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onView,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 7,
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: ClipRRect(
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(16),
+                        ),
+                        child: imageUrl == null || imageUrl.isEmpty
+                            ? Container(
+                                color:
+                                    theme.colorScheme.surfaceContainerHighest,
+                                alignment: Alignment.center,
+                                child: Icon(
+                                  Icons.image_outlined,
+                                  size: 44,
+                                  color: theme.colorScheme.outline,
+                                ),
+                              )
+                            : ProductNetworkImage(
+                                imageUrl: imageUrl,
+                                productId: product.id,
+                                productName: product.nombre,
+                                originalUrl: product.originalFotoUrl,
+                                fit: BoxFit.cover,
+                                loading: Container(
+                                  color:
+                                      theme.colorScheme.surfaceContainerHighest,
+                                  alignment: Alignment.center,
+                                  child: const SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                ),
+                                fallback: Container(
+                                  color:
+                                      theme.colorScheme.surfaceContainerHighest,
+                                  alignment: Alignment.center,
+                                  child: Icon(
+                                    Icons.broken_image_outlined,
+                                    size: 40,
+                                    color: theme.colorScheme.outline,
+                                  ),
+                                ),
+                              ),
+                      ),
+                    ),
+                    const Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Color(0x18000000), Color(0xA6000000)],
+                            stops: [0.1, 1],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: Container(
+                        constraints: const BoxConstraints(maxWidth: 100),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.90),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          product.categoriaLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF0F172A),
+                            fontSize: 9,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 8,
+                      right: 8,
+                      bottom: 8,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            product.nombre,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12,
+                              height: 1.1,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 5,
+                                ),
+                                decoration: overlayDecoration,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'Precio',
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                            color: Colors.white70,
+                                            fontSize: 9,
+                                          ),
+                                    ),
+                                    Text(
+                                      '\$${product.precio.toStringAsFixed(0)}',
+                                      style: theme.textTheme.labelMedium
+                                          ?.copyWith(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 10,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 5,
+                                ),
+                                decoration: overlayDecoration,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'Stock',
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                            color: Colors.white70,
+                                            fontSize: 9,
+                                          ),
+                                    ),
+                                    Text(
+                                      _formatStock(product.stock),
+                                      style: theme.textTheme.labelMedium
+                                          ?.copyWith(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 10,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (canManage)
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: PopupMenuButton<String>(
+                          icon: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.32),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            padding: const EdgeInsets.all(4),
+                            child: const Icon(
+                              Icons.more_horiz,
+                              color: Colors.white,
+                              size: 18,
+                            ),
+                          ),
+                          onSelected: (value) {
+                            if (value == 'edit') onEdit();
+                            if (value == 'delete') onDelete();
+                          },
+                          itemBuilder: (context) => const [
+                            PopupMenuItem(value: 'edit', child: Text('Editar')),
+                            PopupMenuItem(
+                              value: 'delete',
+                              child: Text('Eliminar'),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Expanded(
+                flex: 1,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          showCost
+                              ? 'Costo \$${product.costo.toStringAsFixed(0)}'
+                              : product.categoriaLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Icon(
+                        Icons.arrow_forward_rounded,
+                        color: theme.colorScheme.primary,
+                        size: 15,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopProductDetailDialog extends StatelessWidget {
+  const _DesktopProductDetailDialog({
+    required this.product,
+    required this.showCost,
+    required this.canManage,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final ProductModel product;
+  final bool showCost;
+  final bool canManage;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final imageUrl = product.displayFotoUrl;
+
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 80, vertical: 42),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1040, maxHeight: 760),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 6,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.horizontal(
+                  left: Radius.circular(28),
+                ),
+                child: imageUrl == null || imageUrl.isEmpty
+                    ? Container(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        alignment: Alignment.center,
+                        child: Icon(
+                          Icons.image_outlined,
+                          size: 58,
+                          color: theme.colorScheme.outline,
+                        ),
+                      )
+                    : ProductNetworkImage(
+                        imageUrl: imageUrl,
+                        productId: product.id,
+                        productName: product.nombre,
+                        originalUrl: product.originalFotoUrl,
+                        fit: BoxFit.cover,
+                        loading: Container(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          alignment: Alignment.center,
+                          child: const SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                        fallback: Container(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          alignment: Alignment.center,
+                          child: Icon(
+                            Icons.broken_image_outlined,
+                            size: 58,
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+            Expanded(
+              flex: 5,
+              child: Padding(
+                padding: const EdgeInsets.all(28),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            product.nombre,
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _DesktopInfoChip(
+                          icon: Icons.category_outlined,
+                          label: 'Categoría',
+                          value: product.categoriaLabel,
+                        ),
+                        _DesktopInfoChip(
+                          icon: Icons.inventory_2_outlined,
+                          label: 'Stock',
+                          value: _formatStock(product.stock),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    _ProductDetailLine(
+                      label: 'Precio',
+                      value: '\$${product.precio.toStringAsFixed(2)}',
+                    ),
+                    if (showCost)
+                      _ProductDetailLine(
+                        label: 'Costo',
+                        value: '\$${product.costo.toStringAsFixed(2)}',
+                      ),
+                    _ProductDetailLine(
+                      label: 'Disponible',
+                      value: _formatStock(product.stock),
+                    ),
+                    _ProductDetailLine(
+                      label: 'Fecha',
+                      value: product.createdAt == null
+                          ? '—'
+                          : '${product.createdAt!.day.toString().padLeft(2, '0')}/${product.createdAt!.month.toString().padLeft(2, '0')}/${product.createdAt!.year}',
+                    ),
+                    if ((product.descripcion ?? '').trim().isNotEmpty) ...[
+                      const SizedBox(height: 18),
+                      Text(
+                        'Descripción',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        product.descripcion!.trim(),
+                        style: theme.textTheme.bodyLarge?.copyWith(height: 1.5),
+                      ),
+                    ],
+                    const Spacer(),
+                    if (canManage)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                Navigator.of(context).pop();
+                                onEdit();
+                              },
+                              icon: const Icon(Icons.edit_outlined),
+                              label: const Text('Editar'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: theme.colorScheme.error,
+                              ),
+                              onPressed: () {
+                                Navigator.of(context).pop();
+                                onDelete();
+                              },
+                              icon: const Icon(Icons.delete_outline),
+                              label: const Text('Eliminar'),
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
               ),
             ),
           ],

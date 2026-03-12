@@ -43,6 +43,9 @@ class CotizacionCatalogLocalDataSource {
   static const _metaSelectedCategory = 'selected_category';
   static const _metaSearchQuery = 'search_query';
 
+  static CotizacionCatalogCacheSnapshot? _memorySnapshot;
+  static CotizacionCatalogUiStateSnapshot? _memoryUiState;
+
   Database? _database;
 
   Future<Database> get _db async {
@@ -76,6 +79,11 @@ class CotizacionCatalogLocalDataSource {
   }
 
   Future<CotizacionCatalogCacheSnapshot> readSnapshot() async {
+    final memorySnapshot = _memorySnapshot;
+    if (memorySnapshot != null) {
+      return memorySnapshot;
+    }
+
     final db = await _db;
     final rows = await db.query(_tableProducts, orderBy: 'position ASC');
     final metaRows = await db.query(_tableMeta);
@@ -94,11 +102,13 @@ class CotizacionCatalogLocalDataSource {
         )
         .toList(growable: false);
 
-    return CotizacionCatalogCacheSnapshot(
+    final snapshot = CotizacionCatalogCacheSnapshot(
       items: items,
       lastSyncedAt: DateTime.tryParse(meta[_metaLastSyncedAt] ?? ''),
       catalogVersion: meta[_metaCatalogVersion],
     );
+    _memorySnapshot = snapshot;
+    return snapshot;
   }
 
   Future<void> saveSnapshot(
@@ -106,6 +116,12 @@ class CotizacionCatalogLocalDataSource {
     required DateTime syncedAt,
     required String catalogVersion,
   }) async {
+    _memorySnapshot = CotizacionCatalogCacheSnapshot(
+      items: items,
+      lastSyncedAt: syncedAt,
+      catalogVersion: catalogVersion,
+    );
+
     final db = await _db;
 
     await db.transaction((txn) async {
@@ -139,6 +155,11 @@ class CotizacionCatalogLocalDataSource {
   }
 
   Future<CotizacionCatalogUiStateSnapshot> readUiState() async {
+    final memoryUiState = _memoryUiState;
+    if (memoryUiState != null) {
+      return memoryUiState;
+    }
+
     final db = await _db;
     final rows = await db.query(
       _tableMeta,
@@ -151,18 +172,27 @@ class CotizacionCatalogLocalDataSource {
     };
     final selectedCategory = values[_metaSelectedCategory]?.trim();
 
-    return CotizacionCatalogUiStateSnapshot(
+    final snapshot = CotizacionCatalogUiStateSnapshot(
       selectedCategory: (selectedCategory == null || selectedCategory.isEmpty)
           ? null
           : selectedCategory,
       searchQuery: values[_metaSearchQuery] ?? '',
     );
+    _memoryUiState = snapshot;
+    return snapshot;
   }
 
   Future<void> saveUiState({
     String? selectedCategory,
     required String searchQuery,
   }) async {
+    _memoryUiState = CotizacionCatalogUiStateSnapshot(
+      selectedCategory: selectedCategory?.trim().isEmpty ?? true
+          ? null
+          : selectedCategory?.trim(),
+      searchQuery: searchQuery.trim(),
+    );
+
     final db = await _db;
     await db.transaction((txn) async {
       await _writeMeta(txn, _metaSelectedCategory, selectedCategory?.trim());

@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 
 import 'app_loading_controller.dart';
 
+const String _loadingRequestIdKey = '__app_loading_request_id';
+
 class LoadingInterceptor extends Interceptor {
   final AppLoadingController controller;
 
@@ -24,24 +26,25 @@ class LoadingInterceptor extends Interceptor {
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     if (_shouldTrack(options)) {
-      controller.requestStarted();
+      options.extra[_loadingRequestIdKey] = controller.requestStarted();
     }
     handler.next(options);
   }
 
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) {
-    if (_shouldTrack(response.requestOptions)) {
-      controller.requestEnded();
-    }
+    controller.requestEnded(_requestIdFor(response.requestOptions));
     handler.next(response);
   }
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    if (_shouldTrack(err.requestOptions)) {
-      controller.requestEnded();
-    }
+    controller.requestEnded(_requestIdFor(err.requestOptions));
     handler.next(err);
+  }
+
+  String? _requestIdFor(RequestOptions options) {
+    final requestId = options.extra.remove(_loadingRequestIdKey);
+    return requestId is String && requestId.isNotEmpty ? requestId : null;
   }
 }

@@ -150,6 +150,85 @@ class _AiChatSheetState extends ConsumerState<AiChatSheet> {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerLowest,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 34,
+                              height: 34,
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.primary.withValues(
+                                  alpha: 0.10,
+                                ),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                Icons.menu_book_rounded,
+                                size: 18,
+                                color: theme.colorScheme.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Fuente de reglas',
+                                    style: theme.textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    aiState.loadingRules
+                                        ? 'Cargando Manual Interno publicado para este usuario...'
+                                        : 'La IA toma reglas del Manual Interno publicado y visible para tu usuario. Reglas locales cargadas: ${aiState.rules.length}.',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                  if ((aiState.analysisError ?? '')
+                                      .trim()
+                                      .isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Aviso de carga: ${aiState.analysisError}',
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: theme.colorScheme.error,
+                                          ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              tooltip: 'Recargar reglas',
+                              onPressed: aiState.loadingRules
+                                  ? null
+                                  : controller.refreshRules,
+                              icon: const Icon(Icons.refresh_rounded),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                     if (aiState.visibleWarnings.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       DecoratedBox(
@@ -313,23 +392,53 @@ class _ChatBubble extends StatelessWidget {
                     height: 1.35,
                   ),
                 ),
-                if (message.citations.isNotEmpty || onOpenRule != null) ...[
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final citation in message.citations)
-                        ActionChip(
-                          label: Text(citation.title),
-                          onPressed: onOpenRule,
+                if (!isUser &&
+                    (message.citations.isNotEmpty || onOpenRule != null)) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface.withValues(alpha: 0.72),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: theme.colorScheme.outlineVariant.withValues(
+                          alpha: 0.45,
                         ),
-                      if (message.citations.isEmpty && onOpenRule != null)
-                        ActionChip(
-                          label: Text(message.relatedRuleTitle ?? 'Ver regla'),
-                          onPressed: onOpenRule,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Base oficial usada',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color: theme.colorScheme.onSurface,
+                          ),
                         ),
-                    ],
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final citation in message.citations)
+                              ActionChip(
+                                label: Text(citation.title),
+                                onPressed: onOpenRule,
+                              ),
+                            if (message.citations.isEmpty && onOpenRule != null)
+                              ActionChip(
+                                label: Text(
+                                  message.relatedRuleTitle ??
+                                      'Ver regla oficial',
+                                ),
+                                onPressed: onOpenRule,
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ],
