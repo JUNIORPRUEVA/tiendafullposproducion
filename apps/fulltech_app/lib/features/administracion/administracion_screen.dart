@@ -36,6 +36,7 @@ class _AdministracionScreenState extends ConsumerState<AdministracionScreen> {
   AdminAiInsights? _insights;
   Map<String, dynamic>? _attendance;
   Map<String, dynamic>? _sales;
+  Map<String, String> _sectionErrors = const {};
   String? _error;
   bool _loading = true;
 
@@ -49,24 +50,62 @@ class _AdministracionScreenState extends ConsumerState<AdministracionScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _sectionErrors = const {};
     });
 
     try {
       final repo = ref.read(administracionRepositoryProvider);
-      final results = await Future.wait([
-        repo.getOverview(days: _days),
-        repo.getAiInsights(days: _days),
-        repo.getAttendanceSummary(days: _days),
-        repo.getSalesSummary(days: _days),
-      ]);
+      final overviewFuture = repo.getOverview(days: _days);
+      final insightsFuture = repo.getAiInsights(days: _days);
+      final attendanceFuture = repo.getAttendanceSummary(days: _days);
+      final salesFuture = repo.getSalesSummary(days: _days);
+      final sectionErrors = <String, String>{};
+
+      Future<T> resolveSection<T>(
+        String key,
+        Future<T> future,
+        T fallback,
+      ) async {
+        try {
+          return await future;
+        } catch (e) {
+          sectionErrors[key] = '$e';
+          return fallback;
+        }
+      }
+
+      final overview = await resolveSection(
+        'Resumen',
+        overviewFuture,
+        _emptyOverview(),
+      );
+      final insights = await resolveSection(
+        'IA',
+        insightsFuture,
+        _emptyInsights(),
+      );
+      final attendance = await resolveSection(
+        'Ponches',
+        attendanceFuture,
+        _emptyAttendanceSummary(),
+      );
+      final sales = await resolveSection(
+        'Ventas',
+        salesFuture,
+        _emptySalesSummary(),
+      );
 
       if (!mounted) return;
       setState(() {
-        _overview = results[0] as AdminPanelOverview;
-        _insights = results[1] as AdminAiInsights;
-        _attendance = results[2] as Map<String, dynamic>;
-        _sales = results[3] as Map<String, dynamic>;
+        _overview = overview;
+        _insights = insights;
+        _attendance = attendance;
+        _sales = sales;
+        _sectionErrors = Map.unmodifiable(sectionErrors);
         _loading = false;
+        _error = sectionErrors.length == 4
+            ? 'No se pudo cargar el panel de administración.'
+            : null;
       });
     } catch (e) {
       if (!mounted) return;
@@ -89,7 +128,7 @@ class _AdministracionScreenState extends ConsumerState<AdministracionScreen> {
           backgroundColor: AppTheme.primaryColor,
           foregroundColor: Colors.white,
         ),
-        drawer: AppDrawer(currentUser: user),
+        drawer: buildAdaptiveDrawer(context, currentUser: user),
         body: const Center(
           child: Padding(
             padding: EdgeInsets.all(24),
@@ -118,7 +157,7 @@ class _AdministracionScreenState extends ConsumerState<AdministracionScreen> {
           ),
         ],
       ),
-      drawer: AppDrawer(currentUser: user),
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -181,12 +220,12 @@ class _AdministracionScreenState extends ConsumerState<AdministracionScreen> {
                   ],
                 ),
                 const VerticalDivider(width: 1),
-                Expanded(child: _buildPage()),
+                Expanded(child: _buildPageScaffold()),
               ],
             )
           : Column(
               children: [
-                Expanded(child: _buildPage()),
+                Expanded(child: _buildPageScaffold()),
                 NavigationBar(
                   selectedIndex: _index,
                   onDestinationSelected: (next) =>
@@ -220,6 +259,85 @@ class _AdministracionScreenState extends ConsumerState<AdministracionScreen> {
                 ),
               ],
             ),
+    );
+  }
+
+  AdminPanelOverview _emptyOverview() {
+    return AdminPanelOverview(
+      metrics: const {},
+      alerts: const [],
+      generatedAt: DateTime.now().toIso8601String(),
+    );
+  }
+
+  AdminAiInsights _emptyInsights() {
+    return const AdminAiInsights(
+      source: 'fallback',
+      message: 'Algunas fuentes del panel no estuvieron disponibles.',
+      metrics: {},
+      alerts: [],
+    );
+  }
+
+  Map<String, dynamic> _emptyAttendanceSummary() {
+    return const {
+      'totals': {
+        'tardyCount': 0,
+        'incompleteCount': 0,
+        'earlyLeaveCount': 0,
+        'favorableMinutes': 0,
+        'unfavorableMinutes': 0,
+        'balanceMinutes': 0,
+        'workedMinutes': 0,
+      },
+      'users': [],
+    };
+  }
+
+  Map<String, dynamic> _emptySalesSummary() {
+    return const {
+      'totals': {'totalSales': 0, 'totalSold': 0, 'totalCommission': 0},
+      'items': [],
+    };
+  }
+
+  Widget _buildPageScaffold() {
+    final page = _buildPage();
+    if (_sectionErrors.isEmpty) return page;
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Card(
+            color: Theme.of(context).colorScheme.errorContainer,
+            child: ListTile(
+              leading: Icon(
+                Icons.warning_amber_rounded,
+                color: Theme.of(context).colorScheme.onErrorContainer,
+              ),
+              title: Text(
+                'Algunas secciones no cargaron',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onErrorContainer,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              subtitle: Text(
+                '${_sectionErrors.keys.join(', ')}. Puedes seguir usando el panel y reintentar cuando quieras.',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onErrorContainer,
+                ),
+              ),
+              trailing: TextButton(
+                onPressed: _loadAll,
+                child: const Text('Reintentar'),
+              ),
+            ),
+          ),
+        ),
+        Expanded(child: page),
+      ],
     );
   }
 
@@ -1400,7 +1518,10 @@ class _AdminAttendancePage extends StatelessWidget {
                       _AdminAttendanceBadge(
                         label: 'Balance',
                         value: _formatMinutes(aggregate['balanceMinutes']),
-                        color: _balanceColor(context, aggregate['balanceMinutes']),
+                        color: _balanceColor(
+                          context,
+                          aggregate['balanceMinutes'],
+                        ),
                       ),
                     ],
                   ),

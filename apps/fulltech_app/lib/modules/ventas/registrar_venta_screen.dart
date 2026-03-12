@@ -466,7 +466,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
                 ),
               ],
       ),
-      drawer: AppDrawer(currentUser: user),
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: Column(
         children: [
           if (!isWide)

@@ -107,7 +107,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
     final user = ref.watch(authStateProvider).user;
 
     return Scaffold(
-      drawer: AppDrawer(currentUser: user),
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
       appBar: AppBar(
         title: const Text('Detalle del cliente'),
         actions: [

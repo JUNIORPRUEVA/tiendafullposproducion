@@ -120,7 +120,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
         backgroundColor: AppTheme.primaryColor,
         foregroundColor: Colors.white,
       ),
-      drawer: AppDrawer(currentUser: user),
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
         floatingActionButton: canUseModule
           ? _buildDepositFab(context, depositEval)
           : null,

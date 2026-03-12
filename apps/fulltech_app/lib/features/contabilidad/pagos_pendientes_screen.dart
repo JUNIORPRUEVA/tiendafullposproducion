@@ -586,7 +586,7 @@ class _PagosPendientesScreenState extends ConsumerState<PagosPendientesScreen> {
           backgroundColor: AppTheme.primaryColor,
           foregroundColor: Colors.white,
         ),
-        drawer: AppDrawer(currentUser: user),
+        drawer: buildAdaptiveDrawer(context, currentUser: user),
         body: const Center(
           child: Padding(
             padding: EdgeInsets.all(24),
@@ -606,7 +606,7 @@ class _PagosPendientesScreenState extends ConsumerState<PagosPendientesScreen> {
         backgroundColor: AppTheme.primaryColor,
         foregroundColor: Colors.white,
       ),
-      drawer: AppDrawer(currentUser: user),
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListView(

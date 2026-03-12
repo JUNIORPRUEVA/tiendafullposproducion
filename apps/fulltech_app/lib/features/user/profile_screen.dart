@@ -23,7 +23,7 @@ class ProfileScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: CustomAppBar(title: 'Mi Perfil', showLogo: false),
-      drawer: AppDrawer(currentUser: user),
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Center(

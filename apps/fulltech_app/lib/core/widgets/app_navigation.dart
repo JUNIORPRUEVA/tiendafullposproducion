@@ -1,0 +1,259 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../modules/manual_interno/company_manual_repository.dart';
+import '../auth/app_permissions.dart';
+import '../models/user_model.dart';
+import '../routing/routes.dart';
+
+const double kDesktopShellBreakpoint = 1100;
+
+class AppNavigationItem {
+  const AppNavigationItem({
+    required this.icon,
+    required this.title,
+    required this.route,
+    this.showIndicator = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String route;
+  final bool showIndicator;
+}
+
+class AppNavigationSection {
+  const AppNavigationSection({required this.title, required this.items});
+
+  final String title;
+  final List<AppNavigationItem> items;
+}
+
+List<AppNavigationSection> buildAppNavigationSections(
+  WidgetRef ref,
+  UserModel? currentUser,
+) {
+  final role = currentUser?.appRole;
+
+  bool can(AppPermission permission) {
+    if (role == null) return false;
+    return hasPermission(role, permission);
+  }
+
+  final manualSummary = can(AppPermission.viewCompanyManual)
+      ? ref.watch(companyManualSummaryProvider)
+      : null;
+  final showManualIndicator =
+      manualSummary?.maybeWhen(
+        data: (value) => value.unreadCount > 0,
+        orElse: () => false,
+      ) ??
+      false;
+
+  final sections = <AppNavigationSection>[
+    AppNavigationSection(
+      title: 'Principal',
+      items: [
+        if (can(AppPermission.viewOperations))
+          const AppNavigationItem(
+            icon: Icons.build_outlined,
+            title: 'Operaciones',
+            route: Routes.operaciones,
+          ),
+        if (can(AppPermission.viewTechDepartures))
+          const AppNavigationItem(
+            icon: Icons.route_outlined,
+            title: 'Salidas técnicas',
+            route: Routes.salidasTecnicas,
+          ),
+        if (can(AppPermission.viewPunch))
+          const AppNavigationItem(
+            icon: Icons.access_time_rounded,
+            title: 'Ponche',
+            route: Routes.ponche,
+          ),
+        if (can(AppPermission.viewWorkScheduling))
+          const AppNavigationItem(
+            icon: Icons.calendar_month_outlined,
+            title: 'Horarios',
+            route: Routes.horarios,
+          ),
+        if (can(AppPermission.viewCatalog))
+          const AppNavigationItem(
+            icon: Icons.storefront_outlined,
+            title: 'Catálogo',
+            route: Routes.catalogo,
+          ),
+        if (can(AppPermission.viewSales))
+          const AppNavigationItem(
+            icon: Icons.point_of_sale_outlined,
+            title: 'Mis Ventas',
+            route: Routes.ventas,
+          ),
+        if (can(AppPermission.viewQuotes))
+          const AppNavigationItem(
+            icon: Icons.request_quote_outlined,
+            title: 'Cotizaciones',
+            route: Routes.cotizaciones,
+          ),
+        if (can(AppPermission.viewClients))
+          const AppNavigationItem(
+            icon: Icons.group_outlined,
+            title: 'Clientes',
+            route: Routes.clientes,
+          ),
+        if (can(AppPermission.viewAccounting))
+          const AppNavigationItem(
+            icon: Icons.account_balance,
+            title: 'Contabilidad',
+            route: Routes.contabilidad,
+          ),
+        if (can(AppPermission.viewAdminPanel))
+          const AppNavigationItem(
+            icon: Icons.admin_panel_settings_outlined,
+            title: 'Administración',
+            route: Routes.administracion,
+          ),
+      ],
+    ),
+    AppNavigationSection(
+      title: 'Nómina',
+      items: [
+        if (can(AppPermission.managePayroll))
+          const AppNavigationItem(
+            icon: Icons.payments_outlined,
+            title: 'Nómina',
+            route: Routes.nomina,
+          ),
+        if (can(AppPermission.viewMyPayments))
+          const AppNavigationItem(
+            icon: Icons.receipt_long_outlined,
+            title: 'Mis pagos',
+            route: Routes.misPagos,
+          ),
+      ],
+    ),
+    AppNavigationSection(
+      title: 'Cuenta',
+      items: [
+        if (can(AppPermission.viewCompanyManual))
+          AppNavigationItem(
+            icon: Icons.menu_book_outlined,
+            title: 'Manual Interno',
+            route: Routes.manualInterno,
+            showIndicator: showManualIndicator,
+          ),
+        if (can(AppPermission.manageSettings))
+          const AppNavigationItem(
+            icon: Icons.settings_outlined,
+            title: 'Configuración',
+            route: Routes.configuracion,
+          ),
+        if (can(AppPermission.manageUsers))
+          const AppNavigationItem(
+            icon: Icons.people_outline,
+            title: 'Usuarios',
+            route: Routes.users,
+          ),
+      ],
+    ),
+  ];
+
+  return sections.where((section) => section.items.isNotEmpty).toList();
+}
+
+String safeCurrentLocation(BuildContext context) {
+  try {
+    return GoRouterState.of(context).uri.toString();
+  } catch (_) {
+    try {
+      return GoRouter.of(context).routerDelegate.currentConfiguration.uri.toString();
+    } catch (_) {
+      return '';
+    }
+  }
+}
+
+bool isNavigationRouteActive(String location, String route) {
+  return location == route || location.startsWith('$route/');
+}
+
+String resolveNavigationTitle(
+  String location,
+  List<AppNavigationSection> sections,
+) {
+  for (final section in sections) {
+    for (final item in section.items) {
+      if (isNavigationRouteActive(location, item.route)) {
+        return item.title;
+      }
+    }
+  }
+
+  final path = Uri.tryParse(location)?.path ?? location;
+  if (path == Routes.registrarVenta) return 'Nueva venta';
+  if (path == Routes.cotizacionesHistorial) return 'Historial de cotizaciones';
+  if (path == Routes.clienteNuevo) return 'Nuevo cliente';
+  if (path == Routes.profile) return 'Perfil';
+  if (path == Routes.operacionesAgenda) return 'Agenda de operaciones';
+  if (path == Routes.operacionesMapaClientes) return 'Mapa de clientes';
+  if (path == Routes.operacionesReglas) return 'Reglas operativas';
+  if (path.startsWith('/clientes/') && path.endsWith('/editar')) {
+    return 'Editar cliente';
+  }
+  if (path.startsWith('/clientes/')) return 'Detalle del cliente';
+  if (path.startsWith('/users/')) return 'Detalle de usuario';
+
+  final segments = path.split('/').where((part) => part.trim().isNotEmpty);
+  if (segments.isEmpty) return 'FullTech';
+  final last = segments.last.replaceAll('-', ' ');
+  return last.isEmpty
+      ? 'FullTech'
+      : '${last[0].toUpperCase()}${last.substring(1)}';
+}
+
+bool desktopShellShouldShowOwnAppBar(String location) {
+  final path = Uri.tryParse(location)?.path ?? location;
+  const routesWithOwnAppBar = <String>[
+    Routes.operaciones,
+    Routes.salidasTecnicas,
+    Routes.ponche,
+    Routes.horarios,
+    Routes.catalogo,
+    Routes.contabilidad,
+    Routes.clientes,
+    Routes.ventas,
+    Routes.cotizaciones,
+    Routes.nomina,
+    Routes.misPagos,
+    Routes.manualInterno,
+    Routes.configuracion,
+    Routes.administracion,
+    Routes.users,
+    Routes.profile,
+  ];
+
+  for (final route in routesWithOwnAppBar) {
+    if (path == route || path.startsWith('$route/')) {
+      return false;
+    }
+  }
+
+  if (path == Routes.cotizacionesHistorial) return false;
+  if (path == Routes.registrarVenta) return false;
+  if (path == Routes.clienteNuevo) return false;
+  if (path.startsWith('/clientes/')) return false;
+  if (path.startsWith('/users/')) return false;
+
+  return true;
+}
+
+String userInitials(UserModel? user) {
+  final value = (user?.nombreCompleto ?? '').trim();
+  if (value.isEmpty) return 'FT';
+  final parts = value.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
+  if (parts.isEmpty) return 'FT';
+  if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
+  return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+}

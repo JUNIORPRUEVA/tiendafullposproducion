@@ -23,7 +23,7 @@ class ContabilidadScreen extends ConsumerWidget {
           backgroundColor: AppTheme.primaryColor,
           foregroundColor: Colors.white,
         ),
-        drawer: AppDrawer(currentUser: user),
+        drawer: buildAdaptiveDrawer(context, currentUser: user),
         body: const Center(
           child: Padding(
             padding: EdgeInsets.all(24),
@@ -43,7 +43,7 @@ class ContabilidadScreen extends ConsumerWidget {
         backgroundColor: AppTheme.primaryColor,
         foregroundColor: Colors.white,
       ),
-      drawer: AppDrawer(currentUser: user),
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
       backgroundColor: AppTheme.primaryColor,
       body: Padding(
         padding: const EdgeInsets.all(24),

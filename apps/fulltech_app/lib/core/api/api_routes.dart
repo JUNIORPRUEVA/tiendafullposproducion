@@ -21,7 +21,7 @@ class ApiRoutes {
   // Ponche
   static const punch = '/punch';
   static const punchMe = '/punch/me';
-    static const punchMeAttendance = '/punch/me/attendance';
+  static const punchMeAttendance = '/punch/me/attendance';
   static const punchAdmin = '/admin/punch';
   static const punchAttendanceSummary = '/admin/attendance/summary';
   static String punchAttendanceUser(String id) => '/admin/attendance/user/$id';
@@ -129,14 +129,16 @@ class ApiRoutes {
   static const payrollMyHistory = '/payroll/my-history';
   static const payrollMyGoal = '/payroll/my-goal';
 
-    // Manual interno
-    static const companyManualEntries = '/company-manual';
-    static const companyManualSummary = '/company-manual/summary';
-    static String companyManualEntryDetail(String id) => '/company-manual/$id';
+  // Manual interno
+  static const companyManualEntries = '/company-manual';
+  static const companyManualSummary = '/company-manual/summary';
+  static String companyManualEntryDetail(String id) => '/company-manual/$id';
 
   // Cotizaciones (nube)
   static const cotizaciones = '/cotizaciones';
   static String cotizacionDetail(String id) => '/cotizaciones/$id';
+  static const cotizacionAiAnalyze = '/cotizaciones/ai/analyze';
+  static const cotizacionAiChat = '/cotizaciones/ai/chat';
 
   // Horarios (Work Scheduling)
   static const workSchedulingEmployees = '/work-scheduling/employees';

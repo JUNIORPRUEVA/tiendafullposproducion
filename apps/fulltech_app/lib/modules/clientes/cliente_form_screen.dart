@@ -94,7 +94,7 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
     final user = ref.watch(authStateProvider).user;
 
     return Scaffold(
-      drawer: AppDrawer(currentUser: user),
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
       appBar: AppBar(
         title: Text(_isEdit ? 'Editar cliente' : 'Nuevo cliente'),
       ),

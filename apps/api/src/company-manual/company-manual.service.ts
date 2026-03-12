@@ -29,6 +29,22 @@ export class CompanyManualService {
     return { items };
   }
 
+  async findOne(user: CurrentUser, id: string) {
+    const ownerId = await this.resolveCompanyOwnerId(user.id);
+    const item = await this.prisma.companyManualEntry.findFirst({
+      where: {
+        id,
+        ...this.buildWhere(ownerId, user, { includeHidden: false }),
+      },
+    });
+
+    if (!item) {
+      throw new NotFoundException('La entrada del manual no existe');
+    }
+
+    return item;
+  }
+
   async summary(user: CurrentUser, seenAt?: string) {
     const ownerId = await this.resolveCompanyOwnerId(user.id);
     const where = this.buildWhere(ownerId, user, { includeHidden: false });

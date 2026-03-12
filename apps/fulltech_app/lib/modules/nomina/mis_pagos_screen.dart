@@ -161,7 +161,7 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
                 ),
               ),
       ),
-      drawer: AppDrawer(currentUser: currentUser),
+      drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
       body: RefreshIndicator(
         onRefresh: _load,
         child: _loading

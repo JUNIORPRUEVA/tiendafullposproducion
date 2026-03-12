@@ -326,7 +326,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
                       ),
                     ),
             ),
-      drawer: isModal ? null : AppDrawer(currentUser: user),
+      drawer: isModal ? null : buildAdaptiveDrawer(context, currentUser: user),
       floatingActionButton: null,
       body: Padding(
         padding: const EdgeInsets.all(16),

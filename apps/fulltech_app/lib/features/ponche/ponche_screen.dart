@@ -265,7 +265,7 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
     final punchState = ref.watch(punchControllerProvider);
 
     return Scaffold(
-      drawer: AppDrawer(currentUser: auth.user),
+      drawer: buildAdaptiveDrawer(context, currentUser: auth.user),
       appBar: AppBar(
         title: const Text('Ponche'),
         backgroundColor: AppTheme.primaryColor,

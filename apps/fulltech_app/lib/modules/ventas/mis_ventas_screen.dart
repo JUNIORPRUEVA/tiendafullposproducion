@@ -74,7 +74,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
           ),
         ],
       ),
-      drawer: AppDrawer(currentUser: user),
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'sales_new_fab',
         onPressed: () async {

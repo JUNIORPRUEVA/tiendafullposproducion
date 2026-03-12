@@ -17,7 +17,15 @@ import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/product_network_image.dart';
 import '../clientes/cliente_model.dart';
+import '../clientes/data/clientes_repository.dart';
 import '../ventas/data/ventas_repository.dart';
+import 'ai/application/quotation_ai_controller.dart';
+import 'ai/domain/models/ai_warning.dart';
+import 'ai/domain/models/quotation_context.dart';
+import 'ai/presentation/widgets/ai_chat_sheet.dart';
+import 'ai/presentation/widgets/ai_fab_button.dart';
+import 'ai/presentation/widgets/ai_warning_banner.dart';
+import 'ai/presentation/widgets/quotation_rule_detail_sheet.dart';
 import 'cotizacion_models.dart';
 import 'data/cotizaciones_repository.dart';
 import 'utils/cotizacion_pdf_service.dart';
@@ -32,6 +40,8 @@ class CotizacionesScreen extends ConsumerStatefulWidget {
 class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     with WidgetsBindingObserver
     implements RouteAware {
+  static const double _desktopBreakpoint = 900;
+
   final TextEditingController _searchCtrl = TextEditingController();
 
   final List<CotizacionItem> _items = [];
@@ -52,6 +62,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   String? _editingId;
   DateTime? _editingCreatedAt;
 
+  List<_DesktopTicketDraft> _desktopTickets = [];
+  String? _activeDesktopTicketId;
+
   bool _prefillFromRouteApplied = false;
   bool _routeObserverSubscribed = false;
   RouteObserver<ModalRoute<dynamic>>? _routeObserver;
@@ -66,10 +79,20 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   @override
   void initState() {
     super.initState();
+    final initialDraft = _DesktopTicketDraft.empty(
+      id: _newId(),
+      title: 'Ticket 1',
+    );
+    _desktopTickets = [initialDraft];
+    _activeDesktopTicketId = initialDraft.id;
     WidgetsBinding.instance.addObserver(this);
     _subscribeRealtime();
     _loadProducts(forceRemote: true);
     _startLiveSync();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_syncQuotationAi(triggerAi: false));
+    });
   }
 
   @override
@@ -183,7 +206,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       if (id.isNotEmpty) _selectedClientId = id;
       if (name.isNotEmpty) _selectedClientName = name;
       if (phone.isNotEmpty) _selectedClientPhone = phone;
+      _writeActiveDesktopDraft();
     });
+    unawaited(_syncQuotationAi(triggerAi: false));
 
     if ((_selectedClientId ?? '').trim().isEmpty && phone.isNotEmpty) {
       _resolveClientIdByPhone(phone);
@@ -215,7 +240,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         _selectedClientId = matchId;
         _selectedClientName = matchName;
         _selectedClientPhone = matchPhone;
+        _writeActiveDesktopDraft();
       });
+      unawaited(_syncQuotationAi(triggerAi: false));
     } catch (_) {
       // Silencioso: si no se puede resolver, el usuario puede escoger cliente.
     }
@@ -269,6 +296,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         _loadingProducts = false;
         _error = null;
       });
+      unawaited(_syncQuotationAi(triggerAi: false));
       Future<void>.microtask(
         () => FulltechImageCacheManager.warmImageUrls(
           rows.map((item) => item.displayFotoUrl),
@@ -321,9 +349,396 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
   String _newId() => DateTime.now().microsecondsSinceEpoch.toString();
 
+  _DesktopTicketDraft _snapshotCurrentDesktopDraft({
+    required String id,
+    required String title,
+  }) {
+    return _DesktopTicketDraft(
+      id: id,
+      title: title,
+      items: _items.map((item) => item.copyWith()).toList(),
+      selectedClientId: _selectedClientId,
+      selectedClientName: _selectedClientName,
+      selectedClientPhone: _selectedClientPhone,
+      note: _note,
+      includeItbis: _includeItbis,
+      editingId: _editingId,
+      editingCreatedAt: _editingCreatedAt,
+      selectedCategory: _selectedCategory,
+      searchQuery: _searchCtrl.text,
+    );
+  }
+
+  _DesktopTicketDraft? _findDesktopTicket(String? id) {
+    if (id == null) return null;
+    for (final ticket in _desktopTickets) {
+      if (ticket.id == id) return ticket;
+    }
+    return null;
+  }
+
+  void _writeActiveDesktopDraft() {
+    final activeId = _activeDesktopTicketId;
+    if (activeId == null || _desktopTickets.isEmpty) return;
+    final index = _desktopTickets.indexWhere((ticket) => ticket.id == activeId);
+    if (index < 0) return;
+    final current = _desktopTickets[index];
+    _desktopTickets[index] = _snapshotCurrentDesktopDraft(
+      id: current.id,
+      title: current.title,
+    );
+  }
+
+  void _replaceEditorStateFromDraft(_DesktopTicketDraft draft) {
+    _items
+      ..clear()
+      ..addAll(draft.items.map((item) => item.copyWith()));
+    _selectedClientId = draft.selectedClientId;
+    _selectedClientName = draft.selectedClientName;
+    _selectedClientPhone = draft.selectedClientPhone;
+    _note = draft.note;
+    _includeItbis = draft.includeItbis;
+    _editingId = draft.editingId;
+    _editingCreatedAt = draft.editingCreatedAt;
+    _selectedCategory = draft.selectedCategory;
+    _searchCtrl.text = draft.searchQuery;
+  }
+
+  void _resetEditorState() {
+    _items.clear();
+    _searchCtrl.clear();
+    _selectedCategory = null;
+    _selectedClientId = null;
+    _selectedClientName = 'Sin cliente';
+    _selectedClientPhone = null;
+    _note = '';
+    _includeItbis = false;
+    _editingId = null;
+    _editingCreatedAt = null;
+  }
+
+  void _commitEditorChange(VoidCallback changes) {
+    setState(() {
+      changes();
+      _writeActiveDesktopDraft();
+    });
+    unawaited(_syncQuotationAi());
+  }
+
+  String _nextDesktopTicketTitle() => 'Ticket ${_desktopTickets.length + 1}';
+
+  void _createNewDesktopTicket() {
+    setState(() {
+      _writeActiveDesktopDraft();
+      final ticket = _DesktopTicketDraft.empty(
+        id: _newId(),
+        title: _nextDesktopTicketTitle(),
+      );
+      _desktopTickets = [..._desktopTickets, ticket];
+      _activeDesktopTicketId = ticket.id;
+      _replaceEditorStateFromDraft(ticket);
+      _writeActiveDesktopDraft();
+    });
+  }
+
+  void _switchDesktopTicket(String id) {
+    if (id == _activeDesktopTicketId) return;
+    setState(() {
+      _writeActiveDesktopDraft();
+      final next = _findDesktopTicket(id);
+      if (next == null) return;
+      _activeDesktopTicketId = next.id;
+      _replaceEditorStateFromDraft(next);
+    });
+    unawaited(_syncQuotationAi());
+  }
+
+  Future<void> _syncQuotationAi({bool triggerAi = true}) {
+    return ref
+        .read(quotationAiControllerProvider.notifier)
+        .setContext(_buildQuotationAiContext(), triggerAi: triggerAi);
+  }
+
+  QuotationContext _buildQuotationAiContext() {
+    final totalQuantity = _items.fold<double>(0, (sum, item) => sum + item.qty);
+    final productName = _items.length == 1
+        ? _items.first.nombre
+        : _items.isNotEmpty
+        ? '${_items.length} productos seleccionados'
+        : null;
+
+    final contextItems = _items
+        .map((item) {
+          final official = _findOfficialProduct(item.productId);
+          return QuotationContextItem(
+            productId: item.productId,
+            productName: item.nombre,
+            category:
+                official?.categoriaLabel ??
+                _selectedCategory ??
+                'Sin categoría',
+            qty: item.qty,
+            unitPrice: item.unitPrice,
+            officialUnitPrice: official?.precio,
+            lineTotal: item.total,
+            notes: _note.trim().isEmpty ? null : _note.trim(),
+          );
+        })
+        .toList(growable: false);
+
+    final normalPrice = contextItems.fold<double>(0, (sum, item) {
+      return sum + ((item.officialUnitPrice ?? item.unitPrice) * item.qty);
+    });
+
+    return QuotationContext(
+      quotationId: (_editingId ?? '').trim().isEmpty ? null : _editingId,
+      module: 'cotizaciones',
+      productType: _selectedCategory,
+      productName: productName,
+      brand: null,
+      quantity: totalQuantity,
+      installationType: _detectInstallationType(),
+      selectedPriceType: _detectSelectedPriceType(contextItems),
+      selectedUnitPrice: _items.length == 1 ? _items.first.unitPrice : null,
+      selectedTotal: _total,
+      minimumPrice: null,
+      offerPrice: null,
+      normalPrice: normalPrice,
+      components: _items.map((item) => item.nombre).toList(growable: false),
+      notes: _note.trim().isEmpty ? null : _note.trim(),
+      extraCharges: _detectExtraCharges(),
+      currentDvrType: _detectCurrentDvrType(),
+      requiredDvrType: _detectRequiredDvrType(totalQuantity: totalQuantity),
+      screenName: 'Cotización',
+      items: contextItems,
+      metadata: {
+        'clientId': _selectedClientId,
+        'clientName': _selectedClientName,
+        'clientPhone': _selectedClientPhone,
+        'includeItbis': _includeItbis,
+        'subtotal': _subtotal,
+        'itbisAmount': _itbisAmount,
+        'activeDesktopTicketId': _activeDesktopTicketId,
+      },
+    );
+  }
+
+  ProductModel? _findOfficialProduct(String productId) {
+    for (final product in _productos) {
+      if (product.id == productId) return product;
+    }
+    return null;
+  }
+
+  String? _detectInstallationType() {
+    final text = _note.toLowerCase();
+    if (text.contains('complej')) return 'compleja';
+    if (text.contains('simple')) return 'simple';
+    return null;
+  }
+
+  String? _detectSelectedPriceType(List<QuotationContextItem> items) {
+    if (items.isEmpty) return null;
+    var hasDiscount = false;
+    var hasIncrease = false;
+    for (final item in items) {
+      final official = item.officialUnitPrice;
+      if (official == null) continue;
+      if (item.unitPrice < official) hasDiscount = true;
+      if (item.unitPrice > official) hasIncrease = true;
+    }
+    if (hasDiscount && !hasIncrease) return 'descuento';
+    if (hasIncrease && !hasDiscount) return 'ajuste';
+    if (!hasDiscount && !hasIncrease) return 'normal';
+    return 'mixto';
+  }
+
+  List<String> _detectExtraCharges() {
+    final charges = <String>[];
+    for (final item in _items) {
+      final text = item.nombre.toLowerCase();
+      if (text.contains('instal') ||
+          text.contains('recargo') ||
+          text.contains('cargo')) {
+        charges.add(item.nombre);
+      }
+    }
+    return charges;
+  }
+
+  String? _detectCurrentDvrType() {
+    final text = _items.map((item) => item.nombre).join(' ');
+    final match = RegExp(
+      r'(\d{1,2})\s*(canales|canal)',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (match == null) return null;
+    return '${match.group(1)} canales';
+  }
+
+  String? _detectRequiredDvrType({required double totalQuantity}) {
+    final totalCameras = _items
+        .where((item) => item.nombre.toLowerCase().contains('camara'))
+        .fold<double>(0, (sum, item) => sum + item.qty);
+    if (totalCameras <= 0) return null;
+    if (totalCameras <= 4) return '4 canales';
+    if (totalCameras <= 8) return '8 canales';
+    if (totalCameras <= 16) return '16 canales';
+    if (totalQuantity > 16) return '32 canales';
+    return null;
+  }
+
+  Future<void> _openAiAssistantSheet({String? initialPrompt}) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AiChatSheet(initialPrompt: initialPrompt),
+    );
+  }
+
+  Future<void> _openAiRelatedRule(String? ruleId, String? title) {
+    return openQuotationRuleDetailSheet(
+      context,
+      ref,
+      ruleId: ruleId,
+      title: title,
+    );
+  }
+
+  Future<void> _askAiAboutWarning(AiWarning warning) {
+    return _openAiAssistantSheet(
+      initialPrompt:
+          'Explícame la advertencia "${warning.title}" usando únicamente la regla oficial relacionada.',
+    );
+  }
+
+  Future<_DiscountInput?> _openDiscountDialog({
+    required String title,
+    required String subtitle,
+  }) async {
+    final amountCtrl = TextEditingController();
+    var type = _DiscountType.percent;
+
+    final result = await showDialog<_DiscountInput>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text(title),
+          content: SizedBox(
+            width: 360,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(subtitle),
+                const SizedBox(height: 14),
+                SegmentedButton<_DiscountType>(
+                  segments: const [
+                    ButtonSegment<_DiscountType>(
+                      value: _DiscountType.percent,
+                      label: Text('%'),
+                      icon: Icon(Icons.percent),
+                    ),
+                    ButtonSegment<_DiscountType>(
+                      value: _DiscountType.fixed,
+                      label: Text('Monto'),
+                      icon: Icon(Icons.attach_money),
+                    ),
+                  ],
+                  selected: <_DiscountType>{type},
+                  onSelectionChanged: (selection) {
+                    setDialogState(() => type = selection.first);
+                  },
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: amountCtrl,
+                  autofocus: true,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: InputDecoration(
+                    labelText: type == _DiscountType.percent
+                        ? 'Porcentaje'
+                        : 'Monto a descontar',
+                    hintText: type == _DiscountType.percent ? '10' : '500',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final amount = double.tryParse(amountCtrl.text.trim());
+                if (amount == null || amount <= 0) return;
+                Navigator.pop(
+                  dialogContext,
+                  _DiscountInput(type: type, amount: amount),
+                );
+              },
+              child: const Text('Aplicar'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    amountCtrl.dispose();
+    return result;
+  }
+
+  Future<void> _applyItemDiscount(int index) async {
+    if (index < 0 || index >= _items.length) return;
+    final item = _items[index];
+    final input = await _openDiscountDialog(
+      title: 'Descuento en ${item.nombre}',
+      subtitle: 'Se ajustará el precio unitario de esta línea.',
+    );
+    if (input == null || !mounted) return;
+
+    final currentTotal = item.total;
+    final discountedTotal = input.type == _DiscountType.percent
+        ? currentTotal * (1 - (input.amount / 100))
+        : currentTotal - input.amount;
+    final nextTotal = discountedTotal.clamp(0, currentTotal).toDouble();
+    final nextUnitPrice = item.qty <= 0 ? 0.0 : nextTotal / item.qty;
+
+    _commitEditorChange(() {
+      _items[index] = item.copyWith(unitPrice: nextUnitPrice);
+    });
+  }
+
+  Future<void> _applyGeneralDiscount() async {
+    if (_items.isEmpty || _subtotal <= 0) return;
+    final input = await _openDiscountDialog(
+      title: 'Descuento general',
+      subtitle: 'Se distribuirá proporcionalmente entre todas las líneas.',
+    );
+    if (input == null || !mounted) return;
+
+    final rawFactor = input.type == _DiscountType.percent
+        ? 1 - (input.amount / 100)
+        : 1 - (input.amount / _subtotal);
+    final factor = rawFactor.clamp(0, 1).toDouble();
+
+    _commitEditorChange(() {
+      for (var index = 0; index < _items.length; index++) {
+        final item = _items[index];
+        _items[index] = item.copyWith(unitPrice: item.unitPrice * factor);
+      }
+    });
+  }
+
   void _addProduct(ProductModel product) {
     final index = _items.indexWhere((item) => item.productId == product.id);
-    setState(() {
+    _commitEditorChange(() {
       if (index >= 0) {
         final current = _items[index];
         _items[index] = current.copyWith(qty: current.qty + 1);
@@ -343,15 +758,17 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
   void _setQty(int index, double qty) {
     if (qty <= 0) {
-      setState(() => _items.removeAt(index));
+      _commitEditorChange(() => _items.removeAt(index));
       return;
     }
-    setState(() => _items[index] = _items[index].copyWith(qty: qty));
+    _commitEditorChange(() => _items[index] = _items[index].copyWith(qty: qty));
   }
 
   void _setUnitPrice(int index, double price) {
     if (price < 0) return;
-    setState(() => _items[index] = _items[index].copyWith(unitPrice: price));
+    _commitEditorChange(
+      () => _items[index] = _items[index].copyWith(unitPrice: price),
+    );
   }
 
   Future<void> _pickCategory() async {
@@ -364,18 +781,24 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
           child: ListView(
             shrinkWrap: true,
             children: [
-              RadioListTile<String?>(
+              ListTile(
+                leading: Icon(
+                  _selectedCategory == null
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
+                ),
                 title: const Text('Todas las categorías'),
-                value: null,
-                groupValue: _selectedCategory,
-                onChanged: (value) => Navigator.pop(context, value),
+                onTap: () => Navigator.pop(context, null),
               ),
               ...categories.map(
-                (category) => RadioListTile<String?>(
+                (category) => ListTile(
+                  leading: Icon(
+                    _selectedCategory == category
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                  ),
                   title: Text(category),
-                  value: category,
-                  groupValue: _selectedCategory,
-                  onChanged: (value) => Navigator.pop(context, value),
+                  onTap: () => Navigator.pop(context, category),
                 ),
               ),
             ],
@@ -386,7 +809,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
     if (!mounted) return;
     if (selected == _selectedCategory) return;
-    setState(() => _selectedCategory = selected);
+    _commitEditorChange(() => _selectedCategory = selected);
   }
 
   Future<void> _openNoteDialog() async {
@@ -417,19 +840,52 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     );
 
     if (nextNote == null || !mounted) return;
-    setState(() => _note = nextNote);
+    _commitEditorChange(() => _note = nextNote);
   }
 
   Future<void> _openClientDialog() async {
     final repo = ref.read(ventasRepositoryProvider);
+    final clientesRepo = ref.read(clientesRepositoryProvider);
+    final ownerId = (ref.read(authStateProvider).user?.id ?? '').trim();
     final searchCtrl = TextEditingController();
     final nameCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
+    final addressCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
 
     List<ClienteModel> clients = const [];
     bool loading = true;
     bool creating = false;
+    bool editingCurrent = false;
     String? error;
+    ClienteModel? currentClient;
+
+    Future<void> loadCurrentClient() async {
+      final currentId = (_selectedClientId ?? '').trim();
+      if (currentId.isEmpty || ownerId.isEmpty) return;
+      try {
+        currentClient = await clientesRepo.getClientById(
+          ownerId: ownerId,
+          id: currentId,
+        );
+        nameCtrl.text = currentClient?.nombre ?? _selectedClientName;
+        phoneCtrl.text =
+            currentClient?.telefono ?? (_selectedClientPhone ?? '');
+        addressCtrl.text = currentClient?.direccion ?? '';
+        emailCtrl.text = currentClient?.correo ?? '';
+      } catch (_) {
+        currentClient = null;
+      }
+    }
+
+    void fillCreateDefaults() {
+      nameCtrl.text = _selectedClientName == 'Sin cliente'
+          ? ''
+          : _selectedClientName;
+      phoneCtrl.text = _selectedClientPhone ?? '';
+      addressCtrl.clear();
+      emailCtrl.clear();
+    }
 
     await showDialog<void>(
       context: context,
@@ -460,11 +916,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
           return AlertDialog(
             title: const Text('Cliente'),
             content: SizedBox(
-              width: 430,
+              width: 460,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (!creating) ...[
+                  if (!creating && !editingCurrent) ...[
                     TextField(
                       controller: searchCtrl,
                       decoration: InputDecoration(
@@ -510,7 +966,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                     onTap: () {
-                                      setState(() {
+                                      _commitEditorChange(() {
                                         _selectedClientId = client.id;
                                         _selectedClientName = client.nombre;
                                         _selectedClientPhone = client.telefono;
@@ -538,6 +994,23 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                         isDense: true,
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: addressCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Dirección',
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: emailCtrl,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: 'Correo',
+                        isDense: true,
+                      ),
+                    ),
                   ],
                 ],
               ),
@@ -547,25 +1020,43 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                 onPressed: () => Navigator.pop(context),
                 child: const Text('Cerrar'),
               ),
-              if (!creating)
+              if (!creating && !editingCurrent)
                 OutlinedButton.icon(
-                  onPressed: () => setStateDialog(() => creating = true),
+                  onPressed: () {
+                    fillCreateDefaults();
+                    setStateDialog(() => creating = true);
+                  },
                   icon: const Icon(Icons.person_add_alt_1_outlined),
                   label: const Text('Nuevo'),
                 )
               else
                 OutlinedButton.icon(
-                  onPressed: () => setStateDialog(() => creating = false),
+                  onPressed: () => setStateDialog(() {
+                    creating = false;
+                    editingCurrent = false;
+                  }),
                   icon: const Icon(Icons.arrow_back),
                   label: const Text('Lista'),
                 ),
-              if (creating)
+              if (!creating &&
+                  !editingCurrent &&
+                  (_selectedClientId ?? '').trim().isNotEmpty)
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    await loadCurrentClient();
+                    if (!context.mounted) return;
+                    setStateDialog(() => editingCurrent = true);
+                  },
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('Editar actual'),
+                ),
+              if (creating || editingCurrent)
                 FilledButton(
                   onPressed: () async {
                     final name = nameCtrl.text.trim();
                     final phone = phoneCtrl.text.trim();
                     if (name.isEmpty || phone.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
                         const SnackBar(
                           content: Text('Nombre y teléfono son obligatorios'),
                         ),
@@ -573,12 +1064,35 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                       return;
                     }
                     try {
+                      if (editingCurrent) {
+                        if (ownerId.isEmpty || currentClient == null) return;
+                        final updated = await clientesRepo.upsertClient(
+                          ownerId: ownerId,
+                          cliente: currentClient!.copyWith(
+                            nombre: name,
+                            telefono: phone,
+                            direccion: addressCtrl.text.trim(),
+                            correo: emailCtrl.text.trim(),
+                            clearDireccion: addressCtrl.text.trim().isEmpty,
+                            clearCorreo: emailCtrl.text.trim().isEmpty,
+                          ),
+                        );
+                        if (!context.mounted) return;
+                        _commitEditorChange(() {
+                          _selectedClientId = updated.id;
+                          _selectedClientName = updated.nombre;
+                          _selectedClientPhone = updated.telefono;
+                        });
+                        Navigator.pop(context);
+                        return;
+                      }
+
                       final created = await repo.createQuickClient(
                         nombre: name,
                         telefono: phone,
                       );
                       if (!context.mounted) return;
-                      setState(() {
+                      _commitEditorChange(() {
                         _selectedClientId = created.id;
                         _selectedClientName = created.nombre;
                         _selectedClientPhone = created.telefono;
@@ -586,18 +1100,26 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                       Navigator.pop(context);
                     } catch (e) {
                       if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
                         SnackBar(content: Text('No se pudo crear: $e')),
                       );
                     }
                   },
-                  child: const Text('Guardar cliente'),
+                  child: Text(
+                    editingCurrent ? 'Guardar cambios' : 'Guardar cliente',
+                  ),
                 ),
             ],
           );
         },
       ),
     );
+
+    searchCtrl.dispose();
+    nameCtrl.dispose();
+    phoneCtrl.dispose();
+    addressCtrl.dispose();
+    emailCtrl.dispose();
   }
 
   CotizacionModel _buildDraftCotizacion() {
@@ -698,7 +1220,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
     if (payload == null || !mounted) return;
 
-    setState(() {
+    _commitEditorChange(() {
       _items
         ..clear()
         ..addAll(payload.source.items.map((item) => item.copyWith()));
@@ -764,18 +1286,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
     if (!mounted) return;
 
-    setState(() {
-      _items.clear();
-      _searchCtrl.clear();
-      _selectedCategory = null;
-      _selectedClientId = null;
-      _selectedClientName = 'Sin cliente';
-      _selectedClientPhone = null;
-      _note = '';
-      _includeItbis = false;
-      _editingId = null;
-      _editingCreatedAt = null;
-    });
+    _commitEditorChange(_resetEditorState);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -794,299 +1305,415 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final user = ref.watch(authStateProvider).user;
-
-    return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 0,
-        title: Padding(
-          padding: const EdgeInsets.only(right: 6),
-          child: Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 38,
-                  child: TextField(
-                    controller: _searchCtrl,
-                    onChanged: (_) => setState(() {}),
-                    decoration: InputDecoration(
-                      hintText: 'Buscar producto',
-                      prefixIcon: const Icon(Icons.search, size: 20),
-                      suffixIcon: IconButton(
-                        tooltip: 'Filtrar por categoría',
-                        onPressed: _pickCategory,
-                        icon: Icon(
-                          _selectedCategory == null
-                              ? Icons.filter_alt_outlined
-                              : Icons.filter_alt,
-                          size: 20,
-                        ),
-                      ),
-                      isDense: true,
-                      filled: true,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 10,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 4),
-              IconButton(
-                tooltip: 'Cliente',
-                onPressed: _openClientDialog,
-                icon: const Icon(Icons.person_outline),
-              ),
-              IconButton(
-                tooltip: 'Nota',
-                onPressed: _openNoteDialog,
-                icon: Icon(
-                  _note.trim().isEmpty
-                      ? Icons.sticky_note_2_outlined
-                      : Icons.sticky_note_2,
-                ),
-              ),
-              IconButton(
-                tooltip: 'PDF',
-                onPressed: _openPdfPreview,
-                icon: const Icon(Icons.picture_as_pdf_outlined),
-              ),
-              IconButton(
-                tooltip: 'Historial',
-                onPressed: _openHistory,
-                icon: const Icon(Icons.history),
-              ),
-            ],
-          ),
-        ),
-      ),
-      drawer: AppDrawer(currentUser: user),
-      body: SafeArea(
-        child: Column(
+  AppBar _buildMobileAppBar() {
+    return AppBar(
+      titleSpacing: 0,
+      title: Padding(
+        padding: const EdgeInsets.only(right: 6),
+        child: Row(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  Chip(
-                    avatar: const Icon(Icons.person, size: 16),
-                    label: Text(_selectedClientName),
+            Expanded(
+              child: SizedBox(
+                height: 38,
+                child: TextField(
+                  controller: _searchCtrl,
+                  onChanged: (_) => _commitEditorChange(() {}),
+                  decoration: InputDecoration(
+                    hintText: 'Buscar producto',
+                    prefixIcon: const Icon(Icons.search, size: 20),
+                    suffixIcon: IconButton(
+                      tooltip: 'Filtrar por categoría',
+                      onPressed: _pickCategory,
+                      icon: Icon(
+                        _selectedCategory == null
+                            ? Icons.filter_alt_outlined
+                            : Icons.filter_alt,
+                        size: 20,
+                      ),
+                    ),
+                    isDense: true,
+                    filled: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 10,
+                    ),
                   ),
-                  if (_selectedCategory != null)
-                    Chip(
-                      avatar: const Icon(Icons.category_outlined, size: 16),
-                      label: Text(_selectedCategory!),
-                      onDeleted: () => setState(() => _selectedCategory = null),
-                    ),
-                  if (_note.trim().isNotEmpty)
-                    Chip(
-                      avatar: const Icon(Icons.note_alt_outlined, size: 16),
-                      label: Text(_note, overflow: TextOverflow.ellipsis),
-                      onDeleted: () => setState(() => _note = ''),
-                    ),
-                ],
+                ),
               ),
             ),
-            if (_loadingProducts)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 14),
-                child: CircularProgressIndicator(),
-              )
-            else if (_error != null)
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  _error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              )
-            else
-              SizedBox(
-                height: 116,
-                child: _visibleProducts.isEmpty
-                    ? const Center(
-                        child: Text('No hay productos con este filtro'),
-                      )
-                    : ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        itemCount: _visibleProducts.length,
-                        separatorBuilder: (context, index) =>
-                            const SizedBox(width: 8),
-                        itemBuilder: (context, index) {
-                          final product = _visibleProducts[index];
-                          return _ProductThumbCard(
-                            product: product,
-                            onTap: () => _addProduct(product),
-                            money: _money,
-                          );
-                        },
-                      ),
+            const SizedBox(width: 4),
+            IconButton(
+              tooltip: 'Cliente',
+              onPressed: _openClientDialog,
+              icon: const Icon(Icons.person_outline),
+            ),
+            IconButton(
+              tooltip: 'Nota',
+              onPressed: _openNoteDialog,
+              icon: Icon(
+                _note.trim().isEmpty
+                    ? Icons.sticky_note_2_outlined
+                    : Icons.sticky_note_2,
               ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerLowest,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(18),
+            ),
+            IconButton(
+              tooltip: 'PDF',
+              onPressed: _openPdfPreview,
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+            ),
+            IconButton(
+              tooltip: 'Historial',
+              onPressed: _openHistory,
+              icon: const Icon(Icons.history),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  AppBar _buildDesktopAppBar() {
+    return AppBar(
+      title: const Text('Cotizaciones'),
+      actions: const [SizedBox(width: 8)],
+    );
+  }
+
+  Widget _buildStatusChips() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      children: [
+        Chip(
+          avatar: const Icon(Icons.person, size: 16),
+          label: Text(_selectedClientName),
+        ),
+        if (_selectedCategory != null)
+          Chip(
+            avatar: const Icon(Icons.category_outlined, size: 16),
+            label: Text(_selectedCategory!),
+            onDeleted: () => setState(() => _selectedCategory = null),
+          ),
+        if (_note.trim().isNotEmpty)
+          Chip(
+            avatar: const Icon(Icons.note_alt_outlined, size: 16),
+            label: Text(_note, overflow: TextOverflow.ellipsis),
+            onDeleted: () => setState(() => _note = ''),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildProductStrip() {
+    if (_loadingProducts) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 14),
+        child: CircularProgressIndicator(),
+      );
+    }
+    if (_error != null) {
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: Text(
+          _error!,
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: 116,
+      child: _visibleProducts.isEmpty
+          ? const Center(child: Text('No hay productos con este filtro'))
+          : ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              itemCount: _visibleProducts.length,
+              separatorBuilder: (context, index) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                final product = _visibleProducts[index];
+                return _ProductThumbCard(
+                  product: product,
+                  onTap: () => _addProduct(product),
+                  money: _money,
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _buildTicketPanel() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLowest,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: Row(
+              children: [
+                const Icon(Icons.receipt_long_outlined, size: 18),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _editingId == null
+                        ? 'Ticket abierto · ${_items.length} líneas'
+                        : 'Editando cotización · ${_items.length} líneas',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
-                child: Column(
+                Text(
+                  DateFormat('dd/MM HH:mm').format(DateTime.now()),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: _items.isEmpty
+                ? const Center(
+                    child: Text(
+                      'Toca un producto arriba para agregarlo',
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                    itemCount: _items.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 4),
+                    itemBuilder: (context, index) {
+                      final item = _items[index];
+                      return _TicketCompactItem(
+                        item: item,
+                        money: _money,
+                        onMinus: () => _setQty(index, item.qty - 1),
+                        onPlus: () => _setQty(index, item.qty + 1),
+                        onChangePrice: (value) => _setUnitPrice(index, value),
+                        onRemove: () => setState(() => _items.removeAt(index)),
+                      );
+                    },
+                  ),
+          ),
+          Container(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              border: Border(
+                top: BorderSide(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+              ),
+            ),
+            child: Column(
+              children: [
+                Row(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                    const Expanded(child: Text('Subtotal')),
+                    Text(_money(_subtotal)),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Expanded(
                       child: Row(
                         children: [
-                          const Icon(Icons.receipt_long_outlined, size: 18),
+                          const Text('Aplicar ITBIS'),
                           const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              _editingId == null
-                                  ? 'Ticket abierto · ${_items.length} líneas'
-                                  : 'Editando cotización · ${_items.length} líneas',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            DateFormat('dd/MM HH:mm').format(DateTime.now()),
-                            style: Theme.of(context).textTheme.bodySmall,
+                          Switch.adaptive(
+                            value: _includeItbis,
+                            onChanged: (value) =>
+                                setState(() => _includeItbis = value),
                           ),
                         ],
                       ),
                     ),
-                    const Divider(height: 1),
+                    Text(_money(_itbisAmount)),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Total cotización',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    Text(
+                      _money(_total),
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
                     Expanded(
-                      child: _items.isEmpty
-                          ? const Center(
-                              child: Text(
-                                'Toca un producto arriba para agregarlo',
-                                textAlign: TextAlign.center,
-                              ),
-                            )
-                          : ListView.separated(
-                              padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
-                              itemCount: _items.length,
-                              separatorBuilder: (context, index) =>
-                                  const SizedBox(height: 4),
-                              itemBuilder: (context, index) {
-                                final item = _items[index];
-                                return _TicketCompactItem(
-                                  item: item,
-                                  money: _money,
-                                  onMinus: () => _setQty(index, item.qty - 1),
-                                  onPlus: () => _setQty(index, item.qty + 1),
-                                  onChangePrice: (value) =>
-                                      _setUnitPrice(index, value),
-                                  onRemove: () =>
-                                      setState(() => _items.removeAt(index)),
-                                );
+                      child: OutlinedButton.icon(
+                        onPressed: _items.isEmpty
+                            ? null
+                            : () {
+                                setState(() {
+                                  _items.clear();
+                                  _editingId = null;
+                                  _editingCreatedAt = null;
+                                });
                               },
-                            ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surface,
-                        border: Border(
-                          top: BorderSide(
-                            color: Theme.of(context).colorScheme.outlineVariant,
-                          ),
-                        ),
+                        icon: const Icon(Icons.delete_sweep_outlined),
+                        label: const Text('Limpiar'),
                       ),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              const Expanded(child: Text('Subtotal')),
-                              Text(_money(_subtotal)),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Row(
-                                  children: [
-                                    const Text('Aplicar ITBIS'),
-                                    const SizedBox(width: 6),
-                                    Switch.adaptive(
-                                      value: _includeItbis,
-                                      onChanged: (value) =>
-                                          setState(() => _includeItbis = value),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Text(_money(_itbisAmount)),
-                            ],
-                          ),
-                          const SizedBox(height: 2),
-                          Row(
-                            children: [
-                              const Expanded(
-                                child: Text(
-                                  'Total cotización',
-                                  style: TextStyle(fontWeight: FontWeight.w800),
-                                ),
-                              ),
-                              Text(
-                                _money(_total),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: _items.isEmpty
-                                      ? null
-                                      : () {
-                                          setState(() {
-                                            _items.clear();
-                                            _editingId = null;
-                                            _editingCreatedAt = null;
-                                          });
-                                        },
-                                  icon: const Icon(Icons.delete_sweep_outlined),
-                                  label: const Text('Limpiar'),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: FilledButton.icon(
-                                  onPressed: _finalizeCotizacion,
-                                  icon: const Icon(Icons.check_circle_outline),
-                                  label: const Text('Finalizar'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _finalizeCotizacion,
+                        icon: const Icon(Icons.check_circle_outline),
+                        label: const Text('Finalizar'),
                       ),
                     ),
                   ],
                 ),
-              ),
+              ],
             ),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileBody(QuotationAiState aiState) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+          child: _buildStatusChips(),
         ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+          child: AiWarningBanner(
+            warnings: aiState.visibleWarnings,
+            analyzing: aiState.analyzing || aiState.loadingRules,
+            onOpenRule: (warning) => _openAiRelatedRule(
+              warning.relatedRuleId,
+              warning.relatedRuleTitle,
+            ),
+            onAskAi: _askAiAboutWarning,
+          ),
+        ),
+        _buildProductStrip(),
+        const SizedBox(height: 8),
+        Expanded(child: _buildTicketPanel()),
+      ],
+    );
+  }
+
+  Widget _buildDesktopBody(QuotationAiState aiState) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+      child: Column(
+        children: [
+          AiWarningBanner(
+            warnings: aiState.visibleWarnings,
+            analyzing: aiState.analyzing || aiState.loadingRules,
+            onOpenRule: (warning) => _openAiRelatedRule(
+              warning.relatedRuleId,
+              warning.relatedRuleTitle,
+            ),
+            onAskAi: _askAiAboutWarning,
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  flex: 7,
+                  child: _DesktopCatalogPane(
+                    searchController: _searchCtrl,
+                    selectedCategory: _selectedCategory,
+                    visibleProducts: _visibleProducts,
+                    loadingProducts: _loadingProducts,
+                    error: _error,
+                    money: _money,
+                    onSearchChanged: () => _commitEditorChange(() {}),
+                    onPickCategory: _pickCategory,
+                    onAddProduct: _addProduct,
+                  ),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  flex: 3,
+                  child: _DesktopQuotePanel(
+                    tickets: _desktopTickets,
+                    activeTicketId: _activeDesktopTicketId,
+                    editingId: _editingId,
+                    items: _items,
+                    selectedClientName: _selectedClientName,
+                    note: _note,
+                    includeItbis: _includeItbis,
+                    subtotal: _subtotal,
+                    itbisAmount: _itbisAmount,
+                    total: _total,
+                    money: _money,
+                    onPickClient: _openClientDialog,
+                    onEditNote: _openNoteDialog,
+                    onOpenPdf: _openPdfPreview,
+                    onOpenHistory: _openHistory,
+                    onCreateTicket: _createNewDesktopTicket,
+                    onSwitchTicket: _switchDesktopTicket,
+                    onToggleItbis: (value) =>
+                        _commitEditorChange(() => _includeItbis = value),
+                    onClear: _items.isEmpty
+                        ? null
+                        : () {
+                            _commitEditorChange(_resetEditorState);
+                          },
+                    onFinalize: _finalizeCotizacion,
+                    onMinusQty: (index) =>
+                        _setQty(index, _items[index].qty - 1),
+                    onPlusQty: (index) => _setQty(index, _items[index].qty + 1),
+                    onChangePrice: _setUnitPrice,
+                    onDiscountItem: _applyItemDiscount,
+                    onGeneralDiscount: _applyGeneralDiscount,
+                    onRemoveItem: (index) =>
+                        _commitEditorChange(() => _items.removeAt(index)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = ref.watch(authStateProvider).user;
+    final aiState = ref.watch(quotationAiControllerProvider);
+    final isDesktop = MediaQuery.sizeOf(context).width >= _desktopBreakpoint;
+
+    return Scaffold(
+      appBar: isDesktop ? _buildDesktopAppBar() : _buildMobileAppBar(),
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
+      floatingActionButton: AiFabButton(
+        onPressed: _openAiAssistantSheet,
+        isDesktop: isDesktop,
+      ),
+      body: SafeArea(
+        child: isDesktop
+            ? _buildDesktopBody(aiState)
+            : _buildMobileBody(aiState),
       ),
     );
   }
@@ -1181,6 +1808,979 @@ class _ProductThumbCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _DesktopCatalogPane extends StatefulWidget {
+  const _DesktopCatalogPane({
+    required this.searchController,
+    required this.selectedCategory,
+    required this.visibleProducts,
+    required this.loadingProducts,
+    required this.error,
+    required this.money,
+    required this.onSearchChanged,
+    required this.onPickCategory,
+    required this.onAddProduct,
+  });
+
+  final TextEditingController searchController;
+  final String? selectedCategory;
+  final List<ProductModel> visibleProducts;
+  final bool loadingProducts;
+  final String? error;
+  final String Function(double) money;
+  final VoidCallback onSearchChanged;
+  final Future<void> Function() onPickCategory;
+  final ValueChanged<ProductModel> onAddProduct;
+
+  @override
+  State<_DesktopCatalogPane> createState() => _DesktopCatalogPaneState();
+}
+
+class _DesktopCatalogPaneState extends State<_DesktopCatalogPane> {
+  late final ScrollController _gridScrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _gridScrollController = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _gridScrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            theme.colorScheme.surface,
+            theme.colorScheme.surfaceContainerLowest,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.65),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: widget.searchController,
+                    onChanged: (_) => widget.onSearchChanged(),
+                    decoration: InputDecoration(
+                      hintText: 'Buscar producto',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'Filtrar categoría',
+                            onPressed: widget.onPickCategory,
+                            icon: Icon(
+                              widget.selectedCategory == null
+                                  ? Icons.filter_alt_outlined
+                                  : Icons.filter_alt,
+                            ),
+                          ),
+                          if (widget.searchController.text.trim().isNotEmpty)
+                            IconButton(
+                              tooltip: 'Limpiar búsqueda',
+                              onPressed: () {
+                                widget.searchController.clear();
+                                widget.onSearchChanged();
+                              },
+                              icon: const Icon(Icons.close),
+                            ),
+                        ],
+                      ),
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHigh,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                FilledButton.icon(
+                  onPressed: widget.onPickCategory,
+                  icon: Icon(
+                    widget.selectedCategory == null
+                        ? Icons.tune_outlined
+                        : Icons.filter_alt,
+                  ),
+                  label: Text(
+                    widget.selectedCategory == null
+                        ? 'Categorías'
+                        : widget.selectedCategory!,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Expanded(
+              child: widget.loadingProducts
+                  ? const Center(child: CircularProgressIndicator())
+                  : widget.error != null
+                  ? Center(
+                      child: Text(
+                        widget.error!,
+                        style: TextStyle(color: theme.colorScheme.error),
+                        textAlign: TextAlign.center,
+                      ),
+                    )
+                  : widget.visibleProducts.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.inventory_2_outlined,
+                            size: 54,
+                            color: theme.colorScheme.outline,
+                          ),
+                          const SizedBox(height: 12),
+                          const Text('No hay productos con este filtro'),
+                        ],
+                      ),
+                    )
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final width = constraints.maxWidth;
+                        final columns = width >= 1500
+                            ? 6
+                            : width >= 1180
+                            ? 5
+                            : width >= 900
+                            ? 4
+                            : 3;
+                        final spacing = width >= 1180 ? 14.0 : 12.0;
+                        final cardWidth =
+                            (width - spacing * (columns - 1)) / columns;
+                        final cardHeight = (cardWidth * 0.82).clamp(
+                          160.0,
+                          205.0,
+                        );
+
+                        return Scrollbar(
+                          controller: _gridScrollController,
+                          thumbVisibility: true,
+                          interactive: true,
+                          child: GridView.builder(
+                            controller: _gridScrollController,
+                            primary: false,
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: EdgeInsets.zero,
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: columns,
+                                  crossAxisSpacing: spacing,
+                                  mainAxisSpacing: spacing,
+                                  mainAxisExtent: cardHeight,
+                                ),
+                            itemCount: widget.visibleProducts.length,
+                            itemBuilder: (context, index) {
+                              final product = widget.visibleProducts[index];
+                              return _DesktopProductCard(
+                                product: product,
+                                money: widget.money,
+                                onTap: () => widget.onAddProduct(product),
+                              );
+                            },
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopQuotePanel extends StatelessWidget {
+  const _DesktopQuotePanel({
+    required this.tickets,
+    required this.activeTicketId,
+    required this.editingId,
+    required this.items,
+    required this.selectedClientName,
+    required this.note,
+    required this.includeItbis,
+    required this.subtotal,
+    required this.itbisAmount,
+    required this.total,
+    required this.money,
+    required this.onPickClient,
+    required this.onEditNote,
+    required this.onOpenPdf,
+    required this.onOpenHistory,
+    required this.onCreateTicket,
+    required this.onSwitchTicket,
+    required this.onToggleItbis,
+    required this.onClear,
+    required this.onFinalize,
+    required this.onMinusQty,
+    required this.onPlusQty,
+    required this.onChangePrice,
+    required this.onDiscountItem,
+    required this.onGeneralDiscount,
+    required this.onRemoveItem,
+  });
+
+  final List<_DesktopTicketDraft> tickets;
+  final String? activeTicketId;
+  final String? editingId;
+  final List<CotizacionItem> items;
+  final String selectedClientName;
+  final String note;
+  final bool includeItbis;
+  final double subtotal;
+  final double itbisAmount;
+  final double total;
+  final String Function(double) money;
+  final VoidCallback onPickClient;
+  final VoidCallback onEditNote;
+  final VoidCallback onOpenPdf;
+  final VoidCallback onOpenHistory;
+  final VoidCallback onCreateTicket;
+  final ValueChanged<String> onSwitchTicket;
+  final ValueChanged<bool> onToggleItbis;
+  final VoidCallback? onClear;
+  final VoidCallback onFinalize;
+  final ValueChanged<int> onMinusQty;
+  final ValueChanged<int> onPlusQty;
+  final void Function(int index, double value) onChangePrice;
+  final ValueChanged<int> onDiscountItem;
+  final VoidCallback onGeneralDiscount;
+  final ValueChanged<int> onRemoveItem;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final activeIndex = tickets.indexWhere(
+      (ticket) => ticket.id == activeTicketId,
+    );
+    final activeLabel = activeIndex >= 0
+        ? tickets[activeIndex].label(activeIndex)
+        : 'Ticket';
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 28,
+            offset: const Offset(0, 10),
+          ),
+        ],
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.55),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                PopupMenuButton<String>(
+                  tooltip: 'Cambiar ticket',
+                  onSelected: onSwitchTicket,
+                  itemBuilder: (context) {
+                    return [
+                      for (var index = 0; index < tickets.length; index++)
+                        PopupMenuItem<String>(
+                          value: tickets[index].id,
+                          child: Text(tickets[index].label(index)),
+                        ),
+                    ];
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.receipt_long_outlined, size: 16),
+                        const SizedBox(width: 6),
+                        Text(
+                          activeLabel,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.expand_more, size: 16),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  tooltip: 'Nuevo ticket',
+                  onPressed: onCreateTicket,
+                  icon: const Icon(Icons.add_circle_outline),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    selectedClientName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Cliente',
+                  onPressed: onPickClient,
+                  icon: const Icon(Icons.person_outline),
+                ),
+                IconButton(
+                  tooltip: note.trim().isEmpty ? 'Agregar nota' : 'Editar nota',
+                  onPressed: onEditNote,
+                  icon: Icon(
+                    note.trim().isEmpty
+                        ? Icons.sticky_note_2_outlined
+                        : Icons.sticky_note_2,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'PDF',
+                  onPressed: onOpenPdf,
+                  icon: const Icon(Icons.picture_as_pdf_outlined),
+                ),
+                IconButton(
+                  tooltip: 'Historial',
+                  onPressed: onOpenHistory,
+                  icon: const Icon(Icons.history),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              editingId == null
+                  ? '${items.length} productos agregados'
+                  : 'Editando cotización · ${items.length} productos',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: items.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.add_shopping_cart_outlined,
+                            size: 56,
+                            color: theme.colorScheme.outline,
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Haz clic en un producto del catálogo para agregarlo',
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: items.length,
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        return _DesktopTicketItem(
+                          item: item,
+                          money: money,
+                          onTap: () => onDiscountItem(index),
+                          onMinus: () => onMinusQty(index),
+                          onPlus: () => onPlusQty(index),
+                          onChangePrice: (value) => onChangePrice(index, value),
+                          onRemove: () => onRemoveItem(index),
+                        );
+                      },
+                    ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: theme.colorScheme.outlineVariant.withValues(
+                    alpha: 0.55,
+                  ),
+                ),
+              ),
+              child: Column(
+                children: [
+                  _DesktopTotalRow(label: 'Subtotal', value: money(subtotal)),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Aplicar ITBIS'),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Calcula impuestos automáticamente',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch.adaptive(
+                        value: includeItbis,
+                        onChanged: onToggleItbis,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  _DesktopTotalRow(label: 'ITBIS', value: money(itbisAmount)),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Divider(height: 1),
+                  ),
+                  _DesktopTotalRow(
+                    label: 'Total',
+                    value: money(total),
+                    emphasize: true,
+                    hint: 'Doble clic para descuento general',
+                    onDoubleTap: onGeneralDiscount,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onClear,
+                    icon: const Icon(Icons.delete_sweep_outlined),
+                    label: const Text('Limpiar'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: onFinalize,
+                    icon: const Icon(Icons.check_circle_outline),
+                    label: const Text('Finalizar'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopProductCard extends StatelessWidget {
+  const _DesktopProductCard({
+    required this.product,
+    required this.money,
+    required this.onTap,
+  });
+
+  final ProductModel product;
+  final String Function(double) money;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: onTap,
+          child: Ink(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(20),
+                    ),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        (product.displayFotoUrl ?? '').trim().isEmpty
+                            ? Container(
+                                color:
+                                    theme.colorScheme.surfaceContainerHighest,
+                                child: const Center(
+                                  child: Icon(
+                                    Icons.inventory_2_outlined,
+                                    size: 34,
+                                  ),
+                                ),
+                              )
+                            : ProductNetworkImage(
+                                imageUrl: product.displayFotoUrl!,
+                                productId: product.id,
+                                productName: product.nombre,
+                                originalUrl: product.originalFotoUrl,
+                                fit: BoxFit.cover,
+                                loading: Container(
+                                  color:
+                                      theme.colorScheme.surfaceContainerHighest,
+                                  child: const Center(
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                ),
+                                fallback: Container(
+                                  color:
+                                      theme.colorScheme.surfaceContainerHighest,
+                                  child: const Center(
+                                    child: Icon(
+                                      Icons.broken_image_outlined,
+                                      size: 30,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                        const Positioned.fill(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [Color(0x05000000), Color(0x5E000000)],
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          top: 10,
+                          right: 10,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.58),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              money(product.precio),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        product.nombre,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        product.categoriaLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopTotalRow extends StatelessWidget {
+  const _DesktopTotalRow({
+    required this.label,
+    required this.value,
+    this.emphasize = false,
+    this.hint,
+    this.onDoubleTap,
+  });
+
+  final String label;
+  final String value;
+  final bool emphasize;
+  final String? hint;
+  final VoidCallback? onDoubleTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = emphasize
+        ? Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)
+        : Theme.of(
+            context,
+          ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700);
+
+    return GestureDetector(
+      onDoubleTap: onDoubleTap,
+      behavior: HitTestBehavior.opaque,
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: style),
+                if ((hint ?? '').trim().isNotEmpty)
+                  Text(
+                    hint!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Text(value, style: style),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopTicketItem extends StatefulWidget {
+  const _DesktopTicketItem({
+    required this.item,
+    required this.money,
+    required this.onTap,
+    required this.onMinus,
+    required this.onPlus,
+    required this.onChangePrice,
+    required this.onRemove,
+  });
+
+  final CotizacionItem item;
+  final String Function(double) money;
+  final VoidCallback onTap;
+  final VoidCallback onMinus;
+  final VoidCallback onPlus;
+  final ValueChanged<double> onChangePrice;
+  final VoidCallback onRemove;
+
+  @override
+  State<_DesktopTicketItem> createState() => _DesktopTicketItemState();
+}
+
+class _DesktopTicketItemState extends State<_DesktopTicketItem> {
+  late final TextEditingController _priceCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _priceCtrl = TextEditingController(
+      text: widget.item.unitPrice.toStringAsFixed(2),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _DesktopTicketItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item.unitPrice != widget.item.unitPrice) {
+      _priceCtrl.text = widget.item.unitPrice.toStringAsFixed(2);
+    }
+  }
+
+  @override
+  void dispose() {
+    _priceCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.item;
+    final theme = Theme.of(context);
+    final qtyText = item.qty % 1 == 0
+        ? item.qty.toStringAsFixed(0)
+        : item.qty.toStringAsFixed(2);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: widget.onTap,
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerLowest,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+            ),
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: (item.imageUrl ?? '').trim().isEmpty
+                      ? Container(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          child: const Icon(
+                            Icons.inventory_2_outlined,
+                            size: 15,
+                          ),
+                        )
+                      : ProductNetworkImage(
+                          imageUrl: item.imageUrl!,
+                          productId: item.productId,
+                          productName: item.nombre,
+                          originalUrl: item.imageUrl,
+                          fit: BoxFit.cover,
+                          loading: Container(
+                            color: theme.colorScheme.surfaceContainerHighest,
+                          ),
+                          fallback: Container(
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            child: const Icon(
+                              Icons.broken_image_outlined,
+                              size: 14,
+                            ),
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 5,
+                child: Text(
+                  item.nombre,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 84,
+                child: TextField(
+                  controller: _priceCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  style: const TextStyle(fontSize: 11),
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    hintText: 'Precio',
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 8,
+                    ),
+                    border: OutlineInputBorder(),
+                  ),
+                  onTap: () {},
+                  onSubmitted: (value) {
+                    final parsed = double.tryParse(value.trim());
+                    if (parsed != null) widget.onChangePrice(parsed);
+                  },
+                ),
+              ),
+              const SizedBox(width: 6),
+              IconButton(
+                tooltip: 'Restar unidad',
+                visualDensity: VisualDensity.compact,
+                onPressed: widget.onMinus,
+                icon: const Icon(Icons.remove, size: 16),
+              ),
+              SizedBox(
+                width: 24,
+                child: Text(
+                  qtyText,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Sumar unidad',
+                visualDensity: VisualDensity.compact,
+                onPressed: widget.onPlus,
+                icon: const Icon(Icons.add, size: 16),
+              ),
+              const SizedBox(width: 6),
+              SizedBox(
+                width: 96,
+                child: Text(
+                  widget.money(item.total),
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Eliminar producto',
+                visualDensity: VisualDensity.compact,
+                onPressed: widget.onRemove,
+                icon: const Icon(Icons.close, size: 16),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopTicketDraft {
+  const _DesktopTicketDraft({
+    required this.id,
+    required this.title,
+    required this.items,
+    required this.selectedClientId,
+    required this.selectedClientName,
+    required this.selectedClientPhone,
+    required this.note,
+    required this.includeItbis,
+    required this.editingId,
+    required this.editingCreatedAt,
+    required this.selectedCategory,
+    required this.searchQuery,
+  });
+
+  factory _DesktopTicketDraft.empty({
+    required String id,
+    required String title,
+  }) {
+    return _DesktopTicketDraft(
+      id: id,
+      title: title,
+      items: const [],
+      selectedClientId: null,
+      selectedClientName: 'Sin cliente',
+      selectedClientPhone: null,
+      note: '',
+      includeItbis: false,
+      editingId: null,
+      editingCreatedAt: null,
+      selectedCategory: null,
+      searchQuery: '',
+    );
+  }
+
+  final String id;
+  final String title;
+  final List<CotizacionItem> items;
+  final String? selectedClientId;
+  final String selectedClientName;
+  final String? selectedClientPhone;
+  final String note;
+  final bool includeItbis;
+  final String? editingId;
+  final DateTime? editingCreatedAt;
+  final String? selectedCategory;
+  final String searchQuery;
+
+  String label(int index) {
+    final client = selectedClientName.trim();
+    if (client.isNotEmpty && client != 'Sin cliente') return client;
+    return title.isEmpty ? 'Ticket ${index + 1}' : title;
+  }
+}
+
+enum _DiscountType { percent, fixed }
+
+class _DiscountInput {
+  const _DiscountInput({required this.type, required this.amount});
+
+  final _DiscountType type;
+  final double amount;
 }
 
 class _TicketCompactItem extends StatefulWidget {

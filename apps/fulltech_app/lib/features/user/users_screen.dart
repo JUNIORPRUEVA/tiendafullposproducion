@@ -95,7 +95,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                   ),
                 ),
         ),
-        drawer: AppDrawer(currentUser: currentUser),
+        drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -206,7 +206,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
           ),
         ],
       ),
-      drawer: AppDrawer(currentUser: currentUser),
+      drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showUserDialog(context, ref),
         child: const Icon(Icons.add),

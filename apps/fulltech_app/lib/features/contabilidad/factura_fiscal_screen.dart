@@ -87,7 +87,7 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
         backgroundColor: AppTheme.primaryColor,
         foregroundColor: Colors.white,
       ),
-      drawer: AppDrawer(currentUser: user),
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: !canUseModule
           ? const Center(
               child: Text(

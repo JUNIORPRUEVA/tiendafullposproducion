@@ -320,7 +320,7 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
 
     return Scaffold(
       appBar: const CustomAppBar(title: 'Salidas técnicas', showLogo: false),
-      drawer: AppDrawer(currentUser: currentUser),
+      drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : !isTech

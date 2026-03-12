@@ -169,7 +169,7 @@ class _HorariosScreenState extends ConsumerState<HorariosScreen> {
         backgroundColor: AppTheme.primaryColor,
         foregroundColor: Colors.white,
       ),
-      drawer: AppDrawer(currentUser: user),
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: isWide
           ? Row(
               children: [

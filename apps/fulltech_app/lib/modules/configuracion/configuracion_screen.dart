@@ -242,7 +242,7 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     if (!isAdmin) {
       return Scaffold(
         appBar: AppBar(title: const Text('Configuración')),
-        drawer: AppDrawer(currentUser: user),
+        drawer: buildAdaptiveDrawer(context, currentUser: user),
         body: const Center(
           child: Text('Solo administradores pueden acceder a configuración'),
         ),
@@ -251,7 +251,7 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Configuración')),
-      drawer: AppDrawer(currentUser: user),
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(

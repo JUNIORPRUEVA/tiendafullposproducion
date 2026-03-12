@@ -58,7 +58,7 @@ class UserScreen extends ConsumerWidget {
                 ),
               ),
       ),
-      drawer: AppDrawer(currentUser: user),
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(

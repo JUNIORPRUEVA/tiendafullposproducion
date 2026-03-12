@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/location/location_tracker_provider.dart';
+import '../../core/widgets/responsive_shell.dart';
 
 /// ShellRoute wrapper.
 ///
@@ -19,7 +19,6 @@ class HomeShell extends ConsumerStatefulWidget {
 class _HomeShellState extends ConsumerState<HomeShell> {
   @override
   Widget build(BuildContext context) {
-    ref.watch(locationTrackingBootstrapProvider);
-    return widget.child;
+    return ResponsiveShell(child: widget.child);
   }
 }

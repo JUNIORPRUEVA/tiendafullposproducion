@@ -91,7 +91,7 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
           ),
         ],
       ),
-      drawer: AppDrawer(currentUser: user),
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
           final created = await context.push<bool>(Routes.clienteNuevo);

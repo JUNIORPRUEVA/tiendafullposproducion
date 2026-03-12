@@ -166,7 +166,7 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
             ),
         ],
       ),
-      drawer: AppDrawer(currentUser: user),
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: Column(
         children: [
           Padding(

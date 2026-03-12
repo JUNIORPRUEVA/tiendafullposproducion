@@ -2,11 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../modules/manual_interno/company_manual_repository.dart';
 import '../auth/auth_provider.dart';
-import '../auth/app_permissions.dart';
 import '../models/user_model.dart';
 import '../routing/routes.dart';
+import 'app_navigation.dart';
 
 class AppDrawer extends ConsumerWidget {
   final UserModel? currentUser;
@@ -15,26 +14,11 @@ class AppDrawer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final role = currentUser?.appRole;
-    bool can(AppPermission permission) {
-      if (role == null) return false;
-      return hasPermission(role, permission);
-    }
-
-    final manualSummary = can(AppPermission.viewCompanyManual)
-        ? ref.watch(companyManualSummaryProvider)
-        : null;
-    final showManualIndicator =
-        manualSummary?.maybeWhen(
-          data: (value) => value.unreadCount > 0,
-          orElse: () => false,
-        ) ??
-        false;
-
+    final sections = buildAppNavigationSections(ref, currentUser);
     final colorScheme = Theme.of(context).colorScheme;
     final mediaQuery = MediaQuery.of(context);
     final isCompactMobile = mediaQuery.size.width < 390;
-    final location = _safeLocation(context);
+    final location = safeCurrentLocation(context);
 
     // Theme-driven blue/white gradient (more visible than a tiny lerp).
     final gradientTop = Color.alphaBlend(
@@ -49,10 +33,6 @@ class AppDrawer extends ConsumerWidget {
       colorScheme.secondary.withValues(alpha: 0.18),
       colorScheme.surface,
     );
-
-    bool isActiveRoute(String route) {
-      return location == route || location.startsWith('$route/');
-    }
 
     return Drawer(
       child: DecoratedBox(
@@ -116,179 +96,22 @@ class AppDrawer extends ConsumerWidget {
                 child: ListView(
                   padding: EdgeInsets.zero,
                   children: [
-                    _DrawerSectionTitle('Principal', compact: isCompactMobile),
-                    if (can(AppPermission.viewOperations))
-                      _DrawerMenuItem(
-                        icon: Icons.build_outlined,
-                        title: 'Operaciones',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(Routes.operaciones),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.operaciones);
-                        },
-                      ),
-                    if (can(AppPermission.viewTechDepartures))
-                      _DrawerMenuItem(
-                        icon: Icons.route_outlined,
-                        title: 'Salidas técnicas',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(Routes.salidasTecnicas),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.salidasTecnicas);
-                        },
-                      ),
-                    if (can(AppPermission.viewPunch))
-                      _DrawerMenuItem(
-                        icon: Icons.access_time_rounded,
-                        title: 'Ponche',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(Routes.ponche),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.ponche);
-                        },
-                      ),
-                    if (can(AppPermission.viewWorkScheduling))
-                      _DrawerMenuItem(
-                        icon: Icons.calendar_month_outlined,
-                        title: 'Horarios',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(Routes.horarios),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.horarios);
-                        },
-                      ),
-                    if (can(AppPermission.viewCatalog))
-                      _DrawerMenuItem(
-                        icon: Icons.storefront_outlined,
-                        title: 'Catálogo',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(Routes.catalogo),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.catalogo);
-                        },
-                      ),
-                    if (can(AppPermission.viewSales))
-                      _DrawerMenuItem(
-                        icon: Icons.point_of_sale_outlined,
-                        title: 'Mis Ventas',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(Routes.ventas),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.ventas);
-                        },
-                      ),
-                    if (can(AppPermission.viewQuotes))
-                      _DrawerMenuItem(
-                        icon: Icons.request_quote_outlined,
-                        title: 'Cotizaciones',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(Routes.cotizaciones),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.cotizaciones);
-                        },
-                      ),
-                    if (can(AppPermission.viewClients))
-                      _DrawerMenuItem(
-                        icon: Icons.group_outlined,
-                        title: 'Clientes',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(Routes.clientes),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.clientes);
-                        },
-                      ),
-                    if (can(AppPermission.viewAccounting))
-                      _DrawerMenuItem(
-                        icon: Icons.account_balance,
-                        title: 'Contabilidad',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(Routes.contabilidad),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.contabilidad);
-                        },
-                      ),
-                    if (can(AppPermission.viewAdminPanel))
-                      _DrawerMenuItem(
-                        icon: Icons.admin_panel_settings_outlined,
-                        title: 'Administración',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(Routes.administracion),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.administracion);
-                        },
-                      ),
-
-                    SizedBox(height: isCompactMobile ? 2 : 4),
-                    _DrawerSectionTitle('Nómina', compact: isCompactMobile),
-                    if (can(AppPermission.managePayroll))
-                      _DrawerMenuItem(
-                        icon: Icons.payments_outlined,
-                        title: 'Nómina',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(Routes.nomina),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.nomina);
-                        },
-                      ),
-                    if (can(AppPermission.viewMyPayments))
-                      _DrawerMenuItem(
-                        icon: Icons.receipt_long_outlined,
-                        title: 'Mis pagos',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(Routes.misPagos),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.misPagos);
-                        },
-                      ),
-
-                    SizedBox(height: isCompactMobile ? 2 : 4),
-                    _DrawerSectionTitle('Cuenta', compact: isCompactMobile),
-                    if (can(AppPermission.viewCompanyManual))
-                      _DrawerMenuItem(
-                        icon: Icons.menu_book_outlined,
-                        title: 'Manual Interno',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(Routes.manualInterno),
-                        showIndicator: showManualIndicator,
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.manualInterno);
-                        },
-                      ),
-                    if (can(AppPermission.manageSettings))
-                      _DrawerMenuItem(
-                        icon: Icons.settings_outlined,
-                        title: 'Configuración',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(Routes.configuracion),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.configuracion);
-                        },
-                      ),
-                    if (can(AppPermission.manageUsers))
-                      _DrawerMenuItem(
-                        icon: Icons.people_outline,
-                        title: 'Usuarios',
-                        compact: isCompactMobile,
-                        selected: isActiveRoute(Routes.users),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.users);
-                        },
-                      ),
+                    for (final section in sections) ...[
+                      _DrawerSectionTitle(section.title, compact: isCompactMobile),
+                      for (final item in section.items)
+                        _DrawerMenuItem(
+                          icon: item.icon,
+                          title: item.title,
+                          compact: isCompactMobile,
+                          selected: isNavigationRouteActive(location, item.route),
+                          showIndicator: item.showIndicator,
+                          onTap: () {
+                            Navigator.pop(context);
+                            context.go(item.route);
+                          },
+                        ),
+                      SizedBox(height: isCompactMobile ? 2 : 4),
+                    ],
                   ],
                 ),
               ),
@@ -304,7 +127,7 @@ class AppDrawer extends ConsumerWidget {
                   children: [
                     Expanded(
                       child: ListTile(
-                        selected: isActiveRoute(Routes.profile),
+                        selected: isNavigationRouteActive(location, Routes.profile),
                         selectedTileColor: colorScheme.primary.withValues(
                           alpha: 0.10,
                         ),
@@ -364,19 +187,13 @@ class AppDrawer extends ConsumerWidget {
   }
 }
 
-String _safeLocation(BuildContext context) {
-  try {
-    // `GoRouterState.of(context)` can throw in some widget subtrees (e.g. Drawer).
-    return GoRouterState.of(context).uri.toString();
-  } catch (_) {
-    try {
-      return GoRouter.of(
-        context,
-      ).routerDelegate.currentConfiguration.uri.toString();
-    } catch (_) {
-      return '';
-    }
-  }
+Widget? buildAdaptiveDrawer(
+  BuildContext context, {
+  required UserModel? currentUser,
+}) {
+  final width = MediaQuery.sizeOf(context).width;
+  if (width >= kDesktopShellBreakpoint) return null;
+  return AppDrawer(currentUser: currentUser);
 }
 
 class _DrawerMenuItem extends StatelessWidget {

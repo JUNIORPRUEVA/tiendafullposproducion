@@ -50,7 +50,7 @@ class NominaScreen extends ConsumerWidget {
         data: nominaTheme,
         child: Scaffold(
           appBar: AppBar(title: const Text('Nómina')),
-          drawer: AppDrawer(currentUser: currentUser),
+          drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
           body: Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
@@ -115,7 +115,7 @@ class NominaScreen extends ConsumerWidget {
             ),
           ],
         ),
-        drawer: AppDrawer(currentUser: currentUser),
+        drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
         floatingActionButton: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.end,

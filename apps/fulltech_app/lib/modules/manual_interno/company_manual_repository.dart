@@ -56,6 +56,11 @@ class CompanyManualRepository {
         .toList(growable: false);
   }
 
+  Future<CompanyManualEntry> getEntryById(String id) async {
+    final data = await _getMap(ApiRoutes.companyManualEntryDetail(id));
+    return CompanyManualEntry.fromMap(data);
+  }
+
   Future<CompanyManualEntry> createEntry(CompanyManualEntry entry) async {
     final data = await _postMap(
       ApiRoutes.companyManualEntries,

@@ -5,6 +5,8 @@ import { Request } from 'express';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CotizacionesService } from './cotizaciones.service';
+import { AnalyzeCotizacionAiDto } from './dto/analyze-cotizacion-ai.dto';
+import { ChatCotizacionAiDto } from './dto/chat-cotizacion-ai.dto';
 import { CotizacionesQueryDto } from './dto/cotizaciones-query.dto';
 import { CreateCotizacionDto } from './dto/create-cotizacion.dto';
 import { UpdateCotizacionDto } from './dto/update-cotizacion.dto';
@@ -26,6 +28,20 @@ export class CotizacionesController {
   getOne(@Req() req: Request, @Param('id') id: string) {
     const user = req.user as { id: string; role: Role };
     return this.cotizaciones.findOne(user, id);
+  }
+
+  @Post('ai/analyze')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  analyzeAi(@Req() req: Request, @Body() dto: AnalyzeCotizacionAiDto) {
+    const user = req.user as { id: string; role: Role };
+    return this.cotizaciones.analyzeAssistant(user, dto);
+  }
+
+  @Post('ai/chat')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  chatAi(@Req() req: Request, @Body() dto: ChatCotizacionAiDto) {
+    const user = req.user as { id: string; role: Role };
+    return this.cotizaciones.chatAssistant(user, dto);
   }
 
   @Post()

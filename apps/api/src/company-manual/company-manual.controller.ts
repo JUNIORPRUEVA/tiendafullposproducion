@@ -28,6 +28,12 @@ export class CompanyManualController {
     return this.companyManual.summary(req.user as JwtUser, query.seenAt);
   }
 
+  @Get(':id')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING, Role.TECNICO)
+  getOne(@Req() req: Request, @Param('id') id: string) {
+    return this.companyManual.findOne(req.user as JwtUser, id);
+  }
+
   @Post()
   @Roles(Role.ADMIN)
   create(@Req() req: Request, @Body() dto: UpsertCompanyManualDto) {

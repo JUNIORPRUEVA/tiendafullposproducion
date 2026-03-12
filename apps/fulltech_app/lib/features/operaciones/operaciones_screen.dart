@@ -22,6 +22,7 @@ import '../../core/utils/geo_utils.dart';
 import '../../core/utils/external_launcher.dart';
 import '../../core/utils/safe_url_launcher.dart';
 import '../../core/utils/string_utils.dart';
+import '../../core/widgets/app_navigation.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../modules/cotizaciones/data/cotizaciones_repository.dart';
 import '../../modules/cotizaciones/cotizacion_models.dart';
@@ -51,6 +52,8 @@ class OperacionesScreen extends ConsumerStatefulWidget {
 
 class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     with WidgetsBindingObserver {
+  static const double _desktopOperationsBreakpoint = kDesktopShellBreakpoint;
+
   final _searchCtrl = TextEditingController();
 
   Future<void> _openQuickCreateFromAppBar() async {
@@ -319,12 +322,171 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     );
   }
 
+  PreferredSizeWidget _buildMobileAppBar({
+    required AuthState authState,
+    required Color gradientTop,
+    required Color gradientMid,
+    required Color gradientBottom,
+  }) {
+    return AppBar(
+      title: const FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Text(
+          'Operaciones',
+          maxLines: 1,
+          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+        ),
+      ),
+      flexibleSpace: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [gradientTop, gradientMid, gradientBottom],
+            stops: const [0.0, 0.55, 1.0],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton.icon(
+          onPressed: () => context.go(Routes.operacionesReglas),
+          icon: const Icon(Icons.rule_folder_outlined),
+          label: const Text('Reglas'),
+        ),
+        IconButton(
+          tooltip: 'Agregar orden',
+          onPressed: _openQuickCreateFromAppBar,
+          icon: _agendaPlusIcon(),
+        ),
+        IconButton(
+          tooltip: 'Mapa clientes',
+          onPressed: () => context.push(Routes.operacionesMapaClientes),
+          icon: const Icon(Icons.map_outlined),
+        ),
+        _UserAvatarAction(
+          userName: authState.user?.nombreCompleto,
+          photoUrl: authState.user?.fotoPersonalUrl,
+          onTap: () => context.go(Routes.profile),
+        ),
+        const SizedBox(width: 6),
+      ],
+    );
+  }
+
+  PreferredSizeWidget _buildDesktopAppBar({
+    required BuildContext context,
+    required AuthState authState,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final today = DateFormat('EEEE, d MMMM yyyy', 'es').format(DateTime.now());
+
+    return AppBar(
+      toolbarHeight: 78,
+      elevation: 0,
+      backgroundColor: scheme.surface,
+      foregroundColor: scheme.onSurface,
+      titleSpacing: 18,
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            'Centro de Operaciones',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.4,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            today,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        FilledButton.tonalIcon(
+          onPressed: () => context.go(Routes.operacionesReglas),
+          icon: const Icon(Icons.rule_folder_outlined),
+          label: const Text('Reglas'),
+        ),
+        const SizedBox(width: 8),
+        FilledButton.icon(
+          onPressed: _openQuickCreateFromAppBar,
+          icon: const Icon(Icons.add_circle_outline),
+          label: const Text('Nueva orden'),
+        ),
+        const SizedBox(width: 8),
+        IconButton.filledTonal(
+          tooltip: 'Mapa clientes',
+          onPressed: () => context.push(Routes.operacionesMapaClientes),
+          icon: const Icon(Icons.map_outlined),
+        ),
+        const SizedBox(width: 8),
+        _UserAvatarAction(
+          userName: authState.user?.nombreCompleto,
+          photoUrl: authState.user?.fotoPersonalUrl,
+          onTap: () => context.go(Routes.profile),
+        ),
+        const SizedBox(width: 14),
+      ],
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(1),
+        child: Divider(
+          height: 1,
+          color: scheme.outlineVariant.withValues(alpha: 0.55),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopFabDock() {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: Theme.of(
+            context,
+          ).colorScheme.outlineVariant.withValues(alpha: 0.45),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            FilledButton.tonalIcon(
+              onPressed: _openCatalogoDialog,
+              icon: const _CatalogoFabIcon(),
+              label: const Text('Catálogo'),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.tonalIcon(
+              onPressed: _openPoncheDialog,
+              icon: const _PoncheFabIcon(),
+              label: const Text('Ponche'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
     final state = ref.watch(operationsControllerProvider);
     final notifier = ref.read(operationsControllerProvider.notifier);
     final scheme = Theme.of(context).colorScheme;
+    final isDesktop =
+        MediaQuery.sizeOf(context).width >= _desktopOperationsBreakpoint;
 
     final gradientTop = Color.alphaBlend(
       scheme.primary.withValues(alpha: 0.10),
@@ -340,70 +502,36 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     );
 
     return Scaffold(
-      drawer: AppDrawer(currentUser: authState.user),
-      appBar: AppBar(
-        title: const FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerLeft,
-          child: Text(
-            'Operaciones',
-            maxLines: 1,
-            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
-          ),
-        ),
-        flexibleSpace: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [gradientTop, gradientMid, gradientBottom],
-              stops: const [0.0, 0.55, 1.0],
+      drawer: buildAdaptiveDrawer(context, currentUser: authState.user),
+      appBar: isDesktop
+          ? _buildDesktopAppBar(context: context, authState: authState)
+          : _buildMobileAppBar(
+              authState: authState,
+              gradientTop: gradientTop,
+              gradientMid: gradientMid,
+              gradientBottom: gradientBottom,
             ),
-          ),
-        ),
-        actions: [
-          TextButton.icon(
-            onPressed: () => context.go(Routes.operacionesReglas),
-            icon: const Icon(Icons.rule_folder_outlined),
-            label: const Text('Reglas'),
-          ),
-          IconButton(
-            tooltip: 'Agregar orden',
-            onPressed: _openQuickCreateFromAppBar,
-            icon: _agendaPlusIcon(),
-          ),
-          IconButton(
-            tooltip: 'Mapa clientes',
-            onPressed: () => context.push(Routes.operacionesMapaClientes),
-            icon: const Icon(Icons.map_outlined),
-          ),
-          _UserAvatarAction(
-            userName: authState.user?.nombreCompleto,
-            photoUrl: authState.user?.fotoPersonalUrl,
-            onTap: () => context.go(Routes.profile),
-          ),
-          const SizedBox(width: 6),
-        ],
-      ),
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          FloatingActionButton.small(
-            heroTag: 'fab-catalogo',
-            tooltip: 'Catálogo',
-            onPressed: _openCatalogoDialog,
-            child: const _CatalogoFabIcon(),
-          ),
-          const SizedBox(height: 12),
-          FloatingActionButton.small(
-            heroTag: 'fab-ponche',
-            tooltip: 'Ponche',
-            onPressed: _openPoncheDialog,
-            child: const _PoncheFabIcon(),
-          ),
-        ],
-      ),
+      floatingActionButton: isDesktop
+          ? _buildDesktopFabDock()
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                FloatingActionButton.small(
+                  heroTag: 'fab-catalogo',
+                  tooltip: 'Catálogo',
+                  onPressed: _openCatalogoDialog,
+                  child: const _CatalogoFabIcon(),
+                ),
+                const SizedBox(height: 12),
+                FloatingActionButton.small(
+                  heroTag: 'fab-ponche',
+                  tooltip: 'Ponche',
+                  onPressed: _openPoncheDialog,
+                  child: const _PoncheFabIcon(),
+                ),
+              ],
+            ),
       body: Stack(
         children: [
           _buildBoard(context, authState.user, state, notifier),
@@ -2632,6 +2760,9 @@ class _PanelOptionsState extends State<_PanelOptions> {
     final theme = Theme.of(context);
     final now = DateTime.now();
     final range = _filters.range;
+    final isDesktop =
+        MediaQuery.sizeOf(context).width >=
+        _OperacionesScreenState._desktopOperationsBreakpoint;
 
     ops.ServiceStatus effectiveStatus(ServiceModel s) {
       final raw = s.orderState.trim().isNotEmpty ? s.orderState : s.status;
@@ -2845,6 +2976,47 @@ class _PanelOptionsState extends State<_PanelOptions> {
       );
     }
 
+    if (isDesktop) {
+      return _buildDesktopLayout(
+        theme: theme,
+        range: range,
+        visibleOrders: visibleOrders,
+        pendientesCount: pendientesCount,
+        procesoCount: procesoCount,
+        completadasCount: completadasCount,
+        atrasadas: atrasadas,
+      );
+    }
+
+    return _buildMobileLayout(
+      theme: theme,
+      range: range,
+      visibleOrders: visibleOrders,
+      pendientesCount: pendientesCount,
+      procesoCount: procesoCount,
+      completadasCount: completadasCount,
+      atrasadas: atrasadas,
+      summaryCard: summaryCard,
+    );
+  }
+
+  Widget _buildMobileLayout({
+    required ThemeData theme,
+    required DateTimeRange range,
+    required List<ServiceModel> visibleOrders,
+    required int pendientesCount,
+    required int procesoCount,
+    required int completadasCount,
+    required int atrasadas,
+    required Widget Function({
+      required String label,
+      required int value,
+      required IconData icon,
+      required Color tint,
+      String? caption,
+    })
+    summaryCard,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -2935,108 +3107,709 @@ class _PanelOptionsState extends State<_PanelOptions> {
                     physics: const AlwaysScrollableScrollPhysics(),
                     itemCount: visibleOrders.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final s = visibleOrders[index];
-
-                      final type = _typeLabel(s.serviceType);
-                      final category = _categoryLabel(s.category);
-                      final subtitle = category.isEmpty
-                          ? type
-                          : '$type · $category';
-                      final tech = _techLabel(s);
-
-                      final scheduled = s.scheduledStart;
-                      final scheduledText = scheduled == null
-                          ? null
-                          : DateFormat(
-                              'EEE dd/MM HH:mm',
-                              'es',
-                            ).format(scheduled);
-
-                      final perms = OperationsPermissions(
-                        user: widget.currentUser,
-                        service: s,
-                      );
-                      final canChangePhase = perms.canChangePhase;
-
-                      return ServiceAgendaCard(
-                        service: s,
-                        subtitle: subtitle,
-                        technicianText: tech,
-                        scheduledText: scheduledText,
-                        onView: () => widget.onOpenService(s),
-                        onChangeState: () => _pickAndChangeOrderState(s),
-                        onChangePhase: !canChangePhase
-                            ? null
-                            : () {
-                                unawaited(() async {
-                                  final draft =
-                                      await ServiceActionsSheet.pickChangePhaseDraft(
-                                        context,
-                                        current: s.currentPhase,
-                                        initialScheduledAt: s.scheduledStart,
-                                      );
-                                  if (!mounted || draft == null) return;
-
-                                  final phase = (draft['phase'] ?? '').trim();
-                                  final scheduledAtRaw =
-                                      (draft['scheduledAt'] ?? '').trim();
-                                  final note = draft['note'];
-                                  final scheduledAt = DateTime.tryParse(
-                                    scheduledAtRaw,
-                                  );
-                                  if (phase.isEmpty || scheduledAt == null) {
-                                    return;
-                                  }
-
-                                  final missing = _missingPhaseRequirements(
-                                    s,
-                                    phase,
-                                  );
-                                  if (missing.isNotEmpty) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          'No se puede cambiar a ${phaseLabel(phase)}. Falta: ${missing.join(', ')}',
-                                        ),
-                                      ),
-                                    );
-                                    return;
-                                  }
-
-                                  try {
-                                    await widget.onChangePhase(
-                                      s,
-                                      phase,
-                                      scheduledAt,
-                                      note,
-                                    );
-                                    if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          'Fase: ${phaseLabel(phase)}',
-                                        ),
-                                      ),
-                                    );
-                                  } catch (e) {
-                                    if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          e is ApiException ? e.message : '$e',
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                }());
-                              },
-                      );
-                    },
+                    itemBuilder: (context, index) =>
+                        _buildServiceAgendaTile(visibleOrders[index]),
                   ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildDesktopLayout({
+    required ThemeData theme,
+    required DateTimeRange range,
+    required List<ServiceModel> visibleOrders,
+    required int pendientesCount,
+    required int procesoCount,
+    required int completadasCount,
+    required int atrasadas,
+  }) {
+    final pendingOrders = visibleOrders
+        .where((service) {
+          final raw = service.orderState.trim().isNotEmpty
+              ? service.orderState
+              : service.status;
+          final status = ops.parseStatus(raw);
+          return status == ops.ServiceStatus.reserved ||
+              status == ops.ServiceStatus.survey ||
+              status == ops.ServiceStatus.scheduled ||
+              status == ops.ServiceStatus.warranty;
+        })
+        .toList(growable: false);
+
+    final inProgressOrders = visibleOrders
+        .where((service) {
+          final raw = service.orderState.trim().isNotEmpty
+              ? service.orderState
+              : service.status;
+          return ops.parseStatus(raw) == ops.ServiceStatus.inProgress;
+        })
+        .toList(growable: false);
+
+    final completedOrders = visibleOrders
+        .where((service) {
+          final raw = service.orderState.trim().isNotEmpty
+              ? service.orderState
+              : service.status;
+          final status = ops.parseStatus(raw);
+          return status == ops.ServiceStatus.completed ||
+              status == ops.ServiceStatus.closed;
+        })
+        .toList(growable: false);
+
+    final hasQuery = widget.searchCtrl.text.trim().isNotEmpty;
+    final hasExtraFilters =
+        _filters.status != OperationsStatusFilter.all ||
+        _filters.priority != OperationsPriorityFilter.all ||
+        (_filters.technicianId ?? '').trim().isNotEmpty ||
+        (_filters.createdByUserId ?? '').trim().isNotEmpty ||
+        _filters.datePreset != OperationsDatePreset.today;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                theme.colorScheme.surfaceContainerLowest,
+                theme.colorScheme.surface,
+                theme.colorScheme.primary.withValues(alpha: 0.05),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: widget.searchCtrl,
+                        textInputAction: TextInputAction.search,
+                        decoration: InputDecoration(
+                          prefixIcon: const Icon(Icons.search),
+                          hintText:
+                              'Buscar servicios, clientes, técnicos o teléfonos…',
+                          filled: true,
+                          fillColor: theme.colorScheme.surface,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: BorderSide.none,
+                          ),
+                          suffixIcon: hasQuery
+                              ? IconButton(
+                                  tooltip: 'Limpiar búsqueda',
+                                  onPressed: () {
+                                    widget.searchCtrl.clear();
+                                    _onQueryChange();
+                                  },
+                                  icon: const Icon(Icons.close_rounded),
+                                )
+                              : null,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    FilledButton.tonalIcon(
+                      onPressed: _openFilters,
+                      icon: const Icon(Icons.tune_rounded),
+                      label: const Text('Filtros'),
+                    ),
+                    const SizedBox(width: 10),
+                    IconButton.filledTonal(
+                      tooltip: 'Actualizar tablero',
+                      onPressed: widget.onRefresh,
+                      icon: const Icon(Icons.refresh_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _OperationsDesktopMetricCard(
+                        label: 'Pendientes',
+                        value: pendientesCount,
+                        icon: Icons.error_outline,
+                        tint: theme.colorScheme.error,
+                        caption: atrasadas > 0
+                            ? '$atrasadas atrasadas'
+                            : 'Sin atraso',
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _OperationsDesktopMetricCard(
+                        label: 'En proceso',
+                        value: procesoCount,
+                        icon: Icons.play_circle_outline,
+                        tint: theme.colorScheme.tertiary,
+                        caption: 'Atención activa',
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _OperationsDesktopMetricCard(
+                        label: 'Completadas',
+                        value: completadasCount,
+                        icon: Icons.check_circle_outline,
+                        tint: theme.colorScheme.primary,
+                        caption: 'Servicios cerrados',
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _OperationsDesktopMetricCard(
+                        label: 'Visibles',
+                        value: visibleOrders.length,
+                        icon: Icons.dashboard_customize_outlined,
+                        tint: theme.colorScheme.secondary,
+                        caption: _rangeLabel(range),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                width: 320,
+                child: ListView(
+                  children: [
+                    InfoCard(
+                      title: 'Control operativo',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _OperationsDesktopInfoRow(
+                            label: 'Rango activo',
+                            value: _rangeLabel(range),
+                          ),
+                          const SizedBox(height: 10),
+                          _OperationsDesktopInfoRow(
+                            label: 'Servicios visibles',
+                            value: '${visibleOrders.length}',
+                          ),
+                          const SizedBox(height: 10),
+                          _OperationsDesktopInfoRow(
+                            label: 'Pendientes tardíos',
+                            value: '$atrasadas',
+                            emphasize: atrasadas > 0,
+                          ),
+                          const SizedBox(height: 14),
+                          FilledButton.icon(
+                            onPressed: _openFilters,
+                            icon: const Icon(Icons.filter_alt_outlined),
+                            label: const Text('Abrir filtros'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (hasQuery || hasExtraFilters)
+                      InfoCard(
+                        title: 'Contexto activo',
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _OperationsDesktopBadge(label: _rangeLabel(range)),
+                            if (hasQuery)
+                              _OperationsDesktopBadge(
+                                label:
+                                    'Busqueda: ${widget.searchCtrl.text.trim()}',
+                              ),
+                            if (_filters.status != OperationsStatusFilter.all)
+                              _OperationsDesktopBadge(
+                                label:
+                                    'Estado: ${_statusFilterLabel(_filters.status)}',
+                              ),
+                            if (_filters.priority !=
+                                OperationsPriorityFilter.all)
+                              _OperationsDesktopBadge(
+                                label:
+                                    'Prioridad: ${_priorityFilterLabel(_filters.priority)}',
+                              ),
+                            if ((_filters.technicianId ?? '').trim().isNotEmpty)
+                              const _OperationsDesktopBadge(
+                                label: 'Tecnico filtrado',
+                              ),
+                            if ((_filters.createdByUserId ?? '')
+                                .trim()
+                                .isNotEmpty)
+                              const _OperationsDesktopBadge(
+                                label: 'Usuario filtrado',
+                              ),
+                          ],
+                        ),
+                      ),
+                    if (hasQuery || hasExtraFilters) const SizedBox(height: 12),
+                    InfoCard(
+                      title: 'Lectura rapida',
+                      child: Column(
+                        children: [
+                          _OperationsDesktopLegendRow(
+                            icon: Icons.error_outline,
+                            label: 'Pendientes por confirmar o ejecutar',
+                            tint: theme.colorScheme.error,
+                          ),
+                          const SizedBox(height: 10),
+                          _OperationsDesktopLegendRow(
+                            icon: Icons.play_circle_outline,
+                            label: 'Servicios tecnicos activos',
+                            tint: theme.colorScheme.tertiary,
+                          ),
+                          const SizedBox(height: 10),
+                          _OperationsDesktopLegendRow(
+                            icon: Icons.check_circle_outline,
+                            label: 'Completados o cerrados',
+                            tint: theme.colorScheme.primary,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _OperationsDesktopColumn(
+                        title: 'Pendientes',
+                        count: pendingOrders.length,
+                        tint: theme.colorScheme.error,
+                        emptyLabel: 'No hay servicios pendientes.',
+                        children: [
+                          for (final service in pendingOrders)
+                            _buildServiceAgendaTile(service),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _OperationsDesktopColumn(
+                        title: 'En proceso',
+                        count: inProgressOrders.length,
+                        tint: theme.colorScheme.tertiary,
+                        emptyLabel: 'No hay servicios en proceso.',
+                        children: [
+                          for (final service in inProgressOrders)
+                            _buildServiceAgendaTile(service),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _OperationsDesktopColumn(
+                        title: 'Completadas',
+                        count: completedOrders.length,
+                        tint: theme.colorScheme.primary,
+                        emptyLabel: 'No hay servicios completados.',
+                        children: [
+                          for (final service in completedOrders)
+                            _buildServiceAgendaTile(service),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _statusFilterLabel(OperationsStatusFilter value) {
+    switch (value) {
+      case OperationsStatusFilter.all:
+        return 'Todos';
+      case OperationsStatusFilter.pending:
+        return 'Pendientes';
+      case OperationsStatusFilter.inProgress:
+        return 'En proceso';
+      case OperationsStatusFilter.completed:
+        return 'Completadas';
+      case OperationsStatusFilter.cancelled:
+        return 'Canceladas';
+    }
+  }
+
+  String _priorityFilterLabel(OperationsPriorityFilter value) {
+    switch (value) {
+      case OperationsPriorityFilter.all:
+        return 'Todas';
+      case OperationsPriorityFilter.high:
+        return 'Alta';
+      case OperationsPriorityFilter.normal:
+        return 'Normal';
+      case OperationsPriorityFilter.low:
+        return 'Baja';
+    }
+  }
+
+  Widget _buildServiceAgendaTile(ServiceModel s) {
+    final type = _typeLabel(s.serviceType);
+    final category = _categoryLabel(s.category);
+    final subtitle = category.isEmpty ? type : '$type · $category';
+    final tech = _techLabel(s);
+
+    final scheduled = s.scheduledStart;
+    final scheduledText = scheduled == null
+        ? null
+        : DateFormat('EEE dd/MM HH:mm', 'es').format(scheduled);
+
+    final perms = OperationsPermissions(user: widget.currentUser, service: s);
+    final canChangePhase = perms.canChangePhase;
+
+    return ServiceAgendaCard(
+      service: s,
+      subtitle: subtitle,
+      technicianText: tech,
+      scheduledText: scheduledText,
+      onView: () => widget.onOpenService(s),
+      onChangeState: () => _pickAndChangeOrderState(s),
+      onChangePhase: !canChangePhase
+          ? null
+          : () {
+              unawaited(() async {
+                final draft = await ServiceActionsSheet.pickChangePhaseDraft(
+                  context,
+                  current: s.currentPhase,
+                  initialScheduledAt: s.scheduledStart,
+                );
+                if (!mounted || draft == null) return;
+
+                final phase = (draft['phase'] ?? '').trim();
+                final scheduledAtRaw = (draft['scheduledAt'] ?? '').trim();
+                final note = draft['note'];
+                final scheduledAt = DateTime.tryParse(scheduledAtRaw);
+                if (phase.isEmpty || scheduledAt == null) return;
+
+                final missing = _missingPhaseRequirements(s, phase);
+                if (missing.isNotEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'No se puede cambiar a ${phaseLabel(phase)}. Falta: ${missing.join(', ')}',
+                      ),
+                    ),
+                  );
+                  return;
+                }
+
+                try {
+                  await widget.onChangePhase(s, phase, scheduledAt, note);
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Fase: ${phaseLabel(phase)}')),
+                  );
+                } catch (e) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(e is ApiException ? e.message : '$e'),
+                    ),
+                  );
+                }
+              }());
+            },
+    );
+  }
+}
+
+class _OperationsDesktopMetricCard extends StatelessWidget {
+  const _OperationsDesktopMetricCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.tint,
+    required this.caption,
+  });
+
+  final String label;
+  final int value;
+  final IconData icon;
+  final Color tint;
+  final String caption;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: tint.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: tint),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    caption,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              '$value',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OperationsDesktopColumn extends StatelessWidget {
+  const _OperationsDesktopColumn({
+    required this.title,
+    required this.count,
+    required this.tint,
+    required this.emptyLabel,
+    required this.children,
+  });
+
+  final String title;
+  final int count;
+  final Color tint;
+  final String emptyLabel;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            decoration: BoxDecoration(
+              color: tint.withValues(alpha: 0.08),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
+              ),
+              border: Border(
+                bottom: BorderSide(color: tint.withValues(alpha: 0.18)),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: tint.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: tint,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: children.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Text(
+                        emptyLabel,
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: children.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) => children[index],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OperationsDesktopInfoRow extends StatelessWidget {
+  const _OperationsDesktopInfoRow({
+    required this.label,
+    required this.value,
+    this.emphasize = false,
+  });
+
+  final String label;
+  final String value;
+  final bool emphasize;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w900,
+            color: emphasize ? theme.colorScheme.error : null,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OperationsDesktopLegendRow extends StatelessWidget {
+  const _OperationsDesktopLegendRow({
+    required this.icon,
+    required this.label,
+    required this.tint,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color tint;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: tint.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: tint, size: 18),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            label,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OperationsDesktopBadge extends StatelessWidget {
+  const _OperationsDesktopBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelMedium?.copyWith(
+          fontWeight: FontWeight.w800,
+        ),
+      ),
     );
   }
 }
