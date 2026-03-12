@@ -34,7 +34,9 @@ export class CotizacionesService {
   private static readonly noRuleMessage =
     'No encontré una regla oficial para eso dentro del sistema.';
   private static readonly rulesOnlyReminder =
-    'Solo puedo responder con base en reglas oficiales del Manual Interno.';
+    'Solo puedo responder con base en el Manual Interno y el conocimiento autorizado de la app. Hazme una pregunta concreta sobre una regla, un proceso o un modulo del sistema.';
+  private static readonly unauthorizedMessage =
+    'No puedo ayudar con informacion privada de otro usuario ni mostrar datos para los que no tienes autorizacion.';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -277,6 +279,16 @@ export class CotizacionesService {
       throw new BadRequestException('El mensaje es obligatorio');
     }
 
+    if (this.isUnauthorizedDataRequest(message)) {
+      return {
+        source: 'rules-only',
+        content: CotizacionesService.unauthorizedMessage,
+        relatedRuleId: null,
+        relatedRuleTitle: null,
+        citations: [],
+      };
+    }
+
     const rules = await this.loadRelevantBusinessRules(user, dto.context, message);
     this.logDebug('chat.context', dto.context);
     this.logDebug('chat.rules', rules.map((item) => ({ id: item.id, title: item.title })));
@@ -306,7 +318,7 @@ export class CotizacionesService {
       runtime,
       temperature: 0,
       systemPrompt:
-        'Eres el asistente interno de FULLTECH dentro del módulo de cotización. Debes responder 100% con base en las reglas oficiales del Manual Interno enviadas en la solicitud. No inventes precios, no resumas conocimiento externo, no completes huecos con supuestos y no des consejos no sustentados por una regla enviada. Toda respuesta útil debe quedar apoyada por al menos una regla citada de las proporcionadas. Si la pregunta no está cubierta por las reglas disponibles, debes responder exactamente que no encontraste una regla oficial. Si el usuario solo saluda o escribe algo ambiguo, responde de forma breve recordando que solo trabajas con reglas oficiales y pidiéndole una pregunta concreta sobre políticas, precios, garantía, DVR, instalación u otra regla del manual. Responde únicamente JSON válido.',
+        'Eres el asistente interno de FULLTECH dentro del módulo de cotización. Debes responder usando solamente el conocimiento interno autorizado enviado en la solicitud: Manual Interno, guias de modulos, capacidades operativas del sistema y resúmenes de datos autorizados para el usuario actual. No inventes precios, no uses conocimiento externo, no completes huecos con supuestos, no reveles datos privados de otros usuarios ni datos sensibles no incluidos en el conocimiento enviado. Si una respuesta útil se apoya en conocimiento enviado, debes citar al menos una fuente. Si el usuario pide algo no cubierto por la base de conocimiento enviada, debes decirlo claramente. Si el usuario pregunta por como hacer algo en la app, puedes explicarlo solo con base en guias o capacidades enviadas. Si el usuario pide informacion de otra persona o no autorizada, debes negarte. Responde únicamente JSON válido.',
       userPrompt:
         `${JSON.stringify({ message, context: dto.context, rules })}\n\nDevuelve exactamente este JSON: {"content":"string","relatedRuleId":"string|null","relatedRuleTitle":"string|null","citations":[{"id":"string","title":"string"}],"unsupported":false}. Reglas estrictas: 1) si respondes algo util, citations no puede ir vacio; 2) relatedRuleId o relatedRuleTitle debe apuntar a una regla enviada; 3) no agregues nada que no pueda leerse o inferirse directamente de las reglas; 4) si la pregunta no esta cubierta, usa exactamente este texto en content: "${CotizacionesService.noRuleMessage}" y usa unsupported=true; 5) si el mensaje es ambiguo o solo social, usa exactamente este texto en content: "${CotizacionesService.rulesOnlyReminder}" y usa unsupported=true.`,
     });
@@ -316,8 +328,10 @@ export class CotizacionesService {
     const content = this.normalizeOptionalString(parsed.content) ?? CotizacionesService.noRuleMessage;
 
     const unsupported = parsed.unsupported === true;
-    const relatedRuleId = relatedRule?.id ?? this.normalizeOptionalString(parsed.relatedRuleId);
-    const relatedRuleTitle = relatedRule?.title ?? this.normalizeOptionalString(parsed.relatedRuleTitle);
+    const relatedRuleIdCandidate = relatedRule?.id ?? this.normalizeOptionalString(parsed.relatedRuleId);
+    const relatedRuleTitleCandidate = relatedRule?.title ?? this.normalizeOptionalString(parsed.relatedRuleTitle);
+    const relatedRuleId = this.isManualKnowledgeId(relatedRuleIdCandidate) ? relatedRuleIdCandidate : null;
+    const relatedRuleTitle = this.isManualKnowledgeId(relatedRuleIdCandidate) ? relatedRuleTitleCandidate : null;
 
     if (content === CotizacionesService.rulesOnlyReminder) {
       return {
@@ -547,6 +561,14 @@ export class CotizacionesService {
       orderBy: [{ sortOrder: 'asc' }, { updatedAt: 'desc' }, { title: 'asc' }],
     });
 
+    const staticKnowledge = this.buildStaticAppKnowledge();
+    const authorizedKnowledge = await this.buildAuthorizedDataKnowledge(user, prompt ?? '', context);
+    const knowledgeEntries = [
+      ...entries.map((entry) => this.toBusinessRuleRecord(entry)),
+      ...staticKnowledge,
+      ...authorizedKnowledge,
+    ];
+
     const desiredModuleKeys = new Set(
       [
         (context.module ?? '').trim().toLowerCase(),
@@ -576,9 +598,9 @@ export class CotizacionesService {
 
     const queryTokens = this.tokenize(queryText);
 
-    const scored = entries
+    const scored = knowledgeEntries
       .map((entry) => {
-        const moduleKey = (entry.moduleKey ?? '').trim().toLowerCase();
+        const moduleKey = (entry.module ?? '').trim().toLowerCase();
         const text = [entry.title, entry.summary ?? '', entry.content, moduleKey]
           .join(' ')
           .toLowerCase();
@@ -597,21 +619,216 @@ export class CotizacionesService {
           if (textTokens.has(token)) score += token.length >= 5 ? 2 : 1;
         }
 
-        return {
-          entry,
-          score,
-        };
+        return { entry, score };
       })
       .filter((item) => item.score > 0)
       .sort((left, right) => right.score - left.score)
       .slice(0, 12)
-      .map(({ entry }) => this.toBusinessRuleRecord(entry));
+      .map(({ entry }) => entry);
 
     if (scored.length > 0) {
       return scored;
     }
 
-    return entries.slice(0, 12).map((entry) => this.toBusinessRuleRecord(entry));
+    return knowledgeEntries.slice(0, 12);
+  }
+
+  private buildStaticAppKnowledge(): BusinessRuleRecord[] {
+    return [
+      this.createAppKnowledgeRecord(
+        'app-knowledge:cotizaciones',
+        'cotizaciones',
+        'guia-app',
+        'Uso del modulo de cotizaciones',
+        'En cotizaciones puedes buscar productos del catalogo, filtrar por categoria, agregar articulos al ticket, ajustar precios, activar ITBIS, seleccionar cliente, escribir observaciones y finalizar o guardar la cotizacion.',
+      ),
+      this.createAppKnowledgeRecord(
+        'app-knowledge:ventas',
+        'ventas',
+        'guia-app',
+        'Uso del modulo de ventas',
+        'En ventas puedes registrar ventas, consultar resúmenes, revisar historiales y trabajar con clientes vinculados a tus operaciones autorizadas.',
+      ),
+      this.createAppKnowledgeRecord(
+        'app-knowledge:clientes',
+        'clientes',
+        'guia-app',
+        'Uso del modulo de clientes',
+        'El modulo de clientes permite buscar, crear y consultar clientes. Los usuarios no administradores solo deben trabajar con informacion permitida por su alcance dentro del sistema.',
+      ),
+      this.createAppKnowledgeRecord(
+        'app-knowledge:operaciones',
+        'operaciones',
+        'guia-app',
+        'Uso del modulo de operaciones',
+        'En operaciones puedes consultar servicios, revisar fases, asignaciones, archivos, garantias y estado de ordenes segun los permisos del usuario.',
+      ),
+      this.createAppKnowledgeRecord(
+        'app-knowledge:manual-interno',
+        'manual-interno',
+        'guia-app',
+        'Base de conocimiento del asistente',
+        'La base principal del asistente es el Manual Interno de la empresa, complementada por guias funcionales de modulos y resúmenes autorizados del sistema para el usuario actual.',
+      ),
+      this.createAppKnowledgeRecord(
+        'app-knowledge:seguridad',
+        'seguridad',
+        'politica-app',
+        'Politica de autorizacion del asistente',
+        'El asistente no debe revelar informacion privada de otros usuarios, credenciales, telefonos, cedulas, salarios ni datos no autorizados. Si el usuario pide algo fuera de su alcance, el asistente debe negarse.',
+      ),
+    ];
+  }
+
+  private async buildAuthorizedDataKnowledge(
+    user: { id: string; role: Role },
+    prompt: string,
+    context: AnalyzeCotizacionAiDto['context'],
+  ): Promise<BusinessRuleRecord[]> {
+    const tokens = new Set(this.tokenize([prompt, context.module, context.screenName].filter(Boolean).join(' ')));
+    const includeAll = tokens.size === 0;
+    const wantsSales = includeAll || this.hasAnyToken(tokens, ['venta', 'ventas', 'comision']);
+    const wantsClients = includeAll || this.hasAnyToken(tokens, ['cliente', 'clientes']);
+    const wantsQuotes = includeAll || this.hasAnyToken(tokens, ['cotizacion', 'cotizaciones', 'ticket']);
+    const wantsServices = includeAll || this.hasAnyToken(tokens, ['servicio', 'servicios', 'operacion', 'operaciones', 'garantia']);
+
+    const knowledge: BusinessRuleRecord[] = [];
+
+    if (wantsSales) {
+      const totalSales = await this.prisma.sale.count({
+        where: user.role === Role.ADMIN ? { isDeleted: false } : { userId: user.id, isDeleted: false },
+      });
+      knowledge.push(
+        this.createAppKnowledgeRecord(
+          'app-data:sales-summary',
+          'ventas',
+          'dato-autorizado',
+          'Resumen autorizado de ventas',
+          user.role === Role.ADMIN
+            ? `Actualmente hay ${totalSales} ventas activas registradas en el sistema.`
+            : `Actualmente tienes ${totalSales} ventas activas registradas bajo tu usuario.`,
+        ),
+      );
+    }
+
+    if (wantsClients) {
+      const totalClients = await this.prisma.client.count({
+        where: user.role === Role.ADMIN ? { isDeleted: false } : { ownerId: user.id, isDeleted: false },
+      });
+      knowledge.push(
+        this.createAppKnowledgeRecord(
+          'app-data:clients-summary',
+          'clientes',
+          'dato-autorizado',
+          'Resumen autorizado de clientes',
+          user.role === Role.ADMIN
+            ? `Actualmente hay ${totalClients} clientes activos registrados en el sistema.`
+            : `Actualmente tienes ${totalClients} clientes activos registrados bajo tu gestion.`,
+        ),
+      );
+    }
+
+    if (wantsQuotes) {
+      const totalQuotes = await this.prisma.cotizacion.count({
+        where: user.role === Role.ADMIN ? {} : { createdByUserId: user.id },
+      });
+      knowledge.push(
+        this.createAppKnowledgeRecord(
+          'app-data:quotes-summary',
+          'cotizaciones',
+          'dato-autorizado',
+          'Resumen autorizado de cotizaciones',
+          user.role === Role.ADMIN
+            ? `Actualmente hay ${totalQuotes} cotizaciones registradas en el sistema.`
+            : `Actualmente tienes ${totalQuotes} cotizaciones registradas bajo tu usuario.`,
+        ),
+      );
+    }
+
+    if (wantsServices) {
+      const totalServices = await this.prisma.service.count({
+        where: user.role === Role.ADMIN ? {} : { OR: [{ createdByUserId: user.id }, { technicianId: user.id }] },
+      });
+      knowledge.push(
+        this.createAppKnowledgeRecord(
+          'app-data:services-summary',
+          'operaciones',
+          'dato-autorizado',
+          'Resumen autorizado de servicios',
+          user.role === Role.ADMIN
+            ? `Actualmente hay ${totalServices} servicios registrados en operaciones.`
+            : `Actualmente tienes acceso a ${totalServices} servicios relacionados con tu usuario en operaciones.`,
+        ),
+      );
+    }
+
+    return knowledge;
+  }
+
+  private createAppKnowledgeRecord(
+    id: string,
+    module: string,
+    category: string,
+    title: string,
+    content: string,
+  ): BusinessRuleRecord {
+    return {
+      id,
+      module,
+      category,
+      title,
+      content,
+      summary: content,
+      keywords: this.tokenize(`${title} ${content} ${module} ${category}`).slice(0, 18),
+      severity: 'info',
+      active: true,
+      createdAt: null,
+      updatedAt: null,
+    };
+  }
+
+  private hasAnyToken(tokens: Set<string>, candidates: string[]) {
+    for (const candidate of candidates) {
+      if (tokens.has(candidate)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private isUnauthorizedDataRequest(message: string) {
+    const text = message.trim().toLowerCase();
+    if (!text) return false;
+    const asksSensitiveData = [
+      'password',
+      'contrasena',
+      'contraseña',
+      'cedula',
+      'telefono',
+      'correo',
+      'email',
+      'salario',
+      'nomina',
+      'ubicacion',
+      'location',
+    ].some((token) => text.includes(token));
+    const asksAboutOtherPerson = [
+      'otro usuario',
+      'otro vendedor',
+      'otro tecnico',
+      'otro empleado',
+      'de otro usuario',
+      'de otro vendedor',
+      'de otro tecnico',
+      'de otro empleado',
+    ].some((token) => text.includes(token));
+    return asksSensitiveData && asksAboutOtherPerson;
+  }
+
+  private isManualKnowledgeId(id?: string | null) {
+    const normalized = (id ?? '').trim().toLowerCase();
+    if (!normalized) return false;
+    return !normalized.startsWith('app-knowledge:') && !normalized.startsWith('app-data:');
   }
 
   private toBusinessRuleRecord(entry: {
@@ -790,8 +1007,8 @@ export class CotizacionesService {
     return {
       source: 'rules-only',
       content,
-      relatedRuleId: topRule.id,
-      relatedRuleTitle: topRule.title,
+      relatedRuleId: this.isManualKnowledgeId(topRule.id) ? topRule.id : null,
+      relatedRuleTitle: this.isManualKnowledgeId(topRule.id) ? topRule.title : null,
       citations,
     };
   }

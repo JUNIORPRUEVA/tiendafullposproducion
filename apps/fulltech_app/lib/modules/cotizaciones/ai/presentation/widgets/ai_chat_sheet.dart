@@ -195,8 +195,8 @@ class _AiChatSheetState extends ConsumerState<AiChatSheet> {
                                   const SizedBox(height: 4),
                                   Text(
                                     aiState.loadingRules
-                                        ? 'Cargando Manual Interno publicado para este usuario...'
-                                        : 'La IA toma reglas del Manual Interno publicado y visible para tu usuario. Reglas locales cargadas: ${aiState.rules.length}.',
+                                        ? 'Cargando Manual Interno y conocimiento interno autorizado...'
+                                        : 'La IA usa Manual Interno, guias funcionales de la app y resúmenes autorizados del sistema para tu usuario. Reglas locales cargadas: ${aiState.rules.length}.',
                                     style: theme.textTheme.bodySmall?.copyWith(
                                       color: theme.colorScheme.onSurfaceVariant,
                                       height: 1.35,
@@ -356,6 +356,10 @@ class _ChatBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isUser = message.role == AiChatRole.user;
+    final hasOpenableRule =
+        ((message.relatedRuleId ?? '').trim().isNotEmpty &&
+            !(message.relatedRuleId ?? '').startsWith('app-')) ||
+        message.citations.any((citation) => !citation.id.startsWith('app-'));
     final alignment = isUser ? Alignment.centerRight : Alignment.centerLeft;
     final background = isUser
         ? theme.colorScheme.primary
@@ -425,7 +429,9 @@ class _ChatBubble extends StatelessWidget {
                             for (final citation in message.citations)
                               ActionChip(
                                 label: Text(citation.title),
-                                onPressed: onOpenRule,
+                                onPressed: citation.id.startsWith('app-')
+                                    ? null
+                                    : onOpenRule,
                               ),
                             if (message.citations.isEmpty && onOpenRule != null)
                               ActionChip(
@@ -433,7 +439,7 @@ class _ChatBubble extends StatelessWidget {
                                   message.relatedRuleTitle ??
                                       'Ver regla oficial',
                                 ),
-                                onPressed: onOpenRule,
+                                onPressed: hasOpenableRule ? onOpenRule : null,
                               ),
                           ],
                         ),
