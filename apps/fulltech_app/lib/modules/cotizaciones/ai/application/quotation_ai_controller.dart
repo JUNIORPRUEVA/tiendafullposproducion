@@ -13,9 +13,7 @@ import '../domain/services/quotation_ai_service.dart';
 import '../domain/services/quotation_rule_validator.dart';
 
 final quotationAiControllerProvider =
-    StateNotifierProvider.autoDispose<QuotationAiController, QuotationAiState>((
-      ref,
-    ) {
+    StateNotifierProvider.autoDispose<QuotationAiController, QuotationAiState>((ref) {
       return QuotationAiController(
         ref: ref,
         aiService: ref.watch(quotationAiServiceProvider),
@@ -103,9 +101,7 @@ class QuotationAiState {
       aiValidation: aiValidation ?? this.aiValidation,
       messages: messages ?? this.messages,
       visibleWarnings: visibleWarnings ?? this.visibleWarnings,
-      analysisError: clearAnalysisError
-          ? null
-          : (analysisError ?? this.analysisError),
+      analysisError: clearAnalysisError ? null : (analysisError ?? this.analysisError),
       chatError: clearChatError ? null : (chatError ?? this.chatError),
       hasLoadedRules: hasLoadedRules ?? this.hasLoadedRules,
     );
@@ -312,10 +308,7 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
 
     state = state.copyWith(
       localValidation: localValidation,
-      visibleWarnings: _mergeWarnings(
-        localValidation.warnings,
-        state.aiValidation.warnings,
-      ),
+      visibleWarnings: _mergeWarnings(localValidation.warnings, state.aiValidation.warnings),
     );
     _logDebug('local.validation', localValidation.summary);
   }
@@ -336,10 +329,7 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
     if (cached != null) {
       state = state.copyWith(
         aiValidation: cached,
-        visibleWarnings: _mergeWarnings(
-          state.localValidation.warnings,
-          cached.warnings,
-        ),
+        visibleWarnings: _mergeWarnings(state.localValidation.warnings, cached.warnings),
         clearAnalysisError: true,
       );
       return;
@@ -349,17 +339,13 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
     try {
       final aiValidation = await _aiService.analyzeQuotation(
         context: context,
-        instruction:
-            'Revisa esta cotización y genera advertencias no bloqueantes usando solo reglas oficiales.',
+        instruction: 'Revisa esta cotización y genera advertencias no bloqueantes usando solo reglas oficiales.',
       );
       _analysisCache[signature] = aiValidation;
       state = state.copyWith(
         analyzing: false,
         aiValidation: aiValidation,
-        visibleWarnings: _mergeWarnings(
-          state.localValidation.warnings,
-          aiValidation.warnings,
-        ),
+        visibleWarnings: _mergeWarnings(state.localValidation.warnings, aiValidation.warnings),
       );
       _logDebug('ai.validation', aiValidation.summary);
     } catch (error) {
@@ -392,8 +378,7 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
     final merged = <AiWarning>[];
     final seen = <String>{};
     for (final warning in [...localWarnings, ...aiWarnings]) {
-      final key =
-          '${warning.title}|${warning.relatedRuleId}|${warning.type.name}';
+      final key = '${warning.title}|${warning.relatedRuleId}|${warning.type.name}';
       if (seen.add(key)) {
         merged.add(warning);
       }

@@ -499,8 +499,10 @@ export class CotizacionesService {
       kind: {
         in: [
           CompanyManualEntryKind.GENERAL_RULE,
+          CompanyManualEntryKind.ROLE_RULE,
           CompanyManualEntryKind.POLICY,
           CompanyManualEntryKind.WARRANTY_POLICY,
+          CompanyManualEntryKind.RESPONSIBILITY,
           CompanyManualEntryKind.PRICE_RULE,
           CompanyManualEntryKind.SERVICE_RULE,
           CompanyManualEntryKind.PRODUCT_SERVICE,
@@ -527,6 +529,7 @@ export class CotizacionesService {
         'cotizaciones',
         'cotizacion',
         'ventas',
+        'manual-interno',
       ].filter((item) => item.length > 0),
     );
 
@@ -558,8 +561,9 @@ export class CotizacionesService {
         const textTokens = new Set(this.tokenize(text));
 
         let score = 0;
-        if (!moduleKey || desiredModuleKeys.has(moduleKey)) score += 8;
-        if (moduleKey === 'cotizaciones' || moduleKey === 'cotizacion') score += 6;
+        if (!moduleKey) score += 10;
+        if (desiredModuleKeys.has(moduleKey)) score += 6;
+        if (moduleKey === 'cotizaciones' || moduleKey === 'cotizacion') score += 4;
         if (text.includes('precio') || text.includes('mínimo') || text.includes('minimo')) score += 2;
         if (text.includes('garant')) score += 2;
         if (text.includes('dvr') || text.includes('nvr') || text.includes('xvr')) score += 3;
@@ -579,7 +583,11 @@ export class CotizacionesService {
       .slice(0, 12)
       .map(({ entry }) => this.toBusinessRuleRecord(entry));
 
-    return scored;
+    if (scored.length > 0) {
+      return scored;
+    }
+
+    return entries.slice(0, 12).map((entry) => this.toBusinessRuleRecord(entry));
   }
 
   private toBusinessRuleRecord(entry: {
