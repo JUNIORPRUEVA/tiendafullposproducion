@@ -8,7 +8,9 @@ import 'package:printing/printing.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/cache/fulltech_cache_manager.dart';
+import '../../core/cache/local_json_cache.dart';
 import '../../core/company/company_settings_repository.dart';
+import '../../core/evolution/evolution_api_repository.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/models/product_model.dart';
 import '../../core/realtime/catalog_realtime_service.dart';
@@ -42,6 +44,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     with WidgetsBindingObserver
     implements RouteAware {
   static const double _desktopBreakpoint = 900;
+  static const String _editorDraftCachePrefix = 'cotizaciones:editorDraft:';
+
+  final LocalJsonCache _editorDraftCache = LocalJsonCache();
+  Timer? _persistEditorDraftTimer;
+  bool _restoringEditorDraft = false;
 
   final TextEditingController _searchCtrl = TextEditingController();
 
@@ -91,6 +98,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     _subscribeRealtime();
     unawaited(_bootstrapCatalog());
     _startLiveSync();
+    unawaited(_restorePersistedEditorDraftIfAny());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(_syncQuotationAi(triggerAi: false));
@@ -210,6 +218,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       if (phone.isNotEmpty) _selectedClientPhone = phone;
       _writeActiveDesktopDraft();
     });
+    _schedulePersistEditorDraft();
     unawaited(_syncQuotationAi(triggerAi: false));
 
     if ((_selectedClientId ?? '').trim().isEmpty && phone.isNotEmpty) {
@@ -244,6 +253,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         _selectedClientPhone = matchPhone;
         _writeActiveDesktopDraft();
       });
+      _schedulePersistEditorDraft();
       unawaited(_syncQuotationAi(triggerAi: false));
     } catch (_) {
       // Silencioso: si no se puede resolver, el usuario puede escoger cliente.
@@ -252,6 +262,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
   @override
   void dispose() {
+    _persistEditorDraftTimer?.cancel();
+    _persistEditorDraftTimer = null;
+    unawaited(_persistEditorDraft());
     WidgetsBinding.instance.removeObserver(this);
     if (_routeObserverSubscribed) {
       _routeObserver?.unsubscribe(this);
@@ -262,6 +275,77 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     _realtimeSubscription?.cancel();
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  String _editorDraftCacheKey() {
+    final ownerId = (ref.read(authStateProvider).user?.id ?? 'anon').trim();
+    return '$_editorDraftCachePrefix$ownerId';
+  }
+
+  void _schedulePersistEditorDraft({bool immediate = false}) {
+    if (_restoringEditorDraft) return;
+    _persistEditorDraftTimer?.cancel();
+    _persistEditorDraftTimer = null;
+
+    if (immediate) {
+      unawaited(_persistEditorDraft());
+      return;
+    }
+
+    _persistEditorDraftTimer = Timer(const Duration(milliseconds: 450), () {
+      _persistEditorDraftTimer = null;
+      unawaited(_persistEditorDraft());
+    });
+  }
+
+  Future<void> _persistEditorDraft() async {
+    if (!mounted) return;
+    try {
+      final map = <String, dynamic>{
+        'v': 1,
+        'activeId': _activeDesktopTicketId,
+        'tickets': _desktopTickets.map((t) => t.toMap()).toList(),
+      };
+      await _editorDraftCache.writeMap(_editorDraftCacheKey(), map);
+    } catch (_) {
+      // Best-effort.
+    }
+  }
+
+  Future<void> _restorePersistedEditorDraftIfAny() async {
+    if (!mounted) return;
+    _restoringEditorDraft = true;
+    try {
+      final cached = await _editorDraftCache.readMap(_editorDraftCacheKey());
+      if (!mounted) return;
+      if (cached == null) return;
+
+      final rawTickets = (cached['tickets'] as List?) ?? const [];
+      final tickets = rawTickets
+          .whereType<Map>()
+          .map((row) => _DesktopTicketDraft.fromMap(row.cast<String, dynamic>()))
+          .toList();
+
+      if (tickets.isEmpty) return;
+
+      final cachedActive = (cached['activeId'] ?? '').toString().trim();
+      final activeId = tickets.any((t) => t.id == cachedActive)
+          ? cachedActive
+          : tickets.first.id;
+      final activeTicket = tickets.firstWhere((t) => t.id == activeId);
+
+      setState(() {
+        _desktopTickets = tickets;
+        _activeDesktopTicketId = activeId;
+        _replaceEditorStateFromDraft(activeTicket);
+        _writeActiveDesktopDraft();
+      });
+      unawaited(_syncQuotationAi(triggerAi: false));
+    } catch (_) {
+      // Ignore invalid cache entries.
+    } finally {
+      _restoringEditorDraft = false;
+    }
   }
 
   Future<void> _loadProducts({
@@ -499,6 +583,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       changes();
       _writeActiveDesktopDraft();
     });
+    _schedulePersistEditorDraft();
     _persistCatalogUiState();
     unawaited(_syncQuotationAi());
   }
@@ -517,6 +602,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       _replaceEditorStateFromDraft(ticket);
       _writeActiveDesktopDraft();
     });
+    _schedulePersistEditorDraft();
   }
 
   void _switchDesktopTicket(String id) {
@@ -528,6 +614,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       _activeDesktopTicketId = next.id;
       _replaceEditorStateFromDraft(next);
     });
+    _schedulePersistEditorDraft();
     unawaited(_syncQuotationAi());
   }
 
@@ -1222,6 +1309,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       return;
     }
 
+    final scaffoldContext = context;
+
     final cotizacion = _buildDraftCotizacion();
     final company = await ref
         .read(companySettingsRepositoryProvider)
@@ -1236,56 +1325,135 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     await showDialog<void>(
       context: context,
       builder: (context) {
+        var sendingWhatsApp = false;
         final media = MediaQuery.sizeOf(context);
         final compact = media.width < 560;
-        return Dialog(
-          insetPadding: EdgeInsets.all(compact ? 8 : 16),
-          child: SizedBox(
-            width: compact ? media.width - 16 : 900,
-            height: compact ? media.height * 0.92 : 760,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 8, 6),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.picture_as_pdf_outlined),
-                      const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text(
-                          'PDF de cotización',
-                          style: TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                      TextButton.icon(
-                        onPressed: () => shareCotizacionPdf(
-                          bytes: bytes,
-                          cotizacion: cotizacion,
-                        ),
-                        icon: const Icon(Icons.download_outlined),
-                        label: const Text('Descargar'),
-                      ),
-                      IconButton(
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close),
-                      ),
-                    ],
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final phone = (cotizacion.customerPhone ?? '').trim();
+            final evolution = ref.read(evolutionApiRepositoryProvider);
+            final normalizedPhone = evolution.normalizeWhatsAppNumber(phone);
+            final canSend = normalizedPhone.isNotEmpty && !sendingWhatsApp;
+
+            String fileName() {
+              final dateFmt = DateFormat('yyyyMMdd_HHmm');
+              return 'cotizacion_${dateFmt.format(cotizacion.createdAt)}_${cotizacion.id.substring(0, 6)}.pdf';
+            }
+
+            String caption() {
+              final name = cotizacion.customerName.trim();
+              final safeName = name.isEmpty ? 'cliente' : name;
+              return 'Hola $safeName, adjunto tu cotización en PDF.';
+            }
+
+            Future<void> sendWhatsApp() async {
+              setDialogState(() => sendingWhatsApp = true);
+              try {
+                await evolution.sendPdfDocument(
+                  toNumber: normalizedPhone,
+                  bytes: bytes,
+                  fileName: fileName(),
+                  caption: caption(),
+                );
+                if (!scaffoldContext.mounted) return;
+                ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
+                  const SnackBar(
+                    content: Text('Cotización enviada vía WhatsApp.'),
                   ),
-                ),
-                const Divider(height: 1),
-                Expanded(
-                  child: PdfPreview(
-                    canChangePageFormat: false,
-                    canChangeOrientation: false,
-                    canDebug: false,
-                    allowPrinting: true,
-                    allowSharing: true,
-                    build: (_) async => bytes,
+                );
+              } on ApiException catch (e) {
+                if (!scaffoldContext.mounted) return;
+                ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      normalizedPhone.isEmpty
+                          ? 'Teléfono inválido para WhatsApp.'
+                          : e.message,
+                    ),
                   ),
+                );
+              } catch (e) {
+                if (!scaffoldContext.mounted) return;
+                ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
+                  SnackBar(content: Text('No se pudo enviar: $e')),
+                );
+              } finally {
+                if (context.mounted) {
+                  setDialogState(() => sendingWhatsApp = false);
+                }
+              }
+            }
+
+            return Dialog(
+              insetPadding: EdgeInsets.all(compact ? 8 : 16),
+              child: SizedBox(
+                width: compact ? media.width - 16 : 900,
+                height: compact ? media.height * 0.92 : 760,
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 8, 6),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.picture_as_pdf_outlined),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'PDF de cotización',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: phone.isEmpty
+                                ? null
+                                : (canSend ? sendWhatsApp : null),
+                            icon: sendingWhatsApp
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.chat_outlined),
+                            label: Text(
+                              compact
+                                  ? 'WhatsApp'
+                                  : 'Enviar cotización vía WhatsApp',
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          TextButton.icon(
+                            onPressed: () => shareCotizacionPdf(
+                              bytes: bytes,
+                              cotizacion: cotizacion,
+                            ),
+                            icon: const Icon(Icons.download_outlined),
+                            label: const Text('Descargar'),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: PdfPreview(
+                        canChangePageFormat: false,
+                        canChangeOrientation: false,
+                        canDebug: false,
+                        allowPrinting: true,
+                        allowSharing: true,
+                        build: (_) async => bytes,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -1365,6 +1533,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     if (!mounted) return;
 
     _commitEditorChange(_resetEditorState);
+    _schedulePersistEditorDraft(immediate: true);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -2849,6 +3018,45 @@ class _DesktopTicketDraft {
     final client = selectedClientName.trim();
     if (client.isNotEmpty && client != 'Sin cliente') return client;
     return title.isEmpty ? 'Ticket ${index + 1}' : title;
+  }
+
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'title': title,
+    'items': items.map((item) => item.toMap()).toList(),
+    'selectedClientId': selectedClientId,
+    'selectedClientName': selectedClientName,
+    'selectedClientPhone': selectedClientPhone,
+    'note': note,
+    'includeItbis': includeItbis,
+    'editingId': editingId,
+    'editingCreatedAt': editingCreatedAt?.toIso8601String(),
+    'selectedCategory': selectedCategory,
+    'searchQuery': searchQuery,
+  };
+
+  factory _DesktopTicketDraft.fromMap(Map<String, dynamic> map) {
+    final rawItems = (map['items'] as List?) ?? const [];
+    return _DesktopTicketDraft(
+      id: (map['id'] ?? '').toString(),
+      title: (map['title'] ?? '').toString(),
+      items: rawItems
+          .whereType<Map>()
+          .map((row) => CotizacionItem.fromMap(row.cast<String, dynamic>()))
+          .toList(growable: false),
+      selectedClientId: map['selectedClientId']?.toString(),
+      selectedClientName:
+          (map['selectedClientName'] ?? 'Sin cliente').toString(),
+      selectedClientPhone: map['selectedClientPhone']?.toString(),
+      note: (map['note'] ?? '').toString(),
+      includeItbis: map['includeItbis'] == true,
+      editingId: map['editingId']?.toString(),
+      editingCreatedAt: DateTime.tryParse(
+        (map['editingCreatedAt'] ?? '').toString(),
+      ),
+      selectedCategory: map['selectedCategory']?.toString(),
+      searchQuery: (map['searchQuery'] ?? '').toString(),
+    );
   }
 }
 

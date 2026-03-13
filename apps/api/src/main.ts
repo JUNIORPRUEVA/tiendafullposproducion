@@ -77,10 +77,19 @@ async function bootstrap() {
   const realtimeRelay = app.get(CatalogRealtimeRelayService);
   realtimeRelay.attach(app.getHttpServer() as unknown as import('node:http').Server);
 
-  await app.listen(port, '0.0.0.0');
+  // Bind to IPv6 (dual-stack) when available so `localhost` (often ::1 on Windows)
+  // works reliably; fall back to IPv4-only environments.
+  let host = '::';
+  try {
+    await app.listen(port, host);
+  } catch {
+    host = '0.0.0.0';
+    await app.listen(port, host);
+  }
   realtimeRelay.start();
   // eslint-disable-next-line no-console
-  console.log(`API listening on http://0.0.0.0:${port}`);
+  const displayHost = host.includes(':') ? `[${host}]` : host;
+  console.log(`API listening on http://${displayHost}:${port}`);
 }
 
 bootstrap();

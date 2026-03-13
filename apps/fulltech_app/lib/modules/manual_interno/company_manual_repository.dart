@@ -129,19 +129,83 @@ class CompanyManualRepository {
     Map<String, dynamic>? query,
     Map<String, dynamic>? extra,
   }) async {
+    const action = 'cargar el manual interno';
+    Response<dynamic>? res;
     try {
-      final res = await _dio
+      res = await _dio
           .get(
             path,
             queryParameters: query,
             options: _jsonOptions(extra: extra),
           )
           .timeout(_timeout);
-      return _requireMap(res.data, 'cargar el manual interno');
+      return _requireMap(res.data, action);
+    } on ApiException catch (e) {
+      // Some deployments serve the PWA and proxy the API under /api.
+      // If the response looks like HTML (SPA shell), retry once toggling the /api prefix.
+      if (res != null) {
+        // Some adapters/proxies return empty bytes even when the server sent JSON.
+        // Retry once with ResponseType.plain to get a reliable string payload.
+        if (_looksLikeEmptyPayload(res.data)) {
+          try {
+            final alt = await _dio
+                .getUri(
+                  res.realUri.replace(
+                    queryParameters: {
+                      ...res.realUri.queryParameters,
+                      ...?query?.map(
+                        (k, v) => MapEntry(k, v?.toString() ?? ''),
+                      ),
+                    },
+                  ),
+                  options: _plainOptions(extra: extra),
+                )
+                .timeout(_timeout);
+
+            final raw = (alt.data ?? '').toString();
+            final decoded = jsonDecode(_stripBom(raw).trim());
+            return _requireMap(decoded, action);
+          } catch (_) {
+            // Fall through to other retries / enriched error.
+          }
+        }
+
+        final altUri = _toggleApiPrefix(res.realUri);
+        if (altUri != null && _looksLikeHtmlResponse(res.data)) {
+          try {
+            final alt = await _dio
+                .getUri(
+                  altUri.replace(
+                    queryParameters: {
+                      ...altUri.queryParameters,
+                      ...?query?.map(
+                        (k, v) => MapEntry(k, v?.toString() ?? ''),
+                      ),
+                    },
+                  ),
+                  options: _jsonOptions(extra: extra),
+                )
+                .timeout(_timeout);
+            return _requireMap(alt.data, action);
+          } catch (_) {
+            // Fall through to enriched error below.
+          }
+        }
+
+        throw ApiException(
+          _enrichManualError(
+            e.message,
+            uri: res.realUri,
+            baseUrl: _dio.options.baseUrl,
+          ),
+        );
+      }
+
+      rethrow;
     } on FormatException {
-      throw ApiException(_invalidResponseMessage('cargar el manual interno'));
+      throw ApiException(_invalidResponseMessage(action));
     } on TypeError {
-      throw ApiException(_invalidResponseMessage('cargar el manual interno'));
+      throw ApiException(_invalidResponseMessage(action));
     } on TimeoutException {
       throw ApiException(
         'La operación tardó demasiado al cargar el manual interno.',
@@ -228,6 +292,10 @@ class CompanyManualRepository {
     if (data is Map || data is List) {
       return data;
     }
+    // Dio Web adapter can return a ByteBuffer for ResponseType.bytes.
+    if (data is ByteBuffer) {
+      return _decodeJsonFromBytes(data.asUint8List(), action);
+    }
     if (data is Uint8List) {
       return _decodeJsonFromBytes(data, action);
     }
@@ -297,7 +365,78 @@ class CompanyManualRepository {
         ? preview.substring(0, 80)
         : preview;
     final printable = shortPreview.replaceAll(RegExp(r'\s+'), ' ');
-    return '\nDetalle: ${e.message}\nInicio de respuesta: "$printable"';
+
+    final htmlHint = _looksLikeHtmlText(printable)
+        ? '\nPista: parece HTML (no JSON). Revisa API_BASE_URL; si es PWA, configura proxy /api con API_UPSTREAM_URL.'
+        : '';
+
+    return '\nDetalle: ${e.message}\nInicio de respuesta: "$printable"$htmlHint';
+  }
+
+  bool _looksLikeHtmlResponse(dynamic data) {
+    final preview = _peekTextPreview(data);
+    if (preview == null) return false;
+    return _looksLikeHtmlText(preview);
+  }
+
+  bool _looksLikeHtmlText(String text) {
+    final t = text.trimLeft().toLowerCase();
+    return t.startsWith('<!doctype') ||
+        t.startsWith('<html') ||
+        t.startsWith('<head') ||
+        t.startsWith('<meta') ||
+        t.startsWith('<script') ||
+        t.startsWith('<body') ||
+        t.contains('<html');
+  }
+
+  String? _peekTextPreview(dynamic data) {
+    try {
+      if (data is String) {
+        return data.trimLeft();
+      }
+      if (data is ByteBuffer) {
+        return _peekTextPreview(data.asUint8List());
+      }
+      if (data is Uint8List) {
+        if (data.isEmpty) return null;
+        final take = data.length > 256 ? data.sublist(0, 256) : data;
+        try {
+          return utf8.decode(take, allowMalformed: true).trimLeft();
+        } catch (_) {
+          return latin1.decode(take).trimLeft();
+        }
+      }
+      if (data is List<int>) {
+        return _peekTextPreview(Uint8List.fromList(data));
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
+  Uri? _toggleApiPrefix(Uri uri) {
+    // Toggle an '/api' prefix on the *first* path segment.
+    final segments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
+    if (segments.isEmpty) return null;
+
+    List<String> toggled;
+    if (segments.first.toLowerCase() == 'api') {
+      toggled = segments.sublist(1);
+    } else {
+      toggled = ['api', ...segments];
+    }
+
+    return uri.replace(pathSegments: toggled);
+  }
+
+  String _enrichManualError(
+    String message, {
+    required Uri uri,
+    required String baseUrl,
+  }) {
+    return '$message\nEndpoint: ${uri.path}\nURI: $uri\nBaseURL: $baseUrl';
   }
 
   String _stripBom(String value) {
@@ -316,19 +455,74 @@ class CompanyManualRepository {
     return _options(extra: extra).copyWith(responseType: ResponseType.bytes);
   }
 
+  Options _plainOptions({Map<String, dynamic>? extra}) {
+    return _options(extra: extra).copyWith(responseType: ResponseType.plain);
+  }
+
+  bool _looksLikeEmptyPayload(dynamic data) {
+    if (data == null) return true;
+    if (data is Uint8List) return data.isEmpty;
+    if (data is ByteBuffer) return data.lengthInBytes == 0;
+    if (data is List<int>) return data.isEmpty;
+    if (data is String) return data.trim().isEmpty;
+    return false;
+  }
+
   Options _options({Map<String, dynamic>? extra}) {
     return Options(extra: {'skipLoader': true, ...?extra});
   }
 
   String _extractMessage(DioException e, String fallback) {
     final data = e.response?.data;
-    if (data is Map) {
-      final message = data['message'];
-      if (message is String && message.trim().isNotEmpty) return message;
-      if (message is List && message.isNotEmpty && message.first is String) {
-        return (message.first as String).trim();
+
+    dynamic decoded;
+    try {
+      if (data is Map || data is List) {
+        decoded = data;
+      } else if (data is ByteBuffer) {
+        decoded = _decodeJsonFromBytes(data.asUint8List(), 'procesar el error');
+      } else if (data is Uint8List) {
+        decoded = _decodeJsonFromBytes(data, 'procesar el error');
+      } else if (data is List<int>) {
+        decoded = _decodeJsonFromBytes(
+          Uint8List.fromList(data),
+          'procesar el error',
+        );
+      } else if (data is String) {
+        final raw = _stripBom(data).trim();
+        if (raw.isNotEmpty) decoded = jsonDecode(raw);
       }
+    } catch (_) {
+      decoded = null;
     }
+
+    if (decoded is Map) {
+      final message = decoded['message'];
+      if (message is String && message.trim().isNotEmpty) return message.trim();
+      if (message is List) {
+        final first = message.whereType<String>().firstOrNull;
+        if (first != null && first.trim().isNotEmpty) return first.trim();
+      }
+      final error = decoded['error'];
+      if (error is String && error.trim().isNotEmpty) return error.trim();
+    }
+
+    final status = e.response?.statusCode;
+    if (status == 401) {
+      return 'No autorizado. Inicia sesión nuevamente.';
+    }
+    if (status == 403) {
+      return 'No tienes permisos para ver el manual interno.';
+    }
+
     return fallback;
+  }
+}
+
+extension _FirstOrNullExt<T> on Iterable<T> {
+  T? get firstOrNull {
+    final it = iterator;
+    if (!it.moveNext()) return null;
+    return it.current;
   }
 }

@@ -162,6 +162,7 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
 
     if (!state.hasLoadedRules) {
       await _ensureRulesLoaded();
+      if (!mounted) return;
     }
 
     _applyLocalValidation();
@@ -222,11 +223,13 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
         context: context,
         message: trimmed,
       );
+      if (!mounted) return;
       final resolvedResponse = _applyRuleOnlyFallback(response, trimmed);
       _chatCache[cacheKey] = resolvedResponse;
       _replaceLoadingMessage(resolvedResponse);
       _logDebug('chat.response', resolvedResponse.content);
     } catch (error) {
+      if (!mounted) return;
       final fallback = _buildGuaranteedAssistantReply(trimmed, isError: true);
       _replaceLoadingMessage(fallback, chatError: '$error');
       _logDebug('chat.error', error);
@@ -262,6 +265,7 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
     final normalizedId = (ruleId ?? '').trim();
     if (normalizedId.isNotEmpty) {
       final rule = await _rulesRepository.getRuleById(normalizedId);
+      if (!mounted) return rule;
       if (rule != null) {
         state = state.copyWith(rules: [...state.rules, rule]);
       }
@@ -271,6 +275,7 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
     final normalizedTitle = (title ?? '').trim();
     if (normalizedTitle.isEmpty) return null;
     final rule = await _rulesRepository.findRuleByTitle(normalizedTitle);
+    if (!mounted) return rule;
     if (rule != null && state.rules.every((item) => item.id != rule.id)) {
       state = state.copyWith(rules: [...state.rules, rule]);
     }
@@ -284,6 +289,7 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
       final rules = await _rulesRepository.loadQuotationRules(
         forceRefresh: forceRefresh,
       );
+      if (!mounted) return;
       state = state.copyWith(
         loadingRules: false,
         rules: rules,
@@ -291,6 +297,7 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
       );
       _applyLocalValidation();
     } catch (error) {
+      if (!mounted) return;
       state = state.copyWith(
         loadingRules: false,
         hasLoadedRules: true,
@@ -301,6 +308,7 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
   }
 
   void _applyLocalValidation() {
+    if (!mounted) return;
     final context = state.context;
     if (context == null) return;
 
@@ -351,6 +359,7 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
         instruction:
             'Revisa esta cotización y genera advertencias no bloqueantes usando solo reglas oficiales.',
       );
+      if (!mounted) return;
       _analysisCache[signature] = aiValidation;
       state = state.copyWith(
         analyzing: false,
@@ -362,12 +371,14 @@ class QuotationAiController extends StateNotifier<QuotationAiState> {
       );
       _logDebug('ai.validation', aiValidation.summary);
     } catch (error) {
+      if (!mounted) return;
       state = state.copyWith(analyzing: false, analysisError: '$error');
       _logDebug('ai.validation.error', error);
     }
   }
 
   void _replaceLoadingMessage(AiChatMessage message, {String? chatError}) {
+    if (!mounted) return;
     final messages = [...state.messages];
     final index = messages.lastIndexWhere((item) => item.isLoading);
     if (index >= 0) {

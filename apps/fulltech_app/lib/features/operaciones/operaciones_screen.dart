@@ -7154,7 +7154,10 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
               builder: (context, setDialogState) {
                 if (!didInit) {
                   didInit = true;
-                  Future.microtask(() => load(setDialogState));
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!context.mounted) return;
+                    load(setDialogState);
+                  });
                 }
 
                 return Padding(
@@ -7318,6 +7321,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
             final results = await ref
                 .read(operationsControllerProvider.notifier)
                 .searchClients(query);
+            if (!context.mounted) return;
             setDialogState(() => items = results);
           } catch (e) {
             if (!context.mounted) return;
@@ -7342,7 +7346,10 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
               builder: (context, setDialogState) {
                 if (!didInitLoad) {
                   didInitLoad = true;
-                  Future.microtask(() => runSearch(setDialogState));
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!context.mounted) return;
+                    runSearch(setDialogState);
+                  });
                 }
                 return Padding(
                   padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),

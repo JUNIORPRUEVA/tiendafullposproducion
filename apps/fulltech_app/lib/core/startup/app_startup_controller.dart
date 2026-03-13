@@ -204,6 +204,26 @@ Future<void> _ensureEnvLoaded() async {
     debugPrint('No env file could be loaded. Using runtime/fallback config.');
   }
 
+  // Extra diagnostics in debug/profile to avoid confusion when testing locally
+  // (eg. Windows desktop) but targeting a cloud API.
+  if (!kReleaseMode) {
+    const defineBaseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: '');
+    const defineTimeout = String.fromEnvironment('API_TIMEOUT_MS', defaultValue: '');
+    final dotenvBaseUrl = (dotenv.env['API_BASE_URL'] ?? '').trim();
+    final dotenvTimeout = (dotenv.env['API_TIMEOUT_MS'] ?? '').trim();
+
+    debugPrint(
+      'Env sources: '
+      'dart-define(API_BASE_URL)="${defineBaseUrl.isEmpty ? '(empty)' : defineBaseUrl}", '
+      'dotenv(API_BASE_URL)="${dotenvBaseUrl.isEmpty ? '(empty)' : dotenvBaseUrl}"',
+    );
+    debugPrint(
+      'Env sources: '
+      'dart-define(API_TIMEOUT_MS)="${defineTimeout.isEmpty ? '(empty)' : defineTimeout}", '
+      'dotenv(API_TIMEOUT_MS)="${dotenvTimeout.isEmpty ? '(empty)' : dotenvTimeout}"',
+    );
+  }
+
   try {
     final baseUrl = Env.apiBaseUrl;
     debugPrint('API_BASE_URL: $baseUrl');
