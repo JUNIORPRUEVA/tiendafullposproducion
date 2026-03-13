@@ -1,4 +1,4 @@
-export function normalizePhone(input: string): string {
+export function normalizePhone(input?: string | null): string {
   const raw = (input ?? '').trim();
   if (!raw) return '';
 
