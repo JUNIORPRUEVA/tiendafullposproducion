@@ -55,6 +55,8 @@ class ApiRoutes {
   // Clientes
   static const clients = '/clients';
   static String clientDetail(String id) => '/clients/$id';
+    static String clientProfile(String id) => '/clients/$id/profile';
+    static String clientTimeline(String id) => '/clients/$id/timeline';
 
   // Productos
   static const products = '/products';

@@ -95,6 +95,18 @@ class VentasRepository {
     }
   }
 
+  Future<SaleModel> getById(String id) async {
+    try {
+      final res = await _dio.get(ApiRoutes.saleDetail(id));
+      return SaleModel.fromJson((res.data as Map).cast<String, dynamic>());
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo cargar la venta'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
   Future<void> createSale({
     required String customerId,
     String? note,

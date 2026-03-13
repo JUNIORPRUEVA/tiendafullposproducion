@@ -6,13 +6,22 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/models/user_model.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../features/operaciones/application/operations_controller.dart';
+import '../../features/operaciones/data/operations_repository.dart';
 import '../../features/operaciones/operations_models.dart';
+import '../../features/user/data/users_repository.dart';
 import 'application/clientes_controller.dart';
 import 'cliente_model.dart';
+import 'cliente_profile_model.dart';
+import 'cliente_timeline_model.dart';
 import 'data/clientes_repository.dart';
+import '../cotizaciones/cotizacion_models.dart';
+import '../cotizaciones/data/cotizaciones_repository.dart';
+import '../ventas/data/ventas_repository.dart';
+import '../ventas/sales_models.dart';
 
 class ClientesScreen extends ConsumerStatefulWidget {
   const ClientesScreen({super.key});
@@ -27,9 +36,546 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
   String? _selectedDesktopClientId;
   ClienteModel? _selectedDesktopClient;
   List<ServiceModel> _selectedDesktopServices = const [];
+  ClienteProfileResponse? _selectedDesktopProfile;
+  List<ClienteTimelineEvent> _selectedDesktopTimeline = const [];
   bool _desktopDetailLoading = false;
   String? _desktopDetailError;
+  String? _desktopDetailWarning;
   _ClienteServiceFilter _desktopServiceFilter = _ClienteServiceFilter.all;
+
+  final Map<String, UserModel> _usersById = {};
+
+  static const Duration _desktopDetailTimeout = Duration(seconds: 12);
+
+  Future<void> _openTimelineEventDetail(
+    ClienteTimelineEvent event,
+    ClienteModel client,
+  ) async {
+    final id = event.eventId.trim();
+    if (id.isEmpty) return;
+
+    try {
+      switch (event.eventType) {
+        case 'cotizacion':
+          final item = await ref
+              .read(cotizacionesRepositoryProvider)
+              .getById(id)
+              .timeout(_desktopDetailTimeout);
+          if (!mounted) return;
+          _showCotizacionDetailDialog(item);
+          return;
+        case 'sale':
+          final sale = await ref
+              .read(ventasRepositoryProvider)
+              .getById(id)
+              .timeout(_desktopDetailTimeout);
+          if (!mounted) return;
+          _showSaleDetailDialog(sale);
+          return;
+        case 'service':
+        case 'service_phase':
+        case 'service_update':
+          final service = await ref
+              .read(operationsRepositoryProvider)
+              .getService(id)
+              .timeout(_desktopDetailTimeout);
+          if (!mounted) return;
+          _showServiceDetailDialog(service);
+          return;
+        default:
+          _openTimelineEvent(event, client);
+          return;
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text('No se pudo abrir el detalle, abriendo módulo…\n$e'),
+        ),
+      );
+      _openTimelineEvent(event, client);
+    }
+  }
+
+  void _showCotizacionDetailDialog(CotizacionModel item) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Detalle de cotización'),
+        content: SizedBox(
+          width: 420,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Cliente: ${item.customerName}'),
+                if ((item.customerPhone ?? '').trim().isNotEmpty)
+                  Text('Teléfono: ${item.customerPhone}'),
+                Text(
+                  'Fecha: ${DateFormat('dd/MM/yyyy HH:mm').format(item.createdAt)}',
+                ),
+                if (item.note.trim().isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text('Nota: ${item.note}'),
+                ],
+                const Divider(height: 18),
+                ...item.items.map(
+                  (line) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${line.nombre} x${line.qty.toStringAsFixed(line.qty % 1 == 0 ? 0 : 2)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Text(_formatMoney(line.total)),
+                      ],
+                    ),
+                  ),
+                ),
+                const Divider(height: 18),
+                Row(
+                  children: [
+                    const Expanded(child: Text('Subtotal')),
+                    Text(_formatMoney(item.subtotal)),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'ITBIS ${item.includeItbis ? '(18%)' : '(no aplicado)'}',
+                      ),
+                    ),
+                    Text(_formatMoney(item.itbisAmount)),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Total',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    Text(
+                      _formatMoney(item.total),
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSaleDetailDialog(SaleModel sale) {
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        final saleDate = sale.saleDate ?? DateTime.now();
+        return AlertDialog(
+          title: Text('Detalle de venta ${sale.id.substring(0, 8)}'),
+          content: SizedBox(
+            width: 680,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _detailLine(
+                    'Fecha',
+                    DateFormat('dd/MM/yyyy HH:mm').format(saleDate),
+                  ),
+                  _detailLine('Cliente', sale.customerName ?? 'Sin cliente'),
+                  _detailLine(
+                    'Nota',
+                    (sale.note ?? '').trim().isEmpty ? 'N/A' : sale.note!,
+                  ),
+                  const Divider(height: 20),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: const [
+                        Expanded(
+                          flex: 5,
+                          child: Text(
+                            'Producto',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        Expanded(
+                          flex: 2,
+                          child: Text(
+                            'Cantidad',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        Expanded(
+                          flex: 3,
+                          child: Text(
+                            'Precio U.',
+                            textAlign: TextAlign.right,
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        Expanded(
+                          flex: 3,
+                          child: Text(
+                            'Total',
+                            textAlign: TextAlign.right,
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  ...sale.items.map((item) {
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerLow,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            flex: 5,
+                            child: Text(
+                              item.productNameSnapshot,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              item.qty.toString(),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              _formatMoney(item.priceSoldUnit),
+                              textAlign: TextAlign.right,
+                            ),
+                          ),
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              _formatMoney(item.subtotalSold),
+                              textAlign: TextAlign.right,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Container(
+                      width: 330,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Column(
+                        children: [
+                          _totalsLine(
+                            'Total vendido',
+                            _formatMoney(sale.totalSold),
+                          ),
+                          _totalsLine(
+                            'Total costo',
+                            _formatMoney(sale.totalCost),
+                          ),
+                          _totalsLine(
+                            'Total utilidad',
+                            _formatMoney(sale.totalProfit),
+                          ),
+                          const Divider(height: 14),
+                          _totalsLine(
+                            'Comisión',
+                            _formatMoney(sale.commissionAmount),
+                            highlight: true,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showServiceDetailDialog(ServiceModel service) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Detalle de servicio ${service.id.substring(0, 8)}'),
+        content: SizedBox(
+          width: 720,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _detailLine('Título', service.title),
+                _detailLine('Categoría', service.category),
+                _detailLine('Tipo', service.serviceType),
+                _detailLine('Estado', service.status),
+                _detailLine('Fase', service.currentPhase),
+                _detailLine(
+                  'Orden',
+                  '${service.orderType} · ${service.orderState}',
+                ),
+                _detailLine('Prioridad', service.priority.toString()),
+                if ((service.quotedAmount ?? 0) > 0)
+                  _detailLine('Cotizado', _formatMoney(service.quotedAmount)),
+                if ((service.depositAmount ?? 0) > 0)
+                  _detailLine('Depósito', _formatMoney(service.depositAmount)),
+                if ((service.finalCost ?? 0) > 0)
+                  _detailLine('Costo final', _formatMoney(service.finalCost)),
+                const Divider(height: 20),
+                _detailLine('Cliente', service.customerName),
+                if (service.customerPhone.trim().isNotEmpty)
+                  _detailLine('Teléfono', service.customerPhone),
+                if (service.customerAddress.trim().isNotEmpty)
+                  _detailLine('Dirección', service.customerAddress),
+                const Divider(height: 20),
+                _detailLine('Creado por', service.createdByName),
+                if (service.description.trim().isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Descripción',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(service.description),
+                ],
+                if (service.tags.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: service.tags
+                        .map((t) => Chip(label: Text(t)))
+                        .toList(growable: false),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _totalsLine(String label, String value, {bool highlight = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontWeight: highlight ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: highlight ? FontWeight.w800 : FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailLine(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 130,
+            child: Text(
+              '$label:',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          Expanded(child: Text(value)),
+        ],
+      ),
+    );
+  }
+
+  String _userLabel(String? userId) {
+    final id = (userId ?? '').trim();
+    if (id.isEmpty) return '—';
+    final user = _usersById[id];
+    if (user == null) return id;
+    final name = user.nombreCompleto.trim().isEmpty
+        ? user.email
+        : user.nombreCompleto.trim();
+    final role = (user.role ?? '').toString().trim();
+    return role.isEmpty ? name : '$name ($role)';
+  }
+
+  String _formatMoney(num? value) {
+    final safe = value ?? 0;
+    final fmt = NumberFormat.currency(symbol: 'RD\$ ', decimalDigits: 2);
+    return fmt.format(safe);
+  }
+
+  String _formatDateTime(DateTime? value) {
+    if (value == null) return '—';
+    return DateFormat('yyyy-MM-dd HH:mm').format(value.toLocal());
+  }
+
+  IconData _iconForEventType(String type) {
+    switch (type) {
+      case 'sale':
+        return Icons.point_of_sale;
+      case 'cotizacion':
+        return Icons.description_outlined;
+      case 'service':
+        return Icons.build_outlined;
+      case 'service_phase':
+        return Icons.timeline;
+      case 'service_update':
+        return Icons.update;
+      default:
+        return Icons.event_note;
+    }
+  }
+
+  String _eventDetailLine(ClienteTimelineEvent event) {
+    final meta = event.meta;
+    String s(dynamic v) => (v ?? '').toString().trim();
+
+    switch (event.eventType) {
+      case 'sale':
+        return s(meta['note']);
+      case 'cotizacion':
+        final note = s(meta['note']);
+        final includeItbis = meta['includeItbis'];
+        final itbisText = includeItbis == true ? 'ITBIS incluido' : '';
+        return [note, itbisText].where((e) => e.trim().isNotEmpty).join(' · ');
+      case 'service_phase':
+        final from = s(meta['fromPhase']);
+        final to = s(meta['toPhase']);
+        final note = s(meta['note']);
+        final phaseText = from.isNotEmpty || to.isNotEmpty
+            ? 'Fase: ${from.isEmpty ? '—' : from} → ${to.isEmpty ? '—' : to}'
+            : '';
+        return [phaseText, note].where((e) => e.trim().isNotEmpty).join(' · ');
+      case 'service_update':
+        final message = s(meta['message']);
+        final oldValue = s(meta['oldValue']);
+        final newValue = s(meta['newValue']);
+        final changeText = oldValue.isNotEmpty || newValue.isNotEmpty
+            ? '${oldValue.isEmpty ? '—' : oldValue} → ${newValue.isEmpty ? '—' : newValue}'
+            : '';
+        return [
+          message,
+          changeText,
+        ].where((e) => e.trim().isNotEmpty).join(' · ');
+      case 'service':
+        final category = s(meta['category']);
+        final orderState = s(meta['orderState']);
+        return [
+          category,
+          orderState,
+        ].where((e) => e.trim().isNotEmpty).join(' · ');
+      default:
+        return '';
+    }
+  }
+
+  void _openTimelineEvent(ClienteTimelineEvent event, ClienteModel client) {
+    final phone = client.telefono.trim();
+    switch (event.eventType) {
+      case 'cotizacion':
+        if (phone.isEmpty) return;
+        context.go(
+          '${Routes.cotizacionesHistorial}?customerPhone=${Uri.encodeQueryComponent(phone)}',
+        );
+        return;
+      case 'service':
+      case 'service_phase':
+      case 'service_update':
+        context.go(Routes.operaciones);
+        return;
+      case 'sale':
+        context.go(Routes.ventas);
+        return;
+      default:
+        return;
+    }
+  }
 
   @override
   void initState() {
@@ -59,7 +605,10 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
       _selectedDesktopClientId = null;
       _selectedDesktopClient = null;
       _selectedDesktopServices = const [];
+      _selectedDesktopProfile = null;
+      _selectedDesktopTimeline = const [];
       _desktopDetailError = null;
+      _desktopDetailWarning = null;
       return;
     }
 
@@ -82,20 +631,65 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
     setState(() {
       _desktopDetailLoading = true;
       _desktopDetailError = null;
+      _desktopDetailWarning = null;
       _desktopServiceFilter = _ClienteServiceFilter.all;
     });
 
     try {
+      final repo = ref.read(clientesRepositoryProvider);
+
       final client = await ref
           .read(clientesControllerProvider.notifier)
-          .getById(clientId);
-      final services = await ref
+          .getById(clientId)
+          .timeout(_desktopDetailTimeout);
+
+      final servicesFuture = ref
           .read(operationsControllerProvider.notifier)
-          .customerServices(clientId);
+          .customerServices(clientId)
+          .timeout(_desktopDetailTimeout)
+          .catchError((_) => const <ServiceModel>[]);
+
+      final Future<ClienteProfileResponse?> profileFuture = repo
+          .getClientProfile(id: clientId)
+          .timeout(_desktopDetailTimeout)
+          .then<ClienteProfileResponse?>((value) => value)
+          .catchError((_) => null);
+
+      final Future<ClienteTimelineResponse?> timelineFuture = repo
+          .getClientTimeline(id: clientId, take: 120)
+          .timeout(_desktopDetailTimeout)
+          .then<ClienteTimelineResponse?>((value) => value)
+          .catchError((_) => null);
+
+      final usersFuture = ref
+          .read(usersRepositoryProvider)
+          .getAllUsers()
+          .timeout(_desktopDetailTimeout)
+          .catchError((_) => const <UserModel>[]);
+
+      final services = await servicesFuture;
+      final profile = await profileFuture;
+      final timeline = await timelineFuture;
+      final users = await usersFuture;
+
+      if (users.isNotEmpty) {
+        for (final u in users) {
+          _usersById[u.id] = u;
+        }
+      }
+
+      String? warning;
+      if (profile == null || timeline == null) {
+        warning = 'Algunos datos no se pudieron cargar. Puedes reintentar.';
+      }
+
       if (!mounted || _selectedDesktopClientId != clientId) return;
       setState(() {
         _selectedDesktopClient = client;
         _selectedDesktopServices = services;
+        _selectedDesktopProfile = profile;
+        _selectedDesktopTimeline = timeline?.items ?? const [];
+        _desktopDetailWarning = warning;
         _desktopDetailLoading = false;
       });
     } catch (e) {
@@ -225,9 +819,26 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
       detailChild = const SizedBox.shrink();
     } else {
       final desktopClient = selectedClient;
+      final desktopProfile = _selectedDesktopProfile;
+      final desktopMetrics = desktopProfile?.metrics;
+      final desktopTimeline = _selectedDesktopTimeline;
+      final createdAt =
+          desktopProfile?.client.createdAt ?? desktopClient.createdAt;
+      final createdAtText = _formatDateTime(createdAt);
+      final createdByText =
+          desktopProfile?.createdBy?.label ?? _userLabel(desktopClient.ownerId);
+
       detailChild = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (_desktopDetailWarning != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _ClientesDesktopWarningBanner(
+                message: _desktopDetailWarning!,
+                onRetry: () => unawaited(_loadDesktopClient(desktopClient.id)),
+              ),
+            ),
           _ClienteDesktopHeaderCard(cliente: desktopClient),
           const SizedBox(height: 16),
           Row(
@@ -235,40 +846,151 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
             children: [
               Expanded(
                 flex: 5,
-                child: _ClientesDesktopPanel(
-                  title: 'Procesos del cliente',
-                  subtitle:
-                      'Cada servicio o proceso operativo asociado aparece aquí',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: _ClienteServiceFilter.values
-                            .map(
-                              (filter) => ChoiceChip(
-                                label: Text(filter.label),
-                                selected: _desktopServiceFilter == filter,
-                                onSelected: (_) => setState(
-                                  () => _desktopServiceFilter = filter,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _ClientesDesktopPanel(
+                      title: 'Métricas',
+                      subtitle: 'Resumen del expediente del cliente',
+                      child: _ClientesDesktopMetricsRow(
+                        salesCount: desktopMetrics?.salesCount ?? 0,
+                        salesTotal: _formatMoney(desktopMetrics?.salesTotal),
+                        servicesCount: desktopMetrics?.servicesCount ?? 0,
+                        cotizacionesCount:
+                            desktopMetrics?.cotizacionesCount ?? 0,
+                        cotizacionesTotal: _formatMoney(
+                          desktopMetrics?.cotizacionesTotal,
+                        ),
+                        lastActivityAt: _formatDateTime(
+                          desktopMetrics?.lastActivityAt,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _ClientesDesktopPanel(
+                      title: 'Procesos del cliente',
+                      subtitle:
+                          'Cada servicio o proceso operativo asociado aparece aquí',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: _ClienteServiceFilter.values
+                                .map(
+                                  (filter) => ChoiceChip(
+                                    label: Text(filter.label),
+                                    selected: _desktopServiceFilter == filter,
+                                    onSelected: (_) => setState(
+                                      () => _desktopServiceFilter = filter,
+                                    ),
+                                  ),
+                                )
+                                .toList(growable: false),
+                          ),
+                          const SizedBox(height: 14),
+                          if (filteredServices.isEmpty)
+                            const _ClientesDesktopServiceEmptyState()
+                          else
+                            ...filteredServices.map(
+                              (service) => Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: _ClienteDesktopServiceRow(
+                                  service: service,
                                 ),
                               ),
-                            )
-                            .toList(growable: false),
+                            ),
+                        ],
                       ),
-                      const SizedBox(height: 14),
-                      if (filteredServices.isEmpty)
-                        const _ClientesDesktopServiceEmptyState()
-                      else
-                        ...filteredServices.map(
-                          (service) => Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: _ClienteDesktopServiceRow(service: service),
-                          ),
-                        ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 16),
+                    _ClientesDesktopPanel(
+                      title: 'Historial (expediente)',
+                      subtitle:
+                          'Ventas, cotizaciones y actividad operativa en orden cronológico',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (desktopTimeline.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: Text(
+                                'Este cliente no tiene actividad registrada',
+                              ),
+                            )
+                          else
+                            ...desktopTimeline.map((event) {
+                              final serviceTitle =
+                                  (event.meta['serviceTitle'] ?? '')
+                                      .toString()
+                                      .trim();
+                              final status = (event.status ?? '').trim();
+                              final detailLine = _eventDetailLine(event);
+                              final headerParts = <String>[
+                                (event.userName ?? '').trim().isEmpty
+                                    ? 'Sistema'
+                                    : event.userName!.trim(),
+                                _formatDateTime(event.at),
+                                if (status.isNotEmpty) status,
+                              ];
+                              final header = headerParts.join(' · ');
+                              final lines = <String>[
+                                if (serviceTitle.isNotEmpty) serviceTitle,
+                                if (detailLine.trim().isNotEmpty) detailLine,
+                                header,
+                              ];
+                              final subtitle = lines.join('\n');
+                              final isThreeLine = lines.length >= 2;
+
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: Icon(
+                                    _iconForEventType(event.eventType),
+                                    color: scheme.primary,
+                                  ),
+                                  title: Text(event.title),
+                                  subtitle: Text(subtitle),
+                                  isThreeLine: isThreeLine,
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (event.amount != null)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            right: 8,
+                                          ),
+                                          child: Text(
+                                            _formatMoney(event.amount),
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                      IconButton(
+                                        tooltip: 'Ver detalle',
+                                        onPressed: () => unawaited(
+                                          _openTimelineEventDetail(
+                                            event,
+                                            desktopClient,
+                                          ),
+                                        ),
+                                        icon: const Icon(Icons.open_in_new),
+                                      ),
+                                    ],
+                                  ),
+                                  onTap: () =>
+                                      _openTimelineEvent(event, desktopClient),
+                                ),
+                              );
+                            }),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 16),
@@ -282,11 +1004,28 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
                       child: Column(
                         children: [
                           _ClienteDesktopInfoTile(
+                            icon: Icons.person_outline,
+                            label: 'Creado por',
+                            value: createdByText,
+                          ),
+                          _ClienteDesktopInfoTile(
+                            icon: Icons.calendar_month_outlined,
+                            label: 'Creado el',
+                            value: createdAtText,
+                          ),
+                          _ClienteDesktopInfoTile(
                             icon: Icons.verified_user_outlined,
                             label: 'Estado',
                             value: desktopClient.isDeleted
                                 ? 'Eliminado'
                                 : 'Activo',
+                          ),
+                          _ClienteDesktopInfoTile(
+                            icon: Icons.history_toggle_off_outlined,
+                            label: 'Última actividad',
+                            value: _formatDateTime(
+                              desktopMetrics?.lastActivityAt,
+                            ),
                           ),
                           _ClienteDesktopInfoTile(
                             icon: Icons.sync_outlined,
@@ -297,6 +1036,11 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
                             icon: Icons.miscellaneous_services_outlined,
                             label: 'Procesos',
                             value: _selectedDesktopServices.length.toString(),
+                          ),
+                          _ClienteDesktopInfoTile(
+                            icon: Icons.event_note_outlined,
+                            label: 'Eventos',
+                            value: desktopTimeline.length.toString(),
                           ),
                         ],
                       ),
@@ -1114,6 +1858,64 @@ class _ClientesDesktopMetric extends StatelessWidget {
   }
 }
 
+class _ClientesDesktopMetricsRow extends StatelessWidget {
+  const _ClientesDesktopMetricsRow({
+    required this.salesCount,
+    required this.salesTotal,
+    required this.servicesCount,
+    required this.cotizacionesCount,
+    required this.cotizacionesTotal,
+    required this.lastActivityAt,
+  });
+
+  final int salesCount;
+  final String salesTotal;
+  final int servicesCount;
+  final int cotizacionesCount;
+  final String cotizacionesTotal;
+  final String lastActivityAt;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        _ClientesDesktopMetric(
+          label: 'Ventas',
+          value: '$salesCount · $salesTotal',
+          icon: Icons.point_of_sale,
+          accent: scheme.primary,
+          dark: false,
+        ),
+        _ClientesDesktopMetric(
+          label: 'Servicios',
+          value: '$servicesCount',
+          icon: Icons.build_outlined,
+          accent: scheme.tertiary,
+          dark: false,
+        ),
+        _ClientesDesktopMetric(
+          label: 'Cotizaciones',
+          value: '$cotizacionesCount · $cotizacionesTotal',
+          icon: Icons.description_outlined,
+          accent: scheme.secondary,
+          dark: false,
+        ),
+        _ClientesDesktopMetric(
+          label: 'Última actividad',
+          value: lastActivityAt,
+          icon: Icons.history_toggle_off_outlined,
+          accent: scheme.primary,
+          dark: false,
+        ),
+      ],
+    );
+  }
+}
+
 class _ClientesDesktopFilterPill extends StatelessWidget {
   const _ClientesDesktopFilterPill({
     required this.label,
@@ -1420,6 +2222,52 @@ class _ClienteDesktopInfoTile extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ClientesDesktopWarningBanner extends StatelessWidget {
+  const _ClientesDesktopWarningBanner({
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.8)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, color: scheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: theme.textTheme.bodyMedium,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 10),
+          TextButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Reintentar'),
+          ),
+        ],
       ),
     );
   }

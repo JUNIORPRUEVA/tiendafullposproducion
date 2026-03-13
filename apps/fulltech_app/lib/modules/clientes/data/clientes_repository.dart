@@ -5,9 +5,13 @@ import '../../../core/api/api_routes.dart';
 import '../../../core/auth/auth_repository.dart';
 import '../../../core/errors/api_exception.dart';
 import '../cliente_model.dart';
+import '../cliente_profile_model.dart';
+import '../cliente_timeline_model.dart';
 
 enum ClientesOrder { az, za }
+
 enum CorreoFilter { todos, conCorreo, sinCorreo }
+
 enum EstadoFilter { activos, eliminados, todos }
 
 final clientesRepositoryProvider = Provider<ClientesRepository>((ref) {
@@ -70,9 +74,11 @@ class ClientesRepository {
       final mapped = rows
           .whereType<Map>()
           .map((e) => ClienteModel.fromJson(e.cast<String, dynamic>()))
-          .map((cliente) => cliente.ownerId.isEmpty
-              ? cliente.copyWith(ownerId: ownerId)
-              : cliente)
+          .map(
+            (cliente) => cliente.ownerId.isEmpty
+                ? cliente.copyWith(ownerId: ownerId)
+                : cliente,
+          )
           .toList();
 
       final filteredByEstado = mapped.where((cliente) {
@@ -121,8 +127,12 @@ class ClientesRepository {
   }) async {
     try {
       final res = await _dio.get(ApiRoutes.clientDetail(id));
-      final cliente = ClienteModel.fromJson((res.data as Map).cast<String, dynamic>());
-      return cliente.ownerId.isEmpty ? cliente.copyWith(ownerId: ownerId) : cliente;
+      final cliente = ClienteModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+      return cliente.ownerId.isEmpty
+          ? cliente.copyWith(ownerId: ownerId)
+          : cliente;
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo cargar el cliente'),
@@ -141,13 +151,24 @@ class ClientesRepository {
     try {
       if (cliente.id.isEmpty) {
         final res = await _dio.post(ApiRoutes.clients, data: payload);
-        final created = ClienteModel.fromJson((res.data as Map).cast<String, dynamic>());
-        return created.ownerId.isEmpty ? created.copyWith(ownerId: ownerId) : created;
+        final created = ClienteModel.fromJson(
+          (res.data as Map).cast<String, dynamic>(),
+        );
+        return created.ownerId.isEmpty
+            ? created.copyWith(ownerId: ownerId)
+            : created;
       }
 
-      final res = await _dio.patch(ApiRoutes.clientDetail(cliente.id), data: payload);
-      final updated = ClienteModel.fromJson((res.data as Map).cast<String, dynamic>());
-      return updated.ownerId.isEmpty ? updated.copyWith(ownerId: ownerId) : updated;
+      final res = await _dio.patch(
+        ApiRoutes.clientDetail(cliente.id),
+        data: payload,
+      );
+      final updated = ClienteModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+      return updated.ownerId.isEmpty
+          ? updated.copyWith(ownerId: ownerId)
+          : updated;
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo guardar el cliente'),
@@ -156,9 +177,59 @@ class ClientesRepository {
     }
   }
 
-  Future<void> softDeleteClient({required String ownerId, required String id}) async {
+  Future<ClienteProfileResponse> getClientProfile({required String id}) async {
     try {
-      await _dio.delete(ApiRoutes.clientDetail(id), data: {'owner_id': ownerId});
+      final res = await _dio.get(ApiRoutes.clientProfile(id));
+      final raw = res.data;
+      if (raw is! Map) {
+        throw ApiException('Respuesta inválida del servidor');
+      }
+      return ClienteProfileResponse.fromJson(raw.cast<String, dynamic>());
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo cargar el expediente'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<ClienteTimelineResponse> getClientTimeline({
+    required String id,
+    int take = 100,
+    DateTime? before,
+    List<String> types = const [],
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.clientTimeline(id),
+        queryParameters: {
+          'take': take,
+          if (before != null) 'before': before.toIso8601String(),
+          if (types.isNotEmpty) 'types': types.join(','),
+        },
+      );
+      final raw = res.data;
+      if (raw is! Map) {
+        throw ApiException('Respuesta inválida del servidor');
+      }
+      return ClienteTimelineResponse.fromJson(raw.cast<String, dynamic>());
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo cargar el historial'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<void> softDeleteClient({
+    required String ownerId,
+    required String id,
+  }) async {
+    try {
+      await _dio.delete(
+        ApiRoutes.clientDetail(id),
+        data: {'owner_id': ownerId},
+      );
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo eliminar el cliente'),

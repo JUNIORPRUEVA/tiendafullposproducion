@@ -30,7 +30,10 @@ class CotizacionesRepository {
     return fallback;
   }
 
-  Future<List<CotizacionModel>> list({String? customerPhone, int take = 80}) async {
+  Future<List<CotizacionModel>> list({
+    String? customerPhone,
+    int take = 80,
+  }) async {
     try {
       final res = await _dio.get(
         ApiRoutes.cotizaciones,
@@ -67,11 +70,26 @@ class CotizacionesRepository {
 
   Future<CotizacionModel> create(CotizacionModel draft) async {
     try {
-      final res = await _dio.post(ApiRoutes.cotizaciones, data: draft.toCreateDto());
+      final res = await _dio.post(
+        ApiRoutes.cotizaciones,
+        data: draft.toCreateDto(),
+      );
       return CotizacionModel.fromApi((res.data as Map).cast<String, dynamic>());
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo crear la cotización'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<CotizacionModel> getById(String id) async {
+    try {
+      final res = await _dio.get(ApiRoutes.cotizacionDetail(id));
+      return CotizacionModel.fromApi((res.data as Map).cast<String, dynamic>());
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo cargar la cotización'),
         e.response?.statusCode,
       );
     }
@@ -86,7 +104,10 @@ class CotizacionesRepository {
       return CotizacionModel.fromApi((res.data as Map).cast<String, dynamic>());
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudo actualizar la cotización'),
+        _extractMessage(
+          e.response?.data,
+          'No se pudo actualizar la cotización',
+        ),
         e.response?.statusCode,
       );
     }

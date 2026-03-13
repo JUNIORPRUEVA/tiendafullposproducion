@@ -137,6 +137,7 @@ export class ClientsService {
         email: true,
         direccion: true,
         notas: true,
+        ownerId: true,
         lastActivityAt: true,
         isDeleted: true,
         createdAt: true,
@@ -146,7 +147,11 @@ export class ClientsService {
 
     if (!client) throw new NotFoundException('Client not found');
 
-    const [salesAgg, servicesAgg, cotizacionesAgg] = await this.prisma.$transaction([
+    const [createdBy, salesAgg, servicesAgg, cotizacionesAgg] = await this.prisma.$transaction([
+      this.prisma.user.findUnique({
+        where: { id: client.ownerId },
+        select: { id: true, nombreCompleto: true, email: true, role: true },
+      }),
       this.prisma.sale.aggregate({
         where: { customerId: id, isDeleted: false },
         _count: { _all: true },
@@ -168,6 +173,7 @@ export class ClientsService {
 
     return {
       client,
+      createdBy,
       metrics: {
         salesCount: salesAgg._count._all,
         salesTotal: salesAgg._sum.totalSold,
