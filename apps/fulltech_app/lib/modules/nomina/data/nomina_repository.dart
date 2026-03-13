@@ -233,8 +233,14 @@ class NominaRepository {
 
   Future<List<PayrollHistoryItem>> listMyPayrollHistory() async {
     if (_currentUserId.isEmpty) return const [];
-    final rows = await _getList(ApiRoutes.payrollMyHistory);
-    return rows.map(PayrollHistoryItem.fromMap).toList();
+    try {
+      final rows = await _getList(ApiRoutes.payrollMyHistory);
+      return rows.map(PayrollHistoryItem.fromMap).toList();
+    } on FormatException {
+      throw ApiException(_invalidResponseMessage('consultar Mis Pagos'));
+    } on TypeError {
+      throw ApiException(_invalidResponseMessage('consultar Mis Pagos'));
+    }
   }
 
   Future<double> getCuotaMinimaForUser() async {
@@ -266,6 +272,10 @@ class NominaRepository {
         return (res.data as Map).cast<String, dynamic>();
       }
       throw ApiException('Respuesta inválida del servidor');
+    } on FormatException {
+      throw ApiException(_invalidResponseMessage('consultar nómina'));
+    } on TypeError {
+      throw ApiException(_invalidResponseMessage('consultar nómina'));
     } on TimeoutException {
       throw ApiException(_timeoutMessage('consultar nómina'));
     } on DioException catch (e) {
@@ -292,6 +302,10 @@ class NominaRepository {
         return (res.data as Map).cast<String, dynamic>();
       }
       return null;
+    } on FormatException {
+      throw ApiException(_invalidResponseMessage('consultar nómina'));
+    } on TypeError {
+      throw ApiException(_invalidResponseMessage('consultar nómina'));
     } on TimeoutException {
       throw ApiException(_timeoutMessage('consultar nómina'));
     } on DioException catch (e) {
@@ -317,6 +331,10 @@ class NominaRepository {
           .whereType<Map>()
           .map((row) => row.cast<String, dynamic>())
           .toList();
+    } on FormatException {
+      throw ApiException(_invalidResponseMessage('consultar nómina'));
+    } on TypeError {
+      throw ApiException(_invalidResponseMessage('consultar nómina'));
     } on TimeoutException {
       throw ApiException(_timeoutMessage('consultar nómina'));
     } on DioException catch (e) {
@@ -342,6 +360,10 @@ class NominaRepository {
         return (res.data as Map).cast<String, dynamic>();
       }
       throw ApiException('Respuesta inválida del servidor');
+    } on FormatException {
+      throw ApiException(_invalidResponseMessage('guardar cambios de nómina'));
+    } on TypeError {
+      throw ApiException(_invalidResponseMessage('guardar cambios de nómina'));
     } on TimeoutException {
       throw ApiException(_timeoutMessage('guardar cambios de nómina'));
     } on DioException catch (e) {
@@ -406,5 +428,9 @@ class NominaRepository {
 
   String _timeoutMessage(String action) {
     return 'La operación de nómina tardó demasiado al $action. Inténtalo de nuevo.';
+  }
+
+  String _invalidResponseMessage(String action) {
+    return 'El servidor devolvió una respuesta inválida al $action. Revisa el endpoint de nómina o inténtalo de nuevo más tarde.';
   }
 }

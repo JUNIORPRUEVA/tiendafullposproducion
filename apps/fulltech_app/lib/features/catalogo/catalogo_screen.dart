@@ -1526,6 +1526,38 @@ class _DesktopProductCard extends StatelessWidget {
                                   ],
                                 ),
                               ),
+                              if (showCost)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 5,
+                                  ),
+                                  decoration: overlayDecoration,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'Costo',
+                                        style: theme.textTheme.labelSmall
+                                            ?.copyWith(
+                                              color: Colors.white70,
+                                              fontSize: 9,
+                                            ),
+                                      ),
+                                      Text(
+                                        '\$${product.costo.toStringAsFixed(0)}',
+                                        style: theme.textTheme.labelMedium
+                                            ?.copyWith(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 10,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 8,
@@ -1600,20 +1632,7 @@ class _DesktopProductCard extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
                   child: Row(
                     children: [
-                      Expanded(
-                        child: Text(
-                          showCost
-                              ? 'Costo \$${product.costo.toStringAsFixed(0)}'
-                              : product.categoriaLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
+                      const Spacer(),
                       Icon(
                         Icons.arrow_forward_rounded,
                         color: theme.colorScheme.primary,

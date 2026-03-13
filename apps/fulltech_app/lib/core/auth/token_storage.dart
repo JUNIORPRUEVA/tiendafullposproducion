@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -19,7 +20,10 @@ class TokenStorage {
   bool get _useSecureStorage {
     if (kIsWeb) return false;
     return defaultTargetPlatform == TargetPlatform.android ||
-        defaultTargetPlatform == TargetPlatform.iOS;
+      defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.linux ||
+      defaultTargetPlatform == TargetPlatform.macOS;
   }
 
   static const Duration _prefsTimeout = Duration(seconds: 2);
@@ -50,11 +54,20 @@ class TokenStorage {
       return _memoryAccessToken;
     }
 
+    final secure = await _readSecure(_accessTokenKey);
+    if (secure != null && secure.isNotEmpty) {
+      _memoryAccessToken = secure;
+      unawaited(_writePrefValue(_accessTokenKey, secure));
+      TraceLog.log('TokenStorage', 'getAccessToken() secure hit', seq: seq);
+      return secure;
+    }
+
     try {
       final prefs = await _prefs();
       final value = prefs.getString(_accessTokenKey);
       if (value != null && value.isNotEmpty) {
         _memoryAccessToken = value;
+        unawaited(_writeSecureValue(_accessTokenKey, value));
         TraceLog.log('TokenStorage', 'getAccessToken() prefs hit', seq: seq);
         return value;
       }
@@ -66,13 +79,6 @@ class TokenStorage {
         error: e,
         stackTrace: st,
       );
-    }
-
-    final secure = await _readSecure(_accessTokenKey);
-    if (secure != null && secure.isNotEmpty) {
-      _memoryAccessToken = secure;
-      TraceLog.log('TokenStorage', 'getAccessToken() secure hit', seq: seq);
-      return secure;
     }
 
     TraceLog.log('TokenStorage', 'getAccessToken() miss', seq: seq);
@@ -87,11 +93,20 @@ class TokenStorage {
       return _memoryRefreshToken;
     }
 
+    final secure = await _readSecure(_refreshTokenKey);
+    if (secure != null && secure.isNotEmpty) {
+      _memoryRefreshToken = secure;
+      unawaited(_writePrefValue(_refreshTokenKey, secure));
+      TraceLog.log('TokenStorage', 'getRefreshToken() secure hit', seq: seq);
+      return secure;
+    }
+
     try {
       final prefs = await _prefs();
       final value = prefs.getString(_refreshTokenKey);
       if (value != null && value.isNotEmpty) {
         _memoryRefreshToken = value;
+        unawaited(_writeSecureValue(_refreshTokenKey, value));
         TraceLog.log('TokenStorage', 'getRefreshToken() prefs hit', seq: seq);
         return value;
       }
@@ -105,26 +120,33 @@ class TokenStorage {
       );
     }
 
-    final secure = await _readSecure(_refreshTokenKey);
-    if (secure != null && secure.isNotEmpty) {
-      _memoryRefreshToken = secure;
-      TraceLog.log('TokenStorage', 'getRefreshToken() secure hit', seq: seq);
-      return secure;
-    }
-
     TraceLog.log('TokenStorage', 'getRefreshToken() miss', seq: seq);
     return null;
   }
 
   Future<void> saveUserSnapshot(UserModel user) async {
     _memoryUserSnapshot = user;
+    final encoded = jsonEncode(user.toJson());
     try {
       final prefs = await _prefs();
-      await prefs.setString(_userSnapshotKey, jsonEncode(user.toJson()));
+      await prefs.setString(_userSnapshotKey, encoded);
     } catch (e, st) {
       TraceLog.log(
         'TokenStorage',
         'saveUserSnapshot() ERROR',
+        error: e,
+        stackTrace: st,
+      );
+    }
+
+    try {
+      await _secureStorage
+          .write(key: _userSnapshotKey, value: encoded)
+          .timeout(_secureTimeout);
+    } catch (e, st) {
+      TraceLog.log(
+        'TokenStorage',
+        'saveUserSnapshot() secure ERROR',
         error: e,
         stackTrace: st,
       );
@@ -139,21 +161,24 @@ class TokenStorage {
       return _memoryUserSnapshot;
     }
 
+    final secureUser = await _restoreUserSnapshot(
+      await _readSecure(_userSnapshotKey),
+      seq: seq,
+      source: 'secure',
+    );
+    if (secureUser != null) {
+      unawaited(saveUserSnapshot(secureUser));
+      return secureUser;
+    }
+
     try {
       final prefs = await _prefs();
       final raw = prefs.getString(_userSnapshotKey);
-      if (raw == null || raw.trim().isEmpty) {
-        TraceLog.log('TokenStorage', 'getUserSnapshot() miss', seq: seq);
-        return null;
+      final user = await _restoreUserSnapshot(raw, seq: seq, source: 'prefs');
+      if (user != null) {
+        unawaited(saveUserSnapshot(user));
+        return user;
       }
-
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map) return null;
-
-      final user = UserModel.fromJson(decoded.cast<String, dynamic>());
-      _memoryUserSnapshot = user;
-      TraceLog.log('TokenStorage', 'getUserSnapshot() prefs hit', seq: seq);
-      return user;
     } catch (e, st) {
       TraceLog.log(
         'TokenStorage',
@@ -162,8 +187,10 @@ class TokenStorage {
         error: e,
         stackTrace: st,
       );
-      return null;
     }
+
+    TraceLog.log('TokenStorage', 'getUserSnapshot() miss', seq: seq);
+    return null;
   }
 
   Future<void> clearTokens() async {
@@ -184,6 +211,7 @@ class TokenStorage {
 
     await _deleteSecure(_accessTokenKey);
     await _deleteSecure(_refreshTokenKey);
+    await _deleteSecure(_userSnapshotKey);
     TraceLog.log('TokenStorage', 'clearTokens() end', seq: seq);
   }
 
@@ -205,12 +233,29 @@ class TokenStorage {
     }
   }
 
+  Future<void> _writePrefValue(String key, String value) async {
+    if (value.isEmpty) return;
+    try {
+      final prefs = await _prefs();
+      await prefs.setString(key, value);
+    } catch (e, st) {
+      TraceLog.log(
+        'TokenStorage',
+        '_writePrefValue ERROR key=$key',
+        error: e,
+        stackTrace: st,
+      );
+    }
+  }
+
   Future<void> _saveInSecure(String accessToken, [String? refreshToken]) async {
     if (!_useSecureStorage) return;
     try {
-      await _secureStorage
-          .write(key: _accessTokenKey, value: accessToken)
-          .timeout(_secureTimeout);
+      if (accessToken.isNotEmpty) {
+        await _secureStorage
+            .write(key: _accessTokenKey, value: accessToken)
+            .timeout(_secureTimeout);
+      }
       if (refreshToken != null && refreshToken.isNotEmpty) {
         await _secureStorage
             .write(key: _refreshTokenKey, value: refreshToken)
@@ -224,6 +269,20 @@ class TokenStorage {
         stackTrace: st,
       );
       // Silently fall back to prefs when secure storage is unavailable
+    }
+  }
+
+  Future<void> _writeSecureValue(String key, String value) async {
+    if (!_useSecureStorage || value.isEmpty) return;
+    try {
+      await _secureStorage.write(key: key, value: value).timeout(_secureTimeout);
+    } catch (e, st) {
+      TraceLog.log(
+        'TokenStorage',
+        '_writeSecureValue ERROR key=$key',
+        error: e,
+        stackTrace: st,
+      );
     }
   }
 
@@ -255,5 +314,49 @@ class TokenStorage {
       );
       // Ignore secure storage failures on platforms without support
     }
+  }
+
+  Future<UserModel?> _restoreUserSnapshot(
+    String? raw, {
+    required int seq,
+    required String source,
+  }) async {
+    if (raw == null || raw.trim().isEmpty) return null;
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) {
+        await _removeCorruptedUserSnapshot(source);
+        return null;
+      }
+
+      final user = UserModel.fromJson(decoded.cast<String, dynamic>());
+      _memoryUserSnapshot = user;
+      TraceLog.log('TokenStorage', 'getUserSnapshot() $source hit', seq: seq);
+      return user;
+    } catch (e, st) {
+      TraceLog.log(
+        'TokenStorage',
+        'getUserSnapshot() $source ERROR',
+        seq: seq,
+        error: e,
+        stackTrace: st,
+      );
+      await _removeCorruptedUserSnapshot(source);
+      return null;
+    }
+  }
+
+  Future<void> _removeCorruptedUserSnapshot(String source) async {
+    try {
+      final prefs = await _prefs();
+      await prefs.remove(_userSnapshotKey);
+    } catch (_) {}
+
+    try {
+      await _secureStorage.delete(key: _userSnapshotKey).timeout(_secureTimeout);
+    } catch (_) {}
+
+    TraceLog.log('TokenStorage', 'Removed corrupted user snapshot from $source');
   }
 }

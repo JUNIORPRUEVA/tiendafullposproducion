@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:async';
 
 import 'package:dio/dio.dart';
@@ -131,16 +132,14 @@ class CompanyManualRepository {
           .get(
             path,
             queryParameters: query,
-            options: _options(extra: extra),
+            options: _jsonOptions(extra: extra),
           )
           .timeout(_timeout);
-      if (res.data is Map<String, dynamic>) {
-        return res.data as Map<String, dynamic>;
-      }
-      if (res.data is Map) {
-        return (res.data as Map).cast<String, dynamic>();
-      }
-      throw ApiException('Respuesta inválida del servidor');
+      return _requireMap(res.data, 'cargar el manual interno');
+    } on FormatException {
+      throw ApiException(_invalidResponseMessage('cargar el manual interno'));
+    } on TypeError {
+      throw ApiException(_invalidResponseMessage('cargar el manual interno'));
     } on TimeoutException {
       throw ApiException(
         'La operación tardó demasiado al cargar el manual interno.',
@@ -159,15 +158,17 @@ class CompanyManualRepository {
   ) async {
     try {
       final res = await _dio
-          .post(path, data: body, options: _options())
+          .post(path, data: body, options: _jsonOptions())
           .timeout(_timeout);
-      if (res.data is Map<String, dynamic>) {
-        return res.data as Map<String, dynamic>;
-      }
-      if (res.data is Map) {
-        return (res.data as Map).cast<String, dynamic>();
-      }
-      throw ApiException('Respuesta inválida del servidor');
+      return _requireMap(res.data, 'guardar la entrada del manual interno');
+    } on FormatException {
+      throw ApiException(
+        _invalidResponseMessage('guardar la entrada del manual interno'),
+      );
+    } on TypeError {
+      throw ApiException(
+        _invalidResponseMessage('guardar la entrada del manual interno'),
+      );
     } on TimeoutException {
       throw ApiException('La operación tardó demasiado al guardar la entrada.');
     } on DioException catch (e) {
@@ -184,15 +185,17 @@ class CompanyManualRepository {
   ) async {
     try {
       final res = await _dio
-          .patch(path, data: body, options: _options())
+          .patch(path, data: body, options: _jsonOptions())
           .timeout(_timeout);
-      if (res.data is Map<String, dynamic>) {
-        return res.data as Map<String, dynamic>;
-      }
-      if (res.data is Map) {
-        return (res.data as Map).cast<String, dynamic>();
-      }
-      throw ApiException('Respuesta inválida del servidor');
+      return _requireMap(res.data, 'actualizar la entrada del manual interno');
+    } on FormatException {
+      throw ApiException(
+        _invalidResponseMessage('actualizar la entrada del manual interno'),
+      );
+    } on TypeError {
+      throw ApiException(
+        _invalidResponseMessage('actualizar la entrada del manual interno'),
+      );
     } on TimeoutException {
       throw ApiException(
         'La operación tardó demasiado al actualizar la entrada.',
@@ -203,6 +206,49 @@ class CompanyManualRepository {
         e.response?.statusCode,
       );
     }
+  }
+
+  Map<String, dynamic> _requireMap(dynamic data, String action) {
+    final normalized = _decodeResponseBody(data, action);
+    if (normalized is Map<String, dynamic>) {
+      return normalized;
+    }
+    if (normalized is Map) {
+      return normalized.cast<String, dynamic>();
+    }
+    throw ApiException(_invalidResponseMessage(action));
+  }
+
+  dynamic _decodeResponseBody(dynamic data, String action) {
+    if (data == null) {
+      throw ApiException(_invalidResponseMessage(action));
+    }
+    if (data is Map || data is List) {
+      return data;
+    }
+    if (data is String) {
+      final raw = _stripBom(data).trim();
+      if (raw.isEmpty) {
+        throw ApiException(_invalidResponseMessage(action));
+      }
+      return jsonDecode(raw);
+    }
+    throw ApiException(_invalidResponseMessage(action));
+  }
+
+  String _stripBom(String value) {
+    if (value.startsWith('\uFEFF')) {
+      return value.substring(1);
+    }
+    return value;
+  }
+
+  String _invalidResponseMessage(String action) {
+    return 'El servidor devolvió una respuesta inválida al $action.';
+  }
+
+  Options _jsonOptions({Map<String, dynamic>? extra}) {
+    return _options(extra: extra).copyWith(responseType: ResponseType.plain);
   }
 
   Options _options({Map<String, dynamic>? extra}) {

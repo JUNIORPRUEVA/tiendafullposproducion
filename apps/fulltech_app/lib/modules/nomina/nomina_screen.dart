@@ -19,11 +19,521 @@ import 'application/nomina_controller.dart';
 import 'data/nomina_repository.dart';
 import 'nomina_models.dart';
 
-class NominaScreen extends ConsumerWidget {
+class NominaScreen extends ConsumerStatefulWidget {
   const NominaScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<NominaScreen> createState() => _NominaScreenState();
+}
+
+class _NominaScreenState extends ConsumerState<NominaScreen> {
+  String? _selectedDesktopEmployeeId;
+
+  PayrollEmployee? _selectedDesktopEmployee(List<PayrollEmployee> employees) {
+    if (employees.isEmpty) {
+      _selectedDesktopEmployeeId = null;
+      return null;
+    }
+
+    for (final employee in employees) {
+      if (employee.id == _selectedDesktopEmployeeId) {
+        return employee;
+      }
+    }
+
+    final fallback = employees.first;
+    _selectedDesktopEmployeeId = fallback.id;
+    return fallback;
+  }
+
+  Widget _buildDesktopAdminBody(
+    BuildContext context,
+    WidgetRef ref,
+    NominaHomeState state,
+  ) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final openPeriod = state.openPeriod;
+    final closedPeriods = state.periods
+        .where((period) => !period.isOpen)
+        .length;
+    final activeEmployees = state.employees
+        .where((employee) => employee.activo)
+        .length;
+    final payrollBase = state.employees.fold<double>(
+      0,
+      (sum, employee) => sum + employee.salarioBaseQuincenal,
+    );
+    final payrollQuota = state.employees.fold<double>(
+      0,
+      (sum, employee) => sum + employee.cuotaMinima,
+    );
+    final selectedEmployee = _selectedDesktopEmployee(state.employees);
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            scheme.primary.withValues(alpha: 0.12),
+            scheme.primary.withValues(alpha: 0.03),
+            scheme.surface,
+          ],
+        ),
+      ),
+      child: RefreshIndicator(
+        onRefresh: ref.read(nominaHomeControllerProvider.notifier).load,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1480),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(32),
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFF0F3D91), Color(0xFF081A33)],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: scheme.primary.withValues(alpha: 0.18),
+                          blurRadius: 28,
+                          offset: const Offset(0, 18),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: [
+                              _NominaDesktopMetric(
+                                label: 'Quincena activa',
+                                value: openPeriod?.title ?? 'Sin apertura',
+                                icon: Icons.event_note_outlined,
+                                accent: const Color(0xFF93C5FD),
+                                dark: true,
+                              ),
+                              _NominaDesktopMetric(
+                                label: 'Empleados activos',
+                                value: activeEmployees.toString(),
+                                icon: Icons.groups_2_outlined,
+                                accent: const Color(0xFFFDE68A),
+                                dark: true,
+                              ),
+                              _NominaDesktopMetric(
+                                label: 'Total abierto',
+                                value: money.format(state.openPeriodTotal ?? 0),
+                                icon: Icons.account_balance_wallet_outlined,
+                                accent: const Color(0xFF86EFAC),
+                                dark: true,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 20),
+                        SizedBox(
+                          width: 250,
+                          child: Column(
+                            children: [
+                              SizedBox(
+                                width: double.infinity,
+                                child: FilledButton.icon(
+                                  onPressed: () =>
+                                      _showCreatePeriodDialog(context, ref),
+                                  icon: const Icon(Icons.add),
+                                  label: const Text('Nueva quincena'),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: Colors.white,
+                                    foregroundColor: const Color(0xFF0F172A),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 16,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  onPressed: state.loading
+                                      ? null
+                                      : () => _openOpenPeriodTotalsDialog(
+                                          context,
+                                          ref,
+                                          state,
+                                        ),
+                                  icon: const Icon(Icons.summarize_outlined),
+                                  label: const Text('Ver totales'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.white,
+                                    side: BorderSide(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.35,
+                                      ),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 16,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  onPressed: state.loading
+                                      ? null
+                                      : () => _openPayrollHistoryDialog(
+                                          context,
+                                          ref,
+                                          state,
+                                        ),
+                                  icon: const Icon(Icons.history),
+                                  label: const Text('Historial'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.white,
+                                    side: BorderSide(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.35,
+                                      ),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 16,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 340,
+                        child: Column(
+                          children: [
+                            _NominaDesktopPanel(
+                              title: 'Resumen ejecutivo',
+                              subtitle: 'Indicadores clave del ciclo actual',
+                              child: Column(
+                                children: [
+                                  _NominaInfoLine(
+                                    label: 'Quincenas registradas',
+                                    value: state.periods.length.toString(),
+                                  ),
+                                  _NominaInfoLine(
+                                    label: 'Quincenas cerradas',
+                                    value: closedPeriods.toString(),
+                                  ),
+                                  _NominaInfoLine(
+                                    label: 'Base quincenal equipo',
+                                    value: money.format(payrollBase),
+                                  ),
+                                  _NominaInfoLine(
+                                    label: 'Cuotas acumuladas',
+                                    value: money.format(payrollQuota),
+                                  ),
+                                  _NominaInfoLine(
+                                    label: 'Estado operativo',
+                                    value: openPeriod != null
+                                        ? 'Activa'
+                                        : 'Pendiente',
+                                    emphasized: true,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            _NominaDesktopPanel(
+                              title: 'Control operativo',
+                              subtitle: 'Acciones administrativas prioritarias',
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Combustible y pagos asociados ya aprobados se consolidan aquí para completar la nómina sin duplicar revisión operativa.',
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      height: 1.45,
+                                      color: scheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: FilledButton.tonalIcon(
+                                      onPressed: () =>
+                                          context.go(Routes.administracion),
+                                      icon: const Icon(
+                                        Icons.admin_panel_settings_outlined,
+                                      ),
+                                      label: const Text('Abrir administración'),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: OutlinedButton.icon(
+                                      onPressed: state.loading
+                                          ? null
+                                          : () => _importOpenPeriodFuelPayments(
+                                              context,
+                                              ref,
+                                              state,
+                                            ),
+                                      icon: const Icon(
+                                        Icons.local_gas_station_outlined,
+                                      ),
+                                      label: const Text('Importar combustible'),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: OutlinedButton.icon(
+                                      onPressed: state.loading
+                                          ? null
+                                          : () => _exportOpenPeriodPdf(
+                                              context,
+                                              ref,
+                                              state,
+                                            ),
+                                      icon: const Icon(
+                                        Icons.picture_as_pdf_outlined,
+                                      ),
+                                      label: const Text('Exportar PDF'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (state.error != null) ...[
+                              const SizedBox(height: 16),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: scheme.errorContainer,
+                                  borderRadius: BorderRadius.circular(22),
+                                  border: Border.all(
+                                    color: scheme.error.withValues(alpha: 0.24),
+                                  ),
+                                ),
+                                child: Text(
+                                  state.error!,
+                                  style: TextStyle(
+                                    color: scheme.onErrorContainer,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 20),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _NominaSummaryCard(state: state),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: _NominaDesktopPanel(
+                                    title: 'Quincena actual',
+                                    subtitle: openPeriod != null
+                                        ? '${DateFormat('dd/MM/yyyy').format(openPeriod.startDate)} - ${DateFormat('dd/MM/yyyy').format(openPeriod.endDate)}'
+                                        : 'No hay una quincena abierta en este momento',
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          openPeriod != null
+                                              ? 'El tablero está listo para seguimiento, cálculo de totales y cierre cuando el ciclo operativo termine.'
+                                              : 'Crea una quincena para habilitar importaciones, consolidación de pagos y cierre administrativo.',
+                                          style: theme.textTheme.bodyMedium
+                                              ?.copyWith(
+                                                color: scheme.onSurfaceVariant,
+                                                height: 1.45,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 14),
+                                        Wrap(
+                                          spacing: 10,
+                                          runSpacing: 10,
+                                          children: [
+                                            _NominaDesktopMetric(
+                                              label: 'Total abierto',
+                                              value: money.format(
+                                                state.openPeriodTotal ?? 0,
+                                              ),
+                                              icon: Icons.payments_outlined,
+                                              accent: scheme.primary,
+                                            ),
+                                            _NominaDesktopMetric(
+                                              label: 'Activos en nómina',
+                                              value: activeEmployees.toString(),
+                                              icon: Icons.badge_outlined,
+                                              accent: scheme.secondary,
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            _NominaDesktopPanel(
+                              title: 'Quincenas',
+                              subtitle:
+                                  'Seguimiento de ciclos abiertos y cerrados',
+                              action: TextButton.icon(
+                                onPressed: () =>
+                                    _showCreatePeriodDialog(context, ref),
+                                icon: const Icon(Icons.add),
+                                label: const Text('Crear'),
+                              ),
+                              child: state.periods.isEmpty
+                                  ? _NominaEmptyState(
+                                      icon: Icons.event_note_outlined,
+                                      title: 'Aún no hay quincenas creadas',
+                                      message:
+                                          'Crea la primera quincena para comenzar la gestión de nómina.',
+                                      actionLabel: 'Crear quincena',
+                                      onAction: () =>
+                                          _showCreatePeriodDialog(context, ref),
+                                    )
+                                  : Column(
+                                      children: state.periods
+                                          .map(
+                                            (period) => _PeriodCard(
+                                              period: period,
+                                              onClose: period.isOpen
+                                                  ? () => _confirmClosePeriod(
+                                                      context,
+                                                      ref,
+                                                      period,
+                                                    )
+                                                  : null,
+                                            ),
+                                          )
+                                          .toList(growable: false),
+                                    ),
+                            ),
+                            const SizedBox(height: 16),
+                            _NominaDesktopPanel(
+                              title: 'Equipo de ventas',
+                              subtitle:
+                                  'Selección directa del personal, cuotas y salario base',
+                              action: FilledButton.tonalIcon(
+                                onPressed: () =>
+                                    _showEmployeeDialog(context, ref),
+                                icon: const Icon(Icons.add),
+                                label: const Text('Agregar empleado'),
+                              ),
+                              child: state.employees.isEmpty
+                                  ? _NominaEmptyState(
+                                      icon: Icons.groups_outlined,
+                                      title:
+                                          'No hay empleados de nómina registrados',
+                                      message:
+                                          'Agrega vendedores o personal de nómina para administrar su configuración y movimientos.',
+                                      actionLabel: 'Agregar empleado',
+                                      onAction: () =>
+                                          _showEmployeeDialog(context, ref),
+                                    )
+                                  : selectedEmployee == null
+                                  ? const SizedBox.shrink()
+                                  : Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        SingleChildScrollView(
+                                          scrollDirection: Axis.horizontal,
+                                          child: Row(
+                                            children: state.employees
+                                                .map(
+                                                  (
+                                                    employee,
+                                                  ) => _NominaDesktopEmployeeSelector(
+                                                    employee: employee,
+                                                    selected:
+                                                        employee.id ==
+                                                        selectedEmployee.id,
+                                                    onTap: () => setState(
+                                                      () =>
+                                                          _selectedDesktopEmployeeId =
+                                                              employee.id,
+                                                    ),
+                                                  ),
+                                                )
+                                                .toList(growable: false),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 14),
+                                        _NominaDesktopEmployeeRow(
+                                          employee: selectedEmployee,
+                                          selected: true,
+                                          onTap: () {},
+                                          onManage: () =>
+                                              _showEmployeePayrollDialog(
+                                                context,
+                                                ref,
+                                                selectedEmployee,
+                                              ),
+                                          onEdit: () => _showEmployeeDialog(
+                                            context,
+                                            ref,
+                                            employee: selectedEmployee,
+                                          ),
+                                          onDelete: () =>
+                                              _confirmDeleteEmployee(
+                                                context,
+                                                ref,
+                                                selectedEmployee,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final nominaTheme = theme.copyWith(
@@ -44,6 +554,7 @@ class NominaScreen extends ConsumerWidget {
     final auth = ref.watch(authStateProvider);
     final currentUser = auth.user;
     final isAdmin = currentUser?.role == 'ADMIN';
+    final isDesktop = MediaQuery.sizeOf(context).width >= 1240;
 
     if (!isAdmin) {
       return Theme(
@@ -116,240 +627,264 @@ class NominaScreen extends ConsumerWidget {
           ],
         ),
         drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
-        floatingActionButton: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            FloatingActionButton.extended(
-              heroTag: 'nomina_historial_fab',
-              onPressed: state.loading
-                  ? null
-                  : () => _openPayrollHistoryDialog(context, ref, state),
-              icon: const Icon(Icons.history),
-              label: const Text('Historial'),
-            ),
-            const SizedBox(height: 10),
-            FloatingActionButton.extended(
-              heroTag: 'nomina_totales_fab',
-              onPressed: state.loading
-                  ? null
-                  : () => _openOpenPeriodTotalsDialog(context, ref, state),
-              icon: const Icon(Icons.summarize_outlined),
-              label: const Text('Totales'),
-            ),
-          ],
-        ),
-        body: RefreshIndicator(
-          onRefresh: controller.load,
-          child: state.loading && state.periods.isEmpty
-              ? const Center(child: CircularProgressIndicator())
-              : Align(
-                  alignment: Alignment.topCenter,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 980),
-                    child: ListView(
-                      padding: const EdgeInsets.all(16),
-                      children: [
-                        _NominaSummaryCard(state: state),
-                        const SizedBox(height: 12),
-                        Card(
-                          child: Padding(
+        floatingActionButton: isDesktop
+            ? null
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  FloatingActionButton.extended(
+                    heroTag: 'nomina_historial_fab',
+                    onPressed: state.loading
+                        ? null
+                        : () => _openPayrollHistoryDialog(context, ref, state),
+                    icon: const Icon(Icons.history),
+                    label: const Text('Historial'),
+                  ),
+                  const SizedBox(height: 10),
+                  FloatingActionButton.extended(
+                    heroTag: 'nomina_totales_fab',
+                    onPressed: state.loading
+                        ? null
+                        : () =>
+                              _openOpenPeriodTotalsDialog(context, ref, state),
+                    icon: const Icon(Icons.summarize_outlined),
+                    label: const Text('Totales'),
+                  ),
+                ],
+              ),
+        body: isDesktop
+            ? _buildDesktopAdminBody(context, ref, state)
+            : RefreshIndicator(
+                onRefresh: controller.load,
+                child: state.loading && state.periods.isEmpty
+                    ? const Center(child: CircularProgressIndicator())
+                    : Align(
+                        alignment: Alignment.topCenter,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 980),
+                          child: ListView(
                             padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.local_gas_station_outlined,
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        'Combustible técnico y nómina',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleMedium
-                                            ?.copyWith(
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-                                const Text(
-                                  'La revisión operativa de salidas, aprobación y pagos de combustible se administra visualmente desde Administración > Combustible. Desde Nómina solo se importan los pagos ya marcados como pagados.',
-                                ),
-                                const SizedBox(height: 14),
-                                Wrap(
-                                  spacing: 12,
-                                  runSpacing: 12,
-                                  children: [
-                                    FilledButton.icon(
-                                      onPressed: () =>
-                                          context.go(Routes.administracion),
-                                      icon: const Icon(
-                                        Icons.admin_panel_settings_outlined,
-                                      ),
-                                      label: const Text('Abrir administración'),
-                                    ),
-                                    OutlinedButton.icon(
-                                      onPressed: state.loading
-                                          ? null
-                                          : () => _importOpenPeriodFuelPayments(
+                            children: [
+                              _NominaSummaryCard(state: state),
+                              const SizedBox(height: 12),
+                              Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Icon(
+                                            Icons.local_gas_station_outlined,
+                                            color: Theme.of(
                                               context,
-                                              ref,
-                                              state,
+                                            ).colorScheme.primary,
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(
+                                              'Combustible técnico y nómina',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleMedium
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
                                             ),
-                                      icon: const Icon(Icons.payments_outlined),
-                                      label: const Text('Importar a nómina'),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        if (state.error != null)
-                          Card(
-                            color: Theme.of(context).colorScheme.errorContainer,
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Text(
-                                state.error!,
-                                style: TextStyle(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onErrorContainer,
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 10),
+                                      const Text(
+                                        'La revisión operativa de salidas, aprobación y pagos de combustible se administra visualmente desde Administración > Combustible. Desde Nómina solo se importan los pagos ya marcados como pagados.',
+                                      ),
+                                      const SizedBox(height: 14),
+                                      Wrap(
+                                        spacing: 12,
+                                        runSpacing: 12,
+                                        children: [
+                                          FilledButton.icon(
+                                            onPressed: () => context.go(
+                                              Routes.administracion,
+                                            ),
+                                            icon: const Icon(
+                                              Icons
+                                                  .admin_panel_settings_outlined,
+                                            ),
+                                            label: const Text(
+                                              'Abrir administración',
+                                            ),
+                                          ),
+                                          OutlinedButton.icon(
+                                            onPressed: state.loading
+                                                ? null
+                                                : () =>
+                                                      _importOpenPeriodFuelPayments(
+                                                        context,
+                                                        ref,
+                                                        state,
+                                                      ),
+                                            icon: const Icon(
+                                              Icons.payments_outlined,
+                                            ),
+                                            label: const Text(
+                                              'Importar a nómina',
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-                          ),
-                        if (state.periods.isEmpty)
-                          Card(
-                            child: Padding(
-                              padding: const EdgeInsets.all(18),
-                              child: Column(
-                                children: [
-                                  Icon(
-                                    Icons.event_note_outlined,
-                                    size: 40,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  const Text(
-                                    'Aún no hay quincenas creadas',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
+                              const SizedBox(height: 12),
+                              if (state.error != null)
+                                Card(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.errorContainer,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: Text(
+                                      state.error!,
+                                      style: TextStyle(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onErrorContainer,
+                                      ),
                                     ),
                                   ),
-                                  const SizedBox(height: 4),
-                                  const Text(
-                                    'Crea la primera quincena para comenzar la gestión de nómina.',
-                                    textAlign: TextAlign.center,
+                                ),
+                              if (state.periods.isEmpty)
+                                Card(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(18),
+                                    child: Column(
+                                      children: [
+                                        Icon(
+                                          Icons.event_note_outlined,
+                                          size: 40,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.primary,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        const Text(
+                                          'Aún no hay quincenas creadas',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        const Text(
+                                          'Crea la primera quincena para comenzar la gestión de nómina.',
+                                          textAlign: TextAlign.center,
+                                        ),
+                                        const SizedBox(height: 12),
+                                        FilledButton.icon(
+                                          onPressed: () =>
+                                              _showCreatePeriodDialog(
+                                                context,
+                                                ref,
+                                              ),
+                                          icon: const Icon(Icons.add),
+                                          label: const Text('Crear quincena'),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  const SizedBox(height: 12),
-                                  FilledButton.icon(
+                                )
+                              else ...[
+                                Text(
+                                  'Quincenas',
+                                  style: Theme.of(context).textTheme.titleMedium
+                                      ?.copyWith(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                ),
+                                const SizedBox(height: 8),
+                                ...state.periods.map(
+                                  (period) => _PeriodCard(
+                                    period: period,
+                                    onClose: period.isOpen
+                                        ? () => _confirmClosePeriod(
+                                            context,
+                                            ref,
+                                            period,
+                                          )
+                                        : null,
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 14),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'Equipo de ventas (nómina)',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium
+                                          ?.copyWith(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                    ),
+                                  ),
+                                  OutlinedButton.icon(
                                     onPressed: () =>
-                                        _showCreatePeriodDialog(context, ref),
+                                        _showEmployeeDialog(context, ref),
                                     icon: const Icon(Icons.add),
-                                    label: const Text('Crear quincena'),
+                                    label: const Text('Agregar'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.white,
+                                      side: const BorderSide(
+                                        color: Colors.white70,
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ),
-                            ),
-                          )
-                        else ...[
-                          Text(
-                            'Quincenas',
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          ),
-                          const SizedBox(height: 8),
-                          ...state.periods.map(
-                            (period) => _PeriodCard(
-                              period: period,
-                              onClose: period.isOpen
-                                  ? () => _confirmClosePeriod(
+                              const SizedBox(height: 8),
+                              if (state.employees.isEmpty)
+                                const Card(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(14),
+                                    child: Text(
+                                      'No hay empleados de nómina registrados.',
+                                    ),
+                                  ),
+                                )
+                              else
+                                ...state.employees.map(
+                                  (employee) => _EmployeeCard(
+                                    employee: employee,
+                                    onManage: () => _showEmployeePayrollDialog(
                                       context,
                                       ref,
-                                      period,
-                                    )
-                                  : null,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 14),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                'Equipo de ventas (nómina)',
-                                style: Theme.of(context).textTheme.titleMedium
-                                    ?.copyWith(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w700,
+                                      employee,
                                     ),
-                              ),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () =>
-                                  _showEmployeeDialog(context, ref),
-                              icon: const Icon(Icons.add),
-                              label: const Text('Agregar'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                side: const BorderSide(color: Colors.white70),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        if (state.employees.isEmpty)
-                          const Card(
-                            child: Padding(
-                              padding: EdgeInsets.all(14),
-                              child: Text(
-                                'No hay empleados de nómina registrados.',
-                              ),
-                            ),
-                          )
-                        else
-                          ...state.employees.map(
-                            (employee) => _EmployeeCard(
-                              employee: employee,
-                              onManage: () => _showEmployeePayrollDialog(
-                                context,
-                                ref,
-                                employee,
-                              ),
-                              onEdit: () => _showEmployeeDialog(
-                                context,
-                                ref,
-                                employee: employee,
-                              ),
-                              onDelete: () => _confirmDeleteEmployee(
-                                context,
-                                ref,
-                                employee,
-                              ),
-                            ),
+                                    onEdit: () => _showEmployeeDialog(
+                                      context,
+                                      ref,
+                                      employee: employee,
+                                    ),
+                                    onDelete: () => _confirmDeleteEmployee(
+                                      context,
+                                      ref,
+                                      employee,
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
-                      ],
-                    ),
-                  ),
-                ),
-        ),
+                        ),
+                      ),
+              ),
       ),
     );
   }
@@ -2089,6 +2624,484 @@ class _EmployeeCard extends StatelessWidget {
               icon: const Icon(Icons.delete_outline),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NominaDesktopPanel extends StatelessWidget {
+  const _NominaDesktopPanel({
+    required this.title,
+    required this.subtitle,
+    required this.child,
+    this.action,
+  });
+
+  final String title;
+  final String subtitle;
+  final Widget child;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: scheme.outlineVariant),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 22,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (action != null) ...[const SizedBox(width: 16), action!],
+            ],
+          ),
+          const SizedBox(height: 18),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _NominaDesktopMetric extends StatelessWidget {
+  const _NominaDesktopMetric({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.accent,
+    this.dark = false,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color accent;
+  final bool dark;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final foreground = dark ? Colors.white : theme.colorScheme.onSurface;
+    final muted = dark
+        ? Colors.white.withValues(alpha: 0.7)
+        : theme.colorScheme.onSurfaceVariant;
+
+    return Container(
+      constraints: const BoxConstraints(minWidth: 170, maxWidth: 240),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: dark
+            ? Colors.white.withValues(alpha: 0.10)
+            : accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: dark
+              ? Colors.white.withValues(alpha: 0.12)
+              : accent.withValues(alpha: 0.18),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: dark ? 0.18 : 0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: dark ? Colors.white : accent, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: muted,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: foreground,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NominaInfoLine extends StatelessWidget {
+  const _NominaInfoLine({
+    required this.label,
+    required this.value,
+    this.emphasized = false,
+  });
+
+  final String label;
+  final String value;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            value,
+            textAlign: TextAlign.right,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: emphasized ? FontWeight.w900 : FontWeight.w700,
+              color: emphasized ? scheme.primary : scheme.onSurface,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NominaEmptyState extends StatelessWidget {
+  const _NominaEmptyState({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.8)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 44, color: scheme.primary),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: onAction,
+            icon: const Icon(Icons.add),
+            label: Text(actionLabel),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NominaDesktopEmployeeSelector extends StatelessWidget {
+  const _NominaDesktopEmployeeSelector({
+    required this.employee,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final PayrollEmployee employee;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: selected
+                ? scheme.primary.withValues(alpha: 0.12)
+                : scheme.surfaceContainerLowest,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: selected ? scheme.primary : scheme.outlineVariant,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: employee.activo
+                      ? const Color(0xFF16A34A)
+                      : scheme.outline,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 10),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 200),
+                child: Text(
+                  employee.nombre,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: selected ? scheme.primary : scheme.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NominaDesktopEmployeeRow extends StatelessWidget {
+  const _NominaDesktopEmployeeRow({
+    required this.employee,
+    required this.onTap,
+    required this.onEdit,
+    required this.onManage,
+    required this.onDelete,
+    this.selected = false,
+  });
+
+  final PayrollEmployee employee;
+  final VoidCallback onTap;
+  final VoidCallback onEdit;
+  final VoidCallback onManage;
+  final VoidCallback onDelete;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: selected
+                ? scheme.primary.withValues(alpha: 0.08)
+                : scheme.surfaceContainerLowest,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected
+                  ? scheme.primary.withValues(alpha: 0.55)
+                  : scheme.outlineVariant.withValues(alpha: 0.75),
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Text(
+                  employee.nombre,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: Text(
+                  employee.puesto ?? 'Sin puesto',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 130,
+                child: Text(
+                  money.format(employee.salarioBaseQuincenal),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 130,
+                child: Text(
+                  money.format(employee.cuotaMinima),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 130,
+                child: Text(
+                  money.format(employee.seguroLeyMonto),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: employee.activo
+                      ? const Color(0xFFDCFCE7)
+                      : scheme.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  employee.activo ? 'Activo' : 'Inactivo',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: employee.activo
+                        ? const Color(0xFF166534)
+                        : scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Movimientos de nómina',
+                onPressed: onManage,
+                icon: const Icon(Icons.calculate_outlined),
+              ),
+              IconButton(
+                tooltip: 'Editar',
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit_outlined),
+              ),
+              IconButton(
+                tooltip: 'Eliminar',
+                onPressed: onDelete,
+                icon: const Icon(Icons.delete_outline),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -203,7 +205,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
             )
             .toList(growable: false)
           ..sort((a, b) => b.quantity.compareTo(a.quantity));
-    return rows.take(4).toList(growable: false);
+    return rows.take(8).toList(growable: false);
   }
 
   List<_SalesWeekdayStat> _salesWeekdayStats(VentasState state) {
@@ -307,14 +309,56 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
           if (current == null || item.total > current.total) return item;
           return current;
         });
+    final metricItems = [
+      _DesktopMetricData(
+        title: 'Ventas registradas',
+        value: state.summary.totalSales.toString(),
+        subtitle: 'Operaciones en el rango activo',
+        icon: Icons.receipt_long_outlined,
+      ),
+      _DesktopMetricData(
+        title: 'Ticket promedio',
+        value: _money(averageTicket),
+        subtitle: 'Valor medio por venta',
+        icon: Icons.leaderboard_outlined,
+      ),
+      _DesktopMetricData(
+        title: 'Dias con ventas',
+        value: daysWithSales.toString(),
+        subtitle: 'Dias con actividad comercial',
+        icon: Icons.calendar_month_outlined,
+      ),
+      _DesktopMetricData(
+        title: 'Mejor venta',
+        value: bestSale == null ? 'RD\$0.00' : _money(bestSale.totalSold),
+        subtitle: bestSale == null
+            ? 'Sin registros todavia'
+            : (bestSale.customerName ?? 'Sin cliente'),
+        icon: Icons.emoji_events_outlined,
+      ),
+    ];
 
     return RefreshIndicator(
       onRefresh: () => ref.read(ventasControllerProvider.notifier).refresh(),
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
-        children: [
-          _DesktopSalesHero(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          final useTwoColumns = width >= 1180;
+          final gap = width >= 1560 ? 20.0 : 16.0;
+          final horizontalPadding = width >= 1560 ? 24.0 : 18.0;
+          final maxContentWidth = width >= 1760 ? 1680.0 : 1540.0;
+          final leftColumnWidth = width >= 1500
+              ? 390.0
+              : width >= 1280
+              ? 370.0
+              : 350.0;
+          final reachedGoal = goal > 0 && state.summary.totalProfit >= goal;
+          final insightMessage = goal <= 0
+              ? 'No hay una meta configurada para este usuario. Aun asi puedes usar este panel para monitorear desempeno.'
+              : reachedGoal
+              ? 'Meta alcanzada. Tus beneficios ya estan desbloqueados y puedes empujar por una quincena record.'
+              : 'Sigue monitoreando tus puntos acumulados para desbloquear beneficios antes de cerrar la quincena.';
+          final header = _StatsHeader(
             rangeLabel: _quincenaLabel(state.from, state.to),
             totalSold: _money(state.summary.totalSold),
             totalProfit: _money(state.summary.totalProfit),
@@ -326,91 +370,124 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
               employeeName: employeeName ?? 'Empleado',
               state: state,
             ),
-          ),
-          const SizedBox(height: 18),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: 360,
+          );
+
+          if (useTwoColumns) {
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                horizontalPadding,
+                18,
+                horizontalPadding,
+                24,
+              ),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxContentWidth),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      header,
+                      SizedBox(height: gap),
+                      Expanded(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: leftColumnWidth,
+                              child: _StatsCards(
+                                goal: goal,
+                                achieved: state.summary.totalProfit,
+                                rangeLabel: _quincenaLabel(
+                                  state.from,
+                                  state.to,
+                                ),
+                                items: metricItems,
+                                reachedGoal: reachedGoal,
+                                insightMessage: insightMessage,
+                                remainingToGoal: remainingToGoal,
+                                daysLeft: daysLeft,
+                                neededPerDay: neededPerDay,
+                                money: _money,
+                              ),
+                            ),
+                            SizedBox(width: gap),
+                            Expanded(
+                              child: SingleChildScrollView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                child: _SalesSummary(
+                                  state: state,
+                                  goal: goal,
+                                  dayPoints: dayPoints,
+                                  weekdayStats: weekdayStats,
+                                  topProducts: topProducts,
+                                  bestDay: bestDay,
+                                  strongestWeekday: strongestWeekday,
+                                  averageDailySales: averageDailySales,
+                                  money: _money,
+                                  compactMoney: _moneyCompact,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }
+
+          return SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(
+              horizontalPadding,
+              18,
+              horizontalPadding,
+              24,
+            ),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight,
+                  maxWidth: maxContentWidth,
+                ),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _DesktopGoalCard(
+                    header,
+                    SizedBox(height: gap),
+                    _StatsCards(
                       goal: goal,
                       achieved: state.summary.totalProfit,
                       rangeLabel: _quincenaLabel(state.from, state.to),
-                    ),
-                    const SizedBox(height: 16),
-                    _DesktopMetricsPanel(
-                      items: [
-                        _DesktopMetricData(
-                          title: 'Ventas registradas',
-                          value: state.summary.totalSales.toString(),
-                          subtitle: 'Operaciones en el rango activo',
-                          icon: Icons.receipt_long_outlined,
-                        ),
-                        _DesktopMetricData(
-                          title: 'Ticket promedio',
-                          value: _money(averageTicket),
-                          subtitle: 'Valor medio por venta',
-                          icon: Icons.leaderboard_outlined,
-                        ),
-                        _DesktopMetricData(
-                          title: 'Días con ventas',
-                          value: daysWithSales.toString(),
-                          subtitle: 'Días con actividad comercial',
-                          icon: Icons.calendar_month_outlined,
-                        ),
-                        _DesktopMetricData(
-                          title: 'Mejor venta',
-                          value: bestSale == null
-                              ? 'RD\$0.00'
-                              : _money(bestSale.totalSold),
-                          subtitle: bestSale == null
-                              ? 'Sin registros todavía'
-                              : (bestSale.customerName ?? 'Sin cliente'),
-                          icon: Icons.emoji_events_outlined,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _DesktopInsightCard(
-                      reachedGoal:
-                          goal > 0 && state.summary.totalProfit >= goal,
-                      message: goal <= 0
-                          ? 'No hay una meta configurada para este usuario. Aun asi puedes usar este panel para monitorear desempeño.'
-                          : state.summary.totalProfit >= goal
-                          ? 'Meta alcanzada. Tus beneficios ya estan desbloqueados y puedes empujar por una quincena record.'
-                          : 'Sigue monitoreando tus puntos acumulados para desbloquear beneficios antes de cerrar la quincena.',
-                    ),
-                    const SizedBox(height: 16),
-                    _DesktopGapCard(
+                      items: metricItems,
+                      reachedGoal: reachedGoal,
+                      insightMessage: insightMessage,
                       remainingToGoal: remainingToGoal,
                       daysLeft: daysLeft,
                       neededPerDay: neededPerDay,
                       money: _money,
                     ),
+                    SizedBox(height: gap),
+                    _SalesSummary(
+                      state: state,
+                      goal: goal,
+                      dayPoints: dayPoints,
+                      weekdayStats: weekdayStats,
+                      topProducts: topProducts,
+                      bestDay: bestDay,
+                      strongestWeekday: strongestWeekday,
+                      averageDailySales: averageDailySales,
+                      money: _money,
+                      compactMoney: _moneyCompact,
+                    ),
                   ],
                 ),
               ),
-              const SizedBox(width: 18),
-              Expanded(
-                child: _DesktopPerformanceBoard(
-                  state: state,
-                  goal: goal,
-                  dayPoints: dayPoints,
-                  weekdayStats: weekdayStats,
-                  topProducts: topProducts,
-                  bestDay: bestDay,
-                  strongestWeekday: strongestWeekday,
-                  averageDailySales: averageDailySales,
-                  money: _money,
-                  compactMoney: _moneyCompact,
-                ),
-              ),
-            ],
-          ),
-        ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -1311,8 +1388,8 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
   }
 }
 
-class _DesktopSalesHero extends StatelessWidget {
-  const _DesktopSalesHero({
+class _StatsHeader extends StatelessWidget {
+  const _StatsHeader({
     required this.rangeLabel,
     required this.totalSold,
     required this.totalProfit,
@@ -1333,113 +1410,208 @@ class _DesktopSalesHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF1D4ED8), Color(0xFF0F172A)],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: theme.colorScheme.primary.withValues(alpha: 0.18),
-            blurRadius: 28,
-            offset: const Offset(0, 16),
-          ),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Expanded(
-            child: Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                _DesktopHeroChip(
-                  icon: Icons.event_note_outlined,
-                  label: 'Rango',
-                  value: rangeLabel,
-                ),
-                _DesktopHeroChip(
-                  icon: Icons.payments_outlined,
-                  label: 'Vendido',
-                  value: totalSold,
-                ),
-                _DesktopHeroChip(
-                  icon: Icons.auto_graph_outlined,
-                  label: 'Puntos',
-                  value: totalProfit,
-                ),
-                _DesktopHeroChip(
-                  icon: Icons.workspace_premium_outlined,
-                  label: 'Beneficio',
-                  value: totalCommission,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 14),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final stacked = width < 1120;
+        final statsColumns = width >= 1520
+            ? 4
+            : width >= 1240
+            ? 3
+            : width >= 860
+            ? 2
+            : 1;
+        final statsWidth = stacked ? width : (width - 236).clamp(0.0, width);
+        final chipWidth = statsColumns == 1
+            ? width
+            : ((statsWidth - (10 * (statsColumns - 1))) / statsColumns)
+                  .clamp(180.0, 240.0)
+                  .toDouble();
+        final actionWidth = stacked
+            ? ((width - 10) / 2).clamp(180.0, 260.0).toDouble()
+            : 220.0;
+
+        final statsChips = [
           SizedBox(
-            width: 224,
-            child: Column(
-              children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: onRegisterSale,
-                    icon: const Icon(Icons.add_shopping_cart),
-                    label: const Text('Registrar venta'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: const Color(0xFF0F172A),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: onOpenHistory,
-                    icon: const Icon(Icons.history),
-                    label: const Text('Historial'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.35),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: onOpenPdf,
-                    icon: const Icon(Icons.picture_as_pdf_outlined),
-                    label: const Text('Exportar PDF'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.35),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+            width: chipWidth,
+            child: _StatsHeaderChip(
+              icon: Icons.event_note_outlined,
+              label: 'Rango',
+              value: rangeLabel,
             ),
           ),
-        ],
-      ),
+          SizedBox(
+            width: chipWidth,
+            child: _StatsHeaderChip(
+              icon: Icons.payments_outlined,
+              label: 'Vendido',
+              value: totalSold,
+            ),
+          ),
+          SizedBox(
+            width: chipWidth,
+            child: _StatsHeaderChip(
+              icon: Icons.auto_graph_outlined,
+              label: 'Puntos',
+              value: totalProfit,
+            ),
+          ),
+          SizedBox(
+            width: chipWidth,
+            child: _StatsHeaderChip(
+              icon: Icons.workspace_premium_outlined,
+              label: 'Beneficio',
+              value: totalCommission,
+            ),
+          ),
+        ];
+
+        final actions = stacked
+            ? Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _HeaderActionButton(
+                    width: actionWidth,
+                    onPressed: onRegisterSale,
+                    filled: true,
+                    icon: Icons.add_shopping_cart,
+                    label: 'Registrar venta',
+                  ),
+                  _HeaderActionButton(
+                    width: actionWidth,
+                    onPressed: onOpenHistory,
+                    icon: Icons.history,
+                    label: 'Historial',
+                  ),
+                  _HeaderActionButton(
+                    width: actionWidth,
+                    onPressed: onOpenPdf,
+                    icon: Icons.picture_as_pdf_outlined,
+                    label: 'Exportar PDF',
+                  ),
+                ],
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _HeaderActionButton(
+                    width: actionWidth,
+                    onPressed: onRegisterSale,
+                    filled: true,
+                    icon: Icons.add_shopping_cart,
+                    label: 'Registrar venta',
+                  ),
+                  const SizedBox(height: 10),
+                  _HeaderActionButton(
+                    width: actionWidth,
+                    onPressed: onOpenHistory,
+                    icon: Icons.history,
+                    label: 'Historial',
+                  ),
+                  const SizedBox(height: 10),
+                  _HeaderActionButton(
+                    width: actionWidth,
+                    onPressed: onOpenPdf,
+                    icon: Icons.picture_as_pdf_outlined,
+                    label: 'Exportar PDF',
+                  ),
+                ],
+              );
+
+        return Container(
+          padding: EdgeInsets.all(width < 900 ? 16 : 20),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(28),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF1D4ED8), Color(0xFF0F172A)],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: scheme.primary.withValues(alpha: 0.18),
+                blurRadius: 28,
+                offset: const Offset(0, 16),
+              ),
+            ],
+          ),
+          child: stacked
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(spacing: 10, runSpacing: 10, children: statsChips),
+                    const SizedBox(height: 16),
+                    actions,
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: statsChips,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    actions,
+                  ],
+                ),
+        );
+      },
     );
   }
 }
 
-class _DesktopHeroChip extends StatelessWidget {
-  const _DesktopHeroChip({
+class _HeaderActionButton extends StatelessWidget {
+  const _HeaderActionButton({
+    required this.width,
+    required this.onPressed,
+    required this.icon,
+    required this.label,
+    this.filled = false,
+  });
+
+  final double width;
+  final VoidCallback onPressed;
+  final IconData icon;
+  final String label;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    final button = filled
+        ? FilledButton.icon(
+            onPressed: onPressed,
+            icon: Icon(icon),
+            label: Text(label),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: const Color(0xFF0F172A),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            ),
+          )
+        : OutlinedButton.icon(
+            onPressed: onPressed,
+            icon: Icon(icon),
+            label: Text(label),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.35)),
+            ),
+          );
+
+    return SizedBox(width: width, child: button);
+  }
+}
+
+class _StatsHeaderChip extends StatelessWidget {
+  const _StatsHeaderChip({
     required this.icon,
     required this.label,
     required this.value,
@@ -1452,7 +1624,6 @@ class _DesktopHeroChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(minWidth: 150, maxWidth: 240),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.12),
@@ -1480,7 +1651,7 @@ class _DesktopHeroChip extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   value,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     color: Colors.white,
@@ -1496,8 +1667,81 @@ class _DesktopHeroChip extends StatelessWidget {
   }
 }
 
-class _DesktopGoalCard extends StatelessWidget {
-  const _DesktopGoalCard({
+class _StatsCards extends StatelessWidget {
+  const _StatsCards({
+    required this.goal,
+    required this.achieved,
+    required this.rangeLabel,
+    required this.items,
+    required this.reachedGoal,
+    required this.insightMessage,
+    required this.remainingToGoal,
+    required this.daysLeft,
+    required this.neededPerDay,
+    required this.money,
+  });
+
+  final double goal;
+  final double achieved;
+  final String rangeLabel;
+  final List<_DesktopMetricData> items;
+  final bool reachedGoal;
+  final String insightMessage;
+  final double remainingToGoal;
+  final int daysLeft;
+  final double neededPerDay;
+  final String Function(double value) money;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final spacing = 16.0;
+        final singleColumn = width < 520;
+        final cardWidth = singleColumn ? width : (width - spacing) / 2;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            SizedBox(
+              width: cardWidth,
+              child: _GoalProgressCard(
+                goal: goal,
+                achieved: achieved,
+                rangeLabel: rangeLabel,
+              ),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: _MetricPanel(items: items),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: _InsightBannerCard(
+                reachedGoal: reachedGoal,
+                message: insightMessage,
+              ),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: _GapStatusCard(
+                remainingToGoal: remainingToGoal,
+                daysLeft: daysLeft,
+                neededPerDay: neededPerDay,
+                money: money,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _GoalProgressCard extends StatelessWidget {
+  const _GoalProgressCard({
     required this.goal,
     required this.achieved,
     required this.rangeLabel,
@@ -1514,10 +1758,11 @@ class _DesktopGoalCard extends StatelessWidget {
     final accent = reachedGoal
         ? const Color(0xFF15803D)
         : const Color(0xFFEA580C);
+    final moneyFormat = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(24),
@@ -1531,9 +1776,11 @@ class _DesktopGoalCard extends StatelessWidget {
         ],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
                 width: 42,
@@ -1548,6 +1795,7 @@ class _DesktopGoalCard extends StatelessWidget {
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       'Meta quincenal',
@@ -1565,7 +1813,7 @@ class _DesktopGoalCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           ClipRRect(
             borderRadius: BorderRadius.circular(999),
             child: LinearProgressIndicator(
@@ -1575,31 +1823,34 @@ class _DesktopGoalCard extends StatelessWidget {
               backgroundColor: accent.withValues(alpha: 0.12),
             ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _DesktopMiniStat(
-                  label: 'Acumulado',
-                  value: NumberFormat.currency(
-                    locale: 'es_DO',
-                    symbol: 'RD\$',
-                  ).format(achieved),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _DesktopMiniStat(
-                  label: 'Meta',
-                  value: NumberFormat.currency(
-                    locale: 'es_DO',
-                    symbol: 'RD\$',
-                  ).format(goal),
-                ),
-              ),
-            ],
-          ),
           const SizedBox(height: 10),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth;
+              final itemWidth = width < 340 ? width : (width - 10) / 2;
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  SizedBox(
+                    width: itemWidth,
+                    child: _GoalMiniStat(
+                      label: 'Acumulado',
+                      value: moneyFormat.format(achieved),
+                    ),
+                  ),
+                  SizedBox(
+                    width: itemWidth,
+                    child: _GoalMiniStat(
+                      label: 'Meta',
+                      value: moneyFormat.format(goal),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 8),
           Text(
             reachedGoal
                 ? 'Meta alcanzada. La comision ya esta desbloqueada para esta quincena.'
@@ -1612,8 +1863,8 @@ class _DesktopGoalCard extends StatelessWidget {
   }
 }
 
-class _DesktopMiniStat extends StatelessWidget {
-  const _DesktopMiniStat({required this.label, required this.value});
+class _GoalMiniStat extends StatelessWidget {
+  const _GoalMiniStat({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -1645,8 +1896,8 @@ class _DesktopMiniStat extends StatelessWidget {
   }
 }
 
-class _DesktopMetricsPanel extends StatelessWidget {
-  const _DesktopMetricsPanel({required this.items});
+class _MetricPanel extends StatelessWidget {
+  const _MetricPanel({required this.items});
 
   final List<_DesktopMetricData> items;
 
@@ -1654,24 +1905,29 @@ class _DesktopMetricsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          GridView.builder(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          final crossAxisCount = width >= 320 ? 2 : 1;
+          final aspectRatio = crossAxisCount == 2
+              ? (width >= 360 ? 1.32 : 1.18)
+              : 2.8;
+
+          return GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: items.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: crossAxisCount,
               mainAxisSpacing: 10,
               crossAxisSpacing: 10,
-              mainAxisExtent: 118,
+              childAspectRatio: aspectRatio,
             ),
             itemBuilder: (context, index) {
               final item = items[index];
@@ -1682,6 +1938,7 @@ class _DesktopMetricsPanel extends StatelessWidget {
                   borderRadius: BorderRadius.circular(18),
                 ),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(
@@ -1690,17 +1947,23 @@ class _DesktopMetricsPanel extends StatelessWidget {
                       color: Theme.of(context).colorScheme.primary,
                     ),
                     const SizedBox(height: 10),
-                    Text(
-                      item.value,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        item.value,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 20,
+                            ),
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       item.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.labelMedium,
                     ),
                     const SizedBox(height: 2),
@@ -1714,8 +1977,8 @@ class _DesktopMetricsPanel extends StatelessWidget {
                 ),
               );
             },
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -1735,8 +1998,8 @@ class _DesktopMetricData {
   final IconData icon;
 }
 
-class _DesktopInsightCard extends StatelessWidget {
-  const _DesktopInsightCard({required this.reachedGoal, required this.message});
+class _InsightBannerCard extends StatelessWidget {
+  const _InsightBannerCard({required this.reachedGoal, required this.message});
 
   final bool reachedGoal;
   final String message;
@@ -1790,8 +2053,8 @@ class _DesktopInsightCard extends StatelessWidget {
   }
 }
 
-class _DesktopGapCard extends StatelessWidget {
-  const _DesktopGapCard({
+class _GapStatusCard extends StatelessWidget {
+  const _GapStatusCard({
     required this.remainingToGoal,
     required this.daysLeft,
     required this.neededPerDay,
@@ -1850,8 +2113,8 @@ class _DesktopGapCard extends StatelessWidget {
   }
 }
 
-class _DesktopPerformanceBoard extends StatelessWidget {
-  const _DesktopPerformanceBoard({
+class _SalesSummary extends StatelessWidget {
+  const _SalesSummary({
     required this.state,
     required this.goal,
     required this.dayPoints,
@@ -1881,7 +2144,7 @@ class _DesktopPerformanceBoard extends StatelessWidget {
     final progress = goal <= 0
         ? 0.0
         : (state.summary.totalProfit / goal).clamp(0.0, 1.0).toDouble();
-    final hasData = state.sales.isNotEmpty || state.loading;
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -1892,61 +2155,70 @@ class _DesktopPerformanceBoard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Resumen de ventas',
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.4,
-                            color: const Color(0xFF0F172A),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth;
+              final stackHeader = width < 860;
+
+              return stackHeader
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Resumen de ventas',
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.4,
+                                color: const Color(0xFF0F172A),
+                              ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Mira con claridad tu avance comercial, el ritmo diario y los indicadores que importan para cerrar la quincena.',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                                height: 1.35,
+                              ),
+                        ),
+                        const SizedBox(height: 12),
+                        _SummaryProgressBadge(progress: progress),
+                      ],
+                    )
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Resumen de ventas',
+                                style: Theme.of(context).textTheme.headlineSmall
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: -0.4,
+                                      color: const Color(0xFF0F172A),
+                                    ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Mira con claridad tu avance comercial, el ritmo diario y los indicadores que importan para cerrar la quincena.',
+                                style: Theme.of(context).textTheme.bodyMedium
+                                    ?.copyWith(
+                                      color: scheme.onSurfaceVariant,
+                                      height: 1.35,
+                                    ),
+                              ),
+                            ],
                           ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Mira con claridad tu avance comercial, el ritmo diario y los indicadores que importan para cerrar la quincena.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 9,
-                ),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      scheme.primary.withValues(alpha: 0.16),
-                      scheme.primary.withValues(alpha: 0.08),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: scheme.primary.withValues(alpha: 0.16),
-                  ),
-                ),
-                child: Text(
-                  '${(progress * 100).toStringAsFixed(0)}% de meta',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: scheme.primary,
-                  ),
-                ),
-              ),
-            ],
+                        ),
+                        const SizedBox(width: 16),
+                        _SummaryProgressBadge(progress: progress),
+                      ],
+                    );
+            },
           ),
           if (state.loading) ...[
             const SizedBox(height: 12),
@@ -1964,8 +2236,8 @@ class _DesktopPerformanceBoard extends StatelessWidget {
           ],
           const SizedBox(height: 16),
           if (state.sales.isEmpty && !state.loading)
-            SizedBox(
-              height: 360,
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 32),
               child: Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1983,10 +2255,13 @@ class _DesktopPerformanceBoard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      'Cuando empieces a registrar ventas, este panel mostrara tendencia, rendimiento y avance hacia la meta.',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyMedium,
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 520),
+                      child: Text(
+                        'Cuando empieces a registrar ventas, este panel mostrara tendencia, rendimiento y avance hacia la meta.',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
                     ),
                   ],
                 ),
@@ -1995,127 +2270,92 @@ class _DesktopPerformanceBoard extends StatelessWidget {
           else
             LayoutBuilder(
               builder: (context, constraints) {
-                const spacing = 12.0;
-                final cardsPerRow = constraints.maxWidth >= 1080
-                    ? 3
-                    : constraints.maxWidth >= 720
-                    ? 2
-                    : 1;
-                final summaryCardWidth =
-                    (constraints.maxWidth - spacing * (cardsPerRow - 1)) /
-                    cardsPerRow;
-                final stackAnalytics = constraints.maxWidth < 980;
-                final analyticsHeight = stackAnalytics ? 660.0 : 470.0;
+                final width = constraints.maxWidth;
+                final stackAnalytics = width < 1120;
 
                 return Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Wrap(
-                      spacing: spacing,
-                      runSpacing: spacing,
-                      children: [
-                        SizedBox(
-                          width: summaryCardWidth,
-                          child: _DesktopSummaryCard(
-                            title: 'Ventas registradas',
-                            value: state.summary.totalSales.toString(),
-                            subtitle: 'operaciones activas en el rango',
-                            icon: Icons.receipt_long_outlined,
-                          ),
+                    _SalesSummaryGrid(
+                      cards: [
+                        _SalesSummaryMetric(
+                          title: 'Ventas registradas',
+                          value: state.summary.totalSales.toString(),
+                          subtitle: 'operaciones activas en el rango',
+                          icon: Icons.receipt_long_outlined,
                         ),
-                        SizedBox(
-                          width: summaryCardWidth,
-                          child: _DesktopSummaryCard(
-                            title: 'Total vendido',
-                            value: money(state.summary.totalSold),
-                            subtitle: 'facturacion acumulada',
-                            icon: Icons.payments_outlined,
-                          ),
+                        _SalesSummaryMetric(
+                          title: 'Total vendido',
+                          value: money(state.summary.totalSold),
+                          subtitle: 'facturacion acumulada',
+                          icon: Icons.payments_outlined,
                         ),
-                        SizedBox(
-                          width: summaryCardWidth,
-                          child: _DesktopSummaryCard(
-                            title: 'Puntos generados',
-                            value: money(state.summary.totalProfit),
-                            subtitle: 'avance que cuenta para tu meta',
-                            icon: Icons.auto_graph_outlined,
-                          ),
+                        _SalesSummaryMetric(
+                          title: 'Puntos generados',
+                          value: money(state.summary.totalProfit),
+                          subtitle: 'avance que cuenta para tu meta',
+                          icon: Icons.auto_graph_outlined,
+                        ),
+                        _SalesSummaryMetric(
+                          title: 'Beneficio estimado',
+                          value: money(state.summary.totalCommission),
+                          subtitle: 'comision proyectada del periodo',
+                          icon: Icons.workspace_premium_outlined,
                         ),
                       ],
                     ),
                     const SizedBox(height: 14),
-                    SizedBox(
-                      height: analyticsHeight,
-                      child: stackAnalytics
-                          ? Column(
+                    if (stackAnalytics)
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _DailyTrendChart(
+                            points: dayPoints,
+                            bestDay: bestDay,
+                            averageDailySales: averageDailySales,
+                            compactMoney: compactMoney,
+                          ),
+                          const SizedBox(height: 12),
+                          _WeekdayPerformanceCard(
+                            stats: weekdayStats,
+                            strongestWeekday: strongestWeekday,
+                            compactMoney: compactMoney,
+                          ),
+                          const SizedBox(height: 12),
+                          _TopProductsCard(products: topProducts),
+                        ],
+                      )
+                    else
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            flex: 7,
+                            child: _DailyTrendChart(
+                              points: dayPoints,
+                              bestDay: bestDay,
+                              averageDailySales: averageDailySales,
+                              compactMoney: compactMoney,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            flex: 4,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Expanded(
-                                  child: _DesktopTrendChartCard(
-                                    points: dayPoints,
-                                    bestDay: bestDay,
-                                    averageDailySales: averageDailySales,
-                                    money: money,
-                                    compactMoney: compactMoney,
-                                  ),
+                                _WeekdayPerformanceCard(
+                                  stats: weekdayStats,
+                                  strongestWeekday: strongestWeekday,
+                                  compactMoney: compactMoney,
                                 ),
                                 const SizedBox(height: 12),
-                                SizedBox(
-                                  height: 250,
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: _DesktopWeekdayPerformanceCard(
-                                          stats: weekdayStats,
-                                          strongestWeekday: strongestWeekday,
-                                          compactMoney: compactMoney,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: _DesktopTopProductsCard(
-                                          products: topProducts,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            )
-                          : Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  flex: 7,
-                                  child: _DesktopTrendChartCard(
-                                    points: dayPoints,
-                                    bestDay: bestDay,
-                                    averageDailySales: averageDailySales,
-                                    money: money,
-                                    compactMoney: compactMoney,
-                                  ),
-                                ),
-                                const SizedBox(width: 14),
-                                Expanded(
-                                  flex: 4,
-                                  child: Column(
-                                    children: [
-                                      _DesktopWeekdayPerformanceCard(
-                                        stats: weekdayStats,
-                                        strongestWeekday: strongestWeekday,
-                                        compactMoney: compactMoney,
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Expanded(
-                                        child: _DesktopTopProductsCard(
-                                          products: topProducts,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                                _TopProductsCard(products: topProducts),
                               ],
                             ),
-                    ),
+                          ),
+                        ],
+                      ),
                   ],
                 );
               },
@@ -2126,20 +2366,115 @@ class _DesktopPerformanceBoard extends StatelessWidget {
   }
 }
 
-class _DesktopSummaryCard extends StatelessWidget {
-  const _DesktopSummaryCard({
+class _SummaryProgressBadge extends StatelessWidget {
+  const _SummaryProgressBadge({required this.progress});
+
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            scheme.primary.withValues(alpha: 0.16),
+            scheme.primary.withValues(alpha: 0.08),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.16)),
+      ),
+      child: Text(
+        '${(progress * 100).toStringAsFixed(0)}% de meta',
+        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+          fontWeight: FontWeight.w800,
+          color: scheme.primary,
+        ),
+      ),
+    );
+  }
+}
+
+class _SalesSummaryMetric {
+  const _SalesSummaryMetric({
     required this.title,
     required this.value,
     required this.subtitle,
     required this.icon,
-    this.compact = false,
   });
 
   final String title;
   final String value;
   final String subtitle;
   final IconData icon;
-  final bool compact;
+}
+
+class _SalesSummaryGrid extends StatelessWidget {
+  const _SalesSummaryGrid({required this.cards});
+
+  final List<_SalesSummaryMetric> cards;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final crossAxisCount = width > 1400
+            ? 4
+            : width > 1100
+            ? 3
+            : width > 800
+            ? 2
+            : 1;
+        final aspectRatio = crossAxisCount == 1
+            ? 2.9
+            : crossAxisCount == 2
+            ? 1.95
+            : crossAxisCount == 3
+            ? 1.55
+            : 1.35;
+
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: cards.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: aspectRatio,
+          ),
+          itemBuilder: (context, index) {
+            final card = cards[index];
+            return _SummaryMetricCard(
+              title: card.title,
+              value: card.value,
+              subtitle: card.subtitle,
+              icon: card.icon,
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _SummaryMetricCard extends StatelessWidget {
+  const _SummaryMetricCard({
+    required this.title,
+    required this.value,
+    required this.subtitle,
+    required this.icon,
+  });
+
+  final String title;
+  final String value;
+  final String subtitle;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
@@ -2148,18 +2483,18 @@ class _DesktopSummaryCard extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(compact ? 16 : 18),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.7)),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: compact ? 18 : 20, color: scheme.primary),
-          SizedBox(height: compact ? 10 : 12),
+          Icon(icon, size: 20, color: scheme.primary),
+          const SizedBox(height: 12),
           Text(
             title,
             maxLines: 2,
@@ -2170,21 +2505,14 @@ class _DesktopSummaryCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          SizedBox(
-            height: compact ? 30 : 36,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  value,
-                  maxLines: 1,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.4,
-                  ),
-                ),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.4,
               ),
             ),
           ),
@@ -2201,152 +2529,381 @@ class _DesktopSummaryCard extends StatelessWidget {
   }
 }
 
-class _DesktopTrendChartCard extends StatelessWidget {
-  const _DesktopTrendChartCard({
+class _DailyTrendChart extends StatelessWidget {
+  const _DailyTrendChart({
     required this.points,
     required this.bestDay,
     required this.averageDailySales,
-    required this.money,
     required this.compactMoney,
   });
 
   final List<_SalesDayPoint> points;
   final _SalesDayPoint? bestDay;
   final double averageDailySales;
-  final String Function(double value) money;
   final String Function(double value) compactMoney;
 
   @override
   Widget build(BuildContext context) {
-    final maxValue = points.isEmpty
-        ? 1.0
-        : points.map((item) => item.total).reduce((a, b) => a > b ? a : b);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final aspectRatio = width >= 1280
+            ? 3.0
+            : width >= 980
+            ? 2.6
+            : width >= 760
+            ? 2.2
+            : 1.7;
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: Theme.of(
-            context,
-          ).colorScheme.outlineVariant.withValues(alpha: 0.7),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Tendencia diaria',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerLowest,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: Theme.of(
+                context,
+              ).colorScheme.outlineVariant.withValues(alpha: 0.7),
+            ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Asi se ha movido tu facturacion durante los ultimos dias del rango actual.',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _DesktopInlineBadge(
-                icon: Icons.show_chart_outlined,
-                label: 'Promedio diario',
-                value: compactMoney(averageDailySales),
+              Text(
+                'Tendencia diaria',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
               ),
-              _DesktopInlineBadge(
-                icon: Icons.trending_up_outlined,
-                label: 'Pico del rango',
-                value: bestDay == null
-                    ? 'Sin datos'
-                    : '${DateFormat('dd/MM').format(bestDay!.day)} · ${compactMoney(bestDay!.total)}',
+              const SizedBox(height: 4),
+              Text(
+                'Asi se ha movido tu facturacion durante los ultimos dias del rango actual.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _SummaryInlineBadge(
+                    icon: Icons.show_chart_outlined,
+                    label: 'Promedio diario',
+                    value: compactMoney(averageDailySales),
+                  ),
+                  _SummaryInlineBadge(
+                    icon: Icons.trending_up_outlined,
+                    label: 'Pico del rango',
+                    value: bestDay == null
+                        ? 'Sin datos'
+                        : '${DateFormat('dd/MM').format(bestDay!.day)} · ${compactMoney(bestDay!.total)}',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              AspectRatio(
+                aspectRatio: aspectRatio,
+                child: points.isEmpty
+                    ? Center(
+                        child: Text(
+                          'Todavia no hay suficientes datos para dibujar la tendencia.',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      )
+                    : _TrendChartPlot(
+                        points: points,
+                        bestDay: bestDay,
+                        averageDailySales: averageDailySales,
+                        compactMoney: compactMoney,
+                      ),
               ),
             ],
           ),
-          const SizedBox(height: 18),
-          if (points.isEmpty)
-            SizedBox(
-              height: 220,
-              child: Center(
-                child: Text(
-                  'Todavia no hay suficientes datos para dibujar la tendencia.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ),
-            )
-          else
-            SizedBox(
-              height: 220,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: points
+        );
+      },
+    );
+  }
+}
+
+class _TrendChartPlot extends StatelessWidget {
+  const _TrendChartPlot({
+    required this.points,
+    required this.bestDay,
+    required this.averageDailySales,
+    required this.compactMoney,
+  });
+
+  final List<_SalesDayPoint> points;
+  final _SalesDayPoint? bestDay;
+  final double averageDailySales;
+  final String Function(double value) compactMoney;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final maxValue = points
+        .map((item) => item.total)
+        .reduce((a, b) => a > b ? a : b)
+        .clamp(1.0, double.infinity);
+    final chartMax = math.max(maxValue, averageDailySales).toDouble();
+    final tickValues = [chartMax, chartMax * 0.66, chartMax * 0.33, 0.0];
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            scheme.primary.withValues(alpha: 0.05),
+            scheme.surface.withValues(alpha: 0.92),
+          ],
+        ),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 54,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8, bottom: 26),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: tickValues
                     .map(
-                      (point) => Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              Text(
-                                compactMoney(point.total),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.labelSmall,
-                              ),
-                              const SizedBox(height: 8),
-                              Expanded(
-                                child: Align(
-                                  alignment: Alignment.bottomCenter,
-                                  child: FractionallySizedBox(
-                                    heightFactor: (point.total / maxValue)
-                                        .clamp(0.08, 1.0)
-                                        .toDouble(),
-                                    child: Container(
-                                      width: double.infinity,
-                                      decoration: BoxDecoration(
-                                        gradient: const LinearGradient(
-                                          begin: Alignment.bottomCenter,
-                                          end: Alignment.topCenter,
-                                          colors: [
-                                            Color(0xFF1D4ED8),
-                                            Color(0xFF60A5FA),
-                                          ],
-                                        ),
-                                        borderRadius:
-                                            const BorderRadius.vertical(
-                                              top: Radius.circular(14),
-                                              bottom: Radius.circular(14),
-                                            ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                DateFormat('dd/MM').format(point.day),
-                                style: Theme.of(context).textTheme.labelSmall,
-                              ),
-                            ],
-                          ),
+                      (value) => Text(
+                        compactMoney(value),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     )
                     .toList(growable: false),
               ),
             ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              children: [
+                Expanded(
+                  child: CustomPaint(
+                    painter: _SalesTrendChartPainter(
+                      points: points,
+                      maxValue: chartMax,
+                      averageValue: averageDailySales,
+                      bestDay: bestDay,
+                      lineColor: const Color(0xFF2563EB),
+                      fillTopColor: const Color(0xFF60A5FA),
+                      fillBottomColor: const Color(0xFF1D4ED8),
+                      gridColor: scheme.outlineVariant.withValues(alpha: 0.35),
+                    ),
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: points
+                      .map(
+                        (point) => Expanded(
+                          child: Text(
+                            DateFormat('dd/MM').format(point.day),
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(growable: false),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _DesktopInlineBadge extends StatelessWidget {
-  const _DesktopInlineBadge({
+class _SalesTrendChartPainter extends CustomPainter {
+  const _SalesTrendChartPainter({
+    required this.points,
+    required this.maxValue,
+    required this.averageValue,
+    required this.bestDay,
+    required this.lineColor,
+    required this.fillTopColor,
+    required this.fillBottomColor,
+    required this.gridColor,
+  });
+
+  final List<_SalesDayPoint> points;
+  final double maxValue;
+  final double averageValue;
+  final _SalesDayPoint? bestDay;
+  final Color lineColor;
+  final Color fillTopColor;
+  final Color fillBottomColor;
+  final Color gridColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.isEmpty || size.width <= 0 || size.height <= 0) return;
+
+    const topPadding = 16.0;
+    const bottomPadding = 10.0;
+    const sidePadding = 8.0;
+    final usableHeight = size.height - topPadding - bottomPadding;
+    final usableWidth = size.width - (sidePadding * 2);
+    final baselineY = size.height - bottomPadding;
+    final stepX = points.length == 1 ? 0.0 : usableWidth / (points.length - 1);
+    final safeMax = maxValue <= 0 ? 1.0 : maxValue;
+
+    final chartPoints = <Offset>[];
+    for (var index = 0; index < points.length; index++) {
+      final point = points[index];
+      final x = sidePadding + (stepX * index);
+      final normalized = (point.total / safeMax).clamp(0.0, 1.0);
+      final y = baselineY - (usableHeight * normalized);
+      chartPoints.add(Offset(x, y));
+    }
+
+    final gridPaint = Paint()
+      ..color = gridColor
+      ..strokeWidth = 1;
+
+    for (var index = 0; index < 4; index++) {
+      final y = topPadding + ((usableHeight / 3) * index);
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    final averageNormalized = (averageValue / safeMax).clamp(0.0, 1.0);
+    final averageY = baselineY - (usableHeight * averageNormalized);
+    _drawDashedLine(
+      canvas,
+      start: Offset(0, averageY),
+      end: Offset(size.width, averageY),
+      color: lineColor.withValues(alpha: 0.35),
+    );
+
+    if (bestDay != null) {
+      final bestIndex = points.indexWhere(
+        (point) => point.day == bestDay!.day && point.total == bestDay!.total,
+      );
+      if (bestIndex >= 0) {
+        final highlightX = chartPoints[bestIndex].dx;
+        canvas.drawLine(
+          Offset(highlightX, topPadding),
+          Offset(highlightX, baselineY),
+          Paint()
+            ..color = lineColor.withValues(alpha: 0.14)
+            ..strokeWidth = 2,
+        );
+      }
+    }
+
+    final linePath = Path()..moveTo(chartPoints.first.dx, chartPoints.first.dy);
+    for (final point in chartPoints.skip(1)) {
+      linePath.lineTo(point.dx, point.dy);
+    }
+
+    final fillPath = Path.from(linePath)
+      ..lineTo(chartPoints.last.dx, baselineY)
+      ..lineTo(chartPoints.first.dx, baselineY)
+      ..close();
+
+    final fillPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          fillTopColor.withValues(alpha: 0.32),
+          fillBottomColor.withValues(alpha: 0.08),
+        ],
+      ).createShader(Rect.fromLTWH(0, topPadding, size.width, usableHeight));
+
+    canvas.drawPath(fillPath, fillPaint);
+
+    final linePaint = Paint()
+      ..color = lineColor
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    canvas.drawPath(linePath, linePaint);
+
+    for (var index = 0; index < chartPoints.length; index++) {
+      final point = chartPoints[index];
+      final isBest =
+          bestDay != null &&
+          points[index].day == bestDay!.day &&
+          points[index].total == bestDay!.total;
+
+      if (isBest) {
+        canvas.drawCircle(
+          point,
+          8,
+          Paint()..color = lineColor.withValues(alpha: 0.14),
+        );
+      }
+
+      canvas.drawCircle(point, 4.5, Paint()..color = Colors.white);
+      canvas.drawCircle(point, 3.2, Paint()..color = lineColor);
+    }
+  }
+
+  void _drawDashedLine(
+    Canvas canvas, {
+    required Offset start,
+    required Offset end,
+    required Color color,
+  }) {
+    const dashWidth = 8.0;
+    const dashGap = 6.0;
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.5;
+
+    final totalWidth = end.dx - start.dx;
+    double current = 0;
+    while (current < totalWidth) {
+      final dashEnd = math.min(current + dashWidth, totalWidth);
+      canvas.drawLine(
+        Offset(start.dx + current, start.dy),
+        Offset(start.dx + dashEnd, start.dy),
+        paint,
+      );
+      current += dashWidth + dashGap;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SalesTrendChartPainter oldDelegate) {
+    return oldDelegate.points != points ||
+        oldDelegate.maxValue != maxValue ||
+        oldDelegate.averageValue != averageValue ||
+        oldDelegate.bestDay != bestDay ||
+        oldDelegate.lineColor != lineColor ||
+        oldDelegate.fillTopColor != fillTopColor ||
+        oldDelegate.fillBottomColor != fillBottomColor ||
+        oldDelegate.gridColor != gridColor;
+  }
+}
+
+class _SummaryInlineBadge extends StatelessWidget {
+  const _SummaryInlineBadge({
     required this.icon,
     required this.label,
     required this.value,
@@ -2397,8 +2954,8 @@ class _DesktopInlineBadge extends StatelessWidget {
   }
 }
 
-class _DesktopWeekdayPerformanceCard extends StatelessWidget {
-  const _DesktopWeekdayPerformanceCard({
+class _WeekdayPerformanceCard extends StatelessWidget {
+  const _WeekdayPerformanceCard({
     required this.stats,
     required this.strongestWeekday,
     required this.compactMoney,
@@ -2428,6 +2985,7 @@ class _DesktopWeekdayPerformanceCard extends StatelessWidget {
         ),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
@@ -2506,13 +3064,18 @@ class _DesktopWeekdayPerformanceCard extends StatelessWidget {
   }
 }
 
-class _DesktopTopProductsCard extends StatelessWidget {
-  const _DesktopTopProductsCard({required this.products});
+class _TopProductsCard extends StatelessWidget {
+  const _TopProductsCard({required this.products});
 
   final List<_TopProductStat> products;
 
   @override
   Widget build(BuildContext context) {
+    final maxListHeight = (MediaQuery.sizeOf(context).height * 0.32)
+        .clamp(220.0, 360.0)
+        .toDouble();
+    final shouldScroll = products.length > 5;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -2526,13 +3089,40 @@ class _DesktopTopProductsCard extends StatelessWidget {
         ),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Productos mas movidos',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Productos mas movidos',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              if (products.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '${products.length} items',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 10),
           if (products.isEmpty)
@@ -2541,44 +3131,91 @@ class _DesktopTopProductsCard extends StatelessWidget {
               style: Theme.of(context).textTheme.bodyMedium,
             )
           else
-            ...products.map(
-              (product) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        product.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
+            ConstrainedBox(
+              constraints: shouldScroll
+                  ? BoxConstraints(maxHeight: maxListHeight)
+                  : const BoxConstraints(),
+              child: ListView.builder(
+                shrinkWrap: !shouldScroll,
+                physics: shouldScroll
+                    ? const ClampingScrollPhysics()
+                    : const NeverScrollableScrollPhysics(),
+                itemCount: products.length,
+                itemBuilder: (context, index) {
+                  final product = products[index];
+                  final isLast = index == products.length - 1;
+                  return Padding(
+                    padding: EdgeInsets.only(bottom: isLast ? 0 : 10),
+                    child: Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 10,
-                        vertical: 6,
+                        vertical: 10,
                       ),
                       decoration: BoxDecoration(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.primary.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(999),
+                        color: Theme.of(context).colorScheme.surface,
+                        borderRadius: BorderRadius.circular(16),
                       ),
-                      child: Text(
-                        'x${product.quantity.toStringAsFixed(product.quantity % 1 == 0 ? 0 : 2)}',
-                        style: Theme.of(context).textTheme.labelMedium
-                            ?.copyWith(
-                              color: Theme.of(context).colorScheme.primary,
-                              fontWeight: FontWeight.w800,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 28,
+                            height: 28,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.primary.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(10),
                             ),
+                            child: Text(
+                              '${index + 1}',
+                              style: Theme.of(context).textTheme.labelMedium
+                                  ?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              product.name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.primary.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              'x${product.quantity.toStringAsFixed(product.quantity % 1 == 0 ? 0 : 2)}',
+                              style: Theme.of(context).textTheme.labelMedium
+                                  ?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
+                  );
+                },
               ),
             ),
         ],

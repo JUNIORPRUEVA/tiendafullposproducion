@@ -346,41 +346,20 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
                             return listPane;
                           }
 
-                          return Row(
-                            children: [
-                              SizedBox(
-                                width: 420,
-                                child: Padding(
-                                  padding: const EdgeInsets.only(
-                                    left: 16,
-                                    right: 8,
-                                    bottom: 16,
-                                  ),
-                                  child: listPane,
-                                ),
-                              ),
-                              Expanded(
-                                child: Padding(
-                                  padding: const EdgeInsets.only(
-                                    left: 8,
-                                    right: 16,
-                                    bottom: 16,
-                                  ),
-                                  child: _ManualEntryDetailPane(
-                                    entry: selectedEntry,
-                                    canManage: canManage,
-                                    onEdit: selectedEntry == null
-                                        ? null
-                                        : () =>
-                                              _openEditor(entry: selectedEntry),
-                                    onDelete: selectedEntry == null
-                                        ? null
-                                        : () => _deleteEntry(selectedEntry),
-                                    formatDate: _formatDate,
-                                  ),
-                                ),
-                              ),
-                            ],
+                          return Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                            child: _ManualDesktopSplitView(
+                              entries: entries,
+                              selectedEntry: selectedEntry,
+                              selectedFilter:
+                                  _kindFilter?.label ?? 'Todo el manual',
+                              canManage: canManage,
+                              onOpenEntry: (entry) =>
+                                  _openEntryDetail(entry, canManage),
+                              onEditEntry: (entry) => _openEditor(entry: entry),
+                              onDeleteEntry: _deleteEntry,
+                              formatDate: _formatDate,
+                            ),
                           );
                         },
                       ),
@@ -535,6 +514,327 @@ class _ManualMetricChip extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ManualDesktopSplitView extends StatelessWidget {
+  const _ManualDesktopSplitView({
+    required this.entries,
+    required this.selectedEntry,
+    required this.selectedFilter,
+    required this.canManage,
+    required this.onOpenEntry,
+    required this.onEditEntry,
+    required this.onDeleteEntry,
+    required this.formatDate,
+  });
+
+  final List<CompanyManualEntry> entries;
+  final CompanyManualEntry? selectedEntry;
+  final String selectedFilter;
+  final bool canManage;
+  final ValueChanged<CompanyManualEntry> onOpenEntry;
+  final Future<bool> Function(CompanyManualEntry entry) onEditEntry;
+  final Future<bool> Function(CompanyManualEntry entry) onDeleteEntry;
+  final String Function(DateTime? value) formatDate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 430,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 20,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Normas y guias',
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(fontWeight: FontWeight.w800),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Selecciona una tarjeta para abrir automaticamente el detalle completo.',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      _ManualMetricChip(
+                        icon: Icons.article_outlined,
+                        label: 'Visibles',
+                        value: '${entries.length}',
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: _ManualDesktopBadge(label: selectedFilter),
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListView.separated(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    itemCount: entries.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final entry = entries[index];
+                      return _ManualDesktopEntryTile(
+                        entry: entry,
+                        selected: entry.id == selectedEntry?.id,
+                        canManage: canManage,
+                        onTap: () => onOpenEntry(entry),
+                        onEdit: () => onEditEntry(entry),
+                        onDelete: () => onDeleteEntry(entry),
+                        formatDate: formatDate,
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 18),
+        Expanded(
+          child: Column(
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        selectedEntry?.title ?? 'Detalle de la norma',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    if (selectedEntry != null) ...[
+                      _ManualDesktopBadge(label: selectedEntry!.kind.label),
+                      const SizedBox(width: 8),
+                      _ManualDesktopBadge(label: selectedEntry!.audience.label),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: _ManualEntryDetailPane(
+                  entry: selectedEntry,
+                  canManage: canManage,
+                  onEdit: selectedEntry == null
+                      ? null
+                      : () => onEditEntry(selectedEntry!),
+                  onDelete: selectedEntry == null
+                      ? null
+                      : () => onDeleteEntry(selectedEntry!),
+                  formatDate: formatDate,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ManualDesktopEntryTile extends StatelessWidget {
+  const _ManualDesktopEntryTile({
+    required this.entry,
+    required this.selected,
+    required this.canManage,
+    required this.onTap,
+    required this.onEdit,
+    required this.onDelete,
+    required this.formatDate,
+  });
+
+  final CompanyManualEntry entry;
+  final bool selected;
+  final bool canManage;
+  final VoidCallback onTap;
+  final Future<bool> Function() onEdit;
+  final Future<bool> Function() onDelete;
+  final String Function(DateTime? value) formatDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final updatedAt = entry.updatedAt ?? entry.createdAt;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            color: selected
+                ? scheme.primary.withValues(alpha: 0.08)
+                : scheme.surfaceContainerLowest,
+            border: Border.all(
+              color: selected
+                  ? scheme.primary.withValues(alpha: 0.45)
+                  : scheme.outlineVariant,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          entry.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _ManualDesktopBadge(label: entry.kind.label),
+                            if (entry.moduleKey != null &&
+                                entry.moduleKey!.isNotEmpty)
+                              _ManualDesktopBadge(
+                                label: 'Modulo ${entry.moduleKey}',
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (canManage)
+                    PopupMenuButton<String>(
+                      onSelected: (value) async {
+                        if (value == 'edit') {
+                          await onEdit();
+                        } else if (value == 'delete') {
+                          await onDelete();
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(value: 'edit', child: Text('Editar')),
+                        PopupMenuItem(value: 'delete', child: Text('Eliminar')),
+                      ],
+                    ),
+                ],
+              ),
+              if (entry.summary != null && entry.summary!.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  entry.summary!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurface.withValues(alpha: 0.74),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Actualizado ${formatDate(updatedAt)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    selected
+                        ? Icons.visibility_outlined
+                        : Icons.arrow_forward_rounded,
+                    color: scheme.primary,
+                    size: 18,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ManualDesktopBadge extends StatelessWidget {
+  const _ManualDesktopBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: scheme.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: scheme.primary,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
