@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -226,14 +228,76 @@ class CompanyManualRepository {
     if (data is Map || data is List) {
       return data;
     }
+    if (data is Uint8List) {
+      return _decodeJsonFromBytes(data, action);
+    }
+    if (data is List<int>) {
+      return _decodeJsonFromBytes(Uint8List.fromList(data), action);
+    }
     if (data is String) {
-      final raw = _stripBom(data).trim();
-      if (raw.isEmpty) {
-        throw ApiException(_invalidResponseMessage(action));
+      try {
+        final raw = _stripBom(data).trim();
+        if (raw.isEmpty) {
+          throw ApiException(_invalidResponseMessage(action));
+        }
+        return jsonDecode(raw);
+      } on FormatException catch (e) {
+        throw ApiException(
+          _invalidResponseMessage(action) + _formatDecodeHint(data, e),
+        );
       }
-      return jsonDecode(raw);
     }
     throw ApiException(_invalidResponseMessage(action));
+  }
+
+  dynamic _decodeJsonFromBytes(Uint8List bytes, String action) {
+    if (bytes.isEmpty) {
+      throw ApiException(_invalidResponseMessage(action));
+    }
+
+    Uint8List payload = bytes;
+    if (_looksLikeGzip(payload)) {
+      try {
+        payload = Uint8List.fromList(GZipDecoder().decodeBytes(payload));
+      } catch (_) {
+        // If it's not actually valid gzip, continue with raw bytes.
+        payload = bytes;
+      }
+    }
+
+    String decoded;
+    try {
+      decoded = utf8.decode(payload);
+    } on FormatException {
+      // Some servers omit charset; fall back to latin1 to avoid throwing.
+      decoded = latin1.decode(payload);
+    }
+
+    final raw = _stripBom(decoded).trim();
+    if (raw.isEmpty) {
+      throw ApiException(_invalidResponseMessage(action));
+    }
+
+    try {
+      return jsonDecode(raw);
+    } on FormatException catch (e) {
+      throw ApiException(
+        _invalidResponseMessage(action) + _formatDecodeHint(raw, e),
+      );
+    }
+  }
+
+  bool _looksLikeGzip(Uint8List bytes) {
+    return bytes.length >= 2 && bytes[0] == 0x1F && bytes[1] == 0x8B;
+  }
+
+  String _formatDecodeHint(String raw, FormatException e) {
+    final preview = raw.trimLeft();
+    final shortPreview = preview.length > 80
+        ? preview.substring(0, 80)
+        : preview;
+    final printable = shortPreview.replaceAll(RegExp(r'\s+'), ' ');
+    return '\nDetalle: ${e.message}\nInicio de respuesta: "$printable"';
   }
 
   String _stripBom(String value) {
@@ -248,7 +312,8 @@ class CompanyManualRepository {
   }
 
   Options _jsonOptions({Map<String, dynamic>? extra}) {
-    return _options(extra: extra).copyWith(responseType: ResponseType.plain);
+    // Use bytes to reliably handle gzip or mis-labeled encodings.
+    return _options(extra: extra).copyWith(responseType: ResponseType.bytes);
   }
 
   Options _options({Map<String, dynamic>? extra}) {

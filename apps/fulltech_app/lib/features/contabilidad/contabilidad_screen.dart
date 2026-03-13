@@ -197,7 +197,7 @@ class _AccountingDesktopPage extends ConsumerWidget {
               children: [
                 _AccountingHeaderSection(
                   currentDateLabel: DateFormat(
-                    "EEEE, d 'de' MMMM yyyy",
+                    'EEE, dd MMM yyyy',
                     'es_DO',
                   ).format(today),
                   overviewAsync: overviewAsync,
@@ -264,9 +264,10 @@ class _AccountingHeaderSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final summary = overviewAsync.value;
 
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
@@ -284,7 +285,7 @@ class _AccountingHeaderSection extends StatelessWidget {
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final stacked = constraints.maxWidth < 1080;
+          final stacked = constraints.maxWidth < 1040;
           final monthLabel =
               overviewAsync.value?.monthLabel ?? 'Periodo actual';
           final statusLabel = overviewAsync.maybeWhen(
@@ -296,13 +297,13 @@ class _AccountingHeaderSection extends StatelessWidget {
             orElse: () => 'Sincronizando',
           );
 
-          final heroContent = Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
+          Widget chip({required String text}) {
+            return ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 340),
+              child: Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
-                  vertical: 7,
+                  vertical: 8,
                 ),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.10),
@@ -312,131 +313,56 @@ class _AccountingHeaderSection extends StatelessWidget {
                   ),
                 ),
                 child: Text(
-                  currentDateLabel,
+                  text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.labelLarge?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.88),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                'Contabilidad',
-                style: theme.textTheme.displaySmall?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -1.0,
-                ),
-              ),
-              const SizedBox(height: 8),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 720),
-                child: Text(
-                  'Resumen financiero, cierres y control administrativo con una base lista para crecer hacia reportes, impuestos y seguimiento operativo.',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.78),
-                    height: 1.45,
-                  ),
-                ),
-              ),
-            ],
-          );
-
-          final sidePanel = Container(
-            width: stacked ? double.infinity : 300,
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Estado general',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.72),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  statusLabel,
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    color: Colors.white,
+                    color: Colors.white.withValues(alpha: 0.90),
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                const SizedBox(height: 12),
-                _HeaderStatRow(label: 'Periodo', value: monthLabel),
-                const SizedBox(height: 8),
-                _HeaderStatRow(
-                  label: 'Módulos activos',
-                  value: '3 principales',
-                ),
-                const SizedBox(height: 8),
-                _HeaderStatRow(
-                  label: 'Preparado para',
-                  value: 'Reportes, impuestos y arqueos',
-                ),
-              ],
-            ),
+              ),
+            );
+          }
+
+          final modulesText = 'Módulos: 3';
+          final movementsText =
+              'Movimientos hoy: ${summary?.todayMovementsCount.toString() ?? '--'}';
+
+          final chips = Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            alignment: WrapAlignment.end,
+            children: [
+              chip(text: 'Estado: $statusLabel'),
+              chip(text: 'Período: $monthLabel'),
+              chip(text: modulesText),
+              chip(text: movementsText),
+            ],
           );
 
           if (stacked) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [heroContent, const SizedBox(height: 20), sidePanel],
+              children: [
+                chip(text: currentDateLabel),
+                const SizedBox(height: 12),
+                Align(alignment: Alignment.centerLeft, child: chips),
+              ],
             );
           }
 
           return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(child: heroContent),
-              const SizedBox(width: 20),
-              sidePanel,
+              chip(text: currentDateLabel),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Align(alignment: Alignment.centerRight, child: chips),
+              ),
             ],
           );
         },
       ),
-    );
-  }
-}
-
-class _HeaderStatRow extends StatelessWidget {
-  const _HeaderStatRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 88,
-          child: Text(
-            label,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Colors.white.withValues(alpha: 0.60),
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-              height: 1.35,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
@@ -497,12 +423,12 @@ class _AccountingSummaryCards extends StatelessWidget {
             ? 2
             : 1;
         final aspectRatio = crossAxisCount == 1
-            ? 4.0
+            ? 4.6
             : crossAxisCount == 2
-            ? 2.8
+            ? 3.2
             : crossAxisCount == 3
-            ? 2.15
-            : 1.95;
+            ? 2.6
+            : 2.35;
 
         return GridView.builder(
           shrinkWrap: true,
@@ -568,7 +494,7 @@ class _AccountingModulesGrid extends StatelessWidget {
     ];
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(30),
@@ -588,22 +514,43 @@ class _AccountingModulesGrid extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Módulos contables',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w900,
-              letterSpacing: -0.4,
-            ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final inline = constraints.maxWidth >= 820;
+              final title = Text(
+                'Módulos contables',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.3,
+                ),
+              );
+              final description = Text(
+                'Accesos administrativos preparados para crecer hacia reportes, cuentas por cobrar, impuestos y más procesos contables.',
+                maxLines: inline ? 1 : 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  height: 1.35,
+                ),
+              );
+
+              if (!inline) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [title, const SizedBox(height: 4), description],
+                );
+              }
+
+              return Row(
+                children: [
+                  title,
+                  const SizedBox(width: 14),
+                  Expanded(child: description),
+                ],
+              );
+            },
           ),
-          const SizedBox(height: 6),
-          Text(
-            'Accesos administrativos preparados para crecer hacia reportes, cuentas por cobrar, impuestos y más procesos contables.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              height: 1.45,
-            ),
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           LayoutBuilder(
             builder: (context, constraints) {
               final width = constraints.maxWidth;
@@ -613,10 +560,10 @@ class _AccountingModulesGrid extends StatelessWidget {
                   ? 2
                   : 1;
               final aspectRatio = crossAxisCount == 1
-                  ? 3.2
+                  ? 4.6
                   : crossAxisCount == 2
-                  ? 1.55
-                  : 1.22;
+                  ? 2.35
+                  : 1.85;
 
               return GridView.builder(
                 shrinkWrap: true,
@@ -624,8 +571,8 @@ class _AccountingModulesGrid extends StatelessWidget {
                 itemCount: modules.length,
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: crossAxisCount,
-                  mainAxisSpacing: 14,
-                  crossAxisSpacing: 14,
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 10,
                   childAspectRatio: aspectRatio,
                 ),
                 itemBuilder: (context, index) {
@@ -804,7 +751,7 @@ class _AccountingSummaryCard extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(24),
@@ -828,8 +775,8 @@ class _AccountingSummaryCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Container(
-                  width: 42,
-                  height: 42,
+                  width: 38,
+                  height: 38,
                   decoration: BoxDecoration(
                     color: data.accent.withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(14),
@@ -906,7 +853,7 @@ class _AccountingModuleCardState extends State<_AccountingModuleCard> {
             onTap: () => context.go(data.route),
             borderRadius: BorderRadius.circular(26),
             child: Ink(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(26),
                 gradient: LinearGradient(
@@ -937,13 +884,13 @@ class _AccountingModuleCardState extends State<_AccountingModuleCard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        width: 52,
-                        height: 52,
+                        width: 40,
+                        height: 40,
                         decoration: BoxDecoration(
                           color: data.accent.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(18),
                         ),
-                        child: Icon(data.icon, color: data.accent, size: 26),
+                        child: Icon(data.icon, color: data.accent, size: 20),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -952,20 +899,19 @@ class _AccountingModuleCardState extends State<_AccountingModuleCard> {
                           children: [
                             Text(
                               data.title,
-                              maxLines: 2,
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.titleLarge?.copyWith(
+                              style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.w900,
                                 letterSpacing: -0.4,
-                                fontSize: 28,
                                 color: const Color(0xFF0F172A),
                               ),
                             ),
                             const SizedBox(height: 4),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 5,
+                                horizontal: 9,
+                                vertical: 3,
                               ),
                               decoration: BoxDecoration(
                                 color: Colors.white,
@@ -978,7 +924,7 @@ class _AccountingModuleCardState extends State<_AccountingModuleCard> {
                                 style: theme.textTheme.labelMedium?.copyWith(
                                   color: data.accent,
                                   fontWeight: FontWeight.w800,
-                                  fontSize: 12,
+                                  fontSize: 11,
                                 ),
                               ),
                             ),
@@ -987,18 +933,18 @@ class _AccountingModuleCardState extends State<_AccountingModuleCard> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 8),
                   Text(
                     data.description,
-                    maxLines: 3,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(
+                    style: theme.textTheme.bodySmall?.copyWith(
                       color: const Color(0xFF334155),
                       height: 1.4,
                     ),
                   ),
                   const Spacer(),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   Row(
                     children: [
                       Text(
@@ -1006,14 +952,14 @@ class _AccountingModuleCardState extends State<_AccountingModuleCard> {
                         style: theme.textTheme.titleSmall?.copyWith(
                           color: const Color(0xFF0F172A),
                           fontWeight: FontWeight.w800,
-                          fontSize: 16,
+                          fontSize: 14,
                         ),
                       ),
                       const Spacer(),
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 180),
-                        width: 38,
-                        height: 38,
+                        width: 32,
+                        height: 32,
                         decoration: BoxDecoration(
                           color: data.accent,
                           borderRadius: BorderRadius.circular(14),
@@ -1021,6 +967,7 @@ class _AccountingModuleCardState extends State<_AccountingModuleCard> {
                         child: Icon(
                           _hovered ? Icons.arrow_outward : Icons.arrow_forward,
                           color: Colors.white,
+                          size: 18,
                         ),
                       ),
                     ],

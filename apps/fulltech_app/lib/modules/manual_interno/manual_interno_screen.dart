@@ -5,6 +5,7 @@ import '../../core/auth/app_permissions.dart';
 import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/errors/api_exception.dart';
 import 'company_manual_models.dart';
 import 'company_manual_repository.dart';
 
@@ -84,7 +85,7 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = '$e';
+        _error = e is ApiException ? e.message : '$e';
         _loading = false;
       });
     }

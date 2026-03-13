@@ -1178,12 +1178,16 @@ class _PunchHeaderSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dateText = DateFormat('EEEE, dd MMMM yyyy', 'es').format(now);
-    final timeText = DateFormat('hh:mm:ss a').format(now);
+    final rawDateText = DateFormat('dd MMM yyyy', 'es').format(now);
+    final dateParts = rawDateText.split(' ');
+    final dateText = dateParts.length >= 3
+        ? '${dateParts[0]} ${dateParts[1][0].toUpperCase()}${dateParts[1].substring(1)} ${dateParts[2]}'
+        : rawDateText;
+    final timeText = DateFormat('HH:mm').format(now);
     final recentPunch = lastPunch;
 
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(30),
         gradient: const LinearGradient(
@@ -1201,121 +1205,140 @@ class _PunchHeaderSection extends StatelessWidget {
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final stacked = constraints.maxWidth < 1320;
+          final showPill = constraints.maxWidth >= 1240;
+          final showLastPunch = constraints.maxWidth >= 1180;
+          final showDescription = constraints.maxWidth >= 1440;
+          final compactCta = constraints.maxWidth < 1120;
 
-          final info = Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          final metaText = '$dateText · $timeText';
+
+          final pill = Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              'Control de asistencia y jornada',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          );
+
+          final title = Text(
+            'Ponche',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.4,
+            ),
+          );
+
+          final meta = Flexible(
+            child: Text(
+              metaText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                color: Colors.white.withValues(alpha: 0.88),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          );
+
+          final left = Row(
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  'Control de asistencia y jornada',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Ponche',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.6,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                dateText,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.88),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                timeText,
-                style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
+              if (showPill) ...[pill, const SizedBox(width: 12)],
+              title,
+              const SizedBox(width: 12),
+              meta,
             ],
           );
 
-          final actions = Container(
-            width: stacked ? double.infinity : 360,
-            padding: const EdgeInsets.all(18),
+          final lastPunchText = recentPunch == null
+              ? 'Sin registro reciente'
+              : 'Último: ${recentPunch.type.label} · ${DateFormat('dd/MM · HH:mm').format(recentPunch.timestamp.toLocal())}';
+
+          final right = Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(24),
+              color: Colors.white.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(18),
               border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 _PunchStatusBadge(status: status),
-                const SizedBox(height: 14),
-                Text(
-                  status.description,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.86),
-                    height: 1.45,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: onPunch,
-                    icon: creating
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.touch_app_outlined),
-                    label: Text(creating ? 'Registrando...' : 'Ponchar ahora'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: const Color(0xFF0F172A),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
+                if (showDescription) ...[
+                  const SizedBox(width: 12),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 320),
+                    child: Text(
+                      status.description,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.88),
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  recentPunch == null
-                      ? 'Sin registro reciente.'
-                      : 'Último registro: ${recentPunch.type.label} · ${DateFormat('dd/MM · hh:mm a').format(recentPunch.timestamp.toLocal())}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.82),
+                ],
+                if (showLastPunch) ...[
+                  const SizedBox(width: 12),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 260),
+                    child: Text(
+                      lastPunchText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.82),
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(width: 12),
+                FilledButton.icon(
+                  onPressed: onPunch,
+                  icon: creating
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.touch_app_outlined, size: 18),
+                  label: Text(
+                    creating
+                        ? 'Registrando...'
+                        : compactCta
+                        ? 'Ponchar'
+                        : 'Ponchar ahora',
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFF0F172A),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    textStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ],
             ),
           );
 
-          if (stacked) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [info, const SizedBox(height: 18), actions],
-            );
-          }
-
           return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(child: info),
-              const SizedBox(width: 18),
-              actions,
+              Expanded(child: left),
+              const SizedBox(width: 16),
+              right,
             ],
           );
         },
@@ -1332,7 +1355,7 @@ class _PunchStatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: status.color.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(999),
@@ -1342,11 +1365,16 @@ class _PunchStatusBadge extends StatelessWidget {
         children: [
           Icon(status.icon, color: Colors.white, size: 18),
           const SizedBox(width: 8),
-          Text(
-            status.label,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 170),
+            child: Text(
+              status.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         ],
