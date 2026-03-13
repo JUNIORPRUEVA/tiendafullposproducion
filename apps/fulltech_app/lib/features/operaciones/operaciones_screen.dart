@@ -53,8 +53,10 @@ class OperacionesScreen extends ConsumerStatefulWidget {
 class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     with WidgetsBindingObserver {
   static const double _desktopOperationsBreakpoint = kDesktopShellBreakpoint;
+  static const Duration _deepLinkTimeout = Duration(seconds: 12);
 
   final _searchCtrl = TextEditingController();
+  String? _lastAppliedDeepLinkKey;
 
   Future<void> _openQuickCreateFromAppBar() async {
     const title = 'Crear orden de servicio';
@@ -189,6 +191,25 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    final qp = GoRouterState.of(context).uri.queryParameters;
+    final customerId = (qp['customerId'] ?? '').trim();
+    final serviceId = (qp['serviceId'] ?? '').trim();
+
+    if (customerId.isEmpty && serviceId.isEmpty) return;
+
+    final key = '$customerId|$serviceId';
+    if (_lastAppliedDeepLinkKey == key) return;
+    _lastAppliedDeepLinkKey = key;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_applyDeepLink(customerId: customerId, serviceId: serviceId));
+    });
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!mounted) return;
     if (state == AppLifecycleState.resumed) {
@@ -201,6 +222,48 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     WidgetsBinding.instance.removeObserver(this);
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _applyDeepLink({
+    required String customerId,
+    required String serviceId,
+  }) async {
+    final notifier = ref.read(operationsControllerProvider.notifier);
+
+    try {
+      if (customerId.trim().isNotEmpty) {
+        await notifier.setCustomer(customerId.trim());
+      }
+
+      if (!mounted) return;
+
+      if (serviceId.trim().isNotEmpty) {
+        final targetId = serviceId.trim();
+
+        final currentState = ref.read(operationsControllerProvider);
+        ServiceModel? fromList;
+        for (final item in currentState.services) {
+          if (item.id.trim() == targetId) {
+            fromList = item;
+            break;
+          }
+        }
+
+        final service =
+            fromList ??
+            await notifier.getOne(targetId).timeout(_deepLinkTimeout);
+        if (!mounted) return;
+        await _openServiceDetail(service);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudo abrir el proceso automáticamente.';
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   Future<void> _changeStatusWithConfirm(ServiceModel service) async {
@@ -4058,6 +4121,8 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     required bool canOperate,
     required List<String> allowedTargets,
   }) async {
+    final service = _service;
+
     if (!canOperate) {
       ScaffoldMessenger.of(
         context,
@@ -4072,26 +4137,28 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
       return;
     }
 
-    final service = _service;
-    final picked = await showDialog<String>(
+    final picked = await showModalBottomSheet<String?>(
       context: context,
+      showDragHandle: true,
       builder: (context) {
-        return SimpleDialog(
-          title: const Text('Cambiar etapa'),
-          children: allowedTargets
-              .map(
-                (s) => SimpleDialogOption(
-                  onPressed: () => Navigator.pop(context, s),
-                  child: Row(
-                    children: [
-                      Expanded(child: Text(_statusLabel(s))),
-                      if (s == service.status)
-                        const Icon(Icons.check_rounded, size: 18),
-                    ],
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: allowedTargets
+                .map(
+                  (s) => ListTile(
+                    title: Row(
+                      children: [
+                        Expanded(child: Text(_statusLabel(s))),
+                        if (s == service.status)
+                          const Icon(Icons.check_rounded, size: 18),
+                      ],
+                    ),
+                    onTap: () => Navigator.pop(context, s),
                   ),
-                ),
-              )
-              .toList(growable: false),
+                )
+                .toList(growable: false),
+          ),
         );
       },
     );

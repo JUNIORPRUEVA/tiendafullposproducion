@@ -29,6 +29,15 @@ class OperationsRepository {
 
   OperationsRepository(this._dio);
 
+  Map<String, dynamic> _decodeJsonMap(dynamic data) {
+    if (data is Map) return data.cast<String, dynamic>();
+    if (data is String) {
+      final decoded = jsonDecode(data);
+      if (decoded is Map) return decoded.cast<String, dynamic>();
+    }
+    throw const FormatException('Expected JSON object');
+  }
+
   List<TechnicianModel>? _techniciansCache;
   DateTime? _techniciansCacheAt;
   static const Duration _techniciansCacheTtl = Duration(minutes: 5);
@@ -408,12 +417,21 @@ class OperationsRepository {
 
   Future<ServiceModel> getService(String id) async {
     try {
-      final res = await _dio.get(ApiRoutes.serviceDetail(id));
-      return ServiceModel.fromJson((res.data as Map).cast<String, dynamic>());
+      final res = await _dio.get(
+        ApiRoutes.serviceDetail(id),
+        options: Options(responseType: ResponseType.plain),
+      );
+
+      final raw = _decodeJsonMap(res.data);
+      return ServiceModel.fromJson(raw);
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo cargar el servicio'),
         e.response?.statusCode,
+      );
+    } on FormatException {
+      throw ApiException(
+        'Respuesta inválida del servidor al cargar el servicio',
       );
     }
   }
@@ -426,9 +444,12 @@ class OperationsRepository {
     try {
       final res = await _dio.get(
         ApiRoutes.serviceDetail(id),
-        options: Options(extra: {'silent': silent}),
+        options: Options(
+          extra: {'silent': silent},
+          responseType: ResponseType.plain,
+        ),
       );
-      final raw = (res.data as Map).cast<String, dynamic>();
+      final raw = _decodeJsonMap(res.data);
       final key = _serviceCacheKey(cacheScope: cacheScope, id: id);
       await _cache.writeMap(key, raw);
       return ServiceModel.fromJson(raw);
@@ -436,6 +457,10 @@ class OperationsRepository {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo cargar el servicio'),
         e.response?.statusCode,
+      );
+    } on FormatException {
+      throw ApiException(
+        'Respuesta inválida del servidor al cargar el servicio',
       );
     }
   }

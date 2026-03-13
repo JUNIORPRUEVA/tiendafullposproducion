@@ -54,16 +54,24 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
 
     try {
       final repo = ref.read(clientesRepositoryProvider);
-      final profile = await repo.getClientProfile(id: widget.clienteId);
-      final timeline = await repo.getClientTimeline(
-        id: widget.clienteId,
-        take: 120,
-      );
+      final profileFuture = repo
+          .getClientProfile(id: widget.clienteId)
+          .timeout(_detailTimeout);
+      final timelineFuture = repo
+          .getClientTimeline(id: widget.clienteId, take: 120)
+          .timeout(_detailTimeout)
+          .then<ClienteTimelineResponse?>((v) => v)
+          .catchError((_) => null);
+
+      final results = await Future.wait([profileFuture, timelineFuture]);
+
+      final profile = results[0] as ClienteProfileResponse;
+      final timeline = results[1] as ClienteTimelineResponse?;
 
       if (!mounted) return;
       setState(() {
         _profile = profile;
-        _timeline = timeline.items;
+        _timeline = timeline?.items ?? const [];
         _cliente = ClienteModel.fromJson({
           'id': profile.client.id,
           'nombre': profile.client.nombre,

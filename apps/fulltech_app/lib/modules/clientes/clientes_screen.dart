@@ -12,7 +12,6 @@ import '../../core/widgets/app_drawer.dart';
 import '../../features/operaciones/application/operations_controller.dart';
 import '../../features/operaciones/data/operations_repository.dart';
 import '../../features/operaciones/operations_models.dart';
-import '../../features/user/data/users_repository.dart';
 import 'application/clientes_controller.dart';
 import 'cliente_model.dart';
 import 'cliente_profile_model.dart';
@@ -45,7 +44,60 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
 
   final Map<String, UserModel> _usersById = {};
 
+  final Map<String, ClienteProfileResponse?> _profileCache = {};
+  final Map<String, List<ClienteTimelineEvent>> _timelineCache = {};
+  final Map<String, List<ServiceModel>> _servicesCache = {};
+
   static const Duration _desktopDetailTimeout = Duration(seconds: 12);
+
+  void _goToOperaciones({required String customerId, String? serviceId}) {
+    final qp = <String, String>{};
+    final cid = customerId.trim();
+    final sid = (serviceId ?? '').trim();
+    if (cid.isNotEmpty) qp['customerId'] = cid;
+    if (sid.isNotEmpty) qp['serviceId'] = sid;
+    final uri = Uri(path: Routes.operaciones, queryParameters: qp);
+    context.go(uri.toString());
+  }
+
+  void _goToCotizacionesHistorial({
+    required String customerPhone,
+    String? quoteId,
+  }) {
+    final phone = customerPhone.trim();
+    final qid = (quoteId ?? '').trim();
+    final qp = <String, String>{
+      'pick': '0',
+      if (phone.isNotEmpty) 'customerPhone': phone,
+      if (qid.isNotEmpty) 'quoteId': qid,
+    };
+    final uri = Uri(path: Routes.cotizacionesHistorial, queryParameters: qp);
+    context.go(uri.toString());
+  }
+
+  Future<void> _openServiceProcessDetail(ServiceModel service) async {
+    final id = service.id.trim();
+    if (id.isEmpty) return;
+
+    try {
+      final full = await ref
+          .read(operationsRepositoryProvider)
+          .getService(id)
+          .timeout(_desktopDetailTimeout);
+      if (!mounted) return;
+      _showServiceDetailDialog(full);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(
+            'No se pudo abrir el detalle del proceso, abriendo Operaciones…\n$e',
+          ),
+        ),
+      );
+      _goToOperaciones(customerId: service.customerId, serviceId: service.id);
+    }
+  }
 
   Future<void> _openTimelineEventDetail(
     ClienteTimelineEvent event,
@@ -556,18 +608,22 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
   }
 
   void _openTimelineEvent(ClienteTimelineEvent event, ClienteModel client) {
-    final phone = client.telefono.trim();
     switch (event.eventType) {
       case 'cotizacion':
-        if (phone.isEmpty) return;
-        context.go(
-          '${Routes.cotizacionesHistorial}?customerPhone=${Uri.encodeQueryComponent(phone)}',
+        _goToCotizacionesHistorial(
+          customerPhone: client.telefono,
+          quoteId: event.eventId,
         );
         return;
       case 'service':
       case 'service_phase':
       case 'service_update':
-        context.go(Routes.operaciones);
+        final sid = event.eventId.trim();
+        if (sid.isEmpty) {
+          _goToOperaciones(customerId: client.id);
+        } else {
+          _goToOperaciones(customerId: client.id, serviceId: sid);
+        }
         return;
       case 'sale':
         context.go(Routes.ventas);
@@ -628,17 +684,29 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
   }
 
   Future<void> _loadDesktopClient(String clientId) async {
+    final cachedProfile = _profileCache[clientId];
+    final cachedTimeline = _timelineCache[clientId];
+    final cachedServices = _servicesCache[clientId];
+    final hasCache =
+        cachedProfile != null ||
+        cachedTimeline != null ||
+        cachedServices != null;
+
     setState(() {
-      _desktopDetailLoading = true;
+      _desktopDetailLoading = !hasCache;
       _desktopDetailError = null;
       _desktopDetailWarning = null;
       _desktopServiceFilter = _ClienteServiceFilter.all;
+
+      if (cachedProfile != null) _selectedDesktopProfile = cachedProfile;
+      if (cachedTimeline != null) _selectedDesktopTimeline = cachedTimeline;
+      if (cachedServices != null) _selectedDesktopServices = cachedServices;
     });
 
     try {
       final repo = ref.read(clientesRepositoryProvider);
 
-      final client = await ref
+      final clientFuture = ref
           .read(clientesControllerProvider.notifier)
           .getById(clientId)
           .timeout(_desktopDetailTimeout);
@@ -661,22 +729,21 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
           .then<ClienteTimelineResponse?>((value) => value)
           .catchError((_) => null);
 
-      final usersFuture = ref
-          .read(usersRepositoryProvider)
-          .getAllUsers()
-          .timeout(_desktopDetailTimeout)
-          .catchError((_) => const <UserModel>[]);
+      final results = await Future.wait([
+        clientFuture,
+        servicesFuture,
+        profileFuture,
+        timelineFuture,
+      ]);
 
-      final services = await servicesFuture;
-      final profile = await profileFuture;
-      final timeline = await timelineFuture;
-      final users = await usersFuture;
+      final client = results[0] as ClienteModel;
+      final services = results[1] as List<ServiceModel>;
+      final profile = results[2] as ClienteProfileResponse?;
+      final timeline = results[3] as ClienteTimelineResponse?;
 
-      if (users.isNotEmpty) {
-        for (final u in users) {
-          _usersById[u.id] = u;
-        }
-      }
+      _profileCache[clientId] = profile;
+      _servicesCache[clientId] = services;
+      _timelineCache[clientId] = timeline?.items ?? const [];
 
       String? warning;
       if (profile == null || timeline == null) {
@@ -822,6 +889,9 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
       final desktopProfile = _selectedDesktopProfile;
       final desktopMetrics = desktopProfile?.metrics;
       final desktopTimeline = _selectedDesktopTimeline;
+      final desktopCotizaciones = desktopTimeline
+          .where((event) => event.eventType == 'cotizacion')
+          .toList(growable: false);
       final createdAt =
           desktopProfile?.client.createdAt ?? desktopClient.createdAt;
       final createdAtText = _formatDateTime(createdAt);
@@ -898,9 +968,104 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
                                 padding: const EdgeInsets.only(bottom: 10),
                                 child: _ClienteDesktopServiceRow(
                                   service: service,
+                                  onViewDetail: () => unawaited(
+                                    _openServiceProcessDetail(service),
+                                  ),
+                                  onGo: () => _goToOperaciones(
+                                    customerId: service.customerId,
+                                    serviceId: service.id,
+                                  ),
                                 ),
                               ),
                             ),
+
+                          const SizedBox(height: 18),
+                          Divider(
+                            height: 1,
+                            thickness: 1,
+                            color: scheme.outlineVariant.withValues(
+                              alpha: 0.65,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          Text(
+                            'Cotizaciones',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          if (desktopCotizaciones.isEmpty)
+                            Text(
+                              'Sin cotizaciones registradas',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            )
+                          else
+                            ...desktopCotizaciones.map((event) {
+                              final status = (event.status ?? '').trim();
+                              final headerParts = <String>[
+                                _formatDateTime(event.at),
+                                if (status.isNotEmpty) status,
+                              ];
+                              final subtitle = headerParts.join(' · ');
+
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: Icon(
+                                    _iconForEventType(event.eventType),
+                                    color: scheme.primary,
+                                  ),
+                                  title: Text(event.title),
+                                  subtitle: Text(subtitle),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (event.amount != null)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            right: 8,
+                                          ),
+                                          child: Text(
+                                            _formatMoney(event.amount),
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                      IconButton(
+                                        tooltip: 'Ver detalle',
+                                        onPressed: () => unawaited(
+                                          _openTimelineEventDetail(
+                                            event,
+                                            desktopClient,
+                                          ),
+                                        ),
+                                        icon: const Icon(Icons.open_in_new),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Ir',
+                                        onPressed: () =>
+                                            _goToCotizacionesHistorial(
+                                              customerPhone:
+                                                  desktopClient.telefono,
+                                              quoteId: event.eventId,
+                                            ),
+                                        icon: const Icon(
+                                          Icons.arrow_forward_outlined,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  onTap: () =>
+                                      _openTimelineEvent(event, desktopClient),
+                                ),
+                              );
+                            }),
                         ],
                       ),
                     ),
@@ -2274,9 +2439,15 @@ class _ClientesDesktopWarningBanner extends StatelessWidget {
 }
 
 class _ClienteDesktopServiceRow extends StatelessWidget {
-  const _ClienteDesktopServiceRow({required this.service});
+  const _ClienteDesktopServiceRow({
+    required this.service,
+    required this.onViewDetail,
+    required this.onGo,
+  });
 
   final ServiceModel service;
+  final VoidCallback onViewDetail;
+  final VoidCallback onGo;
 
   @override
   Widget build(BuildContext context) {
@@ -2363,19 +2534,45 @@ class _ClienteDesktopServiceRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-            decoration: BoxDecoration(
-              color: badgeColor(),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              service.status,
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: badgeTextColor(),
-                fontWeight: FontWeight.w800,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              IconButton(
+                tooltip: 'Ver detalle',
+                onPressed: onViewDetail,
+                icon: const Icon(Icons.open_in_new),
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
               ),
-            ),
+              const SizedBox(height: 6),
+              IconButton(
+                tooltip: 'Ir',
+                onPressed: onGo,
+                icon: const Icon(Icons.arrow_forward_outlined),
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: badgeColor(),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  service.status,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: badgeTextColor(),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

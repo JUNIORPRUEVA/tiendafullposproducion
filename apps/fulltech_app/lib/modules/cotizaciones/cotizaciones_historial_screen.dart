@@ -8,11 +8,13 @@ import 'data/cotizaciones_repository.dart';
 class CotizacionesHistorialScreen extends ConsumerStatefulWidget {
   final String? customerPhone;
   final bool pickForEditor;
+  final String? quoteId;
 
   const CotizacionesHistorialScreen({
     super.key,
     this.customerPhone,
     this.pickForEditor = true,
+    this.quoteId,
   });
 
   @override
@@ -25,6 +27,7 @@ class _CotizacionesHistorialScreenState
   bool _loading = true;
   String? _error;
   List<CotizacionModel> _items = const [];
+  bool _autoOpened = false;
 
   String _money(double value) =>
       NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(value);
@@ -41,20 +44,50 @@ class _CotizacionesHistorialScreenState
       _error = null;
     });
     try {
-      final rows = await ref.read(cotizacionesRepositoryProvider).list(
-            customerPhone: widget.customerPhone,
-          );
+      final rows = await ref
+          .read(cotizacionesRepositoryProvider)
+          .list(customerPhone: widget.customerPhone);
       if (!mounted) return;
       setState(() {
         _items = rows;
         _loading = false;
       });
+
+      await _maybeAutoOpenQuote();
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = '$e';
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _maybeAutoOpenQuote() async {
+    if (_autoOpened) return;
+    final id = (widget.quoteId ?? '').trim();
+    if (id.isEmpty) return;
+
+    _autoOpened = true;
+
+    try {
+      CotizacionModel? found;
+      for (final item in _items) {
+        if (item.id.trim() == id) {
+          found = item;
+          break;
+        }
+      }
+
+      found ??= await ref.read(cotizacionesRepositoryProvider).getById(id);
+      if (!mounted) return;
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _viewDetail(found!);
+      });
+    } catch (_) {
+      // Ignore: deep-link should never block screen rendering.
     }
   }
 
@@ -177,9 +210,7 @@ class _CotizacionesHistorialScreenState
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          phone.isEmpty
-              ? 'Historial cotizaciones'
-              : 'Cotizaciones · $phone',
+          phone.isEmpty ? 'Historial cotizaciones' : 'Cotizaciones · $phone',
         ),
       ),
       body: _loading
