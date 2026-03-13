@@ -6,6 +6,7 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/create-client.dto';
+import { ClientTimelineQueryDto } from './dto/client-timeline-query.dto';
 import { ClientsQueryDto } from './dto/clients-query.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 
@@ -31,6 +32,16 @@ export class ClientsController {
   @Get()
   findAll(@Req() req: Request, @Query() query: ClientsQueryDto) {
     return this.clients.findAll(query);
+  }
+
+  @Get(':id/profile')
+  profile(@Param('id') id: string) {
+    return this.clients.getProfile(id);
+  }
+
+  @Get(':id/timeline')
+  timeline(@Param('id') id: string, @Query() query: ClientTimelineQueryDto) {
+    return this.clients.getTimeline(id, query);
   }
 
   @Get(':id')

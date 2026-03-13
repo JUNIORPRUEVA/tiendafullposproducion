@@ -1,0 +1,1 @@
+This migration adds `phoneNormalized` + `lastActivityAt` to `Client`, plus `customerPhoneNormalized` to `Cotizacion`, backfills normalized values, deduplicates active clients by phone (reassigning relations), links legacy cotizaciones by phone, and enforces uniqueness for active clients.

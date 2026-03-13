@@ -258,6 +258,11 @@ export class OperationsService {
         : service;
 
       if (!finalRow) throw new NotFoundException('Servicio no encontrado');
+
+      await tx.client.update({
+        where: { id: dto.customerId },
+        data: { lastActivityAt: finalRow.createdAt },
+      });
       return finalRow;
     });
 
@@ -454,6 +459,11 @@ export class OperationsService {
         },
       });
 
+      await tx.client.update({
+        where: { id: service.customerId },
+        data: { lastActivityAt: row.updatedAt },
+      });
+
       return row;
     });
 
@@ -541,6 +551,11 @@ export class OperationsService {
       include: this.serviceInclude(),
     });
 
+    await this.prisma.client.update({
+      where: { id: service.customerId },
+      data: { lastActivityAt: updated.updatedAt },
+    });
+
     return this.normalizeService(updated);
   }
 
@@ -594,6 +609,11 @@ export class OperationsService {
         },
       });
 
+      await tx.client.update({
+        where: { id: service.customerId },
+        data: { lastActivityAt: row.updatedAt },
+      });
+
       return row;
     });
 
@@ -614,6 +634,11 @@ export class OperationsService {
       where: { id },
       data: { orderState: nextOrderState },
       include: this.serviceInclude(),
+    });
+
+    await this.prisma.client.update({
+      where: { id: service.customerId },
+      data: { lastActivityAt: updated.updatedAt },
     });
 
     return this.normalizeService(updated);
@@ -685,6 +710,11 @@ export class OperationsService {
         },
       });
 
+      await tx.client.update({
+        where: { id: service.customerId },
+        data: { lastActivityAt: row.updatedAt },
+      });
+
       return row;
     });
 
@@ -753,6 +783,11 @@ export class OperationsService {
         },
       });
 
+      await tx.client.update({
+        where: { id: service.customerId },
+        data: { lastActivityAt: new Date() },
+      });
+
       return tx.service.findUnique({ where: { id }, include: this.serviceInclude() });
     });
 
@@ -798,6 +833,11 @@ export class OperationsService {
         },
       });
 
+      await this.prisma.client.update({
+        where: { id: service.customerId },
+        data: { lastActivityAt: new Date() },
+      });
+
       return this.findOne(user, id);
     }
 
@@ -811,6 +851,11 @@ export class OperationsService {
         newValue: dto.newValue ? (dto.newValue as Prisma.InputJsonValue) : Prisma.DbNull,
         message: message || 'Actualización interna',
       },
+    });
+
+    await this.prisma.client.update({
+      where: { id: service.customerId },
+      data: { lastActivityAt: new Date() },
     });
 
     return { ok: true };
@@ -844,6 +889,11 @@ export class OperationsService {
           newValue: { fileUrl, fileType },
           message: 'Evidencia subida',
         },
+      });
+
+      await tx.client.update({
+        where: { id: service.customerId },
+        data: { lastActivityAt: new Date() },
       });
 
       return row;

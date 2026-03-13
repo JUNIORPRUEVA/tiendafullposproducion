@@ -282,6 +282,11 @@ export class SalesService {
           },
         });
 
+        await tx.client.update({
+          where: { id: dto.customerId },
+          data: { lastActivityAt: sale.saleDate },
+        });
+
         return sale;
       });
     } catch (error) {

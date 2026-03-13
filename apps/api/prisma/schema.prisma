@@ -339,9 +339,11 @@ model Client {
   ownerId   String   @db.Uuid
   nombre    String
   telefono  String
+  phoneNormalized String @default("")
   email     String?
   direccion String?
   notas     String?
+  lastActivityAt DateTime?
   isDeleted Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -354,6 +356,8 @@ model Client {
   @@index([ownerId])
   @@index([ownerId, nombre])
   @@index([ownerId, telefono])
+  @@index([phoneNormalized])
+  @@index([lastActivityAt])
 }
 
 model Sale {
@@ -864,6 +868,7 @@ model Cotizacion {
   customerId      String?  @db.Uuid
   customerName    String
   customerPhone   String
+  customerPhoneNormalized String @default("")
   note            String?  
   includeItbis    Boolean  @default(false)
   itbisRate       Decimal  @default(0.18) @db.Decimal(5, 4)
@@ -880,6 +885,7 @@ model Cotizacion {
   @@index([createdByUserId])
   @@index([customerId])
   @@index([customerPhone])
+  @@index([customerPhoneNormalized])
   @@index([createdAt])
 }
 

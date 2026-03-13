@@ -23,6 +23,10 @@ export class ClientsQueryDto {
   search?: string;
 
   @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
   @Transform(({ value }) => toSafePositiveIntOrUndefined(value))
   @IsInt()
   @Min(1)

@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CompanyManualAudience, CompanyManualEntryKind, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { normalizePhone } from '../common/utils/normalize-phone';
 import { AnalyzeCotizacionAiDto } from './dto/analyze-cotizacion-ai.dto';
 import { ChatCotizacionAiDto } from './dto/chat-cotizacion-ai.dto';
 import { CreateCotizacionDto, CreateCotizacionItemDto } from './dto/create-cotizacion.dto';
@@ -43,12 +44,69 @@ export class CotizacionesService {
     private readonly config: ConfigService,
   ) {}
 
+  private async resolveCustomerIdByPhone(
+    tx: Prisma.TransactionClient,
+    input: {
+      userId: string;
+      customerId?: string | null;
+      customerName: string;
+      customerPhone: string;
+      customerPhoneNormalized: string;
+    },
+  ) {
+    if (input.customerId) return input.customerId;
+
+    if (!input.customerPhoneNormalized) return null;
+
+    const existing = await tx.client.findFirst({
+      where: { isDeleted: false, phoneNormalized: input.customerPhoneNormalized },
+      select: { id: true },
+    });
+    if (existing) return existing.id;
+
+    try {
+      const created = await tx.client.create({
+        data: {
+          ownerId: input.userId,
+          nombre: input.customerName,
+          telefono: input.customerPhone,
+          phoneNormalized: input.customerPhoneNormalized,
+          lastActivityAt: new Date(),
+        },
+        select: { id: true },
+      });
+      return created.id;
+    } catch (e: any) {
+      // In case of race condition with unique constraint.
+      const found = await tx.client.findFirst({
+        where: { isDeleted: false, phoneNormalized: input.customerPhoneNormalized },
+        select: { id: true },
+      });
+      if (found) return found.id;
+      throw e;
+    }
+  }
+
+  private async touchClientActivity(tx: Prisma.TransactionClient, clientId: string | null, at: Date) {
+    if (!clientId) return;
+    await tx.client.update({
+      where: { id: clientId },
+      data: { lastActivityAt: at },
+    });
+  }
+
   async list(user: { id: string; role: Role }, query: { customerPhone?: string; take?: number }) {
     const take = Math.min(Math.max(query.take ?? 80, 1), 500);
     const where: Prisma.CotizacionWhereInput = {};
 
     const customerPhone = query.customerPhone?.trim();
-    if (customerPhone) where.customerPhone = customerPhone;
+    if (customerPhone) {
+      const normalized = normalizePhone(customerPhone);
+      where.OR = [
+        { customerPhone },
+        ...(normalized ? [{ customerPhoneNormalized: normalized }] : []),
+      ];
+    }
 
     // Non-admin users only see their own cotizaciones.
     if (user.role !== Role.ADMIN) {
@@ -92,6 +150,8 @@ export class CotizacionesService {
     if (!customerPhone) throw new BadRequestException('Teléfono requerido');
     if (!customerName) throw new BadRequestException('Nombre de cliente requerido');
 
+    const customerPhoneNormalized = normalizePhone(customerPhone);
+
     const includeItbis = dto.includeItbis === true;
     const itbisRateRaw = dto.itbisRate ?? 0.18;
     const itbisRate = new Prisma.Decimal(Math.max(0, Math.min(itbisRateRaw, 1)));
@@ -105,12 +165,21 @@ export class CotizacionesService {
     const total = subtotal.plus(itbisAmount);
 
     return this.prisma.$transaction(async (tx) => {
+      const customerId = await this.resolveCustomerIdByPhone(tx, {
+        userId: user.id,
+        customerId: dto.customerId,
+        customerName,
+        customerPhone,
+        customerPhoneNormalized,
+      });
+
       const created = await tx.cotizacion.create({
         data: {
           createdByUserId: user.id,
-          customerId: dto.customerId,
+          customerId,
           customerName,
           customerPhone,
+          customerPhoneNormalized,
           note: note.length ? note : null,
           includeItbis,
           itbisRate,
@@ -130,6 +199,8 @@ export class CotizacionesService {
         },
         include: { items: { orderBy: { createdAt: 'asc' } } },
       });
+
+      await this.touchClientActivity(tx, customerId, created.createdAt);
 
       return created;
     });
@@ -165,12 +236,29 @@ export class CotizacionesService {
         await tx.cotizacionItem.deleteMany({ where: { cotizacionId: id } });
       }
 
+      const nextCustomerName = dto.customerName ? dto.customerName.trim() : current.customerName;
+      const nextCustomerPhone = dto.customerPhone ? dto.customerPhone.trim() : current.customerPhone;
+      const nextCustomerPhoneNormalized = normalizePhone(nextCustomerPhone);
+
+      const nextCustomerId = dto.customerId
+        ? dto.customerId
+        : dto.customerPhone
+          ? await this.resolveCustomerIdByPhone(tx, {
+              userId: user.id,
+              customerId: null,
+              customerName: nextCustomerName,
+              customerPhone: nextCustomerPhone,
+              customerPhoneNormalized: nextCustomerPhoneNormalized,
+            })
+          : current.customerId;
+
       const updated = await tx.cotizacion.update({
         where: { id },
         data: {
-          customerId: dto.customerId ?? current.customerId,
-          customerName: dto.customerName ? dto.customerName.trim() : current.customerName,
-          customerPhone: dto.customerPhone ? dto.customerPhone.trim() : current.customerPhone,
+          customerId: nextCustomerId,
+          customerName: nextCustomerName,
+          customerPhone: nextCustomerPhone,
+          customerPhoneNormalized: nextCustomerPhoneNormalized,
           note: dto.note !== undefined ? (dto.note?.trim().length ? dto.note.trim() : null) : current.note,
           includeItbis,
           itbisRate,
@@ -192,6 +280,8 @@ export class CotizacionesService {
         },
         include: { items: { orderBy: { createdAt: 'asc' } } },
       });
+
+      await this.touchClientActivity(tx, nextCustomerId ?? null, updated.updatedAt);
 
       return updated;
     });
