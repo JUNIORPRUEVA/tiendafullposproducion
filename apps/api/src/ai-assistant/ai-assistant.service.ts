@@ -157,6 +157,7 @@ export class AiAssistantService {
       `Eres el asistente administrativo interno de ${runtime.companyName} dentro de la app FULLTECH. ` +
       'Debes responder de forma humana, clara y profesional. ' +
       `${currentUserName ? `Debes dirigirte al usuario actual por su nombre, ${currentUserName}, cuando sea natural hacerlo. ` : ''}` +
+      'Nunca menciones memoria interna, contexto interno, tokens, ranking, fuentes tecnicas, historiales internos ni mecanismos del sistema. Si recuerdas algo util, usalo con naturalidad sin explicar como lo recordaste. ' +
       'REGLAS DE SEGURIDAD: 1) solo puedes usar el conocimiento interno enviado por el sistema; 2) no inventes; 3) no uses conocimiento externo; 4) no reveles datos privados de otros usuarios; 5) si falta permiso o datos, dilo con respeto. ' +
       'REGLAS DE CALIDAD: si la respuesta es larga, resume al inicio; si el usuario pide pasos, responde paso a paso. ' +
       'Devuelve únicamente JSON válido.';
@@ -730,6 +731,17 @@ export class AiAssistantService {
     const searchTerms = this.extractMeaningfulQueryTerms(dto.message, {
       limit: 6,
       extraNoise: [
+        'conocer',
+        'conoce',
+        'conoces',
+        'saber',
+        'sabe',
+        'empresa',
+        'empresas',
+        'emprs',
+        'fulltech',
+        'todos',
+        'todas',
         'producto',
         'productos',
         'catalogo',
@@ -1398,6 +1410,8 @@ export class AiAssistantService {
     const rankedAll = this.rankKnowledgeForPrompt(input.prompt, input.context, input.all);
     const rankedManual = this.rankKnowledgeForPrompt(input.prompt, input.context, input.manualKnowledge);
     const rankedAuthorized = this.rankKnowledgeForPrompt(input.prompt, input.context, input.authorizedData);
+    const rankedAuthorizedVisible = rankedAuthorized.filter((item) => this.isUserVisibleKnowledge(item));
+    const rankedAuthorizedInternal = rankedAuthorized.filter((item) => !this.isUserVisibleKnowledge(item));
     const normalizedModule = this.normalizeModuleKey(input.context.module);
     const wantsManualDepth =
       normalizedModule === 'manual-interno' ||
@@ -1428,7 +1442,7 @@ export class AiAssistantService {
       ),
       3,
     );
-    addRecords(rankedAuthorized, wantsManualDepth ? 6 : 8);
+    addRecords(rankedAuthorizedVisible, wantsManualDepth ? 8 : 10);
     addRecords(
       rankedManual.filter(
         (item) =>
@@ -1439,6 +1453,7 @@ export class AiAssistantService {
       wantsManualDepth ? 14 : 8,
     );
     addRecords(rankedManual, wantsManualDepth ? 10 : 6);
+    addRecords(rankedAuthorizedInternal, 3);
     addRecords(rankedAll, limit);
 
     return selected.slice(0, limit);
@@ -2606,7 +2621,9 @@ export class AiAssistantService {
     const normalizedMessage = message.trim().toLowerCase();
     const hasMeaningfulQuestion = this.tokenize(normalizedMessage).length > 0;
     const matched = hasMeaningfulQuestion ? this.rankRulesForPrompt(message, knowledge).slice(0, 2) : [];
-    const top = matched[0] ?? knowledge[0];
+    const visibleKnowledge = knowledge.filter((item) => this.isUserVisibleKnowledge(item));
+    const visibleMatched = matched.filter((item) => this.isUserVisibleKnowledge(item));
+    const top = visibleMatched[0] ?? visibleKnowledge[0] ?? matched[0] ?? knowledge[0];
 
     if (!top) {
       return {
@@ -2616,8 +2633,8 @@ export class AiAssistantService {
       };
     }
 
-    const selected = matched.length ? matched : [top];
-    const citations = selected.map((k) => this.toCitation(k));
+    const selected = visibleMatched.length ? visibleMatched : [top];
+    const citations = this.toUserVisibleCitations(selected);
 
     const clientMatches = selected.filter((k) => k.id.startsWith('app-data:client-match:'));
     if (clientMatches.length > 0) {
@@ -2632,7 +2649,7 @@ export class AiAssistantService {
       return {
         source: 'rules-only',
         content: this.personalizeContent(`${intro}\n\n${blocks}`, currentUserName),
-        citations: clientMatches.map((k) => this.toCitation(k)),
+        citations: this.toUserVisibleCitations(clientMatches),
         denied: false,
       };
     }
@@ -2650,7 +2667,7 @@ export class AiAssistantService {
       return {
         source: 'rules-only',
         content: this.personalizeContent(`${intro}\n\n${blocks}`, currentUserName),
-        citations: productMatches.map((k) => this.toCitation(k)),
+        citations: this.toUserVisibleCitations(productMatches),
         denied: false,
       };
     }
@@ -2673,7 +2690,7 @@ export class AiAssistantService {
           `${intro}\n\nResumen del contrato:\n${blocks}\n\nSi necesitas que te explique una clausula, forma de pago, fecha de inicio, puesto o cualquier detalle del contrato, dime exactamente cual parte quieres revisar.`,
           currentUserName,
         ),
-        citations: contractMatches.map((k) => this.toCitation(k)),
+        citations: this.toUserVisibleCitations(contractMatches),
         denied: false,
       };
     }
@@ -2706,7 +2723,7 @@ export class AiAssistantService {
           `${blocks}\n\nSi quieres, tambien puedo explicarte por modulo como va creciendo el conocimiento en clientes, productos, contratos, ventas, servicios o normas.`,
           currentUserName,
         ),
-        citations: growthMatches.map((k) => this.toCitation(k)),
+        citations: [],
         denied: false,
       };
     }
@@ -2765,7 +2782,7 @@ export class AiAssistantService {
       return {
         source: 'rules-only',
         content: this.personalizeContent(contentParts.join('\n\n'), currentUserName),
-        citations: (matched.length ? matched : manualEntries).slice(0, 3).map((k) => this.toCitation(k)),
+        citations: this.toUserVisibleCitations((visibleMatched.length ? visibleMatched : manualEntries).slice(0, 3)),
         denied: false,
       };
     }
@@ -2784,7 +2801,7 @@ export class AiAssistantService {
         parts.length ? parts.join(' ') : AiAssistantService.notEnoughDataMessage,
         currentUserName,
       ),
-      citations,
+      citations: this.toUserVisibleCitations(selected),
       denied: false,
     };
   }
@@ -2998,6 +3015,19 @@ export class AiAssistantService {
       default:
         return category.trim();
     }
+  }
+
+  private isUserVisibleKnowledge(record: KnowledgeRecord) {
+    if (record.category === 'memoria') return false;
+    if (record.id === 'app-data:conversation-context') return false;
+    if (record.id.startsWith('app-memory:')) return false;
+    return true;
+  }
+
+  private toUserVisibleCitations(records: KnowledgeRecord[]) {
+    return records
+      .filter((record) => this.isUserVisibleKnowledge(record))
+      .map((record) => this.toCitation(record));
   }
 
   private formatKnowledgeDate(value: Date | null) {

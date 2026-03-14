@@ -23,6 +23,7 @@ type AppConfigResponseShape = {
   evolutionApiBaseUrl?: string | null;
   evolutionApiInstanceName?: string | null;
   evolutionApiApiKey?: string | null;
+  operationsTechCanViewAllServices?: boolean | null;
   updatedAt?: Date | null;
 };
 
@@ -158,6 +159,7 @@ export class SettingsService {
       evolutionApiInstanceName: config.evolutionApiInstanceName,
       hasEvolutionApiApiKey: !!config.evolutionApiApiKey,
       evolutionApiApiKey: isAdmin ? config.evolutionApiApiKey : null,
+      operationsTechCanViewAllServices: !!config.operationsTechCanViewAllServices,
       productsSource,
       productsReadOnly: productsSource === 'FULLPOS' || productsSource === 'FULLPOS_DIRECT',
       updatedAt: config.updatedAt,
@@ -189,6 +191,7 @@ export class SettingsService {
           evolutionApiInstanceName: '',
           hasEvolutionApiApiKey: false,
           evolutionApiApiKey: null,
+          operationsTechCanViewAllServices: false,
           productsSource: this.resolveProductsSource(),
           productsReadOnly: this.resolveProductsSource() === 'FULLPOS' || this.resolveProductsSource() === 'FULLPOS_DIRECT',
           updatedAt: null,
@@ -276,6 +279,9 @@ export class SettingsService {
               : {}),
           ...(dto.evolutionApiApiKey != null
               ? { evolutionApiApiKey: this.sanitizeNullable(dto.evolutionApiApiKey) }
+              : {}),
+            ...(dto.operationsTechCanViewAllServices != null
+              ? { operationsTechCanViewAllServices: !!dto.operationsTechCanViewAllServices }
               : {}),
         },
       });

@@ -27,6 +27,8 @@ import { AssignServiceDto } from './dto/assign-service.dto';
 import { ServiceUpdateDto } from './dto/service-update.dto';
 import { CreateWarrantyDto } from './dto/create-warranty.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
+import { UpsertExecutionReportDto } from './dto/upsert-execution-report.dto';
+import { CreateExecutionChangeDto } from './dto/create-execution-change.dto';
 
 type AuthUser = { id: string; role: Role };
 
@@ -40,10 +42,35 @@ const defaultSteps = [
 
 @Injectable()
 export class OperationsService {
+  private _techViewAllCache: { value: boolean; at: number } | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
   ) {}
+
+  private isAdminLike(role: Role) {
+    return role === Role.ADMIN || role === Role.ASISTENTE;
+  }
+
+  private async techCanViewAllServices(): Promise<boolean> {
+    const now = Date.now();
+    const cached = this._techViewAllCache;
+    if (cached && now - cached.at < 10_000) return cached.value;
+
+    try {
+      const cfg = await this.prisma.appConfig.findUnique({
+        where: { id: 'global' },
+        select: { operationsTechCanViewAllServices: true },
+      });
+      const value = !!cfg?.operationsTechCanViewAllServices;
+      this._techViewAllCache = { value, at: now };
+      return value;
+    } catch {
+      this._techViewAllCache = { value: false, at: now };
+      return false;
+    }
+  }
 
   private isSchemaMismatch(error: unknown) {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -66,12 +93,13 @@ export class OperationsService {
   }
 
   async list(user: AuthUser, query: ServicesQueryDto) {
+    const techViewAll = user.role === Role.TECNICO ? await this.techCanViewAllServices() : false;
     const page = query.page && query.page > 0 ? query.page : 1;
     const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : 30;
     const skip = (page - 1) * pageSize;
 
     const where: Prisma.ServiceWhereInput = {
-      ...this.scopeWhere(user),
+      ...this.scopeWhere(user, techViewAll),
       ...(query.includeDeleted ? {} : { isDeleted: false }),
       ...(query.status ? { status: this.parseStatus(query.status) } : {}),
       ...(query.type ? { serviceType: this.parseType(query.type) } : {}),
@@ -136,11 +164,15 @@ export class OperationsService {
 
   async findOne(user: AuthUser, id: string) {
     const service = await this.prisma.service.findFirst({
-      where: { id, ...this.scopeWhere(user), isDeleted: false },
+      where: { id, isDeleted: false },
       include: this.serviceInclude(),
     });
 
     if (!service) throw new NotFoundException('Servicio no encontrado');
+
+    const techViewAll = user.role === Role.TECNICO ? await this.techCanViewAllServices() : false;
+    this.assertCanView(user, service.createdByUserId, service.assignments.map((a) => a.userId), techViewAll);
+
     return this.normalizeService(service);
   }
 
@@ -481,7 +513,13 @@ export class OperationsService {
     });
 
     if (!service) throw new NotFoundException('Servicio no encontrado');
-    this.assertCanView(user, service.createdByUserId, service.assignments.map((a) => a.userId));
+    const techViewAll = user.role === Role.TECNICO ? await this.techCanViewAllServices() : false;
+    this.assertCanView(
+      user,
+      service.createdByUserId,
+      service.assignments.map((a) => a.userId),
+      techViewAll,
+    );
 
     const history = await this.prisma.servicePhaseHistory.findMany({
       where: { serviceId: id },
@@ -891,7 +929,7 @@ export class OperationsService {
     });
     if (!service) throw new NotFoundException('Servicio no encontrado');
 
-    this.assertCanView(user, service.createdByUserId, service.assignments.map((a) => a.userId));
+    this.assertCanOperate(user, service.createdByUserId, service.assignments.map((a) => a.userId));
 
     let message = dto.message?.trim();
 
@@ -947,6 +985,186 @@ export class OperationsService {
       data: { lastActivityAt: new Date() },
     });
 
+    return { ok: true };
+  }
+
+  async getExecutionReport(user: AuthUser, serviceId: string, technicianId?: string) {
+    const service = await this.prisma.service.findFirst({
+      where: { id: serviceId, isDeleted: false },
+      include: { assignments: true },
+    });
+    if (!service) throw new NotFoundException('Servicio no encontrado');
+
+    const techViewAll = user.role === Role.TECNICO ? await this.techCanViewAllServices() : false;
+    this.assertCanView(user, service.createdByUserId, service.assignments.map((a) => a.userId), techViewAll);
+
+    const targetTechnicianId =
+      user.role === Role.TECNICO
+        ? user.id
+        : (technicianId ?? service.technicianId ?? service.assignments?.[0]?.userId ?? '').trim();
+
+    if (!targetTechnicianId) {
+      return { report: null, changes: [] };
+    }
+
+    const report = await this.prisma.serviceExecutionReport.findFirst({
+      where: { serviceId, technicianId: targetTechnicianId },
+    });
+    if (!report) return { report: null, changes: [] };
+
+    const changes = await this.prisma.serviceExecutionChange.findMany({
+      where: { executionReportId: report.id },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return { report, changes };
+  }
+
+  async upsertExecutionReport(user: AuthUser, serviceId: string, dto: UpsertExecutionReportDto) {
+    const service = await this.prisma.service.findFirst({
+      where: { id: serviceId, isDeleted: false },
+      include: { assignments: true },
+    });
+    if (!service) throw new NotFoundException('Servicio no encontrado');
+
+    const assignedIds = service.assignments.map((a) => a.userId);
+    this.assertCanOperate(user, service.createdByUserId, assignedIds);
+
+    const readOnly =
+      (service.status === ServiceStatus.CLOSED || service.status === ServiceStatus.CANCELLED) &&
+      !this.isAdminLike(user.role);
+    if (readOnly) {
+      throw new ForbiddenException('Servicio finalizado: reporte en modo lectura');
+    }
+
+    const targetTechnicianId =
+      user.role === Role.TECNICO ? user.id : (dto.technicianId ?? service.technicianId ?? '').trim();
+    if (!targetTechnicianId) throw new BadRequestException('Falta technicianId');
+
+    if (!this.isAdminLike(user.role) && targetTechnicianId !== user.id) {
+      throw new ForbiddenException('No autorizado para guardar reporte de otro técnico');
+    }
+
+    const nextPhaseRaw = (dto.phase ?? '').trim();
+    const phase = nextPhaseRaw.length ? this.parsePhase(nextPhaseRaw) : service.currentPhase;
+
+    const arrivedAt = dto.arrivedAt ? new Date(dto.arrivedAt) : undefined;
+    const startedAt = dto.startedAt ? new Date(dto.startedAt) : undefined;
+    const finishedAt = dto.finishedAt ? new Date(dto.finishedAt) : undefined;
+
+    const updated = await this.prisma.serviceExecutionReport.upsert({
+      where: {
+        serviceId_technicianId: {
+          serviceId,
+          technicianId: targetTechnicianId,
+        },
+      },
+      create: {
+        serviceId,
+        technicianId: targetTechnicianId,
+        phase,
+        arrivedAt,
+        startedAt,
+        finishedAt,
+        notes: dto.notes?.trim() || null,
+        checklistData: (dto.checklistData ?? Prisma.DbNull) as any,
+        phaseSpecificData: (dto.phaseSpecificData ?? Prisma.DbNull) as any,
+        clientApproved: dto.clientApproved === true,
+      },
+      update: {
+        phase,
+        ...(arrivedAt !== undefined ? { arrivedAt } : {}),
+        ...(startedAt !== undefined ? { startedAt } : {}),
+        ...(finishedAt !== undefined ? { finishedAt } : {}),
+        ...(dto.notes != null ? { notes: dto.notes.trim() || null } : {}),
+        ...(dto.checklistData !== undefined ? { checklistData: dto.checklistData as any } : {}),
+        ...(dto.phaseSpecificData !== undefined ? { phaseSpecificData: dto.phaseSpecificData as any } : {}),
+        ...(dto.clientApproved !== undefined ? { clientApproved: dto.clientApproved === true } : {}),
+      },
+    });
+
+    const changes = await this.prisma.serviceExecutionChange.findMany({
+      where: { executionReportId: updated.id },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return { report: updated, changes };
+  }
+
+  async addExecutionChange(user: AuthUser, serviceId: string, dto: CreateExecutionChangeDto) {
+    const service = await this.prisma.service.findFirst({
+      where: { id: serviceId, isDeleted: false },
+      include: { assignments: true },
+    });
+    if (!service) throw new NotFoundException('Servicio no encontrado');
+
+    const assignedIds = service.assignments.map((a) => a.userId);
+    this.assertCanOperate(user, service.createdByUserId, assignedIds);
+
+    const readOnly =
+      (service.status === ServiceStatus.CLOSED || service.status === ServiceStatus.CANCELLED) &&
+      !this.isAdminLike(user.role);
+    if (readOnly) {
+      throw new ForbiddenException('Servicio finalizado: cambios en modo lectura');
+    }
+
+    const targetTechnicianId =
+      user.role === Role.TECNICO
+        ? user.id
+        : (service.technicianId ?? service.assignments?.[0]?.userId ?? '').trim();
+    if (!targetTechnicianId) throw new BadRequestException('Falta technicianId');
+
+    const report = await this.prisma.serviceExecutionReport.upsert({
+      where: {
+        serviceId_technicianId: {
+          serviceId,
+          technicianId: targetTechnicianId,
+        },
+      },
+      create: {
+        serviceId,
+        technicianId: targetTechnicianId,
+        phase: service.currentPhase,
+      },
+      update: {},
+    });
+
+    return this.prisma.serviceExecutionChange.create({
+      data: {
+        serviceId,
+        executionReportId: report.id,
+        createdByUserId: user.id,
+        type: dto.type.trim(),
+        description: dto.description.trim(),
+        quantity: dto.quantity,
+        extraCost: dto.extraCost,
+        clientApproved: dto.clientApproved,
+        note: dto.note?.trim() || null,
+      },
+    });
+  }
+
+  async deleteExecutionChange(user: AuthUser, serviceId: string, changeId: string) {
+    const service = await this.prisma.service.findFirst({
+      where: { id: serviceId, isDeleted: false },
+      include: { assignments: true },
+    });
+    if (!service) throw new NotFoundException('Servicio no encontrado');
+
+    const assignedIds = service.assignments.map((a) => a.userId);
+    this.assertCanOperate(user, service.createdByUserId, assignedIds);
+
+    const change = await this.prisma.serviceExecutionChange.findFirst({
+      where: { id: changeId, serviceId },
+    });
+    if (!change) throw new NotFoundException('Cambio no encontrado');
+
+    const isOwner = change.createdByUserId === user.id;
+    if (!isOwner && !this.isAdminLike(user.role)) {
+      throw new ForbiddenException('No autorizado para eliminar este cambio');
+    }
+
+    await this.prisma.serviceExecutionChange.delete({ where: { id: changeId } });
     return { ok: true };
   }
 
@@ -1076,11 +1294,12 @@ export class OperationsService {
   }
 
   async servicesByCustomer(user: AuthUser, customerId: string) {
+    const techViewAll = user.role === Role.TECNICO ? await this.techCanViewAllServices() : false;
     const items = await this.prisma.service.findMany({
       where: {
         customerId,
         isDeleted: false,
-        ...this.scopeWhere(user),
+        ...this.scopeWhere(user, techViewAll),
       },
       include: this.serviceInclude(),
       orderBy: [{ createdAt: 'desc' }],
@@ -1090,8 +1309,9 @@ export class OperationsService {
   }
 
   async dashboard(user: AuthUser, from?: string, to?: string) {
+    const techViewAll = user.role === Role.TECNICO ? await this.techCanViewAllServices() : false;
     const where: Prisma.ServiceWhereInput = {
-      ...this.scopeWhere(user),
+      ...this.scopeWhere(user, techViewAll),
       isDeleted: false,
       ...this.scheduleRangeWhere(from, to),
     };
@@ -1222,17 +1442,27 @@ export class OperationsService {
     };
   }
 
-  private scopeWhere(user: AuthUser): Prisma.ServiceWhereInput {
+  private scopeWhere(user: AuthUser, techViewAll: boolean): Prisma.ServiceWhereInput {
     if (user.role === Role.ADMIN || user.role === Role.ASISTENTE) return {};
     if (user.role === Role.VENDEDOR) return { createdByUserId: user.id };
-    if (user.role === Role.TECNICO) return { assignments: { some: { userId: user.id } } };
+    if (user.role === Role.TECNICO) {
+      return techViewAll ? {} : { assignments: { some: { userId: user.id } } };
+    }
     return { id: '__none__' };
   }
 
-  private assertCanView(user: AuthUser, sellerId: string, assignedIds: string[]) {
+  private assertCanView(
+    user: AuthUser,
+    sellerId: string,
+    assignedIds: string[],
+    techViewAll: boolean = false,
+  ) {
     if (user.role === Role.ADMIN || user.role === Role.ASISTENTE) return;
     if (user.role === Role.VENDEDOR && user.id === sellerId) return;
-    if (user.role === Role.TECNICO && assignedIds.includes(user.id)) return;
+    if (user.role === Role.TECNICO) {
+      if (techViewAll) return;
+      if (assignedIds.includes(user.id)) return;
+    }
     throw new ForbiddenException('No autorizado para ver este servicio');
   }
 

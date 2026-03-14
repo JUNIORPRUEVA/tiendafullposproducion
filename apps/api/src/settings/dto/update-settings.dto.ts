@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateSettingsDto {
   @IsOptional()
@@ -73,4 +73,8 @@ export class UpdateSettingsDto {
   @IsString()
   @MaxLength(500)
   evolutionApiApiKey?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  operationsTechCanViewAllServices?: boolean;
 }

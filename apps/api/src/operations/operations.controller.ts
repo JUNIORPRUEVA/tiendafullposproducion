@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UploadedFile,
@@ -35,6 +36,8 @@ import { AssignServiceDto } from './dto/assign-service.dto';
 import { ServiceUpdateDto } from './dto/service-update.dto';
 import { CreateWarrantyDto } from './dto/create-warranty.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
+import { UpsertExecutionReportDto } from './dto/upsert-execution-report.dto';
+import { CreateExecutionChangeDto } from './dto/create-execution-change.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller()
@@ -135,10 +138,54 @@ export class OperationsController {
   }
 
   @Post('services/:id/update')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
   addUpdate(@Req() req: Request, @Param('id') id: string, @Body() dto: ServiceUpdateDto) {
     const user = req.user as { id: string; role: Role };
     return this.operations.addUpdate(user, id, dto);
+  }
+
+  @Get('services/:id/execution-report')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  getExecutionReport(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Query('technicianId') technicianId?: string,
+  ) {
+    const user = req.user as { id: string; role: Role };
+    return this.operations.getExecutionReport(user, id, technicianId);
+  }
+
+  @Put('services/:id/execution-report')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  upsertExecutionReport(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: UpsertExecutionReportDto,
+  ) {
+    const user = req.user as { id: string; role: Role };
+    return this.operations.upsertExecutionReport(user, id, dto);
+  }
+
+  @Post('services/:id/execution-report/changes')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  addExecutionChange(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: CreateExecutionChangeDto,
+  ) {
+    const user = req.user as { id: string; role: Role };
+    return this.operations.addExecutionChange(user, id, dto);
+  }
+
+  @Delete('services/:id/execution-report/changes/:changeId')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  deleteExecutionChange(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Param('changeId') changeId: string,
+  ) {
+    const user = req.user as { id: string; role: Role };
+    return this.operations.deleteExecutionChange(user, id, changeId);
   }
 
   @Post('services/:id/files')
