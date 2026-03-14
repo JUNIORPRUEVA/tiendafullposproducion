@@ -763,6 +763,127 @@ class OperationsRepository {
     }
   }
 
+  Future<ServiceExecutionBundleModel> getExecutionReport({
+    required String serviceId,
+    String? technicianId,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.serviceExecutionReport(serviceId),
+        options: Options(responseType: ResponseType.plain),
+        queryParameters: {
+          if (technicianId != null && technicianId.trim().isNotEmpty)
+            'technicianId': technicianId.trim(),
+        },
+      );
+
+      final raw = _decodeJsonMap(res.data);
+      return ServiceExecutionBundleModel.fromJson(raw);
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo cargar el reporte técnico'),
+        e.response?.statusCode,
+      );
+    } on FormatException {
+      throw ApiException('Respuesta inválida del servidor al cargar el reporte');
+    }
+  }
+
+  Future<ServiceExecutionBundleModel> upsertExecutionReport({
+    required String serviceId,
+    String? technicianId,
+    String? phase,
+    DateTime? arrivedAt,
+    DateTime? startedAt,
+    DateTime? finishedAt,
+    String? notes,
+    Map<String, dynamic>? checklistData,
+    Map<String, dynamic>? phaseSpecificData,
+    bool? clientApproved,
+  }) async {
+    try {
+      final payload = <String, dynamic>{
+        if (technicianId != null && technicianId.trim().isNotEmpty)
+          'technicianId': technicianId.trim(),
+        if (phase != null && phase.trim().isNotEmpty) 'phase': phase.trim(),
+        if (arrivedAt != null) 'arrivedAt': arrivedAt.toIso8601String(),
+        if (startedAt != null) 'startedAt': startedAt.toIso8601String(),
+        if (finishedAt != null) 'finishedAt': finishedAt.toIso8601String(),
+        if (notes != null) 'notes': notes,
+        if (checklistData != null) 'checklistData': checklistData,
+        if (phaseSpecificData != null) 'phaseSpecificData': phaseSpecificData,
+        if (clientApproved != null) 'clientApproved': clientApproved,
+      };
+
+      final res = await _dio.put(
+        ApiRoutes.serviceExecutionReport(serviceId),
+        data: payload,
+        options: Options(responseType: ResponseType.plain),
+      );
+
+      final raw = _decodeJsonMap(res.data);
+      return ServiceExecutionBundleModel.fromJson(raw);
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo guardar el reporte técnico'),
+        e.response?.statusCode,
+      );
+    } on FormatException {
+      throw ApiException('Respuesta inválida del servidor al guardar el reporte');
+    }
+  }
+
+  Future<ServiceExecutionChangeModel> addExecutionChange({
+    required String serviceId,
+    required String type,
+    required String description,
+    double? quantity,
+    double? extraCost,
+    bool? clientApproved,
+    String? note,
+  }) async {
+    try {
+      final payload = <String, dynamic>{
+        'type': type,
+        'description': description,
+        if (quantity != null) 'quantity': quantity,
+        if (extraCost != null) 'extraCost': extraCost,
+        if (clientApproved != null) 'clientApproved': clientApproved,
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      };
+
+      final res = await _dio.post(
+        ApiRoutes.serviceExecutionChanges(serviceId),
+        data: payload,
+      );
+
+      return ServiceExecutionChangeModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo agregar el cambio'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<void> deleteExecutionChange({
+    required String serviceId,
+    required String changeId,
+  }) async {
+    try {
+      await _dio.delete(
+        ApiRoutes.serviceExecutionChangeDelete(serviceId, changeId),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo eliminar el cambio'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
   Future<void> uploadEvidence({
     required String serviceId,
     required PlatformFile file,

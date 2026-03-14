@@ -9,6 +9,8 @@ class Routes {
   static const userDetail = '/users/:id';
   static const ponche = '/ponche';
   static const operaciones = '/operaciones';
+  static const operacionesTecnico = '/operaciones/tecnico';
+  static const operacionesTecnicoDetalle = '/operaciones/tecnico/:id';
   static const salidasTecnicas = '/salidas-tecnicas';
   static const horarios = '/horarios';
   static const operacionesAgenda = '/operaciones/agenda';
@@ -35,4 +37,6 @@ class Routes {
 
   static String clienteDetail(String id) => '/clientes/$id';
   static String clienteEdit(String id) => '/clientes/$id/editar';
+
+  static String operacionesTecnicoDetail(String id) => '/operaciones/tecnico/$id';
 }

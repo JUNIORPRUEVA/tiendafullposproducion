@@ -463,6 +463,144 @@ class ServiceModel {
   }
 }
 
+class ServiceExecutionReportModel {
+  final String id;
+  final String serviceId;
+  final String technicianId;
+  final String phase;
+  final DateTime? arrivedAt;
+  final DateTime? startedAt;
+  final DateTime? finishedAt;
+  final String? notes;
+  final Map<String, dynamic>? checklistData;
+  final Map<String, dynamic>? phaseSpecificData;
+  final bool clientApproved;
+  final DateTime? updatedAt;
+
+  const ServiceExecutionReportModel({
+    required this.id,
+    required this.serviceId,
+    required this.technicianId,
+    required this.phase,
+    required this.clientApproved,
+    this.arrivedAt,
+    this.startedAt,
+    this.finishedAt,
+    this.notes,
+    this.checklistData,
+    this.phaseSpecificData,
+    this.updatedAt,
+  });
+
+  factory ServiceExecutionReportModel.fromJson(Map<String, dynamic> json) {
+    Map<String, dynamic>? asMap(dynamic raw) {
+      if (raw is Map) return raw.cast<String, dynamic>();
+      return null;
+    }
+
+    DateTime? asDate(dynamic raw) {
+      if (raw == null) return null;
+      return DateTime.tryParse(raw.toString());
+    }
+
+    return ServiceExecutionReportModel(
+      id: (json['id'] ?? '').toString(),
+      serviceId: (json['serviceId'] ?? '').toString(),
+      technicianId: (json['technicianId'] ?? '').toString(),
+      phase: (json['phase'] ?? '').toString(),
+      arrivedAt: asDate(json['arrivedAt']),
+      startedAt: asDate(json['startedAt']),
+      finishedAt: asDate(json['finishedAt']),
+      notes: json['notes']?.toString(),
+      checklistData: asMap(json['checklistData']),
+      phaseSpecificData: asMap(json['phaseSpecificData']),
+      clientApproved: json['clientApproved'] == true,
+      updatedAt: asDate(json['updatedAt']),
+    );
+  }
+}
+
+class ServiceExecutionChangeModel {
+  final String id;
+  final String serviceId;
+  final String executionReportId;
+  final String createdByUserId;
+  final String type;
+  final String description;
+  final double? quantity;
+  final double? extraCost;
+  final bool? clientApproved;
+  final String? note;
+  final DateTime? createdAt;
+
+  const ServiceExecutionChangeModel({
+    required this.id,
+    required this.serviceId,
+    required this.executionReportId,
+    required this.createdByUserId,
+    required this.type,
+    required this.description,
+    this.quantity,
+    this.extraCost,
+    this.clientApproved,
+    this.note,
+    this.createdAt,
+  });
+
+  factory ServiceExecutionChangeModel.fromJson(Map<String, dynamic> json) {
+    double? asDouble(dynamic raw) {
+      if (raw == null) return null;
+      if (raw is num) return raw.toDouble();
+      return double.tryParse(raw.toString());
+    }
+
+    DateTime? asDate(dynamic raw) {
+      if (raw == null) return null;
+      return DateTime.tryParse(raw.toString());
+    }
+
+    return ServiceExecutionChangeModel(
+      id: (json['id'] ?? '').toString(),
+      serviceId: (json['serviceId'] ?? '').toString(),
+      executionReportId: (json['executionReportId'] ?? '').toString(),
+      createdByUserId: (json['createdByUserId'] ?? '').toString(),
+      type: (json['type'] ?? '').toString(),
+      description: (json['description'] ?? '').toString(),
+      quantity: asDouble(json['quantity']),
+      extraCost: asDouble(json['extraCost']),
+      clientApproved: json['clientApproved'] == null
+          ? null
+          : json['clientApproved'] == true,
+      note: json['note']?.toString(),
+      createdAt: asDate(json['createdAt']),
+    );
+  }
+}
+
+class ServiceExecutionBundleModel {
+  final ServiceExecutionReportModel? report;
+  final List<ServiceExecutionChangeModel> changes;
+
+  const ServiceExecutionBundleModel({required this.report, required this.changes});
+
+  factory ServiceExecutionBundleModel.fromJson(Map<String, dynamic> json) {
+    final reportRaw = json['report'];
+    final report = reportRaw is Map
+        ? ServiceExecutionReportModel.fromJson(reportRaw.cast<String, dynamic>())
+        : null;
+
+    final changesRaw = json['changes'];
+    final changes = changesRaw is List
+        ? changesRaw
+            .whereType<Map>()
+            .map((e) => ServiceExecutionChangeModel.fromJson(e.cast<String, dynamic>()))
+            .toList(growable: false)
+        : const <ServiceExecutionChangeModel>[];
+
+    return ServiceExecutionBundleModel(report: report, changes: changes);
+  }
+}
+
 class OperationsDashboardModel {
   final int installationsPendingToday;
   final int warrantiesOpen;

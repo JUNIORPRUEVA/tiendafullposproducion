@@ -9,6 +9,8 @@ import '../../features/user/profile_screen.dart';
 import '../../features/user/users_screen.dart';
 import '../../features/ponche/ponche_screen.dart';
 import '../../features/operaciones/operaciones_screen.dart';
+import '../../features/operaciones/tecnico/operaciones_tecnico_screen.dart';
+import '../../features/operaciones/tecnico/technical_service_execution_screen.dart';
 import '../../features/salidas_tecnicas/tecnico_salidas_screen.dart';
 import '../../features/operaciones/operaciones_mapa_clientes_screen.dart';
 import '../../features/operaciones/operaciones_reglas_screen.dart';
@@ -114,6 +116,17 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.operaciones,
             builder: (context, state) => const OperacionesScreen(),
+          ),
+          GoRoute(
+            path: Routes.operacionesTecnico,
+            builder: (context, state) => const OperacionesTecnicoScreen(),
+          ),
+          GoRoute(
+            path: Routes.operacionesTecnicoDetalle,
+            builder: (context, state) {
+              final id = state.pathParameters['id'] ?? '';
+              return TechnicalServiceExecutionScreen(serviceId: id);
+            },
           ),
           GoRoute(
             path: Routes.salidasTecnicas,
@@ -235,6 +248,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       }
 
       if (isAuth && isAuthRoute) {
+        return Routes.operaciones;
+      }
+
+      if (role == AppRole.tecnico && path == Routes.operaciones) {
+        return Routes.operacionesTecnico;
+      }
+
+      if (role != AppRole.tecnico && path.startsWith(Routes.operacionesTecnico)) {
         return Routes.operaciones;
       }
 
