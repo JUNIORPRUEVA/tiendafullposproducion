@@ -61,6 +61,12 @@ List<AppNavigationSection> buildAppNavigationSections(
             title: 'Operaciones',
             route: Routes.operaciones,
           ),
+        if (can(AppPermission.viewTechOperations))
+          const AppNavigationItem(
+            icon: Icons.engineering_outlined,
+            title: 'Operaciones (Técnico)',
+            route: Routes.operacionesTecnico,
+          ),
         if (can(AppPermission.viewTechDepartures))
           const AppNavigationItem(
             icon: Icons.route_outlined,
@@ -168,7 +174,9 @@ String safeCurrentLocation(BuildContext context) {
     return GoRouterState.of(context).uri.toString();
   } catch (_) {
     try {
-      return GoRouter.of(context).routerDelegate.currentConfiguration.uri.toString();
+      return GoRouter.of(
+        context,
+      ).routerDelegate.currentConfiguration.uri.toString();
     } catch (_) {
       return '';
     }
@@ -199,6 +207,10 @@ String resolveNavigationTitle(
   if (path == Routes.operacionesAgenda) return 'Agenda de operaciones';
   if (path == Routes.operacionesMapaClientes) return 'Mapa de clientes';
   if (path == Routes.operacionesReglas) return 'Reglas operativas';
+  if (path == Routes.operacionesTecnico) return 'Mis servicios';
+  if (path.startsWith('${Routes.operacionesTecnico}/')) {
+    return 'Servicio (Técnico)';
+  }
   if (path.startsWith('/clientes/') && path.endsWith('/editar')) {
     return 'Editar cliente';
   }
@@ -217,6 +229,7 @@ bool desktopShellShouldShowOwnAppBar(String location) {
   final path = Uri.tryParse(location)?.path ?? location;
   const routesWithOwnAppBar = <String>[
     Routes.operaciones,
+    Routes.operacionesTecnico,
     Routes.salidasTecnicas,
     Routes.ponche,
     Routes.horarios,
@@ -252,7 +265,10 @@ bool desktopShellShouldShowOwnAppBar(String location) {
 String userInitials(UserModel? user) {
   final value = (user?.nombreCompleto ?? '').trim();
   if (value.isEmpty) return 'FT';
-  final parts = value.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
+  final parts = value
+      .split(RegExp(r'\s+'))
+      .where((part) => part.isNotEmpty)
+      .toList();
   if (parts.isEmpty) return 'FT';
   if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
   return '${parts.first[0]}${parts.last[0]}'.toUpperCase();

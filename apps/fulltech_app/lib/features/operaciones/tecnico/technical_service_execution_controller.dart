@@ -158,6 +158,8 @@ class TechnicalExecutionController
     final perms = OperationsPermissions(user: user, service: service);
     if (!perms.canOperate) return true;
 
+    if (perms.isAdminLike) return false;
+
     final status = parseStatus(service.status);
     return status == ServiceStatus.closed ||
         status == ServiceStatus.cancelled ||
@@ -349,7 +351,10 @@ class TechnicalExecutionController
 
     final userId = (ref.read(authStateProvider).user?.id ?? '').trim();
     final canDeleteOwn = userId.isNotEmpty && change.createdByUserId == userId;
-    if (!canDeleteOwn) return;
+    final user = ref.read(authStateProvider).user;
+    final perms = OperationsPermissions(user: user, service: state.service!);
+    final canDelete = canDeleteOwn || perms.isAdminLike;
+    if (!canDelete) return;
 
     try {
       final repo = ref.read(operationsRepositoryProvider);

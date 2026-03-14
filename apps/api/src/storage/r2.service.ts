@@ -1,0 +1,130 @@
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import {
+  S3Client,
+  DeleteObjectCommand,
+  HeadObjectCommand,
+  HeadObjectCommandOutput,
+  PutObjectCommand,
+} from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+
+@Injectable()
+export class R2Service {
+  private readonly s3: S3Client;
+  private readonly bucket: string;
+  private readonly publicBaseUrl: string;
+
+  constructor(private readonly config: ConfigService) {
+    // IMPORTANT: env vars are assumed to already exist in deployment.
+    // We only read them; we don't try to configure or validate secrets here.
+    const endpoint = (
+      this.config.get<string>('R2_ENDPOINT') ??
+      this.config.get<string>('R2_S3_ENDPOINT') ??
+      this.config.get<string>('CLOUDFLARE_R2_ENDPOINT') ??
+      ''
+    ).trim();
+
+    const region = (this.config.get<string>('R2_REGION') ?? 'auto').trim() || 'auto';
+
+    const accessKeyId = (
+      this.config.get<string>('R2_ACCESS_KEY_ID') ??
+      this.config.get<string>('AWS_ACCESS_KEY_ID') ??
+      ''
+    ).trim();
+
+    const secretAccessKey = (
+      this.config.get<string>('R2_SECRET_ACCESS_KEY') ??
+      this.config.get<string>('AWS_SECRET_ACCESS_KEY') ??
+      ''
+    ).trim();
+
+    this.bucket = (
+      this.config.get<string>('R2_BUCKET') ??
+      this.config.get<string>('R2_BUCKET_NAME') ??
+      ''
+    ).trim();
+
+    this.publicBaseUrl = (
+      this.config.get<string>('R2_PUBLIC_BASE_URL') ??
+      this.config.get<string>('PUBLIC_R2_BASE_URL') ??
+      this.config.get<string>('R2_PUBLIC_URL_BASE') ??
+      ''
+    )
+      .trim()
+      .replace(/\/$/, '');
+
+    this.s3 = new S3Client({
+      region,
+      endpoint: endpoint || undefined,
+      credentials:
+        accessKeyId && secretAccessKey
+          ? { accessKeyId, secretAccessKey }
+          : undefined,
+      forcePathStyle: true,
+    });
+  }
+
+  buildPublicUrl(objectKey: string): string {
+    if (!this.publicBaseUrl) return objectKey; // fallback (caller can still store key)
+    const key = objectKey.replace(/^\//, '');
+    return `${this.publicBaseUrl}/${key}`;
+  }
+
+  async createPresignedPutUrl(params: {
+    objectKey: string;
+    contentType: string;
+    expiresInSeconds: number;
+  }) {
+    if (!this.bucket) {
+      throw new InternalServerErrorException('R2 bucket no configurado');
+    }
+
+    const cmd = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: params.objectKey,
+      ContentType: params.contentType,
+    });
+
+    const uploadUrl = await getSignedUrl(this.s3, cmd, {
+      expiresIn: params.expiresInSeconds,
+    });
+
+    return uploadUrl;
+  }
+
+  async headObject(objectKey: string) {
+    if (!this.bucket) {
+      throw new InternalServerErrorException('R2 bucket no configurado');
+    }
+
+    const res = (await this.s3.send(
+      new HeadObjectCommand({
+        Bucket: this.bucket,
+        Key: objectKey,
+      }),
+    )) as HeadObjectCommandOutput;
+
+    return {
+      contentLength: typeof res.ContentLength === 'number' ? res.ContentLength : null,
+      contentType: typeof res.ContentType === 'string' ? res.ContentType : null,
+      etag: typeof res.ETag === 'string' ? res.ETag : null,
+      lastModified: res.LastModified ?? null,
+    };
+  }
+
+  async deleteObject(objectKey: string) {
+    if (!this.bucket) {
+      throw new InternalServerErrorException('R2 bucket no configurado');
+    }
+
+    await this.s3.send(
+      new DeleteObjectCommand({
+        Bucket: this.bucket,
+        Key: objectKey,
+      }),
+    );
+
+    return { ok: true };
+  }
+}

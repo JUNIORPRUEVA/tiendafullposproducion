@@ -1015,6 +1015,8 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
       loading = false;
     }
 
+    if (!mounted) return;
+
     Future<void> runSearch(StateSetter setDialogState) async {
       setDialogState(() => loading = true);
       try {

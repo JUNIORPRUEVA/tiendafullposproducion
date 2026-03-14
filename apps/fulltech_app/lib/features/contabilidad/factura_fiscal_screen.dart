@@ -289,8 +289,9 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
               onPressed: _saving
                   ? null
                   : () async {
+                      final messenger = ScaffoldMessenger.of(context);
                       if (_selectedFile == null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        messenger.showSnackBar(
                           const SnackBar(
                             content: Text('Debes seleccionar una imagen de factura.'),
                           ),
@@ -314,21 +315,21 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
                           note: _noteCtrl.text,
                         );
 
-                        if (!mounted) return;
+                        if (!context.mounted) return;
                         setState(() {
                           _saving = false;
                           _selectedFile = null;
                           _noteCtrl.clear();
                         });
                         await _load();
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        if (!context.mounted) return;
+                        messenger.showSnackBar(
                           const SnackBar(
                             content: Text('Factura fiscal guardada en la nube.'),
                           ),
                         );
                       } catch (e) {
-                        if (!mounted) return;
+                        if (!context.mounted) return;
                         setState(() {
                           _saving = false;
                           _error = e is ApiException
@@ -367,7 +368,7 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
                         to: _to,
                         invoices: _invoices,
                       );
-                      if (!mounted) return;
+                      if (!context.mounted) return;
                       await _openPdfDialog(context, bytes);
                     },
               icon: const Icon(Icons.picture_as_pdf_outlined),

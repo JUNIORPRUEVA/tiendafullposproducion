@@ -103,7 +103,7 @@ class _WorkSchedulingAdminCalendarPageState
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<String?>(
-                      value: _roleFilter,
+                      initialValue: _roleFilter,
                       items: [
                         const DropdownMenuItem<String?>(
                           value: null,
@@ -257,7 +257,7 @@ class _WeekView extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: moveToDate,
+                      initialValue: moveToDate,
                       items: otherDates
                           .map(
                             (d) => DropdownMenuItem(value: d, child: Text(d)),
@@ -291,7 +291,7 @@ class _WeekView extends StatelessWidget {
                       const Divider(height: 1),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
-                        value: swapUserId,
+                        initialValue: swapUserId,
                         items: swapUserIds.map((id) {
                           final name = byUser[id]?.first.userName ?? id;
                           return DropdownMenuItem(value: id, child: Text(name));
@@ -310,7 +310,7 @@ class _WeekView extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                       DropdownButtonFormField<String>(
-                        value: swapUserDayOffDate,
+                        initialValue: swapUserDayOffDate,
                         items: (dayOffByUser[swapUserId] ?? const [])
                             .map(
                               (d) => DropdownMenuItem(value: d, child: Text(d)),

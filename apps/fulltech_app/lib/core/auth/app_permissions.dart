@@ -16,6 +16,7 @@ enum AppPermission {
   viewPunch,
 
   // Technician
+  viewTechOperations,
   viewTechDepartures,
 
   // Sales/CRM
@@ -48,6 +49,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.viewWorkScheduling,
     AppPermission.manageWorkScheduling,
     AppPermission.viewOperations,
+    AppPermission.viewTechOperations,
     AppPermission.viewPunch,
     AppPermission.viewCatalog,
     AppPermission.viewSales,
@@ -103,6 +105,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.viewMyPayments,
     AppPermission.viewWorkScheduling,
     AppPermission.viewOperations,
+    AppPermission.viewTechOperations,
     AppPermission.viewPunch,
     AppPermission.viewTechDepartures,
     AppPermission.viewCompanyManual,

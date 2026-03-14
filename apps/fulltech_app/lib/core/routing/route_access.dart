@@ -23,6 +23,9 @@ class RouteAccess {
       case Routes.operacionesMapaClientes:
       case Routes.operacionesReglas:
         return AppPermission.viewOperations;
+      case Routes.operacionesTecnico:
+      case Routes.operacionesTecnicoDetalle:
+        return AppPermission.viewTechOperations;
       case Routes.salidasTecnicas:
         return AppPermission.viewTechDepartures;
       case Routes.ponche:
@@ -68,6 +71,10 @@ class RouteAccess {
     }
     if (path.startsWith('${Routes.administracion}/')) {
       return AppPermission.viewAdminPanel;
+    }
+    if (path.startsWith('${Routes.operacionesTecnico}/') ||
+        path.startsWith(Routes.operacionesTecnico)) {
+      return AppPermission.viewTechOperations;
     }
     if (path.startsWith('${Routes.operaciones}/')) {
       return AppPermission.viewOperations;

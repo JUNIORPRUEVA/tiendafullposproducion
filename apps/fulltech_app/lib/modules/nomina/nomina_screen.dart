@@ -1319,7 +1319,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
             style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 16),
           ),
           pw.SizedBox(height: 8),
-          pw.Table.fromTextArray(
+          pw.TableHelper.fromTextArray(
             headers: const [
               'Empleado',
               'Base',
@@ -1626,7 +1626,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<PayrollEntryType>(
-                      value: selectedType,
+                      initialValue: selectedType,
                       items: PayrollEntryType.values
                           .map(
                             (type) => DropdownMenuItem(
@@ -1771,6 +1771,8 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                                   'add adjustment saved dialogMounted=${context.mounted} scaffoldMounted=${scaffoldContext.mounted}',
                                   seq: flowSeq,
                                 );
+                                if (!context.mounted) return;
+                                if (!scaffoldContext.mounted) return;
                                 await AppFeedback.showInfo(
                                   scaffoldContext,
                                   'Ajuste guardado',
@@ -1785,6 +1787,8 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                                   error: e,
                                   stackTrace: st,
                                 );
+                                if (!context.mounted) return;
+                                if (!scaffoldContext.mounted) return;
                                 await AppFeedback.showError(
                                   scaffoldContext,
                                   'No se pudo guardar el ajuste: $e',
@@ -2007,6 +2011,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                             Navigator.pop(context);
                           }
 
+                          if (!scaffoldContext.mounted) return;
                           await AppFeedback.showInfo(
                             scaffoldContext,
                             'Quincena creada correctamente',
@@ -2022,6 +2027,8 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                             stackTrace: st,
                           );
 
+                          if (!context.mounted) return;
+                          if (!scaffoldContext.mounted) return;
                           await AppFeedback.showError(
                             scaffoldContext,
                             'No se pudo crear: $e',
@@ -2452,33 +2459,44 @@ class _PayrollUserPickerDialogState
                   ? const Center(child: CircularProgressIndicator())
                   : visible.isEmpty
                   ? const Center(child: Text('No hay usuarios para mostrar'))
-                  : ListView.separated(
-                      itemCount: visible.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final user = visible[index];
-                        return RadioListTile<String>(
-                          value: user.id,
-                          groupValue: _selected?.id,
-                          dense: true,
-                          title: Text(
-                            user.nombreCompleto,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text(
-                            user.telefono.isEmpty
-                                ? user.email
-                                : '${user.telefono} · ${user.email}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          onChanged: (_) {
-                            if (!mounted) return;
-                            setState(() => _selected = user);
-                          },
-                        );
+                  : RadioGroup<String>(
+                      groupValue: _selected?.id,
+                      onChanged: (value) {
+                        if (!mounted) return;
+                        if (value == null) return;
+                        UserModel? next;
+                        for (final u in visible) {
+                          if (u.id == value) {
+                            next = u;
+                            break;
+                          }
+                        }
+                        if (next == null) return;
+                        setState(() => _selected = next);
                       },
+                      child: ListView.separated(
+                        itemCount: visible.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final user = visible[index];
+                          return RadioListTile<String>(
+                            value: user.id,
+                            dense: true,
+                            title: Text(
+                              user.nombreCompleto,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              user.telefono.isEmpty
+                                  ? user.email
+                                  : '${user.telefono} · ${user.email}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        },
+                      ),
                     ),
             ),
           ],

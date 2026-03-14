@@ -143,7 +143,7 @@ class WorkSchedulingAdminEmployeesPage extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<String>(
-                  value: selectedProfileId,
+                  initialValue: selectedProfileId,
                   items: [
                     const DropdownMenuItem<String>(
                       value: null,
@@ -164,7 +164,7 @@ class WorkSchedulingAdminEmployeesPage extends ConsumerWidget {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
-                  value: fixed,
+                  initialValue: fixed,
                   items: [
                     const DropdownMenuItem<int>(
                       value: null,
@@ -184,7 +184,7 @@ class WorkSchedulingAdminEmployeesPage extends ConsumerWidget {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
-                  value: preferred,
+                  initialValue: preferred,
                   items: [
                     const DropdownMenuItem<int>(
                       value: null,

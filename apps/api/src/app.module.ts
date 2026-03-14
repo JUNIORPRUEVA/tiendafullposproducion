@@ -21,6 +21,7 @@ import { WorkSchedulingModule } from './work-scheduling/work-scheduling.module';
 import { CompanyManualModule } from './company-manual/company-manual.module';
 import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { StorageModule } from './storage/storage.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     CompanyManualModule,
     AiAssistantModule,
     NotificationsModule,
+    StorageModule,
   ]
 })
 export class AppModule {}

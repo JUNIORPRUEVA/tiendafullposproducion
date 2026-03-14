@@ -151,6 +151,13 @@ class ApiRoutes {
   // Asistente IA (global)
   static const aiChat = '/ai/chat';
 
+  // Storage (R2 presigned uploads)
+  static const storagePresign = '/storage/presign';
+  static const storageConfirm = '/storage/confirm';
+  static String storageByService(String serviceId) =>
+      '/storage/service/$serviceId';
+  static String storageItem(String id) => '/storage/$id';
+
   // Horarios (Work Scheduling)
   static const workSchedulingEmployees = '/work-scheduling/employees';
   static String workSchedulingEmployee(String id) =>

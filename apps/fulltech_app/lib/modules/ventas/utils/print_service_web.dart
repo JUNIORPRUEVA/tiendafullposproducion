@@ -1,5 +1,6 @@
-import 'dart:html' as html;
 import 'dart:convert';
+
+import 'package:web/web.dart' as web;
 
 import 'package:intl/intl.dart';
 
@@ -85,13 +86,13 @@ Future<void> printSalesSummary({
 </html>
 ''';
 
-  final win = html.window.open('', '_blank');
-  if (win is html.Window) {
-    final dataUrl = Uri.dataFromString(
-      htmlContent,
-      mimeType: 'text/html',
-      encoding: utf8,
-    ).toString();
-    win.location.href = dataUrl;
-  }
+  final dataUrl = Uri.dataFromString(
+    htmlContent,
+    mimeType: 'text/html',
+    encoding: utf8,
+  ).toString();
+
+  final win = web.window.open('', '_blank');
+  if (win == null) return;
+  win.location.href = dataUrl;
 }

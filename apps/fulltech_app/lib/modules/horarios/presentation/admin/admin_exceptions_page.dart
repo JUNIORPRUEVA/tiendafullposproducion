@@ -209,7 +209,7 @@ class WorkSchedulingAdminExceptionsPage extends ConsumerWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     DropdownButtonFormField<String?>(
-                      value: userId,
+                      initialValue: userId,
                       items: [
                         const DropdownMenuItem<String?>(
                           value: null,
@@ -230,7 +230,7 @@ class WorkSchedulingAdminExceptionsPage extends ConsumerWidget {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: type,
+                      initialValue: type,
                       items: types
                           .map(
                             (t) => DropdownMenuItem<String>(

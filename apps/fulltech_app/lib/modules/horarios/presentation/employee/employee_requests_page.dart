@@ -92,7 +92,7 @@ class WorkSchedulingEmployeeRequestsPage extends ConsumerWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     DropdownButtonFormField<String>(
-                      value: type,
+                      initialValue: type,
                       items: const [
                         DropdownMenuItem(
                           value: 'day_off_change',

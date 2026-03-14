@@ -360,12 +360,14 @@ class ServiceActionsSheet {
       firstDate: DateTime(now.year - 1),
       lastDate: DateTime(now.year + 3),
     );
+    if (!context.mounted) return null;
     if (date == null) return null;
 
     final time = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(base),
     );
+    if (!context.mounted) return null;
     if (time == null) return null;
 
     return DateTime(date.year, date.month, date.day, time.hour, time.minute);
@@ -378,6 +380,8 @@ class ServiceActionsSheet {
   }) {
     final normalized = current.trim().toLowerCase();
 
+    final noteCtrl = TextEditingController();
+
     return showModalBottomSheet<Map<String, String?>>(
       context: context,
       showDragHandle: true,
@@ -388,79 +392,85 @@ class ServiceActionsSheet {
             : _servicePhases.first;
         var selected = initialPhase;
         DateTime? scheduledAt = initialScheduledAt;
-        final noteCtrl = TextEditingController();
 
         return StatefulBuilder(
           builder: (context, setState) {
-            return SafeArea(
-              child: Padding(
-                padding: EdgeInsets.only(
-                  bottom: MediaQuery.viewInsetsOf(context).bottom,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
-                      child: Row(
-                        children: [
-                          const Expanded(
-                            child: Text(
-                              'Cambiar fase',
-                              style: TextStyle(fontWeight: FontWeight.w900),
+            return RadioGroup<String>(
+              groupValue: selected,
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() => selected = value);
+              },
+              child: SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.viewInsetsOf(context).bottom,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+                        child: Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                'Cambiar fase',
+                                style: TextStyle(fontWeight: FontWeight.w900),
+                              ),
                             ),
-                          ),
-                          Text(
-                            phaseLabel(normalized),
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  color: Theme.of(context).colorScheme.onSurface
-                                      .withValues(alpha: 0.70),
-                                ),
-                          ),
-                        ],
+                            Text(
+                              phaseLabel(normalized),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface
+                                        .withValues(alpha: 0.70),
+                                  ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    const Divider(height: 1),
-                    Flexible(
-                      child: ListView(
-                        shrinkWrap: true,
-                        children: [
-                          for (final p in _servicePhases)
-                            RadioListTile<String>(
-                              value: p,
-                              groupValue: selected,
-                              title: Text(phaseLabel(p)),
-                              onChanged: (value) {
-                                if (value == null) return;
-                                setState(() => selected = value);
-                              },
-                            ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(12),
-                              onTap: () async {
-                                final picked = await _pickDateTime(
-                                  context,
-                                  initial: scheduledAt,
-                                );
-                                if (picked == null) return;
-                                setState(() => scheduledAt = picked);
-                              },
-                              child: InputDecorator(
-                                decoration: const InputDecoration(
-                                  labelText: 'Nueva fecha y hora (obligatorio)',
-                                  border: OutlineInputBorder(),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        scheduledAt == null
-                                            ? 'Seleccionar…'
-                                            : MaterialLocalizations.of(context)
+                      const Divider(height: 1),
+                      Flexible(
+                        child: ListView(
+                          shrinkWrap: true,
+                          children: [
+                            for (final p in _servicePhases)
+                              RadioListTile<String>(
+                                value: p,
+                                title: Text(phaseLabel(p)),
+                              ),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 4, 16, 10),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () async {
+                                  final picked = await _pickDateTime(
+                                    context,
+                                    initial: scheduledAt,
+                                  );
+                                  if (!context.mounted) return;
+                                  if (picked == null) return;
+                                  setState(() => scheduledAt = picked);
+                                },
+                                child: InputDecorator(
+                                  decoration: const InputDecoration(
+                                    labelText: 'Nueva fecha y hora (obligatorio)',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          scheduledAt == null
+                                              ? 'Seleccionar…'
+                                              : MaterialLocalizations.of(context)
                                                       .formatFullDate(
                                                         scheduledAt!,
                                                       )
@@ -470,73 +480,70 @@ class ServiceActionsSheet {
                                                   TimeOfDay.fromDateTime(
                                                     scheduledAt!,
                                                   ).format(context),
+                                        ),
                                       ),
+                                      const Icon(Icons.schedule_outlined),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 4, 16, 10),
+                              child: TextField(
+                                controller: noteCtrl,
+                                minLines: 2,
+                                maxLines: 4,
+                                decoration: const InputDecoration(
+                                  labelText: 'Nota (opcional)',
+                                  border: OutlineInputBorder(),
+                                ),
+                              ),
+                            ),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text('Cancelar'),
                                     ),
-                                    const Icon(Icons.schedule_outlined),
-                                  ],
-                                ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: FilledButton(
+                                      onPressed: scheduledAt == null
+                                          ? null
+                                          : () {
+                                              final note = noteCtrl.text.trim();
+                                              Navigator.pop(context, {
+                                                'phase': selected,
+                                                'scheduledAt':
+                                                    scheduledAt!.toIso8601String(),
+                                                'note': note.isEmpty ? null : note,
+                                              });
+                                            },
+                                      child: const Text('Aplicar'),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-                            child: TextField(
-                              controller: noteCtrl,
-                              minLines: 2,
-                              maxLines: 4,
-                              decoration: const InputDecoration(
-                                labelText: 'Nota (opcional)',
-                                border: OutlineInputBorder(),
-                              ),
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: () {
-                                      noteCtrl.dispose();
-                                      Navigator.pop(context);
-                                    },
-                                    child: const Text('Cancelar'),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: FilledButton(
-                                    onPressed: scheduledAt == null
-                                        ? null
-                                        : () {
-                                            final note = noteCtrl.text.trim();
-                                            noteCtrl.dispose();
-                                            Navigator.pop(context, {
-                                              'phase': selected,
-                                              'scheduledAt': scheduledAt!
-                                                  .toIso8601String(),
-                                              'note': note.isEmpty
-                                                  ? null
-                                                  : note,
-                                            });
-                                          },
-                                    child: const Text('Aplicar'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             );
           },
         );
       },
-    );
+    ).whenComplete(noteCtrl.dispose);
   }
 
   static Future<String?> _pickServiceStatus(

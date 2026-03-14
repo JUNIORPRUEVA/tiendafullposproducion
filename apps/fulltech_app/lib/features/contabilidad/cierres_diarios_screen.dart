@@ -228,13 +228,9 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                     label: 'Fondo en caja',
                     value: money.format(_cashReserve),
                   ),
-                  _MoneyPill(
-                    label: 'Total a depositar',
-                    value: money.format(eval.depositableAmount),
-                  ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               if (!eval.eligible)
                 ...eval.reasons
                     .map(
@@ -272,6 +268,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                 child: FilledButton.icon(
                   onPressed: eval.eligible
                       ? () async {
+                          final messenger = ScaffoldMessenger.of(context);
                           try {
                             await ref
                                 .read(contabilidadRepositoryProvider)
@@ -284,8 +281,10 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                                   depositTotal: eval.depositableAmount,
                                   closesCountByType: {
                                     'CAPSULAS':
-                                        eval.countByType[CloseType.capsulas] ?? 0,
-                                    'POS': eval.countByType[CloseType.pos] ?? 0,
+                                        eval.countByType[CloseType.capsulas] ??
+                                            0,
+                                    'POS':
+                                        eval.countByType[CloseType.pos] ?? 0,
                                     'TIENDA':
                                         eval.countByType[CloseType.tienda] ?? 0,
                                   },
@@ -293,28 +292,30 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                                     'CAPSULAS':
                                         eval.depositByType[CloseType.capsulas] ??
                                             0,
-                                    'POS': eval.depositByType[CloseType.pos] ?? 0,
+                                    'POS':
+                                        eval.depositByType[CloseType.pos] ?? 0,
                                     'TIENDA':
                                         eval.depositByType[CloseType.tienda] ?? 0,
                                   },
                                   accountByType: {
                                     'CAPSULAS':
-                                        _categoryAccount[CloseType.capsulas] ?? '',
-                                    'POS': _categoryAccount[CloseType.pos] ?? '',
+                                        _categoryAccount[CloseType.capsulas] ??
+                                            '',
+                                    'POS':
+                                        _categoryAccount[CloseType.pos] ?? '',
                                     'TIENDA':
                                         _categoryAccount[CloseType.tienda] ?? '',
                                   },
                                 );
                           } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    'No se pudo registrar la orden en nube: $e',
-                                  ),
+                            if (!mounted) return;
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'No se pudo registrar la orden en nube: $e',
                                 ),
-                              );
-                            }
+                              ),
+                            );
                             return;
                           }
 
@@ -332,7 +333,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                             ),
                           );
 
-                          if (!mounted) return;
+                          if (!context.mounted) return;
                           await _openDepositPdfPreview(context, bytes);
                         }
                       : null,
@@ -565,7 +566,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                         children: [
                           Expanded(
                             child: DropdownButtonFormField<String>(
-                              value: _transferBankOption,
+                              initialValue: _transferBankOption,
                               isExpanded: true,
                               decoration: const InputDecoration(
                                 hintText: 'Selecciona banco',

@@ -4214,6 +4214,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
       helpText: 'Selecciona inicio',
       initial: startInitial,
     );
+    if (!mounted) return;
     if (start == null) return;
 
     final endInitial =
@@ -4222,6 +4223,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
       helpText: 'Selecciona fin',
       initial: endInitial,
     );
+    if (!mounted) return;
     if (end == null) return;
 
     if (!end.isAfter(start)) {
@@ -4386,11 +4388,11 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     final location = buildServiceLocationInfo(addressOrText: addressText);
 
     Future<void> editFlow() async {
+      final messenger = ScaffoldMessenger.of(context);
+
       if (!canEdit) {
         final reason = perms.criticalDeniedReason ?? 'No autorizado';
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(reason)));
+        messenger.showSnackBar(SnackBar(content: Text(reason)));
         return;
       }
 
@@ -4470,6 +4472,13 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         },
       );
 
+      if (!mounted) {
+        descCtrl.dispose();
+        addrCtrl.dispose();
+        gpsCtrl.dispose();
+        return;
+      }
+
       if (ok != true) {
         descCtrl.dispose();
         addrCtrl.dispose();
@@ -4517,18 +4526,19 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
             );
         if (!mounted) return;
         setState(() => _service = updated);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Orden actualizada')));
+        messenger
+            .showSnackBar(const SnackBar(content: Text('Orden actualizada')));
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(content: Text(e is ApiException ? e.message : '$e')),
         );
       }
     }
 
     Future<void> openActions() async {
+      final messenger = ScaffoldMessenger.of(context);
+
       await ServiceActionsSheet.show(
         context,
         service: service,
@@ -4541,7 +4551,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         onChangePhase: (phase, scheduledAt, note) async {
           final missing = _missingPhaseRequirements(service, phase);
           if (missing.isNotEmpty) {
-            ScaffoldMessenger.of(context).showSnackBar(
+            messenger.showSnackBar(
               SnackBar(
                 content: Text(
                   'No se puede cambiar a ${phaseLabel(phase)}. Falta: ${missing.join(', ')}',
@@ -4565,7 +4575,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
             await _loadPhaseHistory();
             if (!mounted) return;
 
-            ScaffoldMessenger.of(context).showSnackBar(
+            messenger.showSnackBar(
               SnackBar(
                 content: Text('Fase: ${phaseLabel(updated.currentPhase)}'),
               ),
@@ -4574,6 +4584,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
             final nextPhase = updated.currentPhase.trim().toLowerCase();
             final currentOrderState = updated.orderState.trim().toLowerCase();
             if (nextPhase == 'instalacion' && currentOrderState == 'pending') {
+              if (!context.mounted) return;
               final applySuggested = await showDialog<bool>(
                 context: context,
                 builder: (context) {
@@ -4605,7 +4616,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
             }
           } catch (e) {
             if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
+            messenger.showSnackBar(
               SnackBar(content: Text(e is ApiException ? e.message : '$e')),
             );
           }
@@ -4623,14 +4634,13 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         onAddNote: (message) async {
           await widget.onAddNote(message);
           if (!mounted) return;
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Marcado en historial')));
+          messenger
+              .showSnackBar(const SnackBar(content: Text('Marcado en historial')));
         },
         onMarkPendingBy: (reason) async {
           await widget.onAddNote('Pendiente por: $reason');
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
+          messenger.showSnackBar(
             const SnackBar(content: Text('Marcado como pendiente')),
           );
         },

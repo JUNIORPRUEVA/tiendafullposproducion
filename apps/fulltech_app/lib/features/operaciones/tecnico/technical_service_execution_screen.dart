@@ -5,8 +5,9 @@ import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/routing/routes.dart';
 import '../operations_models.dart';
-import '../presentation/status_chip.dart';
+import '../presentation/operations_permissions.dart';
 import 'technical_service_execution_controller.dart';
+import 'widgets/technical_execution_cards.dart';
 
 class TechnicalServiceExecutionScreen extends ConsumerStatefulWidget {
   final String serviceId;
@@ -40,6 +41,69 @@ class _TechnicalServiceExecutionScreenState
     final h = v.hour.toString().padLeft(2, '0');
     final m = v.minute.toString().padLeft(2, '0');
     return '${v.day}/${v.month}/${v.year} $h:$m';
+  }
+
+  bool _isReadOnly({required ServiceModel service, required dynamic user}) {
+    final perms = OperationsPermissions(user: user, service: service);
+    if (!perms.canOperate) return true;
+    if (perms.isAdminLike) return false;
+
+    final status = parseStatus(service.status);
+    return status == ServiceStatus.closed ||
+        status == ServiceStatus.cancelled ||
+        status == ServiceStatus.completed;
+  }
+
+  Future<void> _previewEvidence(BuildContext context, ServiceFileModel file) {
+    final url = file.fileUrl.trim();
+    if (url.isEmpty) return Future.value();
+
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: AspectRatio(
+              aspectRatio: 1,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: InteractiveViewer(
+                      child: Image.network(
+                        url,
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stack) {
+                          return Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Text(
+                                url,
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: IconButton(
+                      tooltip: 'Cerrar',
+                      onPressed: () => Navigator.pop(dialogContext),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _openAddChangeDialog(
@@ -244,263 +308,52 @@ class _TechnicalServiceExecutionScreenState
                     ),
                     const SizedBox(height: 12),
                   ],
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  service.title.trim().isEmpty
-                                      ? service.description
-                                      : service.title,
-                                  style: Theme.of(context).textTheme.titleMedium
-                                      ?.copyWith(fontWeight: FontWeight.w900),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              StatusChip(
-                                status: service.orderState.isEmpty
-                                    ? service.status
-                                    : service.orderState,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Fase: ${phaseLabel(service.currentPhase)}',
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(fontWeight: FontWeight.w800),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(service.customerAddress),
-                        ],
-                      ),
-                    ),
+                  ServiceHeaderCard(service: service),
+                  const SizedBox(height: 12),
+                  ExecutionTimelineCard(
+                    arrivedAt: st.arrivedAt,
+                    startedAt: st.startedAt,
+                    finishedAt: st.finishedAt,
+                    onArrived: () => ctrl.markArrivedNow(),
+                    onStarted: () => ctrl.markStartedNow(),
+                    onFinished: () => ctrl.markFinishedNow(),
                   ),
                   const SizedBox(height: 12),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Ejecución',
-                            style: Theme.of(context).textTheme.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w900),
-                          ),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              OutlinedButton.icon(
-                                onPressed: () => ctrl.markArrivedNow(),
-                                icon: const Icon(Icons.place_outlined),
-                                label: const Text('Llegada'),
-                              ),
-                              OutlinedButton.icon(
-                                onPressed: () => ctrl.markStartedNow(),
-                                icon: const Icon(
-                                  Icons.play_circle_outline_rounded,
-                                ),
-                                label: const Text('Iniciar'),
-                              ),
-                              OutlinedButton.icon(
-                                onPressed: () => ctrl.markFinishedNow(),
-                                icon: const Icon(
-                                  Icons.check_circle_outline_rounded,
-                                ),
-                                label: const Text('Finalizar'),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          Text('Llegada: ${_fmtDateTime(st.arrivedAt)}'),
-                          Text('Inicio: ${_fmtDateTime(st.startedAt)}'),
-                          Text('Fin: ${_fmtDateTime(st.finishedAt)}'),
-                          const SizedBox(height: 8),
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Aprobado por cliente'),
-                            value: st.clientApproved,
-                            onChanged: (v) => ctrl.toggleClientApproved(v),
-                          ),
-                        ],
-                      ),
-                    ),
+                  ClientApprovalCard(
+                    value: st.clientApproved,
+                    onChanged: (v) => ctrl.toggleClientApproved(v),
                   ),
                   const SizedBox(height: 12),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Notas técnicas',
-                            style: Theme.of(context).textTheme.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w900),
-                          ),
-                          const SizedBox(height: 10),
-                          TextField(
-                            controller: _notesCtrl,
-                            minLines: 3,
-                            maxLines: 6,
-                            onChanged: ctrl.updateNotes,
-                            decoration: const InputDecoration(
-                              hintText:
-                                  'Escribe lo que hiciste y observaciones...',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  TechnicalNotesCard(
+                    controller: _notesCtrl,
+                    onChanged: ctrl.updateNotes,
+                    readOnly: _isReadOnly(service: service, user: auth.user),
                   ),
                   const SizedBox(height: 12),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Checklist',
-                            style: Theme.of(context).textTheme.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w900),
-                          ),
-                          const SizedBox(height: 6),
-                          if (service.steps.isEmpty)
-                            const Text('Sin checklist')
-                          else
-                            ...service.steps.map(
-                              (step) => CheckboxListTile(
-                                contentPadding: EdgeInsets.zero,
-                                title: Text(step.stepLabel),
-                                value: step.isDone,
-                                onChanged: (v) {
-                                  if (v == null) return;
-                                  ctrl.toggleStep(step, v);
-                                },
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
+                  ServiceChecklistCard(
+                    steps: service.steps,
+                    onToggle: ctrl.toggleStep,
                   ),
                   const SizedBox(height: 12),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Evidencias',
-                                  style: Theme.of(context).textTheme.titleSmall
-                                      ?.copyWith(fontWeight: FontWeight.w900),
-                                ),
-                              ),
-                              OutlinedButton.icon(
-                                onPressed: () => ctrl.uploadEvidence(),
-                                icon: const Icon(Icons.upload_file_outlined),
-                                label: const Text('Subir'),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          if (service.files.isEmpty)
-                            const Text('Sin evidencias')
-                          else
-                            ...service.files.map(
-                              (f) => ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: const Icon(
-                                  Icons.insert_drive_file_outlined,
-                                ),
-                                title: Text(
-                                  f.fileType,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                subtitle: Text(
-                                  f.fileUrl,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
+                  EvidenceGalleryCard(
+                    files: service.files,
+                    onUpload: () => ctrl.uploadEvidence(),
+                    onPreview: (f) => _previewEvidence(context, f),
                   ),
                   const SizedBox(height: 12),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Cambios / Novedades',
-                                  style: Theme.of(context).textTheme.titleSmall
-                                      ?.copyWith(fontWeight: FontWeight.w900),
-                                ),
-                              ),
-                              OutlinedButton.icon(
-                                onPressed: () =>
-                                    _openAddChangeDialog(context, ctrl),
-                                icon: const Icon(Icons.add),
-                                label: const Text('Agregar'),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          if (st.changes.isEmpty)
-                            const Text('Sin cambios')
-                          else
-                            ...st.changes.map((c) {
-                              final canDelete =
-                                  userId.isNotEmpty &&
-                                  c.createdByUserId == userId;
-
-                              return ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                title: Text('${c.type}: ${c.description}'),
-                                subtitle: Text(
-                                  [
-                                    if (c.quantity != null)
-                                      'Qty: ${c.quantity}',
-                                    if (c.extraCost != null)
-                                      'Extra: ${c.extraCost}',
-                                    if (c.clientApproved == true) 'Aprobado',
-                                    if ((c.note ?? '').trim().isNotEmpty)
-                                      'Nota: ${c.note}',
-                                  ].join(' • '),
-                                ),
-                                trailing: canDelete
-                                    ? IconButton(
-                                        tooltip: 'Eliminar',
-                                        onPressed: () => ctrl.deleteChange(c),
-                                        icon: const Icon(Icons.delete_outline),
-                                      )
-                                    : null,
-                              );
-                            }),
-                        ],
-                      ),
-                    ),
+                  ServiceChangesCard(
+                    changes: st.changes,
+                    onAdd: () => _openAddChangeDialog(context, ctrl),
+                    canDelete: (c) {
+                      final perms = OperationsPermissions(
+                        user: auth.user,
+                        service: service,
+                      );
+                      final canDeleteOwn =
+                          userId.isNotEmpty && c.createdByUserId == userId;
+                      return canDeleteOwn || perms.isAdminLike;
+                    },
+                    onDelete: (c) => ctrl.deleteChange(c),
                   ),
                   const SizedBox(height: 12),
                   Card(

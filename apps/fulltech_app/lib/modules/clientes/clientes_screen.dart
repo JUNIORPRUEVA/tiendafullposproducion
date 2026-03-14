@@ -1671,79 +1671,80 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
                       'Orden',
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
-                    RadioListTile<ClientesOrder>(
-                      value: ClientesOrder.az,
+                    RadioGroup<ClientesOrder>(
                       groupValue: order,
                       onChanged: (value) => setModalState(
                         () => order = value ?? ClientesOrder.az,
                       ),
-                      title: const Text('A-Z'),
-                    ),
-                    RadioListTile<ClientesOrder>(
-                      value: ClientesOrder.za,
-                      groupValue: order,
-                      onChanged: (value) => setModalState(
-                        () => order = value ?? ClientesOrder.za,
+                      child: const Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          RadioListTile<ClientesOrder>(
+                            value: ClientesOrder.az,
+                            title: Text('A-Z'),
+                          ),
+                          RadioListTile<ClientesOrder>(
+                            value: ClientesOrder.za,
+                            title: Text('Z-A'),
+                          ),
+                        ],
                       ),
-                      title: const Text('Z-A'),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       'Correo',
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
-                    RadioListTile<CorreoFilter>(
-                      value: CorreoFilter.todos,
+                    RadioGroup<CorreoFilter>(
                       groupValue: correo,
                       onChanged: (value) => setModalState(
                         () => correo = value ?? CorreoFilter.todos,
                       ),
-                      title: const Text('Todos'),
-                    ),
-                    RadioListTile<CorreoFilter>(
-                      value: CorreoFilter.conCorreo,
-                      groupValue: correo,
-                      onChanged: (value) => setModalState(
-                        () => correo = value ?? CorreoFilter.conCorreo,
+                      child: const Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          RadioListTile<CorreoFilter>(
+                            value: CorreoFilter.todos,
+                            title: Text('Todos'),
+                          ),
+                          RadioListTile<CorreoFilter>(
+                            value: CorreoFilter.conCorreo,
+                            title: Text('Con correo'),
+                          ),
+                          RadioListTile<CorreoFilter>(
+                            value: CorreoFilter.sinCorreo,
+                            title: Text('Sin correo'),
+                          ),
+                        ],
                       ),
-                      title: const Text('Con correo'),
-                    ),
-                    RadioListTile<CorreoFilter>(
-                      value: CorreoFilter.sinCorreo,
-                      groupValue: correo,
-                      onChanged: (value) => setModalState(
-                        () => correo = value ?? CorreoFilter.sinCorreo,
-                      ),
-                      title: const Text('Sin correo'),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       'Estado',
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
-                    RadioListTile<EstadoFilter>(
-                      value: EstadoFilter.activos,
+                    RadioGroup<EstadoFilter>(
                       groupValue: estado,
                       onChanged: (value) => setModalState(
                         () => estado = value ?? EstadoFilter.activos,
                       ),
-                      title: const Text('Activos'),
-                    ),
-                    RadioListTile<EstadoFilter>(
-                      value: EstadoFilter.eliminados,
-                      groupValue: estado,
-                      onChanged: (value) => setModalState(
-                        () => estado = value ?? EstadoFilter.eliminados,
+                      child: const Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          RadioListTile<EstadoFilter>(
+                            value: EstadoFilter.activos,
+                            title: Text('Activos'),
+                          ),
+                          RadioListTile<EstadoFilter>(
+                            value: EstadoFilter.eliminados,
+                            title: Text('Eliminados'),
+                          ),
+                          RadioListTile<EstadoFilter>(
+                            value: EstadoFilter.todos,
+                            title: Text('Todos'),
+                          ),
+                        ],
                       ),
-                      title: const Text('Eliminados'),
-                    ),
-                    RadioListTile<EstadoFilter>(
-                      value: EstadoFilter.todos,
-                      groupValue: estado,
-                      onChanged: (value) => setModalState(
-                        () => estado = value ?? EstadoFilter.todos,
-                      ),
-                      title: const Text('Todos'),
                     ),
                     const SizedBox(height: 12),
                     Row(

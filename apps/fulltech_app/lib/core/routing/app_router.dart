@@ -255,11 +255,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         return Routes.operacionesTecnico;
       }
 
-      if (role != AppRole.tecnico &&
-          path.startsWith(Routes.operacionesTecnico)) {
-        return Routes.operaciones;
-      }
-
       final required = RouteAccess.permissionForLocation(loc);
       if (required != null && !hasPermission(role, required)) {
         // Prefer sending users to Operaciones as the safe default.
