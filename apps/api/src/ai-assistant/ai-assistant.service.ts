@@ -525,8 +525,14 @@ export class AiAssistantService {
     const wantsSales = includeModuleContext || this.hasAnyToken(tokens, ['venta', 'ventas', 'comision', 'comisión']);
     const wantsOperations = includeModuleContext || this.hasAnyToken(tokens, ['servicio', 'servicios', 'operacion', 'operaciones', 'garantia', 'garantía']);
     const wantsAccounting = includeModuleContext || this.hasAnyToken(tokens, ['contabilidad', 'cierre', 'cierres', 'deposito', 'depósito', 'factura', 'pago']);
+    const wantsSelf = includeModuleContext || this.isSelfInfoRequest(dto.message, dto.context);
 
     const knowledge: KnowledgeRecord[] = [];
+
+    if (wantsSelf) {
+      const selfKnowledge = await this.buildSelfKnowledge(user, dto);
+      knowledge.push(...selfKnowledge);
+    }
 
     // CLIENTS: scope strictly to what the user can access.
     if ((wantsClients || dto.context.module === 'clientes') && this.canAccessClientData(user.role)) {
@@ -565,6 +571,70 @@ export class AiAssistantService {
     }
 
     return knowledge;
+  }
+
+  private isSelfInfoRequest(message: string, context: NormalizedAiContext) {
+    const raw = message.trim().toLowerCase();
+    if (context.module === 'profile' || context.module === 'nomina') {
+      return true;
+    }
+
+    return (
+      /(^|\s)(mi|mis|yo|mio|mía|mias|mios)(\s|$)/i.test(raw) ||
+      raw.includes('mi nombre') ||
+      raw.includes('mi correo') ||
+      raw.includes('mi email') ||
+      raw.includes('mi telefono') ||
+      raw.includes('mi teléfono') ||
+      raw.includes('mi rol') ||
+      raw.includes('mi usuario') ||
+      raw.includes('mi perfil') ||
+      raw.includes('de mi')
+    );
+  }
+
+  private async buildSelfKnowledge(
+    user: { id: string; role: Role },
+    dto: ChatAiAssistantDto,
+  ): Promise<KnowledgeRecord[]> {
+    const record = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        id: true,
+        nombreCompleto: true,
+        email: true,
+        telefono: true,
+        role: true,
+        fechaIngreso: true,
+        workContractJobTitle: true,
+      },
+    });
+
+    if (!record) return [];
+
+    const result: KnowledgeRecord[] = [
+      this.createAppKnowledgeRecord(
+        `app-data:self:${record.id}`,
+        'profile',
+        'dato-autorizado',
+        'Perfil del usuario actual',
+        `Tu nombre en la app es ${record.nombreCompleto}. Correo: ${record.email}. Teléfono: ${record.telefono}. Rol: ${record.role}. ${record.workContractJobTitle ? `Puesto: ${record.workContractJobTitle}. ` : ''}${record.fechaIngreso ? `Fecha de ingreso: ${record.fechaIngreso.toISOString().slice(0, 10)}.` : ''}`,
+      ),
+    ];
+
+    if (dto.context.module === 'profile') {
+      result.push(
+        this.createAppKnowledgeRecord(
+          'app-data:self:profile-help',
+          'profile',
+          'guia-app',
+          'Ayuda del perfil',
+          'En Perfil puedes revisar tu información personal dentro de la app. El asistente puede responder usando únicamente tus propios datos autorizados.',
+        ),
+      );
+    }
+
+    return result;
   }
 
   private async buildClientKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
@@ -658,9 +728,15 @@ export class AiAssistantService {
 
   private async buildCatalogKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
     const tokens = this.tokenize(dto.message);
-    const query = tokens.filter((t) => t.length >= 4).slice(0, 3).join(' ');
+    const searchTokens = tokens.filter((token) => !this.isCatalogNoiseToken(token)).slice(0, 5);
 
     const total = await this.prisma.product.count();
+    const topCategories = await this.prisma.product.groupBy({
+      by: ['categoria'],
+      _count: { categoria: true },
+      orderBy: { _count: { categoria: 'desc' } },
+      take: 5,
+    });
 
     const result: KnowledgeRecord[] = [
       this.createAppKnowledgeRecord(
@@ -670,25 +746,59 @@ export class AiAssistantService {
         'Resumen autorizado de catálogo',
         `Actualmente hay ${total} productos en el catálogo.`,
       ),
+      this.createAppKnowledgeRecord(
+        'app-data:catalog-categories',
+        'catalogo',
+        'dato-autorizado',
+        'Categorías principales del catálogo',
+        topCategories.length > 0
+          ? topCategories
+              .map((item) => `- ${item.categoria || 'Sin categoría'}: ${item._count.categoria}`)
+              .join('\n')
+          : 'No hay categorías disponibles en el catálogo.',
+      ),
     ];
 
-    if (!query) return result;
+    if (searchTokens.length === 0) return result;
 
     const products = await this.prisma.product.findMany({
       where: {
         OR: [
-          { nombre: { contains: query, mode: 'insensitive' } },
-          { categoria: { contains: query, mode: 'insensitive' } },
+          ...searchTokens.map((token) => ({ nombre: { contains: token, mode: 'insensitive' as const } })),
+          ...searchTokens.map((token) => ({ categoria: { contains: token, mode: 'insensitive' as const } })),
         ],
       },
       select: { id: true, nombre: true, categoria: true, precio: true },
-      take: 6,
+      take: 12,
       orderBy: { nombre: 'asc' },
     });
 
-    if (products.length === 0) return result;
+    if (products.length === 0) {
+      result.push(
+        this.createAppKnowledgeRecord(
+          'app-data:catalog-search-none',
+          'catalogo',
+          'dato-autorizado',
+          'Producto no encontrado en catálogo',
+          `No encontré productos en el catálogo que coincidan con: ${searchTokens.join(', ')}. Si buscas disponibilidad física o inventario en tiempo real, eso debe confirmarse en el módulo correspondiente.`,
+        ),
+      );
+      return result;
+    }
 
-    const lines = products.map((p) => {
+    const rankedProducts = products
+      .map((product) => ({
+        product,
+        score: searchTokens.reduce((sum, token) => {
+          const haystack = `${product.nombre} ${product.categoria}`.toLowerCase();
+          return haystack.includes(token) ? sum + 1 : sum;
+        }, 0),
+      }))
+      .sort((a, b) => b.score - a.score || a.product.nombre.localeCompare(b.product.nombre))
+      .slice(0, 6)
+      .map((item) => item.product);
+
+    const lines = rankedProducts.map((p) => {
       const price = user.role === Role.TECNICO ? '' : ` | Precio: ${p.precio.toFixed(2)}`;
       return `- ${p.nombre} (${p.categoria})${price}`;
     });
@@ -698,12 +808,37 @@ export class AiAssistantService {
         'app-data:catalog-search',
         'catalogo',
         'dato-autorizado',
-        `Productos relacionados con "${query}"`,
-        lines.join('\n'),
+        `Productos relacionados con "${searchTokens.join(' ')}"`,
+        `${lines.join('\n')}\n\nNota: esto confirma coincidencias en el catálogo, no inventario físico en tiempo real.`,
       ),
     );
 
     return result;
+  }
+
+  private isCatalogNoiseToken(token: string) {
+    return [
+      'hay',
+      'tengo',
+      'tienen',
+      'producto',
+      'productos',
+      'disponible',
+      'disponibles',
+      'precio',
+      'precios',
+      'catalogo',
+      'catalogos',
+      'catálogo',
+      'app',
+      'quiero',
+      'buscar',
+      'busca',
+      'muestrame',
+      'muéstrame',
+      'necesito',
+      'dime',
+    ].includes(token);
   }
 
   private async buildQuoteKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
