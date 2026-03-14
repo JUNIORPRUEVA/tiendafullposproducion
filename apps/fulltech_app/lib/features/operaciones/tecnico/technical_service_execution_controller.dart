@@ -108,7 +108,19 @@ class TechnicalExecutionController
       final repo = ref.read(operationsRepositoryProvider);
 
       final service = await repo.getService(serviceId);
-      final bundle = await repo.getExecutionReport(serviceId: serviceId);
+
+      ServiceExecutionBundleModel bundle = const ServiceExecutionBundleModel(
+        report: null,
+        changes: [],
+      );
+      String? reportError;
+      try {
+        bundle = await repo.getExecutionReport(serviceId: serviceId);
+      } on ApiException catch (e) {
+        reportError = e.message;
+      } catch (e) {
+        reportError = e.toString();
+      }
 
       final draft = userId.isEmpty
           ? null
@@ -137,6 +149,7 @@ class TechnicalExecutionController
 
       state = state.copyWith(
         loading: false,
+        error: reportError,
         service: service,
         changes: bundle.changes,
         arrivedAt: arrivedAt,

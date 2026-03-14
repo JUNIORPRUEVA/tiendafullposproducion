@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import {
   Prisma,
@@ -1007,17 +1008,24 @@ export class OperationsService {
       return { report: null, changes: [] };
     }
 
-    const report = await this.prisma.serviceExecutionReport.findFirst({
-      where: { serviceId, technicianId: targetTechnicianId },
-    });
-    if (!report) return { report: null, changes: [] };
+    try {
+      const report = await this.prisma.serviceExecutionReport.findFirst({
+        where: { serviceId, technicianId: targetTechnicianId },
+      });
+      if (!report) return { report: null, changes: [] };
 
-    const changes = await this.prisma.serviceExecutionChange.findMany({
-      where: { executionReportId: report.id },
-      orderBy: { createdAt: 'asc' },
-    });
+      const changes = await this.prisma.serviceExecutionChange.findMany({
+        where: { executionReportId: report.id },
+        orderBy: { createdAt: 'asc' },
+      });
 
-    return { report, changes };
+      return { report, changes };
+    } catch (error) {
+      if (this.isSchemaMismatch(error)) {
+        return { report: null, changes: [] };
+      }
+      throw error;
+    }
   }
 
   async upsertExecutionReport(user: AuthUser, serviceId: string, dto: UpsertExecutionReportDto) {
@@ -1052,43 +1060,56 @@ export class OperationsService {
     const startedAt = dto.startedAt ? new Date(dto.startedAt) : undefined;
     const finishedAt = dto.finishedAt ? new Date(dto.finishedAt) : undefined;
 
-    const updated = await this.prisma.serviceExecutionReport.upsert({
-      where: {
-        serviceId_technicianId: {
+    try {
+      const updated = await this.prisma.serviceExecutionReport.upsert({
+        where: {
+          serviceId_technicianId: {
+            serviceId,
+            technicianId: targetTechnicianId,
+          },
+        },
+        create: {
           serviceId,
           technicianId: targetTechnicianId,
+          phase,
+          arrivedAt,
+          startedAt,
+          finishedAt,
+          notes: dto.notes?.trim() || null,
+          checklistData: (dto.checklistData ?? Prisma.DbNull) as any,
+          phaseSpecificData: (dto.phaseSpecificData ?? Prisma.DbNull) as any,
+          clientApproved: dto.clientApproved === true,
         },
-      },
-      create: {
-        serviceId,
-        technicianId: targetTechnicianId,
-        phase,
-        arrivedAt,
-        startedAt,
-        finishedAt,
-        notes: dto.notes?.trim() || null,
-        checklistData: (dto.checklistData ?? Prisma.DbNull) as any,
-        phaseSpecificData: (dto.phaseSpecificData ?? Prisma.DbNull) as any,
-        clientApproved: dto.clientApproved === true,
-      },
-      update: {
-        phase,
-        ...(arrivedAt !== undefined ? { arrivedAt } : {}),
-        ...(startedAt !== undefined ? { startedAt } : {}),
-        ...(finishedAt !== undefined ? { finishedAt } : {}),
-        ...(dto.notes != null ? { notes: dto.notes.trim() || null } : {}),
-        ...(dto.checklistData !== undefined ? { checklistData: dto.checklistData as any } : {}),
-        ...(dto.phaseSpecificData !== undefined ? { phaseSpecificData: dto.phaseSpecificData as any } : {}),
-        ...(dto.clientApproved !== undefined ? { clientApproved: dto.clientApproved === true } : {}),
-      },
-    });
+        update: {
+          phase,
+          ...(arrivedAt !== undefined ? { arrivedAt } : {}),
+          ...(startedAt !== undefined ? { startedAt } : {}),
+          ...(finishedAt !== undefined ? { finishedAt } : {}),
+          ...(dto.notes != null ? { notes: dto.notes.trim() || null } : {}),
+          ...(dto.checklistData !== undefined ? { checklistData: dto.checklistData as any } : {}),
+          ...(dto.phaseSpecificData !== undefined
+            ? { phaseSpecificData: dto.phaseSpecificData as any }
+            : {}),
+          ...(dto.clientApproved !== undefined
+            ? { clientApproved: dto.clientApproved === true }
+            : {}),
+        },
+      });
 
-    const changes = await this.prisma.serviceExecutionChange.findMany({
-      where: { executionReportId: updated.id },
-      orderBy: { createdAt: 'asc' },
-    });
+      const changes = await this.prisma.serviceExecutionChange.findMany({
+        where: { executionReportId: updated.id },
+        orderBy: { createdAt: 'asc' },
+      });
 
-    return { report: updated, changes };
+      return { report: updated, changes };
+    } catch (error) {
+      if (this.isSchemaMismatch(error)) {
+        throw new ServiceUnavailableException(
+          'Reporte técnico no disponible: falta aplicar migraciones en el servidor.',
+        );
+      }
+      throw error;
+    }
   }
 
   async addExecutionChange(user: AuthUser, serviceId: string, dto: CreateExecutionChangeDto) {
@@ -1114,34 +1135,43 @@ export class OperationsService {
         : (service.technicianId ?? service.assignments?.[0]?.userId ?? '').trim();
     if (!targetTechnicianId) throw new BadRequestException('Falta technicianId');
 
-    const report = await this.prisma.serviceExecutionReport.upsert({
-      where: {
-        serviceId_technicianId: {
+    try {
+      const report = await this.prisma.serviceExecutionReport.upsert({
+        where: {
+          serviceId_technicianId: {
+            serviceId,
+            technicianId: targetTechnicianId,
+          },
+        },
+        create: {
           serviceId,
           technicianId: targetTechnicianId,
+          phase: service.currentPhase,
         },
-      },
-      create: {
-        serviceId,
-        technicianId: targetTechnicianId,
-        phase: service.currentPhase,
-      },
-      update: {},
-    });
+        update: {},
+      });
 
-    return this.prisma.serviceExecutionChange.create({
-      data: {
-        serviceId,
-        executionReportId: report.id,
-        createdByUserId: user.id,
-        type: dto.type.trim(),
-        description: dto.description.trim(),
-        quantity: dto.quantity,
-        extraCost: dto.extraCost,
-        clientApproved: dto.clientApproved,
-        note: dto.note?.trim() || null,
-      },
-    });
+      return await this.prisma.serviceExecutionChange.create({
+        data: {
+          serviceId,
+          executionReportId: report.id,
+          createdByUserId: user.id,
+          type: dto.type.trim(),
+          description: dto.description.trim(),
+          quantity: dto.quantity,
+          extraCost: dto.extraCost,
+          clientApproved: dto.clientApproved,
+          note: dto.note?.trim() || null,
+        },
+      });
+    } catch (error) {
+      if (this.isSchemaMismatch(error)) {
+        throw new ServiceUnavailableException(
+          'Cambios del reporte técnico no disponibles: falta aplicar migraciones en el servidor.',
+        );
+      }
+      throw error;
+    }
   }
 
   async deleteExecutionChange(user: AuthUser, serviceId: string, changeId: string) {
@@ -1154,18 +1184,27 @@ export class OperationsService {
     const assignedIds = service.assignments.map((a) => a.userId);
     this.assertCanOperate(user, service.createdByUserId, assignedIds);
 
-    const change = await this.prisma.serviceExecutionChange.findFirst({
-      where: { id: changeId, serviceId },
-    });
-    if (!change) throw new NotFoundException('Cambio no encontrado');
+    try {
+      const change = await this.prisma.serviceExecutionChange.findFirst({
+        where: { id: changeId, serviceId },
+      });
+      if (!change) throw new NotFoundException('Cambio no encontrado');
 
-    const isOwner = change.createdByUserId === user.id;
-    if (!isOwner && !this.isAdminLike(user.role)) {
-      throw new ForbiddenException('No autorizado para eliminar este cambio');
+      const isOwner = change.createdByUserId === user.id;
+      if (!isOwner && !this.isAdminLike(user.role)) {
+        throw new ForbiddenException('No autorizado para eliminar este cambio');
+      }
+
+      await this.prisma.serviceExecutionChange.delete({ where: { id: changeId } });
+      return { ok: true };
+    } catch (error) {
+      if (this.isSchemaMismatch(error)) {
+        throw new ServiceUnavailableException(
+          'Cambios del reporte técnico no disponibles: falta aplicar migraciones en el servidor.',
+        );
+      }
+      throw error;
     }
-
-    await this.prisma.serviceExecutionChange.delete({ where: { id: changeId } });
-    return { ok: true };
   }
 
   async addFile(user: AuthUser, id: string, fileUrl: string, fileType: string) {
