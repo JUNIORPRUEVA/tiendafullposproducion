@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/ai_assistant_controller.dart';
+import '../../domain/models/ai_chat_context.dart';
 import '../../domain/models/ai_assistant_message.dart';
 
 class GlobalAiChatSheet extends ConsumerStatefulWidget {
@@ -92,7 +93,7 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
                             ),
                           ),
                           Text(
-                            'Contexto actual: ${_prettyModule(aiState.context.module)}',
+                            _buildContextLabel(aiState.context),
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
@@ -177,6 +178,13 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
     if (text.isEmpty) return;
     _messageController.clear();
     await controller.sendMessage(text);
+  }
+
+  String _buildContextLabel(AiChatContext context) {
+    final module = _prettyModule(context.module);
+    final screen = (context.screenName ?? '').trim();
+    if (screen.isEmpty) return 'Contexto actual: $module';
+    return 'Contexto actual: $module · $screen';
   }
 
   String _prettyModule(String module) {

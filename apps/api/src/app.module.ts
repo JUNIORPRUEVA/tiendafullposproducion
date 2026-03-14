@@ -20,6 +20,7 @@ import { SalidasTecnicasModule } from './salidas-tecnicas/salidas-tecnicas.modul
 import { WorkSchedulingModule } from './work-scheduling/work-scheduling.module';
 import { CompanyManualModule } from './company-manual/company-manual.module';
 import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
     WorkSchedulingModule,
     CompanyManualModule,
     AiAssistantModule,
+    NotificationsModule,
   ]
 })
 export class AppModule {}

@@ -16,6 +16,7 @@ import {
   ServiceUpdateType,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ServicesQueryDto } from './dto/services-query.dto';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { ChangeServiceStatusDto } from './dto/change-service-status.dto';
@@ -39,7 +40,10 @@ const defaultSteps = [
 
 @Injectable()
 export class OperationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   private isSchemaMismatch(error: unknown) {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -617,6 +621,48 @@ export class OperationsService {
       return row;
     });
 
+    // Best-effort internal notification (WhatsApp via Evolution)
+    try {
+      const important =
+        nextStatus === ServiceStatus.IN_PROGRESS ||
+        nextStatus === ServiceStatus.COMPLETED ||
+        nextStatus === ServiceStatus.CANCELLED;
+
+      if (important) {
+        const payload = {
+          template: 'service_status_changed' as const,
+          data: {
+            serviceId: updated.id,
+            serviceTitle: updated.title,
+            oldStatus: this.toApiStatus(service.status),
+            newStatus: dto.status,
+            note: dto.message?.trim() || null,
+          },
+        };
+
+        const updatedAtIso = updated.updatedAt?.toISOString?.() ?? new Date().toISOString();
+        const recipients = new Set<string>();
+        if (updated.createdByUserId) recipients.add(updated.createdByUserId);
+        for (const a of updated.assignments ?? []) {
+          if (a?.userId) recipients.add(a.userId);
+        }
+
+        for (const recipientUserId of recipients) {
+          void this.notifications
+            .enqueueWhatsAppToUser({
+              recipientUserId,
+              payload,
+              dedupeKey: `service_status_changed:${updated.id}:${recipientUserId}:${updatedAtIso}`,
+            })
+            .catch(() => {
+              // ignore
+            });
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     return this.normalizeService(updated);
   }
 
@@ -792,6 +838,49 @@ export class OperationsService {
     });
 
     if (!updated) throw new NotFoundException('Servicio no encontrado');
+
+    // Best-effort internal notification (WhatsApp via Evolution)
+    try {
+      const normalized = this.normalizeService(updated);
+      const rawAddress =
+        (updated.addressSnapshot ?? updated.customer?.direccion ?? '')
+          ?.toString?.()
+          ?.trim?.() ?? '';
+      const payload = {
+        template: 'service_assigned' as const,
+        data: {
+          serviceId: normalized.id,
+          serviceTitle: normalized.title,
+          customerName: normalized.customer?.nombre ?? 'Cliente',
+          customerPhone: normalized.customer?.telefono ?? null,
+          address: rawAddress.length ? rawAddress : null,
+          scheduledStart: updated.scheduledStart
+            ? updated.scheduledStart.toISOString()
+            : null,
+          scheduledEnd: updated.scheduledEnd ? updated.scheduledEnd.toISOString() : null,
+        },
+      };
+
+      const updatedAtIso = updated.updatedAt?.toISOString?.() ?? new Date().toISOString();
+      const recipientIds = Array.from(
+        new Set((dto.assignments ?? []).map((a) => a.userId).filter(Boolean)),
+      );
+
+      for (const recipientUserId of recipientIds) {
+        void this.notifications
+          .enqueueWhatsAppToUser({
+            recipientUserId,
+            payload,
+            dedupeKey: `service_assigned:${updated.id}:${recipientUserId}:${updatedAtIso}`,
+          })
+          .catch(() => {
+            // ignore
+          });
+      }
+    } catch {
+      // ignore
+    }
+
     return this.normalizeService(updated);
   }
 

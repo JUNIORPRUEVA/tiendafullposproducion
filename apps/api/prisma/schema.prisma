@@ -201,6 +201,17 @@ enum PagoCombustibleTecnicoEstado {
   CANCELADO
 }
 
+enum NotificationChannel {
+  WHATSAPP
+}
+
+enum NotificationStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+}
+
 model User {
   id               String   @id @default(uuid()) @db.Uuid
   email            String   @unique
@@ -262,6 +273,8 @@ model User {
   salidasTecnicas SalidaTecnica[]
   pagosCombustibleTecnicos PagoCombustibleTecnico[]
 
+  notificationOutbox NotificationOutbox[]
+
   workEmployeeConfig WorkEmployeeConfig?
 
   @@map("users")
@@ -307,6 +320,34 @@ model AppConfig {
   updatedAt    DateTime @updatedAt
 
   @@map("app_config")
+}
+
+model NotificationOutbox {
+  id                String              @id @default(uuid()) @db.Uuid
+  channel           NotificationChannel @default(WHATSAPP)
+  status            NotificationStatus  @default(PENDING)
+  templateKey       String              @map("template_key")
+  dedupeKey         String?             @unique @map("dedupe_key")
+  messageText       String              @map("message_text")
+  payload           Json?
+  recipientUserId   String?             @db.Uuid @map("recipient_user_id")
+  toNumber          String              @map("to_number")
+  toNumberNormalized String             @default("") @map("to_number_normalized")
+  attempts          Int                 @default(0)
+  nextAttemptAt     DateTime            @default(now()) @map("next_attempt_at")
+  lockedAt          DateTime?           @map("locked_at")
+  lockedBy          String?             @map("locked_by")
+  lastError         String?             @map("last_error")
+  lastStatusCode    Int?                @map("last_status_code")
+  sentAt            DateTime?           @map("sent_at")
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  recipientUser User? @relation(fields: [recipientUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, nextAttemptAt])
+  @@index([lockedAt])
+  @@map("notification_outbox")
 }
 
 model Punch {

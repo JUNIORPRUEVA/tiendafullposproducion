@@ -1346,7 +1346,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
             String caption() {
               final name = cotizacion.customerName.trim();
               final safeName = name.isEmpty ? 'cliente' : name;
-              return 'Hola $safeName, adjunto tu cotización en PDF.';
+              return 'Señor(a) $safeName, aquí está el presupuesto. Por favor, hágame saber cualquier detalle.';
             }
 
             Future<void> sendWhatsApp() async {

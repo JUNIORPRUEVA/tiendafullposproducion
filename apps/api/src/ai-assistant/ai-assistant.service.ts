@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CompanyManualAudience, CompanyManualEntryKind, Prisma, Role } from '@prisma/client';
+import { CompanyManualAudience, CompanyManualEntryKind, DepositOrderStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatAiAssistantDto } from './dto/chat-ai-assistant.dto';
 
@@ -24,6 +24,14 @@ type KnowledgeRecord = {
   updatedAt: string | null;
 };
 
+type NormalizedAiContext = {
+  module: string;
+  screenName?: string;
+  route?: string;
+  entityType?: string;
+  entityId?: string;
+};
+
 @Injectable()
 export class AiAssistantService {
   private readonly logger = new Logger(AiAssistantService.name);
@@ -43,6 +51,17 @@ export class AiAssistantService {
     const message = dto.message.trim();
     if (!message) throw new BadRequestException('El mensaje es obligatorio');
 
+    const context = this.normalizeContext(dto.context);
+
+    if (!this.canAccessContext(user.role, context)) {
+      return {
+        source: 'policy',
+        content: AiAssistantService.unauthorizedMessage,
+        citations: [],
+        denied: true,
+      };
+    }
+
     // Hard deny for common secret/credential extraction attempts.
     if (this.isForbiddenSecretRequest(message)) {
       return {
@@ -53,8 +72,10 @@ export class AiAssistantService {
       };
     }
 
-    const knowledge = await this.buildKnowledge(user, dto);
-    this.logDebug('ai.chat.context', dto.context);
+    const effectiveDto = { ...dto, context };
+
+    const knowledge = await this.buildKnowledge(user, effectiveDto);
+    this.logDebug('ai.chat.context', context);
     this.logDebug('ai.chat.knowledge', knowledge.map((k) => ({ id: k.id, title: k.title, module: k.module })));
 
     if (knowledge.length === 0) {
@@ -80,7 +101,7 @@ export class AiAssistantService {
       'Devuelve únicamente JSON válido.';
 
     const userPrompt =
-      `${JSON.stringify({ message, context: dto.context, history: safeHistory, knowledge })}\n\n` +
+      `${JSON.stringify({ message, context, history: safeHistory, knowledge })}\n\n` +
       'Devuelve exactamente este JSON: ' +
       '{"content":"string","citations":[{"id":"string","module":"string","category":"string","title":"string"}],"denied":false}. ' +
       'Reglas estrictas: ' +
@@ -157,6 +178,211 @@ export class AiAssistantService {
     );
   }
 
+  private normalizeContext(raw: ChatAiAssistantDto['context']): NormalizedAiContext {
+    const route = this.normalizeOptionalString(raw?.route) ?? undefined;
+    const routeContext = this.parseRouteContext(route);
+    const module = this.normalizeModuleKey(
+      this.normalizeOptionalString(raw?.module) ?? routeContext.module ?? 'general',
+    ) || 'general';
+    const screenName = this.normalizeOptionalString(raw?.screenName) ?? routeContext.screenName ?? undefined;
+    const entityType = this.normalizeOptionalString(raw?.entityType) ?? routeContext.entityType ?? undefined;
+    const entityId = this.normalizeOptionalString(raw?.entityId) ?? routeContext.entityId ?? undefined;
+
+    return {
+      module,
+      ...(screenName ? { screenName } : {}),
+      ...(route ? { route } : {}),
+      ...(entityType ? { entityType } : {}),
+      ...(entityId ? { entityId } : {}),
+    };
+  }
+
+  private parseRouteContext(route?: string) {
+    const raw = (route ?? '').trim();
+    if (!raw) return {} as Partial<NormalizedAiContext>;
+
+    let uri: URL;
+    try {
+      uri = new URL(raw, 'https://fulltech.local');
+    } catch {
+      return {} as Partial<NormalizedAiContext>;
+    }
+
+    const path = uri.pathname.trim().toLowerCase();
+    const segments = path.split('/').filter(Boolean);
+    const result: Partial<NormalizedAiContext> = {};
+
+    if (path.startsWith('/clientes')) {
+      result.module = 'clientes';
+      result.screenName = segments.length >= 2
+        ? (segments[2] === 'editar' ? 'Editar cliente' : 'Detalle de cliente')
+        : (segments[1] === 'nuevo' ? 'Nuevo cliente' : 'Clientes');
+      if (segments.length >= 2 && segments[1] !== 'nuevo') {
+        result.entityType = 'client';
+        result.entityId = segments[1];
+      }
+      return result;
+    }
+
+    if (path.startsWith('/catalogo')) return { module: 'catalogo', screenName: 'Catálogo' };
+    if (path === '/ventas/nueva') return { module: 'ventas', screenName: 'Registrar venta' };
+    if (path.startsWith('/ventas')) return { module: 'ventas', screenName: 'Ventas' };
+    if (path === '/operaciones/agenda') return { module: 'operaciones', screenName: 'Agenda de operaciones' };
+    if (path === '/operaciones/mapa-clientes') return { module: 'operaciones', screenName: 'Mapa de clientes' };
+    if (path === '/operaciones/reglas') return { module: 'operaciones', screenName: 'Reglas operativas' };
+    if (path.startsWith('/operaciones')) {
+      if (segments.length >= 2 && !['agenda', 'mapa-clientes', 'reglas'].includes(segments[1])) {
+        return {
+          module: 'operaciones',
+          screenName: 'Detalle de servicio',
+          entityType: 'service',
+          entityId: segments[1],
+        };
+      }
+      return { module: 'operaciones', screenName: 'Operaciones' };
+    }
+    if (path === '/contabilidad/cierres-diarios') return { module: 'contabilidad', screenName: 'Cierres diarios' };
+    if (path === '/contabilidad/factura-fiscal') return { module: 'contabilidad', screenName: 'Facturas fiscales' };
+    if (path === '/contabilidad/pagos-pendientes') return { module: 'contabilidad', screenName: 'Pagos pendientes' };
+    if (path.startsWith('/contabilidad')) return { module: 'contabilidad', screenName: 'Contabilidad' };
+    if (path === '/nomina') return { module: 'nomina', screenName: 'Nómina' };
+    if (path === '/mis-pagos') return { module: 'nomina', screenName: 'Mis pagos' };
+    if (path.startsWith('/manual-interno')) return { module: 'manual-interno', screenName: 'Manual interno' };
+    if (path.startsWith('/configuracion')) return { module: 'configuracion', screenName: 'Configuración' };
+    if (path.startsWith('/administracion')) return { module: 'administracion', screenName: 'Administración' };
+    if (path === '/cotizaciones/historial') {
+      const quoteId = uri.searchParams.get('quoteId')?.trim() ?? '';
+      const customerPhone = uri.searchParams.get('customerPhone')?.trim() ?? '';
+      return {
+        module: 'cotizaciones',
+        screenName: 'Historial de cotizaciones',
+        ...(quoteId ? { entityType: 'quote', entityId: quoteId } : {}),
+        ...(!quoteId && customerPhone ? { entityType: 'client-phone', entityId: customerPhone } : {}),
+      };
+    }
+    if (path.startsWith('/cotizaciones')) return { module: 'cotizaciones', screenName: 'Cotizaciones' };
+    if (path.startsWith('/users/')) {
+      return {
+        module: 'administracion',
+        screenName: 'Detalle de usuario',
+        entityType: 'user',
+        entityId: segments[1],
+      };
+    }
+    if (path === '/users' || path === '/user') return { module: 'administracion', screenName: 'Usuarios' };
+    if (path === '/salidas-tecnicas') return { module: 'operaciones', screenName: 'Salidas técnicas' };
+    if (path === '/horarios') return { module: 'horarios', screenName: 'Horarios' };
+    if (path === '/profile') return { module: 'profile', screenName: 'Perfil' };
+    if (path === '/ponche') return { module: 'ponche', screenName: 'Ponche' };
+
+    return { module: 'general' };
+  }
+
+  private canAccessContext(role: Role, context: NormalizedAiContext) {
+    const path = this.extractPath(context.route);
+    if (path) {
+      return this.canAccessPath(role, path);
+    }
+    return this.canAccessModule(role, context.module);
+  }
+
+  private extractPath(route?: string) {
+    const raw = (route ?? '').trim();
+    if (!raw) return '';
+    try {
+      return new URL(raw, 'https://fulltech.local').pathname.toLowerCase();
+    } catch {
+      return raw.split('?')[0]?.trim().toLowerCase() ?? '';
+    }
+  }
+
+  private canAccessPath(role: Role, path: string) {
+    if (!path) return true;
+
+    if (path === '/profile') return true;
+    if (path === '/mis-pagos') return true;
+    if (path === '/horarios') return true;
+    if (path === '/ponche') return true;
+    if (path === '/salidas-tecnicas') return role === Role.TECNICO;
+    if (path.startsWith('/operaciones')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING, Role.TECNICO]);
+    if (path.startsWith('/catalogo')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING]);
+    if (path.startsWith('/ventas')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR]);
+    if (path.startsWith('/cotizaciones')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING]);
+    if (path.startsWith('/clientes')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING]);
+    if (path.startsWith('/nomina')) return role === Role.ADMIN;
+    if (path.startsWith('/manual-interno')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING, Role.TECNICO]);
+    if (path.startsWith('/contabilidad')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE]);
+    if (path.startsWith('/administracion')) return role === Role.ADMIN;
+    if (path.startsWith('/configuracion')) return role === Role.ADMIN;
+    if (path === '/users' || path === '/user' || path.startsWith('/users/')) return role === Role.ADMIN;
+
+    return true;
+  }
+
+  private canAccessModule(role: Role, module: string) {
+    switch (this.normalizeModuleKey(module)) {
+      case 'general':
+        return true;
+      case 'profile':
+      case 'ponche':
+      case 'horarios':
+        return true;
+      case 'operaciones':
+        return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING, Role.TECNICO]);
+      case 'catalogo':
+        return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING]);
+      case 'ventas':
+        return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR]);
+      case 'cotizaciones':
+        return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING]);
+      case 'clientes':
+        return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING]);
+      case 'nomina':
+        return role === Role.ADMIN;
+      case 'manual-interno':
+        return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING, Role.TECNICO]);
+      case 'contabilidad':
+        return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE]);
+      case 'administracion':
+      case 'configuracion':
+        return role === Role.ADMIN;
+      default:
+        return true;
+    }
+  }
+
+  private hasRole(role: Role, allowed: Role[]) {
+    return allowed.includes(role);
+  }
+
+  private canAccessClientData(role: Role) {
+    return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR]);
+  }
+
+  private canAccessQuoteData(role: Role) {
+    return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO]);
+  }
+
+  private canAccessSalesData(role: Role) {
+    return this.canAccessModule(role, 'ventas');
+  }
+
+  private canAccessOperationsData(role: Role) {
+    return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO]);
+  }
+
+  private canAccessAccountingData(role: Role) {
+    return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE]);
+  }
+
+  private canAccessContractData(role: Role, route?: string) {
+    const path = this.extractPath(route);
+    if (path === '/mis-pagos' || path === '/profile') {
+      return true;
+    }
+    return role === Role.ADMIN;
+  }
+
   private async buildKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
     const ownerId = await this.resolveCompanyOwnerId(user.id);
 
@@ -199,7 +425,7 @@ export class AiAssistantService {
     ];
 
     // Rank and reduce to keep the prompt compact.
-    const ranked = this.rankKnowledgeForPrompt(dto.message, dto.context.module, all);
+    const ranked = this.rankKnowledgeForPrompt(dto.message, dto.context, all);
     return ranked.slice(0, 14);
   }
 
@@ -220,6 +446,13 @@ export class AiAssistantService {
         'En Clientes puedes buscar, crear y consultar clientes. En detalle de cliente puedes ver datos básicos, historial y procesos relacionados según tu rol. Si necesitas algo específico, dime el cliente y qué deseas revisar.',
       ),
       this.createAppKnowledgeRecord(
+        'app-help:cotizaciones',
+        'cotizaciones',
+        'guia-app',
+        'Uso del módulo de cotizaciones',
+        'En Cotizaciones puedes preparar propuestas, revisar historial y validar reglas comerciales del Manual Interno. Si ya tienes una cotización abierta o un cliente seleccionado, el asistente prioriza ese contexto.',
+      ),
+      this.createAppKnowledgeRecord(
         'app-help:catalogo',
         'catalogo',
         'guia-app',
@@ -227,11 +460,25 @@ export class AiAssistantService {
         'En Catálogo puedes ver productos por categoría y revisar información del catálogo. La visibilidad de precios depende de tu rol.',
       ),
       this.createAppKnowledgeRecord(
+        'app-help:ventas',
+        'ventas',
+        'guia-app',
+        'Uso del módulo de ventas',
+        'En Ventas puedes registrar operaciones comerciales y revisar tus ventas autorizadas. Si necesitas soporte operativo, indica si estás registrando una venta nueva o revisando ventas anteriores.',
+      ),
+      this.createAppKnowledgeRecord(
         'app-help:operaciones',
         'operaciones',
         'guia-app',
         'Uso del módulo de operaciones',
         'En Operaciones puedes consultar servicios, fases, asignaciones, archivos y garantías según permisos. Si me dices el número de servicio o el cliente, puedo orientarte sobre el flujo permitido.',
+      ),
+      this.createAppKnowledgeRecord(
+        'app-help:contabilidad',
+        'contabilidad',
+        'guia-app',
+        'Uso del módulo de contabilidad',
+        'En Contabilidad puedes registrar cierres, órdenes de depósito, facturas fiscales y pagos pendientes si tu rol lo permite. El asistente puede explicar la pantalla actual y resumir datos autorizados del módulo.',
       ),
       this.createAppKnowledgeRecord(
         'app-help:nomina',
@@ -261,30 +508,60 @@ export class AiAssistantService {
     user: { id: string; role: Role },
     dto: ChatAiAssistantDto,
   ): Promise<KnowledgeRecord[]> {
-    const tokens = new Set(this.tokenize(`${dto.message} ${dto.context.module ?? ''} ${dto.context.screenName ?? ''}`));
+    const contextText = [
+      dto.message,
+      dto.context.module ?? '',
+      dto.context.screenName ?? '',
+      dto.context.route ?? '',
+      dto.context.entityType ?? '',
+    ].join(' ');
+    const tokens = new Set(this.tokenize(contextText));
+    const includeModuleContext = tokens.size === 0;
 
-    const wantsClients = this.hasAnyToken(tokens, ['cliente', 'clientes']);
-    const wantsCatalog = this.hasAnyToken(tokens, ['producto', 'productos', 'catalogo', 'catálogo', 'precio', 'precios']);
-    const wantsContracts = this.hasAnyToken(tokens, ['contrato', 'nomina', 'nómina', 'salario', 'clausula', 'cláusula']);
+    const wantsClients = includeModuleContext || this.hasAnyToken(tokens, ['cliente', 'clientes']);
+    const wantsCatalog = includeModuleContext || this.hasAnyToken(tokens, ['producto', 'productos', 'catalogo', 'catálogo', 'precio', 'precios']);
+    const wantsContracts = includeModuleContext || this.hasAnyToken(tokens, ['contrato', 'nomina', 'nómina', 'salario', 'clausula', 'cláusula']);
+    const wantsQuotes = includeModuleContext || this.hasAnyToken(tokens, ['cotizacion', 'cotizaciones', 'ticket', 'propuesta']);
+    const wantsSales = includeModuleContext || this.hasAnyToken(tokens, ['venta', 'ventas', 'comision', 'comisión']);
+    const wantsOperations = includeModuleContext || this.hasAnyToken(tokens, ['servicio', 'servicios', 'operacion', 'operaciones', 'garantia', 'garantía']);
+    const wantsAccounting = includeModuleContext || this.hasAnyToken(tokens, ['contabilidad', 'cierre', 'cierres', 'deposito', 'depósito', 'factura', 'pago']);
 
     const knowledge: KnowledgeRecord[] = [];
 
     // CLIENTS: scope strictly to what the user can access.
-    if (wantsClients || dto.context.module === 'clientes') {
+    if ((wantsClients || dto.context.module === 'clientes') && this.canAccessClientData(user.role)) {
       const clientKnowledge = await this.buildClientKnowledge(user, dto);
       knowledge.push(...clientKnowledge);
     }
 
-    // CATALOG: technicians do not have catalog access in the app.
-    if ((wantsCatalog || dto.context.module === 'catalogo') && user.role !== Role.TECNICO) {
+    if ((wantsCatalog || dto.context.module === 'catalogo') && this.canAccessModule(user.role, 'catalogo')) {
       const catalogKnowledge = await this.buildCatalogKnowledge(user, dto);
       knowledge.push(...catalogKnowledge);
     }
 
-    // CONTRACTS: only own contract for non-admin; admin can get general guidance here.
-    if (wantsContracts || dto.context.module === 'nomina') {
+    if ((wantsContracts || dto.context.module === 'nomina') && this.canAccessContractData(user.role, dto.context.route)) {
       const contractKnowledge = await this.buildContractKnowledge(user, dto);
       knowledge.push(...contractKnowledge);
+    }
+
+    if ((wantsQuotes || dto.context.module === 'cotizaciones') && this.canAccessQuoteData(user.role)) {
+      const quoteKnowledge = await this.buildQuoteKnowledge(user, dto);
+      knowledge.push(...quoteKnowledge);
+    }
+
+    if ((wantsSales || dto.context.module === 'ventas') && this.canAccessSalesData(user.role)) {
+      const salesKnowledge = await this.buildSalesKnowledge(user, dto);
+      knowledge.push(...salesKnowledge);
+    }
+
+    if ((wantsOperations || dto.context.module === 'operaciones') && this.canAccessOperationsData(user.role)) {
+      const operationsKnowledge = await this.buildOperationsKnowledge(user, dto);
+      knowledge.push(...operationsKnowledge);
+    }
+
+    if ((wantsAccounting || dto.context.module === 'contabilidad') && this.canAccessAccountingData(user.role)) {
+      const accountingKnowledge = await this.buildAccountingKnowledge(user, dto);
+      knowledge.push(...accountingKnowledge);
     }
 
     return knowledge;
@@ -429,6 +706,297 @@ export class AiAssistantService {
     return result;
   }
 
+  private async buildQuoteKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
+    const where: Prisma.CotizacionWhereInput = user.role === Role.ADMIN
+      ? {}
+      : { createdByUserId: user.id };
+
+    const totalQuotes = await this.prisma.cotizacion.count({ where });
+    const result: KnowledgeRecord[] = [
+      this.createAppKnowledgeRecord(
+        'app-data:quotes-scope',
+        'cotizaciones',
+        'dato-autorizado',
+        'Alcance autorizado de cotizaciones',
+        user.role === Role.ADMIN
+          ? 'Puedes consultar cotizaciones del sistema según las pantallas administrativas permitidas.'
+          : 'Solo puedes consultar cotizaciones creadas bajo tu usuario dentro del alcance permitido por el sistema.',
+      ),
+      this.createAppKnowledgeRecord(
+        'app-data:quotes-count',
+        'cotizaciones',
+        'dato-autorizado',
+        'Resumen autorizado de cotizaciones',
+        user.role === Role.ADMIN
+          ? `Actualmente hay ${totalQuotes} cotizaciones registradas.`
+          : `Actualmente tienes acceso a ${totalQuotes} cotizaciones registradas bajo tu usuario.`,
+      ),
+    ];
+
+    const entityType = (dto.context.entityType ?? '').trim().toLowerCase();
+    const entityId = (dto.context.entityId ?? '').trim();
+
+    if (entityType === 'quote' && entityId) {
+      const quote = await this.prisma.cotizacion.findFirst({
+        where: { ...where, id: entityId },
+        select: {
+          id: true,
+          customerName: true,
+          total: true,
+          subtotal: true,
+          includeItbis: true,
+          note: true,
+          createdAt: true,
+          items: {
+            select: { id: true },
+          },
+        },
+      });
+
+      if (!quote) {
+        result.push(
+          this.createAppKnowledgeRecord(
+            'app-data:quote-denied',
+            'cotizaciones',
+            'dato-autorizado',
+            'Cotización no accesible',
+            'No tengo autorización para acceder a esa cotización o no existe dentro de tu alcance.',
+          ),
+        );
+        return result;
+      }
+
+      result.push(
+        this.createAppKnowledgeRecord(
+          `app-data:quote:${quote.id}`,
+          'cotizaciones',
+          'dato-autorizado',
+          `Cotización seleccionada para ${quote.customerName}`,
+          `Cliente: ${quote.customerName}. Total: ${quote.total.toFixed(2)}. Subtotal: ${quote.subtotal.toFixed(2)}. ITBIS incluido: ${quote.includeItbis ? 'sí' : 'no'}. Líneas: ${quote.items.length}. Creada: ${quote.createdAt.toISOString()}. ${quote.note ? `Nota: ${this.buildExcerpt(quote.note)}.` : ''}`,
+        ),
+      );
+    }
+
+    return result;
+  }
+
+  private async buildSalesKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
+    const where: Prisma.SaleWhereInput = user.role === Role.ADMIN
+      ? { isDeleted: false }
+      : { userId: user.id, isDeleted: false };
+
+    const [count, latest] = await this.prisma.$transaction([
+      this.prisma.sale.count({ where }),
+      this.prisma.sale.findFirst({
+        where,
+        orderBy: { saleDate: 'desc' },
+        select: {
+          id: true,
+          saleDate: true,
+          totalSold: true,
+          commissionAmount: true,
+          customer: { select: { nombre: true } },
+        },
+      }),
+    ]);
+
+    const result: KnowledgeRecord[] = [
+      this.createAppKnowledgeRecord(
+        'app-data:sales-count',
+        'ventas',
+        'dato-autorizado',
+        'Resumen autorizado de ventas',
+        user.role === Role.ADMIN
+          ? `Actualmente hay ${count} ventas activas registradas en el sistema.`
+          : `Actualmente tienes ${count} ventas activas registradas bajo tu usuario.`,
+      ),
+    ];
+
+    if (latest) {
+      result.push(
+        this.createAppKnowledgeRecord(
+          `app-data:sale:latest:${latest.id}`,
+          'ventas',
+          'dato-autorizado',
+          'Última venta autorizada',
+          `Última venta registrada: ${latest.saleDate.toISOString()}. Cliente: ${latest.customer?.nombre ?? 'N/D'}. Total vendido: ${latest.totalSold.toFixed(2)}. Comisión: ${latest.commissionAmount.toFixed(2)}.`,
+        ),
+      );
+    }
+
+    const clientEntityId = (dto.context.entityType ?? '').toLowerCase() === 'client'
+      ? (dto.context.entityId ?? '').trim()
+      : '';
+    if (clientEntityId) {
+      const clientSalesCount = await this.prisma.sale.count({
+        where: { ...where, customerId: clientEntityId },
+      });
+      result.push(
+        this.createAppKnowledgeRecord(
+          `app-data:sales-client:${clientEntityId}`,
+          'ventas',
+          'dato-autorizado',
+          'Ventas del cliente seleccionado',
+          `Ventas autorizadas relacionadas con el cliente actual: ${clientSalesCount}.`,
+        ),
+      );
+    }
+
+    return result;
+  }
+
+  private async buildOperationsKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
+    if (user.role === Role.MARKETING) {
+      return [
+        this.createAppKnowledgeRecord(
+          'app-data:operations-scope-marketing',
+          'operaciones',
+          'dato-autorizado',
+          'Alcance operativo limitado',
+          'Tu rol puede recibir guía general del módulo, pero no datos operativos detallados desde el asistente.',
+        ),
+      ];
+    }
+
+    const where: Prisma.ServiceWhereInput =
+      user.role === Role.ADMIN || user.role === Role.ASISTENTE
+        ? { isDeleted: false }
+        : user.role === Role.VENDEDOR
+          ? { isDeleted: false, createdByUserId: user.id }
+          : user.role === Role.TECNICO
+            ? { isDeleted: false, assignments: { some: { userId: user.id } } }
+            : { id: '__none__' };
+
+    const [count, latest] = await this.prisma.$transaction([
+      this.prisma.service.count({ where }),
+      this.prisma.service.findFirst({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          currentPhase: true,
+          updatedAt: true,
+          customer: { select: { nombre: true } },
+        },
+      }),
+    ]);
+
+    const result: KnowledgeRecord[] = [
+      this.createAppKnowledgeRecord(
+        'app-data:operations-count',
+        'operaciones',
+        'dato-autorizado',
+        'Resumen autorizado de servicios',
+        user.role === Role.ADMIN || user.role === Role.ASISTENTE
+          ? `Actualmente hay ${count} servicios activos visibles para tu rol.`
+          : `Actualmente tienes acceso a ${count} servicios operativos relacionados con tu usuario.`,
+      ),
+    ];
+
+    if (latest) {
+      result.push(
+        this.createAppKnowledgeRecord(
+          `app-data:service:latest:${latest.id}`,
+          'operaciones',
+          'dato-autorizado',
+          'Servicio operativo reciente',
+          `Servicio: ${latest.title}. Cliente: ${latest.customer.nombre}. Estado: ${latest.status}. Fase actual: ${latest.currentPhase}. Última actualización: ${latest.updatedAt.toISOString()}.`,
+        ),
+      );
+    }
+
+    const entityType = (dto.context.entityType ?? '').toLowerCase();
+    const entityId = (dto.context.entityId ?? '').trim();
+    if (entityType === 'service' && entityId) {
+      const service = await this.prisma.service.findFirst({
+        where: { ...where, id: entityId },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          currentPhase: true,
+          paymentStatus: true,
+          scheduledStart: true,
+          customer: { select: { nombre: true } },
+        },
+      });
+
+      if (!service) {
+        result.push(
+          this.createAppKnowledgeRecord(
+            'app-data:service-denied',
+            'operaciones',
+            'dato-autorizado',
+            'Servicio no accesible',
+            'No tengo autorización para acceder a ese servicio o no existe dentro de tu alcance.',
+          ),
+        );
+        return result;
+      }
+
+      result.push(
+        this.createAppKnowledgeRecord(
+          `app-data:service:${service.id}`,
+          'operaciones',
+          'dato-autorizado',
+          `Servicio seleccionado: ${service.title}`,
+          `Cliente: ${service.customer.nombre}. Estado: ${service.status}. Fase: ${service.currentPhase}. Estado de pago: ${service.paymentStatus}. Inicio programado: ${service.scheduledStart ? service.scheduledStart.toISOString() : 'N/D'}.`,
+        ),
+      );
+    }
+
+    return result;
+  }
+
+  private async buildAccountingKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const [closeCount, pendingDepositOrders, latestClose] = await this.prisma.$transaction([
+      this.prisma.close.count({ where: { date: { gte: todayStart, lte: todayEnd } } }),
+      this.prisma.depositOrder.count({ where: { status: DepositOrderStatus.PENDING } }),
+      this.prisma.close.findFirst({
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        select: {
+          id: true,
+          type: true,
+          date: true,
+          cash: true,
+          transfer: true,
+          card: true,
+        },
+      }),
+    ]);
+
+    const result: KnowledgeRecord[] = [
+      this.createAppKnowledgeRecord(
+        'app-data:accounting-summary',
+        'contabilidad',
+        'dato-autorizado',
+        'Resumen autorizado de contabilidad',
+        `Cierres registrados hoy: ${closeCount}. Órdenes de depósito pendientes: ${pendingDepositOrders}.`,
+      ),
+    ];
+
+    if (latestClose) {
+      result.push(
+        this.createAppKnowledgeRecord(
+          `app-data:close:latest:${latestClose.id}`,
+          'contabilidad',
+          'dato-autorizado',
+          'Último cierre registrado',
+          `Tipo: ${latestClose.type}. Fecha: ${latestClose.date.toISOString()}. Efectivo: ${latestClose.cash.toFixed(2)}. Transferencia: ${latestClose.transfer.toFixed(2)}. Tarjeta: ${latestClose.card.toFixed(2)}.`,
+        ),
+      );
+    }
+
+    return result;
+  }
+
   private async buildContractKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
     const isAdmin = user.role === Role.ADMIN;
 
@@ -496,9 +1064,22 @@ export class AiAssistantService {
     return base;
   }
 
-  private rankKnowledgeForPrompt(prompt: string, moduleKey: string, all: KnowledgeRecord[]) {
-    const desired = new Set([moduleKey, this.normalizeModuleKey(moduleKey), 'manual-interno', 'seguridad'].filter(Boolean));
-    const tokens = new Set(this.tokenize(prompt));
+  private rankKnowledgeForPrompt(prompt: string, context: NormalizedAiContext, all: KnowledgeRecord[]) {
+    const desired = new Set([
+      context.module,
+      this.normalizeModuleKey(context.module),
+      'manual-interno',
+      'seguridad',
+    ].filter(Boolean));
+    const tokens = new Set(
+      this.tokenize([
+        prompt,
+        context.module,
+        context.screenName ?? '',
+        context.route ?? '',
+        context.entityType ?? '',
+      ].join(' ')),
+    );
 
     return all
       .map((entry) => {
