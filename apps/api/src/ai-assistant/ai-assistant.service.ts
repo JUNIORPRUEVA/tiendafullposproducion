@@ -412,24 +412,30 @@ export class AiAssistantService {
         ],
       },
       orderBy: [{ sortOrder: 'asc' }, { updatedAt: 'desc' }, { title: 'asc' }],
-      take: 180,
+      take: 260,
     });
 
-    const staticHelp = this.buildStaticModuleHelp();
+    const manualKnowledge = manualEntries.map((entry) => this.toManualKnowledge(entry));
+    const staticHelp = this.buildStaticModuleHelp(manualEntries.length);
     const authorizedData = await this.buildAuthorizedDataKnowledge(user, dto);
 
     const all = [
-      ...manualEntries.map((entry) => this.toManualKnowledge(entry)),
+      ...manualKnowledge,
       ...staticHelp,
       ...authorizedData,
     ];
 
-    // Rank and reduce to keep the prompt compact.
-    const ranked = this.rankKnowledgeForPrompt(dto.message, dto.context, all);
-    return ranked.slice(0, 14);
+    return this.selectKnowledgeForPrompt({
+      prompt: dto.message,
+      context: dto.context,
+      manualKnowledge,
+      staticHelp,
+      authorizedData,
+      all,
+    });
   }
 
-  private buildStaticModuleHelp(): KnowledgeRecord[] {
+  private buildStaticModuleHelp(manualCount: number): KnowledgeRecord[] {
     return [
       this.createAppKnowledgeRecord(
         'app-help:general',
@@ -493,6 +499,13 @@ export class AiAssistantService {
         'guia-app',
         'Manual Interno',
         'El Manual Interno es la base principal de reglas, protocolos, políticas y guías por rol. El asistente responde priorizando estas reglas oficiales.',
+      ),
+      this.createAppKnowledgeRecord(
+        'app-help:manual-coverage',
+        'manual-interno',
+        'guia-app',
+        'Cobertura del Manual Interno',
+        `Actualmente el sistema tiene ${manualCount} entradas publicadas del Manual Interno disponibles para este asistente según permisos y rol.`,
       ),
       this.createAppKnowledgeRecord(
         'app-help:seguridad',
@@ -635,6 +648,62 @@ export class AiAssistantService {
     }
 
     return result;
+  }
+
+  private selectKnowledgeForPrompt(input: {
+    prompt: string;
+    context: NormalizedAiContext;
+    manualKnowledge: KnowledgeRecord[];
+    staticHelp: KnowledgeRecord[];
+    authorizedData: KnowledgeRecord[];
+    all: KnowledgeRecord[];
+  }): KnowledgeRecord[] {
+    const rankedAll = this.rankKnowledgeForPrompt(input.prompt, input.context, input.all);
+    const rankedManual = this.rankKnowledgeForPrompt(input.prompt, input.context, input.manualKnowledge);
+    const normalizedModule = this.normalizeModuleKey(input.context.module);
+    const wantsManualDepth =
+      normalizedModule === 'manual-interno' ||
+      this.hasAnyToken(
+        new Set(this.tokenize(`${input.prompt} ${input.context.screenName ?? ''}`)),
+        ['manual', 'interno', 'politica', 'política', 'protocolo', 'regla', 'reglas'],
+      );
+
+    const limit = wantsManualDepth ? 28 : 20;
+    const selected: KnowledgeRecord[] = [];
+    const seenIds = new Set<string>();
+
+    const addRecords = (items: KnowledgeRecord[], maxCount?: number) => {
+      let added = 0;
+      for (const item of items) {
+        if (seenIds.has(item.id)) continue;
+        selected.push(item);
+        seenIds.add(item.id);
+        added += 1;
+        if (selected.length >= limit) return;
+        if (maxCount != null && added >= maxCount) return;
+      }
+    };
+
+    addRecords(
+      input.staticHelp.filter(
+        (item) => item.module === 'seguridad' || item.module === 'manual-interno',
+      ),
+      3,
+    );
+    addRecords(input.authorizedData, wantsManualDepth ? 5 : 6);
+    addRecords(
+      rankedManual.filter(
+        (item) =>
+          this.normalizeModuleKey(item.module) === normalizedModule ||
+          item.module === 'general' ||
+          item.category === 'politicas',
+      ),
+      wantsManualDepth ? 14 : 8,
+    );
+    addRecords(rankedManual, wantsManualDepth ? 10 : 6);
+    addRecords(rankedAll, limit);
+
+    return selected.slice(0, limit);
   }
 
   private async buildClientKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {

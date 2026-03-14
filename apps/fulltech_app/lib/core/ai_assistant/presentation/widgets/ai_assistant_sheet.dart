@@ -16,6 +16,13 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
+  static const _defaultQuickPrompts = <String>[
+    'Cual es mi informacion en la app',
+    'Que productos hay en catalogo',
+    'Explicame esta pantalla',
+    'Que puedo hacer en este modulo',
+  ];
+
   @override
   void dispose() {
     _messageController.dispose();
@@ -37,7 +44,9 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
     final theme = Theme.of(context);
     final aiState = ref.watch(aiAssistantControllerProvider);
     final controller = ref.read(aiAssistantControllerProvider.notifier);
-    final isDesktop = MediaQuery.sizeOf(context).width >= 900;
+    final size = MediaQuery.sizeOf(context);
+    final isDesktop = size.width >= 900;
+    final quickPrompts = _quickPromptsForContext(aiState.context);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -45,132 +54,288 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
     });
 
     return SafeArea(
-      child: Align(
-        alignment: isDesktop ? Alignment.centerRight : Alignment.bottomCenter,
-        child: Container(
-          width: isDesktop ? 520 : null,
-          height: isDesktop
-              ? double.infinity
-              : MediaQuery.sizeOf(context).height * 0.88,
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: isDesktop
-                ? const BorderRadius.only(
-                    topLeft: Radius.circular(28),
-                    bottomLeft: Radius.circular(28),
-                  )
-                : const BorderRadius.vertical(top: Radius.circular(28)),
-          ),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 12, 10, 10),
-                child: Row(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          isDesktop ? 0 : 10,
+          isDesktop ? 18 : 10,
+          isDesktop ? 18 : 10,
+          isDesktop ? 18 : 0,
+        ),
+        child: Align(
+          alignment: isDesktop ? Alignment.centerRight : Alignment.bottomCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: isDesktop ? 420 : size.width,
+              maxHeight: isDesktop ? 760 : size.height * 0.82,
+            ),
+            child: Container(
+              width: isDesktop ? 420 : null,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(26),
+                border: Border.all(
+                  color: theme.colorScheme.outlineVariant.withValues(
+                    alpha: 0.32,
+                  ),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.12),
+                    blurRadius: 28,
+                    offset: const Offset(0, 14),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(26),
+                child: Column(
                   children: [
                     Container(
-                      width: 42,
-                      height: 42,
+                      padding: const EdgeInsets.fromLTRB(16, 14, 10, 12),
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(
-                          alpha: 0.12,
+                        gradient: LinearGradient(
+                          colors: [
+                            theme.colorScheme.surfaceContainerHighest,
+                            theme.colorScheme.surface,
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
-                        borderRadius: BorderRadius.circular(14),
                       ),
-                      child: Icon(
-                        Icons.auto_awesome_rounded,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Row(
                         children: [
-                          Text(
-                            'Asistente FULLTECH',
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w900,
+                          Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary.withValues(
+                                alpha: 0.12,
+                              ),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Icon(
+                              Icons.auto_awesome_rounded,
+                              color: theme.colorScheme.primary,
                             ),
                           ),
-                          Text(
-                            _buildContextLabel(aiState.context),
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Asistente FULLTECH',
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _buildContextLabel(aiState.context),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary.withValues(
+                                alpha: 0.08,
+                              ),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              'IA interna',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: quickPrompts
+                                .map(
+                                  (prompt) => Padding(
+                                    padding: const EdgeInsets.only(right: 8),
+                                    child: ActionChip(
+                                      onPressed: aiState.sending
+                                          ? null
+                                          : () =>
+                                                _sendPreset(controller, prompt),
+                                      backgroundColor: theme
+                                          .colorScheme
+                                          .surfaceContainerHighest,
+                                      side: BorderSide(
+                                        color: theme.colorScheme.outlineVariant
+                                            .withValues(alpha: 0.28),
+                                      ),
+                                      label: Text(
+                                        prompt,
+                                        style: theme.textTheme.labelMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                      ),
+                                    ),
+                                  ),
+                                )
+                                .toList(growable: false),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: _ChatMessagesList(
+                        controller: _scrollController,
+                        messages: aiState.messages,
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _messageController,
+                              minLines: 1,
+                              maxLines: 4,
+                              textInputAction: TextInputAction.send,
+                              onSubmitted: (_) async {
+                                await _send(controller);
+                              },
+                              decoration: InputDecoration(
+                                hintText: 'Escribe tu pregunta...',
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 14,
+                                ),
+                                filled: true,
+                                fillColor:
+                                    theme.colorScheme.surfaceContainerLowest,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                  borderSide: BorderSide(
+                                    color: theme.colorScheme.outlineVariant
+                                        .withValues(alpha: 0.28),
+                                  ),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                  borderSide: BorderSide(
+                                    color: theme.colorScheme.outlineVariant
+                                        .withValues(alpha: 0.28),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          SizedBox(
+                            height: 48,
+                            width: 48,
+                            child: FilledButton(
+                              onPressed: aiState.sending
+                                  ? null
+                                  : () => _send(controller),
+                              style: FilledButton.styleFrom(
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                padding: EdgeInsets.zero,
+                              ),
+                              child: aiState.sending
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.arrow_upward_rounded),
                             ),
                           ),
                         ],
                       ),
                     ),
-                    IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close_rounded),
-                    ),
                   ],
                 ),
               ),
-              const Divider(height: 1),
-              Expanded(
-                child: _ChatMessagesList(
-                  controller: _scrollController,
-                  messages: aiState.messages,
-                ),
-              ),
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _messageController,
-                        minLines: 1,
-                        maxLines: 4,
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (value) async {
-                          await _send(controller);
-                        },
-                        decoration: InputDecoration(
-                          hintText: 'Escribe tu pregunta...',
-                          filled: true,
-                          fillColor: theme.colorScheme.surfaceContainerLowest,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(
-                              color: theme.colorScheme.outlineVariant
-                                  .withValues(alpha: 0.4),
-                            ),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(
-                              color: theme.colorScheme.outlineVariant
-                                  .withValues(alpha: 0.4),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    FilledButton(
-                      onPressed: aiState.sending
-                          ? null
-                          : () => _send(controller),
-                      child: aiState.sending
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.send_rounded),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
+  }
+
+  List<String> _quickPromptsForContext(AiChatContext context) {
+    switch (context.module.trim().toLowerCase()) {
+      case 'catalogo':
+      case 'catálogo':
+        return const [
+          'Que productos hay en catalogo',
+          'Buscame taladros disponibles en catalogo',
+          'Que categorias de productos existen',
+          'Muestrame productos con precio',
+        ];
+      case 'clientes':
+        return const [
+          'Explicame esta pantalla',
+          'Que informacion puedo ver del cliente',
+          'Que acciones puedo hacer aqui',
+          'Resumen del cliente seleccionado',
+        ];
+      case 'operaciones':
+        return const [
+          'Explicame esta pantalla',
+          'Resumen del servicio actual',
+          'Que puedo hacer en este modulo',
+          'Cual es el siguiente paso recomendado',
+        ];
+      case 'cotizaciones':
+        return const [
+          'Explicame esta pantalla',
+          'Resumen de la cotizacion actual',
+          'Que reglas aplican aqui',
+          'Que puedo hacer en este modulo',
+        ];
+      case 'profile':
+      case 'nomina':
+        return const [
+          'Cual es mi informacion en la app',
+          'Cual es mi rol',
+          'Que datos mios puedes ver',
+          'Explicame esta pantalla',
+        ];
+      default:
+        return _defaultQuickPrompts;
+    }
   }
 
   Future<void> _send(AiAssistantController controller) async {
@@ -178,6 +343,14 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
     if (text.isEmpty) return;
     _messageController.clear();
     await controller.sendMessage(text);
+  }
+
+  Future<void> _sendPreset(
+    AiAssistantController controller,
+    String prompt,
+  ) async {
+    _messageController.clear();
+    await controller.sendMessage(prompt);
   }
 
   String _buildContextLabel(AiChatContext context) {
