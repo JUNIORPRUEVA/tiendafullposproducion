@@ -781,11 +781,16 @@ class OperationsRepository {
       return ServiceExecutionBundleModel.fromJson(raw);
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudo cargar el reporte técnico'),
+        _extractMessage(
+          e.response?.data,
+          'No se pudo cargar el reporte técnico',
+        ),
         e.response?.statusCode,
       );
     } on FormatException {
-      throw ApiException('Respuesta inválida del servidor al cargar el reporte');
+      throw ApiException(
+        'Respuesta inválida del servidor al cargar el reporte',
+      );
     }
   }
 
@@ -825,11 +830,16 @@ class OperationsRepository {
       return ServiceExecutionBundleModel.fromJson(raw);
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudo guardar el reporte técnico'),
+        _extractMessage(
+          e.response?.data,
+          'No se pudo guardar el reporte técnico',
+        ),
         e.response?.statusCode,
       );
     } on FormatException {
-      throw ApiException('Respuesta inválida del servidor al guardar el reporte');
+      throw ApiException(
+        'Respuesta inválida del servidor al guardar el reporte',
+      );
     }
   }
 

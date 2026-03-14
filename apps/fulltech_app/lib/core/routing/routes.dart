@@ -38,5 +38,6 @@ class Routes {
   static String clienteDetail(String id) => '/clientes/$id';
   static String clienteEdit(String id) => '/clientes/$id/editar';
 
-  static String operacionesTecnicoDetail(String id) => '/operaciones/tecnico/$id';
+  static String operacionesTecnicoDetail(String id) =>
+      '/operaciones/tecnico/$id';
 }

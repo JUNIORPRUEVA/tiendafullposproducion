@@ -66,13 +66,14 @@ class TechnicalExecutionState {
   }
 }
 
-final technicalExecutionControllerProvider = StateNotifierProvider.family<
-  TechnicalExecutionController,
-  TechnicalExecutionState,
-  String
->((ref, serviceId) {
-  return TechnicalExecutionController(ref, serviceId);
-});
+final technicalExecutionControllerProvider =
+    StateNotifierProvider.family<
+      TechnicalExecutionController,
+      TechnicalExecutionState,
+      String
+    >((ref, serviceId) {
+      return TechnicalExecutionController(ref, serviceId);
+    });
 
 class TechnicalExecutionController
     extends StateNotifier<TechnicalExecutionState> {
@@ -83,7 +84,7 @@ class TechnicalExecutionController
   Timer? _saveDebounce;
 
   TechnicalExecutionController(this.ref, this.serviceId)
-      : super(const TechnicalExecutionState()) {
+    : super(const TechnicalExecutionState()) {
     unawaited(load());
   }
 
@@ -128,7 +129,8 @@ class TechnicalExecutionController
           ? parseDate(draft!['finishedAt'])
           : bundle.report?.finishedAt;
       final notes = (draft?['notes'] ?? bundle.report?.notes ?? '').toString();
-      final clientApproved = (draft?['clientApproved'] ??
+      final clientApproved =
+          (draft?['clientApproved'] ??
               bundle.report?.clientApproved ??
               false) ==
           true;
@@ -245,10 +247,7 @@ class TechnicalExecutionController
         clientApproved: state.clientApproved,
       );
 
-      state = state.copyWith(
-        saving: false,
-        changes: bundle.changes,
-      );
+      state = state.copyWith(saving: false, changes: bundle.changes);
       await _clearDraft();
     } on ApiException catch (e) {
       state = state.copyWith(saving: false, error: e.message);
@@ -272,15 +271,17 @@ class TechnicalExecutionController
       );
 
       final updatedSteps = service.steps
-          .map((s) => s.id == step.id
-              ? ServiceStepModel(
-                  id: s.id,
-                  stepKey: s.stepKey,
-                  stepLabel: s.stepLabel,
-                  isDone: next,
-                  doneAt: next ? DateTime.now() : null,
-                )
-              : s)
+          .map(
+            (s) => s.id == step.id
+                ? ServiceStepModel(
+                    id: s.id,
+                    stepKey: s.stepKey,
+                    stepLabel: s.stepLabel,
+                    isDone: next,
+                    doneAt: next ? DateTime.now() : null,
+                  )
+                : s,
+          )
           .toList(growable: false);
 
       state = state.copyWith(service: service.copyWith(steps: updatedSteps));
@@ -299,7 +300,9 @@ class TechnicalExecutionController
         withData: true,
         allowMultiple: false,
       );
-      final file = result?.files.isNotEmpty == true ? result!.files.first : null;
+      final file = result?.files.isNotEmpty == true
+          ? result!.files.first
+          : null;
       if (file == null) return;
 
       final repo = ref.read(operationsRepositoryProvider);
@@ -350,7 +353,10 @@ class TechnicalExecutionController
 
     try {
       final repo = ref.read(operationsRepositoryProvider);
-      await repo.deleteExecutionChange(serviceId: serviceId, changeId: change.id);
+      await repo.deleteExecutionChange(
+        serviceId: serviceId,
+        changeId: change.id,
+      );
 
       state = state.copyWith(
         changes: state.changes.where((c) => c.id != change.id).toList(),

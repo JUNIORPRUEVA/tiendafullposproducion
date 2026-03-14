@@ -581,20 +581,29 @@ class ServiceExecutionBundleModel {
   final ServiceExecutionReportModel? report;
   final List<ServiceExecutionChangeModel> changes;
 
-  const ServiceExecutionBundleModel({required this.report, required this.changes});
+  const ServiceExecutionBundleModel({
+    required this.report,
+    required this.changes,
+  });
 
   factory ServiceExecutionBundleModel.fromJson(Map<String, dynamic> json) {
     final reportRaw = json['report'];
     final report = reportRaw is Map
-        ? ServiceExecutionReportModel.fromJson(reportRaw.cast<String, dynamic>())
+        ? ServiceExecutionReportModel.fromJson(
+            reportRaw.cast<String, dynamic>(),
+          )
         : null;
 
     final changesRaw = json['changes'];
     final changes = changesRaw is List
         ? changesRaw
-            .whereType<Map>()
-            .map((e) => ServiceExecutionChangeModel.fromJson(e.cast<String, dynamic>()))
-            .toList(growable: false)
+              .whereType<Map>()
+              .map(
+                (e) => ServiceExecutionChangeModel.fromJson(
+                  e.cast<String, dynamic>(),
+                ),
+              )
+              .toList(growable: false)
         : const <ServiceExecutionChangeModel>[];
 
     return ServiceExecutionBundleModel(report: report, changes: changes);

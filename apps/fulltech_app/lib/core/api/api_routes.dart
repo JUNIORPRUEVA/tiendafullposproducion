@@ -83,10 +83,12 @@ class ApiRoutes {
   static String serviceAssign(String id) => '/services/$id/assign';
   static String serviceUpdate(String id) => '/services/$id/update';
   static String serviceFiles(String id) => '/services/$id/files';
-    static String serviceExecutionReport(String id) => '/services/$id/execution-report';
-    static String serviceExecutionChanges(String id) => '/services/$id/execution-report/changes';
-    static String serviceExecutionChangeDelete(String id, String changeId) =>
-            '/services/$id/execution-report/changes/$changeId';
+  static String serviceExecutionReport(String id) =>
+      '/services/$id/execution-report';
+  static String serviceExecutionChanges(String id) =>
+      '/services/$id/execution-report/changes';
+  static String serviceExecutionChangeDelete(String id, String changeId) =>
+      '/services/$id/execution-report/changes/$changeId';
   static String serviceWarranty(String id) => '/services/$id/warranty';
   static String customerServices(String id) => '/customers/$id/services';
   static const operationsDashboard = '/dashboard/operations';

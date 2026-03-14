@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/routing/routes.dart';
@@ -41,8 +42,8 @@ class TechOperationsState {
 
 final techOperationsControllerProvider =
     StateNotifierProvider<TechOperationsController, TechOperationsState>((ref) {
-  return TechOperationsController(ref);
-});
+      return TechOperationsController(ref);
+    });
 
 class TechOperationsController extends StateNotifier<TechOperationsState> {
   final Ref ref;
@@ -110,24 +111,27 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
     }
 
     bool isEnProceso(ServiceStatus status) {
-      return status == ServiceStatus.inProgress || status == ServiceStatus.warranty;
+      return status == ServiceStatus.inProgress ||
+          status == ServiceStatus.warranty;
     }
 
-    final filtered = all.where((service) {
-      final status = parseStatus(service.status);
-      switch (tab) {
-        case TechOpsTab.hoy:
-          final start = service.scheduledStart;
-          if (start == null) return false;
-          return _isSameDay(start.toLocal(), now);
-        case TechOpsTab.pendientes:
-          return isPendiente(status);
-        case TechOpsTab.enProceso:
-          return isEnProceso(status);
-        case TechOpsTab.finalizados:
-          return isFinalizado(status);
-      }
-    }).toList(growable: false);
+    final filtered = all
+        .where((service) {
+          final status = parseStatus(service.status);
+          switch (tab) {
+            case TechOpsTab.hoy:
+              final start = service.scheduledStart;
+              if (start == null) return false;
+              return _isSameDay(start.toLocal(), now);
+            case TechOpsTab.pendientes:
+              return isPendiente(status);
+            case TechOpsTab.enProceso:
+              return isEnProceso(status);
+            case TechOpsTab.finalizados:
+              return isFinalizado(status);
+          }
+        })
+        .toList(growable: false);
 
     filtered.sort((a, b) {
       final aTime = a.scheduledStart?.millisecondsSinceEpoch ?? 0;
@@ -191,36 +195,33 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
                 ? Center(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
-                      child: Text(
-                        st.error!,
-                        textAlign: TextAlign.center,
-                      ),
+                      child: Text(st.error!, textAlign: TextAlign.center),
                     ),
                   )
                 : services.isEmpty
-                    ? const Center(child: Text('No hay servicios'))
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
-                        itemCount: services.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          final s = services[index];
-                          final perms = OperationsPermissions(
-                            user: user,
-                            service: s,
-                          );
+                ? const Center(child: Text('No hay servicios'))
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
+                    itemCount: services.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final s = services[index];
+                      final perms = OperationsPermissions(
+                        user: user,
+                        service: s,
+                      );
 
-                          return _TechServiceCard(
-                            service: s,
-                            canOperate: perms.canOperate,
-                            onOpen: () {
-                              final id = s.id.trim();
-                              if (id.isEmpty) return;
-                              context.go(Routes.operacionesTecnicoDetail(id));
-                            },
-                          );
+                      return _TechServiceCard(
+                        service: s,
+                        canOperate: perms.canOperate,
+                        onOpen: () {
+                          final id = s.id.trim();
+                          if (id.isEmpty) return;
+                          context.go(Routes.operacionesTecnicoDetail(id));
                         },
-                      ),
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -291,8 +292,9 @@ class _TechServiceCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   StatusChip(
-                    status:
-                        service.orderState.isEmpty ? service.status : service.orderState,
+                    status: service.orderState.isEmpty
+                        ? service.status
+                        : service.orderState,
                   ),
                 ],
               ),
@@ -310,8 +312,10 @@ class _TechServiceCard extends StatelessWidget {
               Row(
                 children: [
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: scheme.onSurface.withValues(alpha: 0.06),
                       borderRadius: BorderRadius.circular(999),

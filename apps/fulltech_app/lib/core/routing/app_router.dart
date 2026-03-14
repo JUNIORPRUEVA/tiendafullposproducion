@@ -255,7 +255,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         return Routes.operacionesTecnico;
       }
 
-      if (role != AppRole.tecnico && path.startsWith(Routes.operacionesTecnico)) {
+      if (role != AppRole.tecnico &&
+          path.startsWith(Routes.operacionesTecnico)) {
         return Routes.operaciones;
       }
 
