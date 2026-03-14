@@ -1098,3 +1098,44 @@ model WorkScheduleAuditLog {
   @@index([createdAt])
   @@map("work_schedule_audit_logs")
 }
+
+model AiAssistantConversationTurn {
+  id                String   @id @default(uuid()) @db.Uuid
+  ownerId           String   @db.Uuid @map("owner_id")
+  userId            String   @db.Uuid @map("user_id")
+  module            String   @default("general")
+  route             String?
+  entityType        String?  @map("entity_type")
+  entityId          String?  @map("entity_id")
+  userMessage       String   @map("user_message")
+  assistantResponse String   @map("assistant_response")
+  responseSource    String   @default("rules-only") @map("response_source")
+  denied            Boolean  @default(false)
+  citations         Json?
+  createdAt         DateTime @default(now())
+
+  @@index([ownerId, userId, createdAt])
+  @@index([ownerId, module, createdAt])
+  @@map("ai_assistant_conversation_turns")
+}
+
+model AiAssistantMemory {
+  id           String   @id @default(uuid()) @db.Uuid
+  ownerId      String   @db.Uuid @map("owner_id")
+  userId       String   @db.Uuid @map("user_id")
+  scope        String   @default("user")
+  module       String   @default("general")
+  topicKey     String   @map("topic_key")
+  title        String
+  summary      String
+  keywords     Json?
+  sourceCount  Int      @default(1) @map("source_count")
+  lastSourceAt DateTime @default(now()) @map("last_source_at")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([ownerId, userId, scope, topicKey])
+  @@index([ownerId, userId, module])
+  @@index([ownerId, userId, lastSourceAt])
+  @@map("ai_assistant_memories")
+}

@@ -33,6 +33,50 @@ type NormalizedAiContext = {
   entityId?: string;
 };
 
+type AiAssistantCitation = {
+  id: string;
+  module: string;
+  category: string;
+  title: string;
+};
+
+type AiAssistantChatResponse = {
+  source: 'policy' | 'rules-only' | 'openai';
+  content: string;
+  citations: AiAssistantCitation[];
+  denied?: boolean;
+};
+
+type PersistedAssistantMemoryRow = {
+  id: string;
+  module: string;
+  scope: string;
+  topicKey: string;
+  title: string;
+  summary: string;
+  keywords: Prisma.JsonValue | null;
+  sourceCount: number;
+  lastSourceAt: Date | string | null;
+  createdAt: Date | string | null;
+  updatedAt: Date | string | null;
+};
+
+type PersistedConversationTurnRow = {
+  userMessage: string;
+  assistantResponse: string;
+  module: string;
+  createdAt: Date | string | null;
+};
+
+type AssistantMemoryNote = {
+  scope: 'user';
+  module: string;
+  topicKey: string;
+  title: string;
+  summary: string;
+  keywords: string[];
+};
+
 @Injectable()
 export class AiAssistantService {
   private readonly logger = new Logger(AiAssistantService.name);
@@ -54,47 +98,57 @@ export class AiAssistantService {
     if (!message) throw new BadRequestException('El mensaje es obligatorio');
 
     const context = this.normalizeContext(dto.context);
+    const currentUserName = await this.getCurrentUserPreferredName(user.id);
+    const effectiveDto = { ...dto, context };
 
     if (!this.canAccessContext(user.role, context)) {
-      return {
+      return this.finalizeChatResponse(user, effectiveDto, {
         source: 'policy',
         content: AiAssistantService.unauthorizedMessage,
         citations: [],
         denied: true,
-      };
+      }, []);
     }
 
     // Hard deny for common secret/credential extraction attempts.
     if (this.isForbiddenSecretRequest(message)) {
-      return {
+      return this.finalizeChatResponse(user, effectiveDto, {
         source: 'policy',
         content: AiAssistantService.unauthorizedMessage,
         citations: [],
         denied: true,
-      };
+      }, []);
     }
-
-    const effectiveDto = { ...dto, context };
 
     const knowledge = await this.buildKnowledge(user, effectiveDto);
     this.logDebug('ai.chat.context', context);
     this.logDebug('ai.chat.knowledge', knowledge.map((k) => ({ id: k.id, title: k.title, module: k.module })));
 
     if (knowledge.length === 0) {
-      return {
+      return this.finalizeChatResponse(user, effectiveDto, {
         source: 'rules-only',
-        content: AiAssistantService.notEnoughDataMessage,
+        content: this.personalizeContent(AiAssistantService.notEnoughDataMessage, currentUserName),
         citations: [],
-      };
+      }, knowledge);
     }
 
     if (this.shouldUseDeterministicLookupAnswer(message, context, knowledge)) {
-      return this.buildRuleOnlyFallback(message, knowledge);
+      return this.finalizeChatResponse(
+        user,
+        effectiveDto,
+        this.buildRuleOnlyFallback(message, knowledge, currentUserName),
+        knowledge,
+      );
     }
 
     const runtime = await this.getOpenAiRuntimeConfig();
     if (!runtime.apiKey) {
-      return this.buildRuleOnlyFallback(message, knowledge);
+      return this.finalizeChatResponse(
+        user,
+        effectiveDto,
+        this.buildRuleOnlyFallback(message, knowledge, currentUserName),
+        knowledge,
+      );
     }
 
     const safeHistory = this.normalizeHistory(dto.history).slice(-8);
@@ -102,12 +156,13 @@ export class AiAssistantService {
     const systemPrompt =
       `Eres el asistente administrativo interno de ${runtime.companyName} dentro de la app FULLTECH. ` +
       'Debes responder de forma humana, clara y profesional. ' +
+      `${currentUserName ? `Debes dirigirte al usuario actual por su nombre, ${currentUserName}, cuando sea natural hacerlo. ` : ''}` +
       'REGLAS DE SEGURIDAD: 1) solo puedes usar el conocimiento interno enviado por el sistema; 2) no inventes; 3) no uses conocimiento externo; 4) no reveles datos privados de otros usuarios; 5) si falta permiso o datos, dilo con respeto. ' +
       'REGLAS DE CALIDAD: si la respuesta es larga, resume al inicio; si el usuario pide pasos, responde paso a paso. ' +
       'Devuelve únicamente JSON válido.';
 
     const userPrompt =
-      `${JSON.stringify({ message, context, history: safeHistory, knowledge })}\n\n` +
+      `${JSON.stringify({ message, context, history: safeHistory, knowledge, currentUserName })}\n\n` +
       'Devuelve exactamente este JSON: ' +
       '{"content":"string","citations":[{"id":"string","module":"string","category":"string","title":"string"}],"denied":false}. ' +
       'Reglas estrictas: ' +
@@ -133,25 +188,30 @@ export class AiAssistantService {
 
     // Safety net: If denied then don't allow citations.
     if (denied) {
-      return {
+      return this.finalizeChatResponse(user, effectiveDto, {
         source: 'policy',
         content: this.isUnauthorizedMessage(content) ? content : AiAssistantService.unauthorizedMessage,
         citations: [],
         denied: true,
-      };
+      }, knowledge);
     }
 
     // If the model returned something useful but without citations, fall back to deterministic retrieval.
     if (citations.length === 0) {
-      return this.buildRuleOnlyFallback(message, knowledge);
+      return this.finalizeChatResponse(
+        user,
+        effectiveDto,
+        this.buildRuleOnlyFallback(message, knowledge, currentUserName),
+        knowledge,
+      );
     }
 
-    return {
+    return this.finalizeChatResponse(user, effectiveDto, {
       source: 'openai',
-      content,
+      content: this.personalizeContent(content, currentUserName),
       citations,
       denied: false,
-    };
+    }, knowledge);
   }
 
   private normalizeHistory(raw?: Array<{ role: 'user' | 'assistant'; content: string }>) {
@@ -372,15 +432,55 @@ export class AiAssistantService {
   ) {
     const tokens = new Set(this.tokenize(`${message} ${context.module} ${context.screenName ?? ''}`));
     const hasMatchedClient = knowledge.some((item) => item.id.startsWith('app-data:client-match:'));
-    const hasMatchedCatalog = knowledge.some((item) => item.id === 'app-data:catalog-search');
+    const hasMatchedCatalog = knowledge.some(
+      (item) => item.id === 'app-data:catalog-search' || item.id.startsWith('app-data:product-match:'),
+    );
+    const hasManualKnowledge = knowledge.some(
+      (item) => item.module === 'manual-interno' || item.category === 'politicas',
+    );
+    const hasContractKnowledge = knowledge.some(
+      (item) => item.id.startsWith('app-data:contract:') || item.id.startsWith('app-data:contract-match:'),
+    );
     const explicitClientLookup =
       hasMatchedClient ||
       this.hasAnyToken(tokens, ['cliente', 'clientes', 'nombre', 'telefono', 'teléfono', 'movimientos', 'ventas', 'servicios']);
     const explicitCatalogLookup =
       hasMatchedCatalog ||
       this.hasAnyToken(tokens, ['producto', 'productos', 'catalogo', 'catálogo', 'precio', 'stock', 'inventario']);
+    const explicitManualLookup =
+      hasManualKnowledge ||
+      this.hasAnyToken(tokens, [
+        'manual',
+        'norma',
+        'normas',
+        'regla',
+        'reglas',
+        'politica',
+        'política',
+        'politicas',
+        'políticas',
+        'protocolo',
+        'protocolos',
+      ]);
+    const explicitContractLookup =
+      hasContractKnowledge ||
+      this.hasAnyToken(tokens, [
+        'contrato',
+        'contratos',
+        'laboral',
+        'trabajo',
+        'salario',
+        'sueldo',
+        'pago',
+        'frecuencia',
+        'clausula',
+        'cláusula',
+        'firma',
+        'nomina',
+        'nómina',
+      ]);
 
-    return explicitClientLookup || explicitCatalogLookup;
+    return explicitClientLookup || explicitCatalogLookup || explicitManualLookup || explicitContractLookup;
   }
 
   private canAccessQuoteData(role: Role) {
@@ -441,7 +541,11 @@ export class AiAssistantService {
 
     const manualKnowledge = manualEntries.map((entry) => this.toManualKnowledge(entry));
     const staticHelp = this.buildStaticModuleHelp(manualEntries.length);
-    const authorizedData = await this.buildAuthorizedDataKnowledge(user, dto);
+    const persistentMemory = await this.buildPersistentMemoryKnowledge(user, dto);
+    const authorizedData = [
+      ...(await this.buildAuthorizedDataKnowledge(user, dto)),
+      ...persistentMemory,
+    ];
 
     const all = [
       ...manualKnowledge,
@@ -565,8 +669,17 @@ export class AiAssistantService {
     const wantsOperations = includeModuleContext || this.hasAnyToken(tokens, ['servicio', 'servicios', 'operacion', 'operaciones', 'garantia', 'garantía']);
     const wantsAccounting = includeModuleContext || this.hasAnyToken(tokens, ['contabilidad', 'cierre', 'cierres', 'deposito', 'depósito', 'factura', 'pago']);
     const wantsSelf = includeModuleContext || this.isSelfInfoRequest(dto.message, dto.context);
+    const wantsAdaptiveLearning = includeModuleContext || this.isAdaptiveLearningQuestion(dto.message, dto.context);
 
     const knowledge: KnowledgeRecord[] = [];
+
+    if (wantsAdaptiveLearning) {
+      const adaptiveKnowledge = await this.buildAdaptiveKnowledge(user);
+      knowledge.push(...adaptiveKnowledge);
+    }
+
+    const conversationKnowledge = this.buildConversationLearningKnowledge(dto);
+    knowledge.push(...conversationKnowledge);
 
     if (wantsSelf) {
       const selfKnowledge = await this.buildSelfKnowledge(user, dto);
@@ -692,6 +805,522 @@ export class AiAssistantService {
       'contacto',
       'whatsapp',
     ]) || phoneTerms.length > 0;
+  }
+
+  private isAdaptiveLearningQuestion(message: string, context: NormalizedAiContext) {
+    const tokens = new Set(this.tokenize(`${message} ${context.module} ${context.screenName ?? ''}`));
+    return this.hasAnyToken(tokens, [
+      'aprender',
+      'aprende',
+      'aprendiendo',
+      'aprendizaje',
+      'crecer',
+      'creciendo',
+      'actualizar',
+      'actualizando',
+      'datos',
+      'tablas',
+      'conocimiento',
+      'memoria',
+      'sistema',
+    ]);
+  }
+
+  private async buildAdaptiveKnowledge(user: { id: string; role: Role }): Promise<KnowledgeRecord[]> {
+    const ownerId = await this.resolveCompanyOwnerId(user.id);
+
+    const clientWhere: Prisma.ClientWhereInput =
+      user.role === Role.TECNICO
+        ? {
+            isDeleted: false,
+            OR: [
+              { ownerId: user.id },
+              { services: { some: { OR: [{ technicianId: user.id }, { createdByUserId: user.id }] } } },
+            ],
+          }
+        : { isDeleted: false };
+    const salesWhere: Prisma.SaleWhereInput = user.role === Role.ADMIN ? {} : { userId: user.id };
+    const servicesWhere: Prisma.ServiceWhereInput =
+      user.role === Role.ADMIN || user.role === Role.ASISTENTE
+        ? { isDeleted: false }
+        : user.role === Role.VENDEDOR
+          ? { isDeleted: false, createdByUserId: user.id }
+          : user.role === Role.TECNICO
+            ? { isDeleted: false, assignments: { some: { userId: user.id } } }
+            : { id: '__none__' };
+    const quotesWhere: Prisma.CotizacionWhereInput = user.role === Role.ADMIN ? {} : { createdByUserId: user.id };
+
+    const [
+      manualCount,
+      clientCount,
+      salesCount,
+      serviceCount,
+      quoteCount,
+      latestManual,
+      latestClient,
+      latestSale,
+      latestService,
+      latestQuote,
+      fallbackProductCount,
+    ] = await this.prisma.$transaction([
+      this.prisma.companyManualEntry.count({ where: { ownerId, published: true } }),
+      this.prisma.client.count({ where: clientWhere }),
+      this.prisma.sale.count({ where: salesWhere }),
+      this.prisma.service.count({ where: servicesWhere }),
+      this.prisma.cotizacion.count({ where: quotesWhere }),
+      this.prisma.companyManualEntry.findFirst({
+        where: { ownerId, published: true },
+        orderBy: { updatedAt: 'desc' },
+        select: { title: true, updatedAt: true },
+      }),
+      this.prisma.client.findFirst({
+        where: clientWhere,
+        orderBy: { updatedAt: 'desc' },
+        select: { nombre: true, updatedAt: true },
+      }),
+      this.prisma.sale.findFirst({
+        where: salesWhere,
+        orderBy: { updatedAt: 'desc' },
+        select: { saleDate: true, customer: { select: { nombre: true } } },
+      }),
+      this.prisma.service.findFirst({
+        where: servicesWhere,
+        orderBy: { updatedAt: 'desc' },
+        select: { title: true, updatedAt: true },
+      }),
+      this.prisma.cotizacion.findFirst({
+        where: quotesWhere,
+        orderBy: { updatedAt: 'desc' },
+        select: { customerName: true, updatedAt: true },
+      }),
+      this.prisma.product.count(),
+    ]);
+
+    let productCount = fallbackProductCount;
+    try {
+      const liveCatalog = await this.catalogProducts.findAll();
+      if (liveCatalog.total > 0) {
+        productCount = liveCatalog.total;
+      }
+    } catch {
+      productCount = fallbackProductCount;
+    }
+
+    const summary = [
+      'El asistente usa conocimiento vivo del sistema, no solo respuestas estaticas.',
+      'Por eso su contexto crece cuando aumentan los datos autorizados y las entradas publicadas del Manual Interno.',
+      `Ahora mismo puede apoyarse en ${manualCount} normas publicadas, ${clientCount} clientes, ${productCount} productos, ${salesCount} ventas, ${serviceCount} servicios y ${quoteCount} cotizaciones visibles para tu alcance.`,
+      'Cada nueva consulta vuelve a leer estos datos y por eso el asistente puede crecer junto con las tablas del sistema.',
+    ].join(' ');
+
+    const recents = [
+      latestManual ? `Manual actualizado recientemente: ${latestManual.title} (${this.formatKnowledgeDate(latestManual.updatedAt)}).` : null,
+      latestClient ? `Cliente reciente: ${latestClient.nombre} (${this.formatKnowledgeDate(latestClient.updatedAt)}).` : null,
+      latestSale ? `Venta reciente: ${latestSale.customer?.nombre ?? 'N/D'} (${this.formatKnowledgeDate(latestSale.saleDate)}).` : null,
+      latestService ? `Servicio reciente: ${latestService.title} (${this.formatKnowledgeDate(latestService.updatedAt)}).` : null,
+      latestQuote ? `Cotizacion reciente: ${latestQuote.customerName} (${this.formatKnowledgeDate(latestQuote.updatedAt)}).` : null,
+    ].filter((item): item is string => !!item);
+
+    return [
+      this.createAppKnowledgeRecord(
+        'app-data:growth-summary',
+        'general',
+        'dato-autorizado',
+        'Base de conocimiento viva del asistente',
+        summary,
+      ),
+      this.createAppKnowledgeRecord(
+        'app-data:growth-recent',
+        'general',
+        'dato-autorizado',
+        'Actividad reciente del sistema',
+        recents.length > 0
+          ? recents.join(' ')
+          : 'No hay cambios recientes resumidos en este momento, pero el asistente seguira leyendo datos nuevos en cada consulta.',
+      ),
+      this.createAppKnowledgeRecord(
+        'app-data:growth-policy',
+        'general',
+        'politica-app',
+        'Como crece el conocimiento del asistente',
+        'El asistente puede crecer con datos nuevos del sistema, productos nuevos, clientes nuevos, operaciones nuevas y nuevas entradas publicadas del Manual Interno. La conversacion actual le aporta memoria reciente, pero las reglas oficiales y los datos autorizados tienen prioridad.',
+      ),
+    ];
+  }
+
+  private buildConversationLearningKnowledge(dto: ChatAiAssistantDto): KnowledgeRecord[] {
+    const history = this.normalizeHistory(dto.history).slice(-12);
+    if (history.length === 0) return [];
+
+    const recentUserMessages = history.filter((item) => item.role === 'user').slice(-5);
+    const recentAssistantMessages = history.filter((item) => item.role === 'assistant').slice(-3);
+    const repeatedTopics = this.extractMeaningfulQueryTerms(
+      recentUserMessages.map((item) => item.content).join(' '),
+      { limit: 8 },
+    );
+
+    const parts = [
+      'Contexto acumulado de la conversacion actual.',
+      recentUserMessages.length > 0
+        ? `Ultimas solicitudes del usuario: ${recentUserMessages.map((item) => this.buildExcerpt(item.content)).join(' | ')}`
+        : null,
+      repeatedTopics.length > 0
+        ? `Temas relevantes repetidos en este hilo: ${repeatedTopics.join(', ')}.`
+        : null,
+      recentAssistantMessages.length > 0
+        ? `Ultimas respuestas del asistente: ${recentAssistantMessages.map((item) => this.buildExcerpt(item.content)).join(' | ')}`
+        : null,
+      'Este contexto funciona como memoria reciente dentro del mismo hilo.',
+    ].filter((item): item is string => !!item);
+
+    return [
+      this.createAppKnowledgeRecord(
+        'app-data:conversation-context',
+        'general',
+        'dato-autorizado',
+        'Memoria reciente de la conversacion',
+        parts.join(' '),
+      ),
+    ];
+  }
+
+  private async buildPersistentMemoryKnowledge(
+    user: { id: string; role: Role },
+    dto: ChatAiAssistantDto,
+  ): Promise<KnowledgeRecord[]> {
+    try {
+      const ownerId = await this.resolveCompanyOwnerId(user.id);
+      const memoryRows = await this.prisma.$queryRaw<PersistedAssistantMemoryRow[]>(Prisma.sql`
+        SELECT
+          id::text AS id,
+          module,
+          scope,
+          topic_key AS "topicKey",
+          title,
+          summary,
+          keywords,
+          source_count AS "sourceCount",
+          last_source_at AS "lastSourceAt",
+          "createdAt",
+          "updatedAt"
+        FROM ai_assistant_memories
+        WHERE owner_id = ${ownerId}
+          AND user_id = ${user.id}
+        ORDER BY last_source_at DESC
+        LIMIT 24
+      `);
+
+      const recentTurns = await this.prisma.$queryRaw<PersistedConversationTurnRow[]>(Prisma.sql`
+        SELECT
+          user_message AS "userMessage",
+          assistant_response AS "assistantResponse",
+          module,
+          "createdAt"
+        FROM ai_assistant_conversation_turns
+        WHERE owner_id = ${ownerId}
+          AND user_id = ${user.id}
+        ORDER BY "createdAt" DESC
+        LIMIT 4
+      `);
+
+      const tokens = new Set(this.tokenize(`${dto.message} ${dto.context.module ?? ''} ${dto.context.screenName ?? ''}`));
+      const rankedMemories = memoryRows
+        .map((row) => {
+          const keywordText = this.parseStoredKeywords(row.keywords).join(' ');
+          const haystack = `${row.title} ${row.summary} ${row.module} ${row.topicKey} ${keywordText}`;
+          const rowTokens = new Set(this.tokenize(haystack));
+          let score = 0;
+          for (const token of tokens) {
+            if (rowTokens.has(token)) score += token.length >= 5 ? 2 : 1;
+          }
+          if (this.normalizeModuleKey(row.module) === this.normalizeModuleKey(dto.context.module)) score += 3;
+          if (score === 0 && this.normalizeModuleKey(row.module) === this.normalizeModuleKey(dto.context.module)) score = 1;
+          return { row, score };
+        })
+        .filter((item) => item.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 6)
+        .map((item) => item.row);
+
+      const knowledge = rankedMemories.map((row) => this.createAppKnowledgeRecord(
+        `app-memory:${row.id}`,
+        row.module || 'general',
+        'memoria',
+        row.title,
+        `${row.summary}\n\nFuentes acumuladas: ${row.sourceCount}. Ultima actualizacion: ${this.formatKnowledgeDate(this.toDateValue(row.lastSourceAt))}.`,
+      ));
+
+      if (recentTurns.length > 0) {
+        const lines = recentTurns.map((turn) => (
+          `${this.formatKnowledgeDate(this.toDateValue(turn.createdAt))}: Usuario dijo "${this.buildExcerpt(turn.userMessage)}" y el asistente respondio "${this.buildExcerpt(turn.assistantResponse)}".`
+        ));
+        knowledge.push(
+          this.createAppKnowledgeRecord(
+            'app-memory:recent-turns',
+            dto.context.module || 'general',
+            'memoria',
+            'Continuidad entre sesiones del asistente',
+            lines.join(' '),
+          ),
+        );
+      }
+
+      return knowledge;
+    } catch (error) {
+      this.logDebug('ai.memory.read_skip', {
+        message: error instanceof Error ? error.message : `${error}`,
+      });
+      return [];
+    }
+  }
+
+  private async finalizeChatResponse(
+    user: { id: string; role: Role },
+    dto: ChatAiAssistantDto & { context: NormalizedAiContext },
+    response: AiAssistantChatResponse,
+    knowledge: KnowledgeRecord[],
+  ) {
+    await this.persistLearningArtifacts(user, dto, response, knowledge);
+    return response;
+  }
+
+  private async persistLearningArtifacts(
+    user: { id: string; role: Role },
+    dto: ChatAiAssistantDto & { context: NormalizedAiContext },
+    response: AiAssistantChatResponse,
+    knowledge: KnowledgeRecord[],
+  ) {
+    try {
+      const ownerId = await this.resolveCompanyOwnerId(user.id);
+      const citationsJson = JSON.stringify(response.citations ?? []);
+
+      await this.prisma.$executeRaw(Prisma.sql`
+        INSERT INTO ai_assistant_conversation_turns (
+          id,
+          owner_id,
+          user_id,
+          module,
+          route,
+          entity_type,
+          entity_id,
+          user_message,
+          assistant_response,
+          response_source,
+          denied,
+          citations,
+          "createdAt"
+        ) VALUES (
+          gen_random_uuid(),
+          ${ownerId},
+          ${user.id},
+          ${dto.context.module || 'general'},
+          ${dto.context.route ?? null},
+          ${dto.context.entityType ?? null},
+          ${dto.context.entityId ?? null},
+          ${dto.message},
+          ${response.content},
+          ${response.source},
+          ${response.denied === true},
+          CAST(${citationsJson} AS JSONB),
+          CURRENT_TIMESTAMP
+        )
+      `);
+
+      const notes = this.buildPersistentMemoryNotes(dto, response, knowledge);
+      for (const note of notes) {
+        await this.upsertPersistentMemory(ownerId, user.id, note);
+      }
+    } catch (error) {
+      this.logDebug('ai.memory.persist_skip', {
+        message: error instanceof Error ? error.message : `${error}`,
+      });
+    }
+  }
+
+  private buildPersistentMemoryNotes(
+    dto: ChatAiAssistantDto & { context: NormalizedAiContext },
+    response: AiAssistantChatResponse,
+    knowledge: KnowledgeRecord[],
+  ): AssistantMemoryNote[] {
+    const module = dto.context.module || 'general';
+    const moduleLabel = this.describeMemoryModule(module);
+    const userTerms = this.extractMeaningfulQueryTerms(dto.message, { limit: 6 });
+    const responseTerms = this.extractMeaningfulQueryTerms(response.content, {
+      limit: 6,
+      extraNoise: ['encontre', 'informacion', 'detalle', 'detalles', 'resumen', 'consulta'],
+    });
+    const mergedTerms = [...new Set([...userTerms, ...responseTerms])].slice(0, 10);
+    const noteBody = `Consulta: ${this.buildExcerpt(dto.message)} Respuesta: ${this.buildExcerpt(response.content)}`;
+    const notes: AssistantMemoryNote[] = [
+      {
+        scope: 'user',
+        module,
+        topicKey: `module:${module}`,
+        title: `Memoria reciente del modulo ${moduleLabel}`,
+        summary: noteBody,
+        keywords: mergedTerms,
+      },
+    ];
+
+    if (dto.context.entityType && dto.context.entityId) {
+      notes.push({
+        scope: 'user',
+        module,
+        topicKey: `entity:${dto.context.entityType}:${dto.context.entityId}`,
+        title: `Seguimiento de ${dto.context.entityType}`,
+        summary: `Entidad consultada dentro del modulo ${moduleLabel}. ${noteBody}`,
+        keywords: [dto.context.entityType, dto.context.entityId, ...mergedTerms].slice(0, 10),
+      });
+    }
+
+    const citedTitles = response.citations.map((item) => item.title).filter((item) => item.trim().length > 0);
+    if (mergedTerms.length > 0) {
+      notes.push({
+        scope: 'user',
+        module,
+        topicKey: `topic:${module}:${mergedTerms.slice(0, 3).join('-')}`,
+        title: `Tema recurrente en ${moduleLabel}`,
+        summary: citedTitles.length > 0
+          ? `${noteBody} Referencias usadas: ${citedTitles.slice(0, 3).join(', ')}.`
+          : noteBody,
+        keywords: [...mergedTerms, ...citedTitles.flatMap((item) => this.tokenize(item))].slice(0, 12),
+      });
+    }
+
+    const filtered = notes.filter((note, index, all) => all.findIndex((item) => item.topicKey === note.topicKey) === index);
+    return filtered.slice(0, 3);
+  }
+
+  private async upsertPersistentMemory(ownerId: string, userId: string, note: AssistantMemoryNote) {
+    const existing = await this.prisma.$queryRaw<Array<{
+      summary: string;
+      keywords: Prisma.JsonValue | null;
+      sourceCount: number;
+    }>>(Prisma.sql`
+      SELECT summary, keywords, source_count AS "sourceCount"
+      FROM ai_assistant_memories
+      WHERE owner_id = ${ownerId}
+        AND user_id = ${userId}
+        AND scope = ${note.scope}
+        AND topic_key = ${note.topicKey}
+      LIMIT 1
+    `);
+
+    const mergedSummary = this.mergeMemorySummary(existing[0]?.summary ?? '', note.summary);
+    const mergedKeywords = this.mergeMemoryKeywords(this.parseStoredKeywords(existing[0]?.keywords ?? null), note.keywords);
+    const mergedKeywordsJson = JSON.stringify(mergedKeywords);
+
+    if (existing.length > 0) {
+      await this.prisma.$executeRaw(Prisma.sql`
+        UPDATE ai_assistant_memories
+        SET
+          module = ${note.module},
+          title = ${note.title},
+          summary = ${mergedSummary},
+          keywords = CAST(${mergedKeywordsJson} AS JSONB),
+          source_count = source_count + 1,
+          last_source_at = CURRENT_TIMESTAMP,
+          "updatedAt" = CURRENT_TIMESTAMP
+        WHERE owner_id = ${ownerId}
+          AND user_id = ${userId}
+          AND scope = ${note.scope}
+          AND topic_key = ${note.topicKey}
+      `);
+      return;
+    }
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      INSERT INTO ai_assistant_memories (
+        id,
+        owner_id,
+        user_id,
+        scope,
+        module,
+        topic_key,
+        title,
+        summary,
+        keywords,
+        source_count,
+        last_source_at,
+        "createdAt",
+        "updatedAt"
+      ) VALUES (
+        gen_random_uuid(),
+        ${ownerId},
+        ${userId},
+        ${note.scope},
+        ${note.module},
+        ${note.topicKey},
+        ${note.title},
+        ${mergedSummary},
+        CAST(${mergedKeywordsJson} AS JSONB),
+        1,
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP
+      )
+    `);
+  }
+
+  private mergeMemorySummary(existingSummary: string, incomingSummary: string) {
+    const items = [
+      ...existingSummary.split('\n').map((item) => item.trim()).filter((item) => item.length > 0),
+      incomingSummary.trim(),
+    ];
+    const deduped: string[] = [];
+    const seen = new Set<string>();
+
+    for (const item of items) {
+      const key = item.toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(item);
+    }
+
+    let trimmed = deduped.slice(-6);
+    while (trimmed.join('\n').length > 900 && trimmed.length > 1) {
+      trimmed = trimmed.slice(1);
+    }
+    return trimmed.join('\n');
+  }
+
+  private mergeMemoryKeywords(existing: string[], incoming: string[]) {
+    return [...new Set([...existing, ...incoming].map((item) => item.trim()).filter((item) => item.length >= 3))].slice(0, 14);
+  }
+
+  private parseStoredKeywords(raw: Prisma.JsonValue | null) {
+    if (!raw || !Array.isArray(raw)) return [];
+    return raw.map((item) => `${item}`.trim()).filter((item) => item.length > 0);
+  }
+
+  private describeMemoryModule(module: string) {
+    switch (this.normalizeModuleKey(module)) {
+      case 'manual-interno':
+        return 'Manual Interno';
+      case 'catalogo':
+        return 'Catalogo';
+      case 'clientes':
+        return 'Clientes';
+      case 'operaciones':
+        return 'Operaciones';
+      case 'ventas':
+        return 'Ventas';
+      case 'cotizaciones':
+        return 'Cotizaciones';
+      case 'nomina':
+        return 'Nomina';
+      case 'profile':
+        return 'Perfil';
+      default:
+        return 'General';
+    }
+  }
+
+  private toDateValue(value: Date | string | null) {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
 
   private isSelfInfoRequest(message: string, context: NormalizedAiContext) {
@@ -1119,6 +1748,7 @@ export class AiAssistantService {
         'stock',
       ],
     });
+    const searchVariants = this.expandSearchTerms(searchTokens);
 
     let total = 0;
     let categoryLines = 'No hay categorías disponibles en el catálogo.';
@@ -1198,8 +1828,8 @@ export class AiAssistantService {
       : await this.prisma.product.findMany({
           where: {
             OR: [
-              ...searchTokens.map((token) => ({ nombre: { contains: token, mode: 'insensitive' as const } })),
-              ...searchTokens.map((token) => ({ categoria: { contains: token, mode: 'insensitive' as const } })),
+              ...searchVariants.map((token) => ({ nombre: { contains: token, mode: 'insensitive' as const } })),
+              ...searchVariants.map((token) => ({ categoria: { contains: token, mode: 'insensitive' as const } })),
             ],
           },
           select: {
@@ -1232,9 +1862,10 @@ export class AiAssistantService {
           product.descripcion ?? '',
         ].join(' ').toLowerCase();
 
-        const score = searchTokens.reduce((sum, token) => {
-          if (product.nombre.toLowerCase().includes(token)) return sum + 4;
-          if ((product.categoriaNombre ?? product.categoria ?? '').toLowerCase().includes(token)) return sum + 2;
+        const score = searchVariants.reduce((sum, token) => {
+          if (product.nombre.toLowerCase().includes(token)) return sum + 5;
+          if ((product.categoriaNombre ?? product.categoria ?? '').toLowerCase().includes(token)) return sum + 3;
+          if ((product.codigo ?? '').toLowerCase().includes(token)) return sum + 3;
           if (haystack.includes(token)) return sum + 1;
           return sum;
         }, 0);
@@ -1261,6 +1892,28 @@ export class AiAssistantService {
       .slice(0, 8)
       .map((item) => item.product);
 
+    const detailedProducts = rankedProducts.slice(0, 5).map((product) => {
+      const category = (product.categoriaNombre ?? product.categoria ?? 'Sin categoría').trim();
+      const detailLines = [
+        `Producto: ${product.nombre}`,
+        `Categoria: ${category}`,
+        (product.codigo ?? '').trim().length > 0 ? `Codigo: ${product.codigo}` : null,
+        user.role === Role.TECNICO ? null : `Precio: ${product.precio.toFixed(2)}`,
+        product.stock != null ? `Stock: ${product.stock}` : null,
+        (product.descripcion ?? '').trim().length > 0 ? `Descripcion: ${this.buildExcerpt(product.descripcion ?? '')}` : null,
+      ].filter((item): item is string => !!item);
+
+      return this.createAppKnowledgeRecord(
+        `app-data:product-match:${product.id}`,
+        'catalogo',
+        'dato-autorizado',
+        `Producto encontrado: ${product.nombre}`,
+        detailLines.join('\n'),
+      );
+    });
+
+    result.push(...detailedProducts);
+
     const lines = rankedProducts.map((p) => {
       const price = user.role === Role.TECNICO ? '' : ` | Precio: ${p.precio.toFixed(2)}`;
       const category = (p.categoriaNombre ?? p.categoria ?? 'Sin categoría').trim();
@@ -1280,6 +1933,27 @@ export class AiAssistantService {
     );
 
     return result;
+  }
+
+  private expandSearchTerms(searchTokens: string[]) {
+    const variants = new Set<string>();
+
+    for (const token of searchTokens) {
+      if (token.trim().length === 0) continue;
+      variants.add(token);
+
+      if (token.endsWith('es') && token.length > 4) {
+        variants.add(token.slice(0, -2));
+      }
+      if (token.endsWith('s') && token.length > 3) {
+        variants.add(token.slice(0, -1));
+      }
+      if (!token.endsWith('s')) {
+        variants.add(`${token}s`);
+      }
+    }
+
+    return [...variants].filter((token) => token.trim().length >= 3);
   }
 
   private extractMeaningfulQueryTerms(
@@ -1668,44 +2342,125 @@ export class AiAssistantService {
       ),
     ];
 
-    // Non-admin: allow only own contract snapshot.
-    const targetUserId = isAdmin ? user.id : user.id;
+    const contractSelect = {
+      id: true,
+      nombreCompleto: true,
+      email: true,
+      telefono: true,
+      role: true,
+      fechaIngreso: true,
+      workContractSignatureUrl: true,
+      workContractSignedAt: true,
+      workContractVersion: true,
+      workContractJobTitle: true,
+      workContractStartDate: true,
+      workContractWorkSchedule: true,
+      workContractWorkLocation: true,
+      workContractSalary: true,
+      workContractPaymentFrequency: true,
+      workContractPaymentMethod: true,
+      workContractClauseOverrides: true,
+      workContractCustomClauses: true,
+    } satisfies Prisma.UserSelect;
 
-    const record = await this.prisma.user.findUnique({
-      where: { id: targetUserId },
-      select: {
-        id: true,
-        nombreCompleto: true,
-        workContractSignedAt: true,
-        workContractJobTitle: true,
-        workContractStartDate: true,
-        workContractWorkSchedule: true,
-        workContractWorkLocation: true,
-        workContractSalary: true,
-        workContractPaymentFrequency: true,
-      },
+    const targetUserId =
+      dto.context.entityType === 'user' && (dto.context.entityId ?? '').trim().length > 0
+        ? dto.context.entityId!.trim()
+        : user.id;
+
+    const accessibleUserWhere: Prisma.UserWhereInput = isAdmin
+      ? { id: { not: '' } }
+      : { id: user.id };
+
+    const searchTerms = this.extractMeaningfulQueryTerms(dto.message, {
+      extraNoise: [
+        'contrato',
+        'contratos',
+        'trabajo',
+        'laboral',
+        'salario',
+        'sueldo',
+        'nomina',
+        'nómina',
+        'clausula',
+        'cláusula',
+        'pago',
+        'pagos',
+        'frecuencia',
+        'firma',
+        'empleado',
+        'empleada',
+        'persona',
+      ],
+      limit: 5,
     });
 
-    if (!record) return base;
+    const highlightedRecords: Array<Prisma.UserGetPayload<{ select: typeof contractSelect }>> = [];
 
-    const salaryPart = record.workContractSalary ? `Salario: ${record.workContractSalary}. ` : '';
+    const targetRecord = await this.prisma.user.findFirst({
+      where: { AND: [accessibleUserWhere, { id: targetUserId }] },
+      select: contractSelect,
+    });
+
+    if (targetRecord) {
+      highlightedRecords.push(targetRecord);
+    }
+
+    if (isAdmin && searchTerms.length > 0) {
+      const searchedRecords = await this.prisma.user.findMany({
+        where: {
+          AND: [
+            accessibleUserWhere,
+            {
+              OR: searchTerms.flatMap((term) => [
+                { nombreCompleto: { contains: term, mode: 'insensitive' } },
+                { email: { contains: term, mode: 'insensitive' } },
+                { telefono: { contains: term, mode: 'insensitive' } },
+                { workContractJobTitle: { contains: term, mode: 'insensitive' } },
+              ]),
+            },
+          ],
+        },
+        take: 5,
+        select: contractSelect,
+      });
+
+      for (const record of searchedRecords) {
+        if (!highlightedRecords.some((item) => item.id === record.id)) {
+          highlightedRecords.push(record);
+        }
+      }
+    }
+
+    if (highlightedRecords.length === 0) return base;
+
+    const primaryRecord = highlightedRecords[0];
 
     base.push(
       this.createAppKnowledgeRecord(
-        `app-data:contract:${record.id}`,
+        `app-data:contract:${primaryRecord.id}`,
         'nomina',
         'dato-autorizado',
-        'Contrato laboral (alcance personal)',
-        `Empleado: ${record.nombreCompleto}. ` +
-          `Puesto: ${record.workContractJobTitle ?? 'N/D'}. ` +
-          `Inicio: ${record.workContractStartDate ? record.workContractStartDate.toISOString().slice(0, 10) : 'N/D'}. ` +
-          `Horario: ${record.workContractWorkSchedule ?? 'N/D'}. ` +
-          `Lugar: ${record.workContractWorkLocation ?? 'N/D'}. ` +
-          `${salaryPart}` +
-          `Frecuencia: ${record.workContractPaymentFrequency ?? 'N/D'}. ` +
-          `Firmado: ${record.workContractSignedAt ? record.workContractSignedAt.toISOString() : 'N/D'}.`,
+        isAdmin && primaryRecord.id !== user.id
+          ? `Contrato laboral de ${primaryRecord.nombreCompleto}`
+          : 'Contrato laboral (alcance personal)',
+        this.formatContractKnowledge(primaryRecord),
       ),
     );
+
+    if (isAdmin && highlightedRecords.length > 1) {
+      for (const record of highlightedRecords.slice(0, 4)) {
+        base.push(
+          this.createAppKnowledgeRecord(
+            `app-data:contract-match:${record.id}`,
+            'nomina',
+            'dato-autorizado',
+            `Contrato encontrado: ${record.nombreCompleto}`,
+            this.formatContractKnowledge(record),
+          ),
+        );
+      }
+    }
 
     if (isAdmin) {
       base.push(
@@ -1843,14 +2598,22 @@ export class AiAssistantService {
     };
   }
 
-  private buildRuleOnlyFallback(message: string, knowledge: KnowledgeRecord[]) {
+  private buildRuleOnlyFallback(
+    message: string,
+    knowledge: KnowledgeRecord[],
+    currentUserName?: string | null,
+  ): AiAssistantChatResponse {
     const normalizedMessage = message.trim().toLowerCase();
     const hasMeaningfulQuestion = this.tokenize(normalizedMessage).length > 0;
     const matched = hasMeaningfulQuestion ? this.rankRulesForPrompt(message, knowledge).slice(0, 2) : [];
     const top = matched[0] ?? knowledge[0];
 
     if (!top) {
-      return { source: 'rules-only', content: AiAssistantService.notEnoughDataMessage, citations: [] };
+      return {
+        source: 'rules-only',
+        content: this.personalizeContent(AiAssistantService.notEnoughDataMessage, currentUserName),
+        citations: [],
+      };
     }
 
     const selected = matched.length ? matched : [top];
@@ -1868,8 +2631,141 @@ export class AiAssistantService {
 
       return {
         source: 'rules-only',
-        content: `${intro}\n\n${blocks}`,
+        content: this.personalizeContent(`${intro}\n\n${blocks}`, currentUserName),
         citations: clientMatches.map((k) => this.toCitation(k)),
+        denied: false,
+      };
+    }
+
+    const productMatches = selected.filter((k) => k.id.startsWith('app-data:product-match:'));
+    if (productMatches.length > 0) {
+      const intro = productMatches.length == 1
+        ? 'Si, encontre este producto relacionado con tu consulta:'
+        : `Si, encontre ${productMatches.length} productos relacionados con tu consulta:`;
+      const blocks = productMatches
+        .map((k) => k.content.trim())
+        .filter((x) => x.length > 0)
+        .join('\n\n');
+
+      return {
+        source: 'rules-only',
+        content: this.personalizeContent(`${intro}\n\n${blocks}`, currentUserName),
+        citations: productMatches.map((k) => this.toCitation(k)),
+        denied: false,
+      };
+    }
+
+    const contractMatches = selected.filter(
+      (k) => k.id.startsWith('app-data:contract:') || k.id.startsWith('app-data:contract-match:'),
+    );
+    if (contractMatches.length > 0) {
+      const intro = contractMatches.length === 1
+        ? 'Si, encontre la informacion del contrato laboral relacionada con tu consulta:'
+        : `Si, encontre ${contractMatches.length} contratos laborales relacionados con tu consulta:`;
+      const blocks = contractMatches
+        .map((k) => k.content.trim())
+        .filter((x) => x.length > 0)
+        .join('\n\n');
+
+      return {
+        source: 'rules-only',
+        content: this.personalizeContent(
+          `${intro}\n\nResumen del contrato:\n${blocks}\n\nSi necesitas que te explique una clausula, forma de pago, fecha de inicio, puesto o cualquier detalle del contrato, dime exactamente cual parte quieres revisar.`,
+          currentUserName,
+        ),
+        citations: contractMatches.map((k) => this.toCitation(k)),
+        denied: false,
+      };
+    }
+
+    const isGrowthQuestion = this.hasAnyToken(new Set(this.tokenize(message)), [
+      'aprender',
+      'aprende',
+      'aprendiendo',
+      'aprendizaje',
+      'crecer',
+      'creciendo',
+      'actualizar',
+      'actualizando',
+      'datos',
+      'tablas',
+      'conocimiento',
+      'memoria',
+      'sistema',
+    ]);
+    const growthMatches = selected.filter((k) => k.id.startsWith('app-data:growth-'));
+    if (isGrowthQuestion && growthMatches.length > 0) {
+      const blocks = growthMatches
+        .map((k) => k.content.trim())
+        .filter((x) => x.length > 0)
+        .join('\n\n');
+
+      return {
+        source: 'rules-only',
+        content: this.personalizeContent(
+          `${blocks}\n\nSi quieres, tambien puedo explicarte por modulo como va creciendo el conocimiento en clientes, productos, contratos, ventas, servicios o normas.`,
+          currentUserName,
+        ),
+        citations: growthMatches.map((k) => this.toCitation(k)),
+        denied: false,
+      };
+    }
+
+    const isManualQuestion = this.hasAnyToken(new Set(this.tokenize(message)), [
+      'manual',
+      'norma',
+      'normas',
+      'regla',
+      'reglas',
+      'politica',
+      'política',
+      'politicas',
+      'políticas',
+      'protocolo',
+      'protocolos',
+    ]);
+    const manualEntries = knowledge.filter(
+      (k) => k.module === 'manual-interno' || k.category === 'politicas',
+    );
+    const concreteManualEntries = manualEntries.filter((k) => !k.id.startsWith('app-help:'));
+
+    if (isManualQuestion && manualEntries.length > 0) {
+      const categoryLabels = Array.from(
+        new Set(
+          concreteManualEntries
+            .map((k) => this.describeManualCategory(k.category))
+            .filter((value) => value.length > 0),
+        ),
+      ).slice(0, 5);
+      const generalLines = [
+        'Si, tengo conocimiento de las normas y del Manual Interno disponible para tu rol.',
+        'En general puedo orientarte sobre politicas, reglas operativas, protocolos, responsabilidades y guias de trabajo por modulo o proceso.',
+      ];
+
+      if (concreteManualEntries.length > 0) {
+        generalLines.push(`Actualmente tengo acceso a ${concreteManualEntries.length} normas o entradas publicadas relacionadas con el Manual Interno.`);
+      }
+
+      if (categoryLabels.length > 0) {
+        generalLines.push(`Los temas que cubre con mas frecuencia son: ${categoryLabels.join(', ')}.`);
+      }
+
+      const highlightedRules = (matched.length ? matched : concreteManualEntries)
+        .filter((k) => !k.id.startsWith('app-help:'))
+        .slice(0, 3)
+        .map((k) => `- ${k.title}: ${this.buildExcerpt((k.summary ?? '').trim().length ? (k.summary as string) : k.content)}`)
+        .join('\n');
+
+      const contentParts = [generalLines.join(' ')];
+      if (highlightedRules.length > 0) {
+        contentParts.push(`Detalle general relacionado con tu consulta:\n${highlightedRules}`);
+      }
+      contentParts.push('Si tienes una pregunta mas especifica, dime la norma, politica, regla o area que quieres revisar y te la explico con mas detalle.');
+
+      return {
+        source: 'rules-only',
+        content: this.personalizeContent(contentParts.join('\n\n'), currentUserName),
+        citations: (matched.length ? matched : manualEntries).slice(0, 3).map((k) => this.toCitation(k)),
         denied: false,
       };
     }
@@ -1884,10 +2780,86 @@ export class AiAssistantService {
 
     return {
       source: 'rules-only',
-      content: parts.length ? parts.join(' ') : AiAssistantService.notEnoughDataMessage,
+      content: this.personalizeContent(
+        parts.length ? parts.join(' ') : AiAssistantService.notEnoughDataMessage,
+        currentUserName,
+      ),
       citations,
       denied: false,
     };
+  }
+
+  private personalizeContent(content: string, currentUserName?: string | null) {
+    const trimmed = content.trim();
+    if (!trimmed || !currentUserName || currentUserName.trim().length === 0) {
+      return trimmed;
+    }
+
+    const safeName = currentUserName.trim();
+    const lower = trimmed.toLowerCase();
+    if (lower.startsWith(`${safeName.toLowerCase()},`) || lower.startsWith(`hola ${safeName.toLowerCase()}`)) {
+      return trimmed;
+    }
+
+    if (trimmed === AiAssistantService.notEnoughDataMessage) {
+      return `${safeName}, ${trimmed.charAt(0).toLowerCase()}${trimmed.slice(1)}`;
+    }
+
+    const intro = this.buildPersonalizedIntro(safeName, lower);
+    return `${intro}\n\n${trimmed}`;
+  }
+
+  private buildPersonalizedIntro(currentUserName: string, normalizedContent: string) {
+    if (
+      normalizedContent.includes('contrato laboral') ||
+      normalizedContent.includes('resumen del contrato') ||
+      normalizedContent.includes('salario:') ||
+      normalizedContent.includes('frecuencia de pago')
+    ) {
+      return `${currentUserName}, aqui tienes el resumen de contrato que encontre para ti.`;
+    }
+
+    if (
+      normalizedContent.includes('manual interno') ||
+      normalizedContent.includes('norma') ||
+      normalizedContent.includes('politica') ||
+      normalizedContent.includes('regla') ||
+      normalizedContent.includes('protocolo')
+    ) {
+      return `${currentUserName}, te comparto un resumen claro de las normas y lineamientos disponibles.`;
+    }
+
+    if (
+      normalizedContent.includes('coincidencia con ese cliente') ||
+      normalizedContent.includes('cliente:') ||
+      normalizedContent.includes('movimientos del cliente')
+    ) {
+      return `${currentUserName}, esto es lo que encontre sobre el cliente consultado.`;
+    }
+
+    if (
+      normalizedContent.includes('producto:') ||
+      normalizedContent.includes('precio:') ||
+      normalizedContent.includes('stock:') ||
+      normalizedContent.includes('productos relacionados con tu consulta')
+    ) {
+      return `${currentUserName}, esto es lo que encontre del producto que consultaste.`;
+    }
+
+    return `${currentUserName}, aqui tienes la informacion que encontre.`;
+  }
+
+  private async getCurrentUserPreferredName(userId: string) {
+    const record = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { nombreCompleto: true },
+    });
+
+    const raw = (record?.nombreCompleto ?? '').trim();
+    if (!raw) return null;
+
+    const [firstName] = raw.split(/\s+/).filter((part) => part.trim().length > 0);
+    return firstName?.trim() || raw;
   }
 
   private rankRulesForPrompt(message: string, knowledge: KnowledgeRecord[]) {
@@ -1938,6 +2910,99 @@ export class AiAssistantService {
     const normalized = content.replace(/\s+/g, ' ').trim();
     if (normalized.length <= 240) return normalized;
     return `${normalized.slice(0, 237).trim()}...`;
+  }
+
+  private formatContractKnowledge(record: {
+    id: string;
+    nombreCompleto: string;
+    email: string;
+    telefono: string;
+    role: Role;
+    fechaIngreso: Date | null;
+    workContractSignatureUrl: string | null;
+    workContractSignedAt: Date | null;
+    workContractVersion: string | null;
+    workContractJobTitle: string | null;
+    workContractStartDate: Date | null;
+    workContractWorkSchedule: string | null;
+    workContractWorkLocation: string | null;
+    workContractSalary: string | null;
+    workContractPaymentFrequency: string | null;
+    workContractPaymentMethod: string | null;
+    workContractClauseOverrides: Prisma.JsonValue | null;
+    workContractCustomClauses: string | null;
+  }) {
+    const clauseSummary = this.summarizeContractClauses(record.workContractClauseOverrides, record.workContractCustomClauses);
+    const lines = [
+      `Empleado: ${record.nombreCompleto}`,
+      `Rol: ${record.role}`,
+      `Correo: ${record.email}`,
+      `Telefono: ${record.telefono}`,
+      `Puesto: ${record.workContractJobTitle ?? 'N/D'}`,
+      `Inicio de contrato: ${record.workContractStartDate ? record.workContractStartDate.toISOString().slice(0, 10) : 'N/D'}`,
+      `Fecha de ingreso: ${record.fechaIngreso ? record.fechaIngreso.toISOString().slice(0, 10) : 'N/D'}`,
+      `Horario laboral: ${record.workContractWorkSchedule ?? 'N/D'}`,
+      `Lugar de trabajo: ${record.workContractWorkLocation ?? 'N/D'}`,
+      `Salario: ${record.workContractSalary ?? 'N/D'}`,
+      `Frecuencia de pago: ${record.workContractPaymentFrequency ?? 'N/D'}`,
+      `Metodo de pago: ${record.workContractPaymentMethod ?? 'N/D'}`,
+      `Version del contrato: ${record.workContractVersion ?? 'N/D'}`,
+      `Estado de firma: ${record.workContractSignedAt ? `Firmado el ${record.workContractSignedAt.toISOString()}` : 'Pendiente o no registrado'}`,
+      record.workContractSignatureUrl ? 'Firma digital o archivo del contrato: disponible' : 'Firma digital o archivo del contrato: no registrado',
+      clauseSummary,
+    ].filter((item) => item.trim().length > 0);
+
+    return lines.join('\n');
+  }
+
+  private summarizeContractClauses(
+    overrides: Prisma.JsonValue | null,
+    customClauses: string | null,
+  ) {
+    const parts: string[] = [];
+
+    if (customClauses && customClauses.trim().length > 0) {
+      parts.push(`Clausulas personalizadas: ${this.buildExcerpt(customClauses)}`);
+    }
+
+    if (overrides && typeof overrides === 'object') {
+      const overrideCount = Array.isArray(overrides) ? overrides.length : Object.keys(overrides as Record<string, unknown>).length;
+      if (overrideCount > 0) {
+        parts.push(`Ajustes o clausulas sobrescritas: ${overrideCount} registradas.`);
+      }
+    }
+
+    if (parts.length === 0) {
+      return 'Clausulas adicionales: no registradas.';
+    }
+
+    return parts.join(' ');
+  }
+
+  private describeManualCategory(category: string) {
+    switch ((category ?? '').trim().toLowerCase()) {
+      case 'politicas':
+        return 'politicas internas';
+      case 'precios':
+        return 'reglas de precios';
+      case 'garantias':
+        return 'politicas de garantia';
+      case 'servicios':
+        return 'protocolos de servicio';
+      case 'productos':
+        return 'lineamientos de productos y servicios';
+      case 'modulo':
+        return 'guias por modulo';
+      case 'general':
+        return 'reglas generales y responsabilidades';
+      default:
+        return category.trim();
+    }
+  }
+
+  private formatKnowledgeDate(value: Date | null) {
+    if (!value) return 'sin fecha';
+    return value.toISOString().slice(0, 19).replace('T', ' ');
   }
 
   private normalizeOptionalString(value: unknown) {
