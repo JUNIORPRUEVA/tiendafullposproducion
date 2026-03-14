@@ -1,0 +1,38 @@
+﻿[ÔêÜ] Flutter (Channel stable, 3.38.3, on Microsoft Windows [Versi┬ón 10.0.19045.6466], locale es-ES) [4,1s]
+    ÔÇó Flutter version 3.38.3 on channel stable at C:\src\flutter
+    ÔÇó Upstream repository https://github.com/flutter/flutter.git
+    ÔÇó Framework revision 19074d12f7 (4 months ago), 2025-11-20 17:53:13 -0500
+    ÔÇó Engine revision 13e658725d
+    ÔÇó Dart version 3.10.1
+    ÔÇó DevTools version 2.51.1
+    ÔÇó Feature flags: enable-web, enable-linux-desktop, enable-macos-desktop, enable-windows-desktop, enable-android, enable-ios, cli-animations, enable-native-assets, omit-legacy-version-file, enable-lldb-debugging
+
+[ÔêÜ] Windows Version (10 Pro 64-bit, 22H2, 2009) [203,8s]
+
+[ÔêÜ] Android toolchain - develop for Android devices (Android SDK version 36.1.0) [16,6s]
+    ÔÇó Android SDK at C:\Users\PC\AppData\Local\Android\sdk
+    ÔÇó Emulator version 36.2.12.0 (build_id 14214601) (CL:N/A)
+    ÔÇó Platform android-36, build-tools 36.1.0
+    ÔÇó Java binary at: C:\Program Files\Eclipse Adoptium\jdk-17.0.18.8-hotspot\bin\java
+      This JDK is specified by the JAVA_HOME environment variable.
+      To manually set the JDK path, use: `flutter config --jdk-dir="path/to/jdk"`.
+    ÔÇó Java version OpenJDK Runtime Environment Temurin-17.0.18+8 (build 17.0.18+8)
+    ÔÇó All Android licenses accepted.
+
+[ÔêÜ] Chrome - develop for the web [2,3s]
+    ÔÇó Chrome at C:\Program Files\Google\Chrome\Application\chrome.exe
+
+[ÔêÜ] Visual Studio - develop Windows apps (Visual Studio Community 2026 18.0.2) [2,2s]
+    ÔÇó Visual Studio at C:\Program Files\Microsoft Visual Studio\18\Community
+    ÔÇó Visual Studio Community 2026 version 18.0.11222.15
+    ÔÇó Windows 10 SDK version 10.0.26100.0
+
+[ÔêÜ] Connected device (3 available) [3,5s]
+    ÔÇó Windows (desktop) ÔÇó windows ÔÇó windows-x64    ÔÇó Microsoft Windows [Versi┬ón 10.0.19045.6466]
+    ÔÇó Chrome (web)      ÔÇó chrome  ÔÇó web-javascript ÔÇó Google Chrome 145.0.7632.160
+    ÔÇó Edge (web)        ÔÇó edge    ÔÇó web-javascript ÔÇó Microsoft Edge 145.0.3800.97
+
+[ÔêÜ] Network resources [915ms]
+    ÔÇó All expected network resources are available.
+
+ÔÇó No issues found!

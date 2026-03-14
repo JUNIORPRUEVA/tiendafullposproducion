@@ -7,7 +7,8 @@ import { ProductsController } from './products.controller';
 
 @Module({
   providers: [ProductsService, CatalogProductsService, CatalogRealtimeRelayService],
-  controllers: [ProductsController, CatalogProductsController]
+  controllers: [ProductsController, CatalogProductsController],
+  exports: [CatalogProductsService],
 })
 export class ProductsModule {}
 

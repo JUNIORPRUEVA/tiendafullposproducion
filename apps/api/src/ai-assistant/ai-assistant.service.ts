@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CompanyManualAudience, CompanyManualEntryKind, DepositOrderStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CatalogProductsService } from '../products/catalog-products.service';
 import { ChatAiAssistantDto } from './dto/chat-ai-assistant.dto';
 
 type AiRuntimeConfig = {
@@ -45,6 +46,7 @@ export class AiAssistantService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly catalogProducts: CatalogProductsService,
   ) {}
 
   async chat(user: { id: string; role: Role }, dto: ChatAiAssistantDto) {
@@ -84,6 +86,10 @@ export class AiAssistantService {
         content: AiAssistantService.notEnoughDataMessage,
         citations: [],
       };
+    }
+
+    if (this.shouldUseDeterministicLookupAnswer(message, context, knowledge)) {
+      return this.buildRuleOnlyFallback(message, knowledge);
     }
 
     const runtime = await this.getOpenAiRuntimeConfig();
@@ -330,13 +336,13 @@ export class AiAssistantService {
       case 'operaciones':
         return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING, Role.TECNICO]);
       case 'catalogo':
-        return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING]);
+        return true;
       case 'ventas':
         return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR]);
       case 'cotizaciones':
         return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING]);
       case 'clientes':
-        return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING]);
+        return true;
       case 'nomina':
         return role === Role.ADMIN;
       case 'manual-interno':
@@ -356,7 +362,25 @@ export class AiAssistantService {
   }
 
   private canAccessClientData(role: Role) {
-    return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR]);
+    return true;
+  }
+
+  private shouldUseDeterministicLookupAnswer(
+    message: string,
+    context: NormalizedAiContext,
+    knowledge: KnowledgeRecord[],
+  ) {
+    const tokens = new Set(this.tokenize(`${message} ${context.module} ${context.screenName ?? ''}`));
+    const hasMatchedClient = knowledge.some((item) => item.id.startsWith('app-data:client-match:'));
+    const hasMatchedCatalog = knowledge.some((item) => item.id === 'app-data:catalog-search');
+    const explicitClientLookup =
+      hasMatchedClient ||
+      this.hasAnyToken(tokens, ['cliente', 'clientes', 'nombre', 'telefono', 'teléfono', 'movimientos', 'ventas', 'servicios']);
+    const explicitCatalogLookup =
+      hasMatchedCatalog ||
+      this.hasAnyToken(tokens, ['producto', 'productos', 'catalogo', 'catálogo', 'precio', 'stock', 'inventario']);
+
+    return explicitClientLookup || explicitCatalogLookup;
   }
 
   private canAccessQuoteData(role: Role) {
@@ -530,9 +554,11 @@ export class AiAssistantService {
     ].join(' ');
     const tokens = new Set(this.tokenize(contextText));
     const includeModuleContext = tokens.size === 0;
+    const wantsClientsByIntent = this.isLikelyClientLookup(dto, tokens);
+    const wantsCatalogByIntent = this.isLikelyCatalogLookup(dto, tokens);
 
-    const wantsClients = includeModuleContext || this.hasAnyToken(tokens, ['cliente', 'clientes']);
-    const wantsCatalog = includeModuleContext || this.hasAnyToken(tokens, ['producto', 'productos', 'catalogo', 'catálogo', 'precio', 'precios']);
+    const wantsClients = includeModuleContext || wantsClientsByIntent || this.hasAnyToken(tokens, ['cliente', 'clientes']);
+    const wantsCatalog = includeModuleContext || wantsCatalogByIntent || this.hasAnyToken(tokens, ['producto', 'productos', 'catalogo', 'catálogo', 'precio', 'precios']);
     const wantsContracts = includeModuleContext || this.hasAnyToken(tokens, ['contrato', 'nomina', 'nómina', 'salario', 'clausula', 'cláusula']);
     const wantsQuotes = includeModuleContext || this.hasAnyToken(tokens, ['cotizacion', 'cotizaciones', 'ticket', 'propuesta']);
     const wantsSales = includeModuleContext || this.hasAnyToken(tokens, ['venta', 'ventas', 'comision', 'comisión']);
@@ -584,6 +610,88 @@ export class AiAssistantService {
     }
 
     return knowledge;
+  }
+
+  private isLikelyCatalogLookup(dto: ChatAiAssistantDto, tokens: Set<string>) {
+    const module = this.normalizeModuleKey(dto.context.module);
+    const searchTerms = this.extractMeaningfulQueryTerms(dto.message, {
+      limit: 6,
+      extraNoise: [
+        'producto',
+        'productos',
+        'catalogo',
+        'catalogos',
+        'catálogo',
+        'precio',
+        'precios',
+        'disponible',
+        'disponibles',
+        'disponibilidad',
+        'inventario',
+        'stock',
+      ],
+    });
+
+    if (['catalogo', 'cotizaciones', 'ventas'].includes(module) && searchTerms.length > 0) {
+      return true;
+    }
+
+    return this.hasAnyToken(tokens, [
+      'producto',
+      'productos',
+      'catalogo',
+      'catálogo',
+      'precio',
+      'precios',
+      'stock',
+      'inventario',
+      'disponible',
+      'disponibilidad',
+      'hay',
+      'tienen',
+      'busca',
+      'buscame',
+      'muestrame',
+      'muéstrame',
+      'cuesta',
+      'vale',
+    ]) && searchTerms.length > 0;
+  }
+
+  private isLikelyClientLookup(dto: ChatAiAssistantDto, tokens: Set<string>) {
+    const module = this.normalizeModuleKey(dto.context.module);
+    const searchTerms = this.extractMeaningfulQueryTerms(dto.message, {
+      limit: 6,
+      extraNoise: [
+        'cliente',
+        'clientes',
+        'telefono',
+        'teléfono',
+        'correo',
+        'email',
+        'direccion',
+        'dirección',
+        'contacto',
+      ],
+    });
+    const phoneTerms = this.extractNumericQueryTerms(dto.message);
+
+    if (['clientes', 'operaciones', 'ventas', 'cotizaciones'].includes(module)) {
+      return searchTerms.length > 0 || phoneTerms.length > 0;
+    }
+
+    return this.hasAnyToken(tokens, [
+      'cliente',
+      'clientes',
+      'telefono',
+      'teléfono',
+      'correo',
+      'email',
+      'direccion',
+      'dirección',
+      'contacto',
+      'whatsapp',
+    ]) || phoneTerms.length > 0;
   }
 
   private isSelfInfoRequest(message: string, context: NormalizedAiContext) {
@@ -660,6 +768,7 @@ export class AiAssistantService {
   }): KnowledgeRecord[] {
     const rankedAll = this.rankKnowledgeForPrompt(input.prompt, input.context, input.all);
     const rankedManual = this.rankKnowledgeForPrompt(input.prompt, input.context, input.manualKnowledge);
+    const rankedAuthorized = this.rankKnowledgeForPrompt(input.prompt, input.context, input.authorizedData);
     const normalizedModule = this.normalizeModuleKey(input.context.module);
     const wantsManualDepth =
       normalizedModule === 'manual-interno' ||
@@ -690,7 +799,7 @@ export class AiAssistantService {
       ),
       3,
     );
-    addRecords(input.authorizedData, wantsManualDepth ? 5 : 6);
+    addRecords(rankedAuthorized, wantsManualDepth ? 6 : 8);
     addRecords(
       rankedManual.filter(
         (item) =>
@@ -709,15 +818,16 @@ export class AiAssistantService {
   private async buildClientKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
     const isAdmin = user.role === Role.ADMIN;
 
-    const accessibleWhere: Prisma.ClientWhereInput = isAdmin
-      ? { isDeleted: false }
-      : {
-          isDeleted: false,
-          OR: [
-            { ownerId: user.id },
-            { services: { some: { OR: [{ technicianId: user.id }, { createdByUserId: user.id }] } } },
-          ],
-        };
+    const accessibleWhere: Prisma.ClientWhereInput =
+      user.role === Role.TECNICO
+        ? {
+            isDeleted: false,
+            OR: [
+              { ownerId: user.id },
+              { services: { some: { OR: [{ technicianId: user.id }, { createdByUserId: user.id }] } } },
+            ],
+          }
+        : { isDeleted: false };
 
     const count = await this.prisma.client.count({ where: accessibleWhere });
 
@@ -741,7 +851,191 @@ export class AiAssistantService {
     ];
 
     const entityId = (dto.context.entityType ?? '').toLowerCase() === 'client' ? (dto.context.entityId ?? '').trim() : '';
-    if (!entityId) return base;
+    const searchTerms = this.extractMeaningfulQueryTerms(dto.message, {
+      limit: 6,
+      extraNoise: [
+        'cliente',
+        'clientes',
+        'nombre',
+        'nombres',
+        'llama',
+        'llamado',
+        'llamada',
+        'coincidencia',
+        'coincidencias',
+        'verifica',
+        'verificar',
+        'existe',
+        'tiene',
+        'tengan',
+        'algun',
+        'alguna',
+        'algunas',
+        'algunos',
+        'telefono',
+        'teléfono',
+        'correo',
+        'email',
+        'direccion',
+        'dirección',
+        'contacto',
+        'muestrame',
+        'muéstrame',
+        'busca',
+        'buscame',
+        'dime',
+      ],
+    });
+    const phoneTerms = this.extractNumericQueryTerms(dto.message);
+
+    if (!entityId && searchTerms.length === 0 && phoneTerms.length === 0) return base;
+
+    if (!entityId) {
+      const searchWhere: Prisma.ClientWhereInput = {
+        ...accessibleWhere,
+        OR: [
+          ...searchTerms.map((term) => ({ nombre: { contains: term, mode: 'insensitive' as const } })),
+          ...searchTerms.map((term) => ({ email: { contains: term, mode: 'insensitive' as const } })),
+          ...searchTerms.map((term) => ({ direccion: { contains: term, mode: 'insensitive' as const } })),
+          ...searchTerms.map((term) => ({ notas: { contains: term, mode: 'insensitive' as const } })),
+          ...phoneTerms.map((term) => ({ telefono: { contains: term, mode: 'insensitive' as const } })),
+          ...phoneTerms.map((term) => ({ phoneNormalized: { contains: term } })),
+        ],
+      };
+
+      const matchingClients = await this.prisma.client.findMany({
+        where: searchWhere,
+        select: {
+          id: true,
+          nombre: true,
+          telefono: true,
+          email: true,
+          direccion: true,
+          lastActivityAt: true,
+        },
+        take: 12,
+        orderBy: [{ lastActivityAt: 'desc' }, { nombre: 'asc' }],
+      });
+
+      if (matchingClients.length === 0) {
+        base.push(
+          this.createAppKnowledgeRecord(
+            'app-data:clients-search-none',
+            'clientes',
+            'dato-autorizado',
+            'Cliente no encontrado',
+            `No encontré clientes autorizados que coincidan con: ${[...searchTerms, ...phoneTerms].join(', ')}.`,
+          ),
+        );
+        return base;
+      }
+
+      const rankedClients = matchingClients
+        .map((client) => {
+          let score = 0;
+          for (const term of searchTerms) {
+            const haystack = `${client.nombre} ${client.email ?? ''} ${client.direccion ?? ''}`.toLowerCase();
+            if (client.nombre.toLowerCase().includes(term)) {
+              score += 3;
+            } else if (haystack.includes(term)) {
+              score += 1;
+            }
+          }
+          for (const term of phoneTerms) {
+            const haystack = `${client.telefono}`.replace(/\D+/g, '');
+            if (haystack.includes(term)) score += 4;
+          }
+          return { client, score };
+        })
+        .sort((a, b) => b.score - a.score || a.client.nombre.localeCompare(b.client.nombre))
+        .slice(0, 5)
+        .map(({ client }) => client);
+
+      const detailedMatches = await Promise.all(
+        rankedClients.slice(0, 3).map(async (client) => {
+          const [salesAgg, servicesAgg, quotesAgg, latestSale, latestService, latestQuote] = await this.prisma.$transaction([
+            this.prisma.sale.aggregate({
+              where: { customerId: client.id, isDeleted: false },
+              _count: { _all: true },
+              _sum: { totalSold: true },
+              _max: { saleDate: true },
+            }),
+            this.prisma.service.aggregate({
+              where: { customerId: client.id, isDeleted: false },
+              _count: { _all: true },
+              _max: { updatedAt: true },
+            }),
+            this.prisma.cotizacion.aggregate({
+              where: { customerId: client.id },
+              _count: { _all: true },
+              _sum: { total: true },
+              _max: { updatedAt: true },
+            }),
+            this.prisma.sale.findFirst({
+              where: { customerId: client.id, isDeleted: false },
+              orderBy: { saleDate: 'desc' },
+              select: { saleDate: true, totalSold: true },
+            }),
+            this.prisma.service.findFirst({
+              where: { customerId: client.id, isDeleted: false },
+              orderBy: { updatedAt: 'desc' },
+              select: { updatedAt: true, title: true, status: true, currentPhase: true },
+            }),
+            this.prisma.cotizacion.findFirst({
+              where: { customerId: client.id },
+              orderBy: { updatedAt: 'desc' },
+              select: { updatedAt: true, total: true, customerName: true },
+            }),
+          ]);
+
+          return this.createAppKnowledgeRecord(
+            `app-data:client-match:${client.id}`,
+            'clientes',
+            'dato-autorizado',
+            `Cliente encontrado: ${client.nombre}`,
+            [
+              `Cliente: ${client.nombre}`,
+              (client.telefono ?? '').trim().length > 0 ? `Telefono: ${client.telefono}` : null,
+              (client.email ?? '').trim().length > 0 ? `Email: ${client.email}` : null,
+              (client.direccion ?? '').trim().length > 0 ? `Direccion: ${this.buildExcerpt(client.direccion ?? '')}` : null,
+              client.lastActivityAt != null ? `Ultima actividad: ${client.lastActivityAt.toISOString().slice(0, 10)}` : null,
+              `Movimientos: ${salesAgg._count._all} ventas, ${servicesAgg._count._all} servicios y ${quotesAgg._count._all} cotizaciones`,
+              salesAgg._sum.totalSold != null ? `Total vendido: ${Number(salesAgg._sum.totalSold).toFixed(2)}` : null,
+              latestSale != null ? `Ultima venta: ${latestSale.saleDate.toISOString().slice(0, 10)} por ${Number(latestSale.totalSold).toFixed(2)}` : null,
+              latestService != null ? `Ultimo servicio: ${latestService.title} (${latestService.status} / fase ${latestService.currentPhase}) actualizado el ${latestService.updatedAt.toISOString().slice(0, 10)}` : null,
+              latestQuote != null ? `Ultima cotizacion: ${Number(latestQuote.total).toFixed(2)} actualizada el ${latestQuote.updatedAt.toISOString().slice(0, 10)}` : null,
+            ].filter((item): item is string => !!item).join('\n'),
+          );
+        }),
+      );
+
+      base.push(...detailedMatches);
+
+      base.push(
+        this.createAppKnowledgeRecord(
+          'app-data:clients-search',
+          'clientes',
+          'dato-autorizado',
+          `Clientes relacionados con "${[...searchTerms, ...phoneTerms].join(' ')}"`,
+          rankedClients
+            .map((client) => {
+              const details: string[] = [];
+              if ((client.telefono ?? '').trim().length > 0) details.push(`Tel: ${client.telefono}`);
+              if ((client.email ?? '').trim().length > 0) details.push(`Email: ${client.email}`);
+              if ((client.direccion ?? '').trim().length > 0) {
+                details.push(`Dirección: ${this.buildExcerpt(client.direccion ?? '')}`);
+              }
+              if (client.lastActivityAt != null) {
+                details.push(`Última actividad: ${client.lastActivityAt.toISOString().slice(0, 10)}`);
+              }
+              return `- ${client.nombre}${details.length === 0 ? '' : ` | ${details.join(' | ')}`}`;
+            })
+            .join('\n'),
+        ),
+      );
+
+      return base;
+    }
 
     const client = await this.prisma.client.findFirst({
       where: { ...accessibleWhere, id: entityId },
@@ -796,16 +1090,89 @@ export class AiAssistantService {
   }
 
   private async buildCatalogKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
-    const tokens = this.tokenize(dto.message);
-    const searchTokens = tokens.filter((token) => !this.isCatalogNoiseToken(token)).slice(0, 5);
-
-    const total = await this.prisma.product.count();
-    const topCategories = await this.prisma.product.groupBy({
-      by: ['categoria'],
-      _count: { categoria: true },
-      orderBy: { _count: { categoria: 'desc' } },
-      take: 5,
+    const searchTokens = this.extractMeaningfulQueryTerms(dto.message, {
+      limit: 6,
+      extraNoise: [
+        'hay',
+        'tengo',
+        'tienen',
+        'producto',
+        'productos',
+        'disponible',
+        'disponibles',
+        'disponibilidad',
+        'precio',
+        'precios',
+        'catalogo',
+        'catalogos',
+        'catálogo',
+        'app',
+        'quiero',
+        'buscar',
+        'busca',
+        'buscame',
+        'muestrame',
+        'muéstrame',
+        'necesito',
+        'dime',
+        'inventario',
+        'stock',
+      ],
     });
+
+    let total = 0;
+    let categoryLines = 'No hay categorías disponibles en el catálogo.';
+    let catalogSource = 'LOCAL';
+    let remoteProducts: Array<{
+      id: string;
+      nombre: string;
+      descripcion: string | null;
+      codigo: string | null;
+      precio: number;
+      stock: number | null;
+      categoria: string | null;
+      categoriaNombre: string | null;
+    }> = [];
+
+    try {
+      const catalog = await this.catalogProducts.findAll();
+      catalogSource = catalog.source;
+      remoteProducts = catalog.items.map((item) => ({
+        id: item.id,
+        nombre: item.nombre,
+        descripcion: item.descripcion,
+        codigo: item.codigo,
+        precio: item.precio,
+        stock: item.stock,
+        categoria: item.categoria,
+        categoriaNombre: item.categoriaNombre,
+      }));
+      total = catalog.total;
+
+      const categories = new Map<string, number>();
+      for (const item of remoteProducts) {
+        const category = (item.categoriaNombre ?? item.categoria ?? 'Sin categoría').trim() || 'Sin categoría';
+        categories.set(category, (categories.get(category) ?? 0) + 1);
+      }
+      categoryLines = [...categories.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, 5)
+        .map(([category, count]) => `- ${category}: ${count}`)
+        .join('\n');
+    } catch {
+      total = await this.prisma.product.count();
+      const topCategories = await this.prisma.product.groupBy({
+        by: ['categoria'],
+        _count: { categoria: true },
+        orderBy: { _count: { categoria: 'desc' } },
+        take: 5,
+      });
+      categoryLines = topCategories.length > 0
+        ? topCategories
+            .map((item) => `- ${item.categoria || 'Sin categoría'}: ${item._count.categoria}`)
+            .join('\n')
+        : categoryLines;
+    }
 
     const result: KnowledgeRecord[] = [
       this.createAppKnowledgeRecord(
@@ -813,36 +1180,71 @@ export class AiAssistantService {
         'catalogo',
         'dato-autorizado',
         'Resumen autorizado de catálogo',
-        `Actualmente hay ${total} productos en el catálogo.`,
+        `Actualmente hay ${total} productos en el catálogo. Fuente activa para el asistente: ${catalogSource}.`,
       ),
       this.createAppKnowledgeRecord(
         'app-data:catalog-categories',
         'catalogo',
         'dato-autorizado',
         'Categorías principales del catálogo',
-        topCategories.length > 0
-          ? topCategories
-              .map((item) => `- ${item.categoria || 'Sin categoría'}: ${item._count.categoria}`)
-              .join('\n')
-          : 'No hay categorías disponibles en el catálogo.',
+        categoryLines,
       ),
     ];
 
     if (searchTokens.length === 0) return result;
 
-    const products = await this.prisma.product.findMany({
-      where: {
-        OR: [
-          ...searchTokens.map((token) => ({ nombre: { contains: token, mode: 'insensitive' as const } })),
-          ...searchTokens.map((token) => ({ categoria: { contains: token, mode: 'insensitive' as const } })),
-        ],
-      },
-      select: { id: true, nombre: true, categoria: true, precio: true },
-      take: 12,
-      orderBy: { nombre: 'asc' },
-    });
+    const products = remoteProducts.length > 0
+      ? remoteProducts
+      : await this.prisma.product.findMany({
+          where: {
+            OR: [
+              ...searchTokens.map((token) => ({ nombre: { contains: token, mode: 'insensitive' as const } })),
+              ...searchTokens.map((token) => ({ categoria: { contains: token, mode: 'insensitive' as const } })),
+            ],
+          },
+          select: {
+            id: true,
+            nombre: true,
+            categoria: true,
+            precio: true,
+            imagen: true,
+          },
+          take: 24,
+          orderBy: { nombre: 'asc' },
+        }).then((items) => items.map((item) => ({
+          id: item.id,
+          nombre: item.nombre,
+          descripcion: null,
+          codigo: null,
+          precio: Number(item.precio),
+          stock: null,
+          categoria: item.categoria,
+          categoriaNombre: item.categoria,
+        })));
 
-    if (products.length === 0) {
+    const matchingProducts = products
+      .map((product) => {
+        const haystack = [
+          product.nombre,
+          product.categoria ?? '',
+          product.categoriaNombre ?? '',
+          product.codigo ?? '',
+          product.descripcion ?? '',
+        ].join(' ').toLowerCase();
+
+        const score = searchTokens.reduce((sum, token) => {
+          if (product.nombre.toLowerCase().includes(token)) return sum + 4;
+          if ((product.categoriaNombre ?? product.categoria ?? '').toLowerCase().includes(token)) return sum + 2;
+          if (haystack.includes(token)) return sum + 1;
+          return sum;
+        }, 0);
+
+        return { product, score };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score || a.product.nombre.localeCompare(b.product.nombre));
+
+    if (matchingProducts.length === 0) {
       result.push(
         this.createAppKnowledgeRecord(
           'app-data:catalog-search-none',
@@ -855,21 +1257,16 @@ export class AiAssistantService {
       return result;
     }
 
-    const rankedProducts = products
-      .map((product) => ({
-        product,
-        score: searchTokens.reduce((sum, token) => {
-          const haystack = `${product.nombre} ${product.categoria}`.toLowerCase();
-          return haystack.includes(token) ? sum + 1 : sum;
-        }, 0),
-      }))
-      .sort((a, b) => b.score - a.score || a.product.nombre.localeCompare(b.product.nombre))
-      .slice(0, 6)
+    const rankedProducts = matchingProducts
+      .slice(0, 8)
       .map((item) => item.product);
 
     const lines = rankedProducts.map((p) => {
       const price = user.role === Role.TECNICO ? '' : ` | Precio: ${p.precio.toFixed(2)}`;
-      return `- ${p.nombre} (${p.categoria})${price}`;
+      const category = (p.categoriaNombre ?? p.categoria ?? 'Sin categoría').trim();
+      const stock = p.stock == null ? '' : ` | Stock: ${p.stock}`;
+      const code = (p.codigo ?? '').trim().length === 0 ? '' : ` | Código: ${p.codigo}`;
+      return `- ${p.nombre} (${category})${price}${stock}${code}`;
     });
 
     result.push(
@@ -878,11 +1275,68 @@ export class AiAssistantService {
         'catalogo',
         'dato-autorizado',
         `Productos relacionados con "${searchTokens.join(' ')}"`,
-        `${lines.join('\n')}\n\nNota: esto confirma coincidencias en el catálogo, no inventario físico en tiempo real.`,
+        `${lines.join('\n')}\n\nNota: ${rankedProducts.some((product) => product.stock != null) ? 'el stock mostrado proviene del catálogo actual.' : 'esto confirma coincidencias en el catálogo, no inventario físico en tiempo real.'}`,
       ),
     );
 
     return result;
+  }
+
+  private extractMeaningfulQueryTerms(
+    message: string,
+    options?: { extraNoise?: string[]; limit?: number },
+  ) {
+    const noise = new Set([
+      'que',
+      'qué',
+      'como',
+      'cómo',
+      'cual',
+      'cuál',
+      'cuales',
+      'cuáles',
+      'hay',
+      'esta',
+      'este',
+      'estos',
+      'estas',
+      'para',
+      'con',
+      'sin',
+      'del',
+      'las',
+      'los',
+      'una',
+      'uno',
+      'unos',
+      'unas',
+      'por',
+      'favor',
+      'sabe',
+      'puedes',
+      'puede',
+      'puedo',
+      'necesito',
+      'quiero',
+      'dime',
+      'mira',
+      'sobre',
+      ...(options?.extraNoise ?? []),
+    ].flatMap((term) => this.tokenize(term)));
+
+    const results: string[] = [];
+    for (const token of this.tokenize(message)) {
+      if (noise.has(token)) continue;
+      if (results.includes(token)) continue;
+      results.push(token);
+      if (results.length >= (options?.limit ?? 6)) break;
+    }
+    return results;
+  }
+
+  private extractNumericQueryTerms(message: string) {
+    const matches = message.match(/\d{5,}/g) ?? [];
+    return [...new Set(matches.map((item) => item.trim()).filter((item) => item.length >= 5))].slice(0, 3);
   }
 
   private isCatalogNoiseToken(token: string) {
@@ -1401,6 +1855,24 @@ export class AiAssistantService {
 
     const selected = matched.length ? matched : [top];
     const citations = selected.map((k) => this.toCitation(k));
+
+    const clientMatches = selected.filter((k) => k.id.startsWith('app-data:client-match:'));
+    if (clientMatches.length > 0) {
+      const intro = clientMatches.length == 1
+        ? 'Si, encontre una coincidencia con ese cliente:'
+        : `Si, encontre ${clientMatches.length} coincidencias con ese nombre:`;
+      const blocks = clientMatches
+        .map((k) => k.content.trim())
+        .filter((x) => x.length > 0)
+        .join('\n\n');
+
+      return {
+        source: 'rules-only',
+        content: `${intro}\n\n${blocks}`,
+        citations: clientMatches.map((k) => this.toCitation(k)),
+        denied: false,
+      };
+    }
 
     const parts = selected
       .map((k, index) => {
