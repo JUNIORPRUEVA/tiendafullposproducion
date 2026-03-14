@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
 class AppErrorReporter {
@@ -9,7 +9,26 @@ class AppErrorReporter {
   /// Last captured error message (debug only UI can display this).
   final ValueNotifier<String?> lastErrorMessage = ValueNotifier<String?>(null);
 
-  void clear() => lastErrorMessage.value = null;
+  void _setLastMessage(String? value) {
+    // Avoid notifying listeners while Flutter is building/layout/paint.
+    final binding = WidgetsBinding.instance;
+    final phase = SchedulerBinding.instance.schedulerPhase;
+
+    void apply() {
+      if (lastErrorMessage.value == value) return;
+      lastErrorMessage.value = value;
+    }
+
+    if (phase == SchedulerPhase.idle ||
+        phase == SchedulerPhase.postFrameCallbacks) {
+      apply();
+      return;
+    }
+
+    binding.addPostFrameCallback((_) => apply());
+  }
+
+  void clear() => _setLastMessage(null);
 
   void record(Object error, StackTrace stack, {String? context}) {
     final ctx = (context == null || context.trim().isEmpty)
@@ -24,7 +43,7 @@ class AppErrorReporter {
     final truncated = message.length > 240
         ? '${message.substring(0, 240)}…'
         : message;
-    lastErrorMessage.value = truncated;
+    _setLastMessage(truncated);
   }
 
   void recordFlutterError(FlutterErrorDetails details) {

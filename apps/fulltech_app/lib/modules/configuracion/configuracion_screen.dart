@@ -9,6 +9,8 @@ import 'package:image/image.dart' as img;
 import '../../core/auth/auth_provider.dart';
 import '../../core/company/company_settings_model.dart';
 import '../../core/company/company_settings_repository.dart';
+import '../../core/evolution/evolution_api_repository.dart';
+import '../../core/errors/api_exception.dart';
 import '../../core/widgets/app_drawer.dart';
 
 class ConfiguracionScreen extends ConsumerStatefulWidget {
@@ -36,9 +38,12 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
   final _evolutionApiBaseUrlCtrl = TextEditingController();
   final _evolutionApiInstanceNameCtrl = TextEditingController();
   final _evolutionApiApiKeyCtrl = TextEditingController();
+  final _evolutionTestNumberCtrl = TextEditingController();
+  final _evolutionTestMessageCtrl = TextEditingController();
 
   bool _loading = true;
   bool _saving = false;
+  bool _sendingEvolutionTest = false;
   bool _showApiKey = false;
   bool _showEvolutionApiKey = false;
   String? _logoBase64;
@@ -64,6 +69,8 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     _evolutionApiBaseUrlCtrl.dispose();
     _evolutionApiInstanceNameCtrl.dispose();
     _evolutionApiApiKeyCtrl.dispose();
+    _evolutionTestNumberCtrl.dispose();
+    _evolutionTestMessageCtrl.dispose();
     super.dispose();
   }
 
@@ -489,6 +496,90 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
             },
             icon: const Icon(Icons.delete_outline),
             label: const Text('Limpiar Evolution API'),
+          ),
+        ),
+        const SizedBox(height: 16),
+        const Divider(),
+        const SizedBox(height: 16),
+        const Text(
+          'Prueba',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Coloca un número y un mensaje para validar que Evolution puede enviar WhatsApp (texto).',
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _evolutionTestNumberCtrl,
+          keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(
+            labelText: 'Número (WhatsApp)',
+            hintText: '1829XXXXXXX',
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _evolutionTestMessageCtrl,
+          maxLines: 2,
+          decoration: const InputDecoration(
+            labelText: 'Mensaje',
+            hintText: 'Hola, esto es una prueba…',
+          ),
+        ),
+        const SizedBox(height: 10),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.icon(
+            onPressed: (_saving || _sendingEvolutionTest)
+                ? null
+                : () async {
+                    final numberRaw = _evolutionTestNumberCtrl.text.trim();
+                    final messageRaw = _evolutionTestMessageCtrl.text.trim();
+                    final evolution = ref.read(evolutionApiRepositoryProvider);
+                    final normalized = evolution.normalizeWhatsAppNumber(
+                      numberRaw,
+                    );
+
+                    if (normalized.isEmpty) {
+                      _showMessage('Número inválido para WhatsApp.');
+                      return;
+                    }
+
+                    setState(() => _sendingEvolutionTest = true);
+                    refreshUi?.call();
+                    try {
+                      final saved = await _save();
+                      if (!saved) return;
+
+                      await evolution.sendTextMessage(
+                        toNumber: normalized,
+                        message: messageRaw.isEmpty
+                            ? 'Prueba FULLTECH'
+                            : messageRaw,
+                      );
+                      _showMessage('Mensaje de prueba enviado.');
+                    } on ApiException catch (e) {
+                      _showMessage(e.message);
+                    } catch (e) {
+                      _showMessage('No se pudo enviar: $e');
+                    } finally {
+                      if (mounted) {
+                        setState(() => _sendingEvolutionTest = false);
+                      }
+                      refreshUi?.call();
+                    }
+                  },
+            icon: _sendingEvolutionTest
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.send_outlined),
+            label: Text(
+              _sendingEvolutionTest ? 'Enviando...' : 'Enviar prueba',
+            ),
           ),
         ),
       ],

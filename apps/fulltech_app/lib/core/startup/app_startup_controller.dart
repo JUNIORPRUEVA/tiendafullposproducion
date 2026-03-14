@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../features/contabilidad/contabilidad_init.dart';
 import '../api/env.dart';
@@ -204,11 +208,22 @@ Future<void> _ensureEnvLoaded() async {
     debugPrint('No env file could be loaded. Using runtime/fallback config.');
   }
 
+  // SharedPreferences (Windows) stores data in `<AppSupport>/shared_preferences.json`.
+  // If that JSON gets corrupted, any access can throw FormatException and break
+  // multiple modules (auth tokens, manual "seenAt", settings cache, etc.).
+  await _repairSharedPreferencesIfCorrupted();
+
   // Extra diagnostics in debug/profile to avoid confusion when testing locally
   // (eg. Windows desktop) but targeting a cloud API.
   if (!kReleaseMode) {
-    const defineBaseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: '');
-    const defineTimeout = String.fromEnvironment('API_TIMEOUT_MS', defaultValue: '');
+    const defineBaseUrl = String.fromEnvironment(
+      'API_BASE_URL',
+      defaultValue: '',
+    );
+    const defineTimeout = String.fromEnvironment(
+      'API_TIMEOUT_MS',
+      defaultValue: '',
+    );
     final dotenvBaseUrl = (dotenv.env['API_BASE_URL'] ?? '').trim();
     final dotenvTimeout = (dotenv.env['API_TIMEOUT_MS'] ?? '').trim();
 
@@ -229,5 +244,39 @@ Future<void> _ensureEnvLoaded() async {
     debugPrint('API_BASE_URL: $baseUrl');
   } on Object catch (error) {
     debugPrint('Invalid API_BASE_URL configuration: $error');
+  }
+}
+
+Future<void> _repairSharedPreferencesIfCorrupted() async {
+  // Only attempt filesystem repair on IO platforms.
+  if (kIsWeb) return;
+
+  try {
+    await SharedPreferences.getInstance();
+    return;
+  } on FormatException catch (e) {
+    debugPrint('SharedPreferences corrupted: $e');
+  } catch (_) {
+    // Non-format errors: don't try to delete files.
+    return;
+  }
+
+  try {
+    final dir = await getApplicationSupportDirectory();
+    final prefsPath = p.join(dir.path, 'shared_preferences.json');
+    final file = File(prefsPath);
+    if (await file.exists()) {
+      await file.delete();
+      debugPrint('Deleted corrupted SharedPreferences file: $prefsPath');
+    }
+  } catch (e) {
+    debugPrint('Failed to delete corrupted SharedPreferences file: $e');
+  }
+
+  // Retry once (will recreate a clean file).
+  try {
+    await SharedPreferences.getInstance();
+  } catch (e) {
+    debugPrint('SharedPreferences repair retry failed: $e');
   }
 }

@@ -19,6 +19,7 @@ import { LocationsModule } from './locations/locations.module';
 import { SalidasTecnicasModule } from './salidas-tecnicas/salidas-tecnicas.module';
 import { WorkSchedulingModule } from './work-scheduling/work-scheduling.module';
 import { CompanyManualModule } from './company-manual/company-manual.module';
+import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { CompanyManualModule } from './company-manual/company-manual.module';
     SalidasTecnicasModule,
     WorkSchedulingModule,
     CompanyManualModule,
+    AiAssistantModule,
   ]
 })
 export class AppModule {}

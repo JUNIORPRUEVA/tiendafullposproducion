@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -323,7 +324,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       final rawTickets = (cached['tickets'] as List?) ?? const [];
       final tickets = rawTickets
           .whereType<Map>()
-          .map((row) => _DesktopTicketDraft.fromMap(row.cast<String, dynamic>()))
+          .map(
+            (row) => _DesktopTicketDraft.fromMap(row.cast<String, dynamic>()),
+          )
           .toList();
 
       if (tickets.isEmpty) return;
@@ -1349,16 +1352,35 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
             Future<void> sendWhatsApp() async {
               setDialogState(() => sendingWhatsApp = true);
               try {
-                await evolution.sendPdfDocument(
-                  toNumber: normalizedPhone,
-                  bytes: bytes,
-                  fileName: fileName(),
-                  caption: caption(),
-                );
+                final cancelToken = CancelToken();
+                await evolution
+                    .sendPdfDocument(
+                      toNumber: normalizedPhone,
+                      bytes: bytes,
+                      fileName: fileName(),
+                      caption: caption(),
+                      cancelToken: cancelToken,
+                    )
+                    .timeout(
+                      const Duration(seconds: 25),
+                      onTimeout: () {
+                        cancelToken.cancel('timeout');
+                        throw TimeoutException('timeout');
+                      },
+                    );
                 if (!scaffoldContext.mounted) return;
                 ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
                   const SnackBar(
                     content: Text('Cotización enviada vía WhatsApp.'),
+                  ),
+                );
+              } on TimeoutException {
+                if (!scaffoldContext.mounted) return;
+                ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Tiempo de espera agotado enviando por WhatsApp (Evolution).',
+                    ),
                   ),
                 );
               } on ApiException catch (e) {
@@ -1643,13 +1665,14 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
           Chip(
             avatar: const Icon(Icons.category_outlined, size: 16),
             label: Text(_selectedCategory!),
-            onDeleted: () => setState(() => _selectedCategory = null),
+            onDeleted: () =>
+                _commitEditorChange(() => _selectedCategory = null),
           ),
         if (_note.trim().isNotEmpty)
           Chip(
             avatar: const Icon(Icons.note_alt_outlined, size: 16),
             label: Text(_note, overflow: TextOverflow.ellipsis),
-            onDeleted: () => setState(() => _note = ''),
+            onDeleted: () => _commitEditorChange(() => _note = ''),
           ),
       ],
     );
@@ -1745,7 +1768,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                         onMinus: () => _setQty(index, item.qty - 1),
                         onPlus: () => _setQty(index, item.qty + 1),
                         onChangePrice: (value) => _setUnitPrice(index, value),
-                        onRemove: () => setState(() => _items.removeAt(index)),
+                        onRemove: () =>
+                            _commitEditorChange(() => _items.removeAt(index)),
                       );
                     },
                   ),
@@ -1778,8 +1802,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                           const SizedBox(width: 6),
                           Switch.adaptive(
                             value: _includeItbis,
-                            onChanged: (value) =>
-                                setState(() => _includeItbis = value),
+                            onChanged: (value) => _commitEditorChange(
+                              () => _includeItbis = value,
+                            ),
                           ),
                         ],
                       ),
@@ -1810,7 +1835,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                         onPressed: _items.isEmpty
                             ? null
                             : () {
-                                setState(() {
+                                _commitEditorChange(() {
                                   _items.clear();
                                   _editingId = null;
                                   _editingCreatedAt = null;
@@ -3045,8 +3070,8 @@ class _DesktopTicketDraft {
           .map((row) => CotizacionItem.fromMap(row.cast<String, dynamic>()))
           .toList(growable: false),
       selectedClientId: map['selectedClientId']?.toString(),
-      selectedClientName:
-          (map['selectedClientName'] ?? 'Sin cliente').toString(),
+      selectedClientName: (map['selectedClientName'] ?? 'Sin cliente')
+          .toString(),
       selectedClientPhone: map['selectedClientPhone']?.toString(),
       note: (map['note'] ?? '').toString(),
       includeItbis: map['includeItbis'] == true,

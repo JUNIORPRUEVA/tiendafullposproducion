@@ -11,6 +11,7 @@ class AuthInterceptor extends Interceptor {
   final Dio dio;
   final Dio _refreshDio;
 
+  static const String _retryFlagKey = '__auth_retry';
   Future<_RefreshResult?>? _refreshFuture;
 
   AuthInterceptor(this.tokenStorage, this.dio) : _refreshDio = Dio(dio.options);
@@ -66,6 +67,52 @@ class AuthInterceptor extends Interceptor {
     return path == ApiRoutes.refresh || path.endsWith(ApiRoutes.refresh);
   }
 
+  Future<_RefreshResult?> _ensureRefreshed({required int seq}) {
+    _refreshFuture ??=
+        () async {
+          String? refreshToken;
+          try {
+            refreshToken = await tokenStorage.getRefreshToken().timeout(
+              const Duration(seconds: 2),
+            );
+          } on TimeoutException catch (e, st) {
+            TraceLog.log(
+              'AuthInterceptor',
+              'getRefreshToken() TIMEOUT',
+              seq: seq,
+              error: e,
+              stackTrace: st,
+            );
+          } catch (e, st) {
+            TraceLog.log(
+              'AuthInterceptor',
+              'getRefreshToken() ERROR',
+              seq: seq,
+              error: e,
+              stackTrace: st,
+            );
+          }
+
+          if (refreshToken == null || refreshToken.isEmpty) return null;
+
+          final refreshed = await _refresh(refreshToken);
+          if (refreshed == null || refreshed.accessToken.isEmpty) return null;
+
+          await tokenStorage.saveTokens(
+            refreshed.accessToken,
+            (refreshed.refreshToken != null &&
+                    refreshed.refreshToken!.isNotEmpty)
+                ? refreshed.refreshToken
+                : refreshToken,
+          );
+          return refreshed;
+        }().whenComplete(() {
+          _refreshFuture = null;
+        });
+
+    return _refreshFuture!;
+  }
+
   Future<_RefreshResult?> _refresh(String refreshToken) async {
     try {
       final response = await _refreshDio.post(
@@ -91,8 +138,10 @@ class AuthInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
+    final alreadyRetried = err.requestOptions.extra[_retryFlagKey] == true;
     if (err.response?.statusCode == 401 &&
-        !_isAuthRefreshPath(err.requestOptions.path)) {
+        !_isAuthRefreshPath(err.requestOptions.path) &&
+        !alreadyRetried) {
       final seq = TraceLog.nextSeq();
       TraceLog.log(
         'AuthInterceptor',
@@ -100,58 +149,25 @@ class AuthInterceptor extends Interceptor {
         seq: seq,
       );
 
-      String? refreshToken;
       try {
-        refreshToken = await tokenStorage.getRefreshToken().timeout(
-          const Duration(seconds: 2),
-        );
-      } on TimeoutException catch (e, st) {
-        TraceLog.log(
-          'AuthInterceptor',
-          'getRefreshToken() TIMEOUT',
-          seq: seq,
-          error: e,
-          stackTrace: st,
-        );
-      } catch (e, st) {
-        TraceLog.log(
-          'AuthInterceptor',
-          'getRefreshToken() ERROR',
-          seq: seq,
-          error: e,
-          stackTrace: st,
-        );
-      }
+        final refreshed = await _ensureRefreshed(seq: seq);
+        if (refreshed != null && refreshed.accessToken.isNotEmpty) {
+          final opts = err.requestOptions;
+          opts.headers['Authorization'] = 'Bearer ${refreshed.accessToken}';
+          opts.extra[_retryFlagKey] = true;
 
-      if (refreshToken != null && refreshToken.isNotEmpty) {
-        try {
-          _refreshFuture ??= _refresh(refreshToken).whenComplete(() {
-            _refreshFuture = null;
-          });
-
-          final refreshed = await _refreshFuture;
-          if (refreshed != null && refreshed.accessToken.isNotEmpty) {
-            await tokenStorage.saveTokens(
-              refreshed.accessToken,
-              (refreshed.refreshToken != null &&
-                      refreshed.refreshToken!.isNotEmpty)
-                  ? refreshed.refreshToken
-                  : refreshToken,
-            );
-            final opts = err.requestOptions;
-            opts.headers['Authorization'] = 'Bearer ${refreshed.accessToken}';
-
-            // Dio no permite reutilizar FormData ya enviada (queda "finalized").
-            // Clonamos para que el reintento funcione en uploads multipart.
-            final data = opts.data;
-            if (data is FormData) {
-              opts.data = data.clone();
-            }
-
-            final retryResponse = await dio.fetch(opts);
-            return handler.resolve(retryResponse);
+          // Dio no permite reutilizar FormData ya enviada (queda "finalized").
+          // Clonamos para que el reintento funcione en uploads multipart.
+          final data = opts.data;
+          if (data is FormData) {
+            opts.data = data.clone();
           }
-        } catch (_) {}
+
+          final retryResponse = await dio.fetch(opts);
+          return handler.resolve(retryResponse);
+        }
+      } catch (_) {
+        // Fall through to original error.
       }
     }
     handler.next(err);

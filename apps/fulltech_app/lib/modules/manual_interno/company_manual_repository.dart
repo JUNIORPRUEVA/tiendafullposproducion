@@ -40,23 +40,38 @@ class CompanyManualRepository {
     String? moduleKey,
     bool includeHidden = false,
   }) async {
-    final data = await _getMap(
-      ApiRoutes.companyManualEntries,
-      query: {
-        if (kind != null) 'kind': kind.apiValue,
-        if (audience != null) 'audience': audience.apiValue,
-        if (moduleKey != null && moduleKey.trim().isNotEmpty)
-          'moduleKey': moduleKey.trim().toLowerCase(),
-        if (includeHidden) 'includeHidden': 'true',
-      },
-    );
+    try {
+      final data = await _getMap(
+        ApiRoutes.companyManualEntries,
+        query: {
+          if (kind != null) 'kind': kind.apiValue,
+          if (audience != null) 'audience': audience.apiValue,
+          if (moduleKey != null && moduleKey.trim().isNotEmpty)
+            'moduleKey': moduleKey.trim().toLowerCase(),
+          if (includeHidden) 'includeHidden': 'true',
+        },
+      );
 
-    final items = data['items'];
-    if (items is! List) return const [];
-    return items
-        .whereType<Map>()
-        .map((row) => CompanyManualEntry.fromMap(row.cast<String, dynamic>()))
-        .toList(growable: false);
+      final items = data['items'];
+      if (items is! List) return const [];
+      return items
+          .whereType<Map>()
+          .map((row) => CompanyManualEntry.fromMap(row.cast<String, dynamic>()))
+          .toList(growable: false);
+    } on ApiException {
+      rethrow;
+    } catch (e) {
+      // Ensure UI always gets a contextual ApiException instead of a raw FormatException.
+      throw ApiException(
+        _enrichManualError(
+          e.toString(),
+          uri: Uri.parse(
+            '${_dio.options.baseUrl}${ApiRoutes.companyManualEntries}',
+          ),
+          baseUrl: _dio.options.baseUrl,
+        ),
+      );
+    }
   }
 
   Future<CompanyManualEntry> getEntryById(String id) async {
@@ -108,15 +123,25 @@ class CompanyManualRepository {
   }
 
   Future<DateTime?> getSeenAt() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_seenKey());
-    if (raw == null || raw.trim().isEmpty) return null;
-    return DateTime.tryParse(raw);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_seenKey());
+      if (raw == null || raw.trim().isEmpty) return null;
+      return DateTime.tryParse(raw);
+    } catch (_) {
+      // SharedPreferences can get corrupted on some desktop setups.
+      // SeenAt is non-critical; ignore failures.
+      return null;
+    }
   }
 
   Future<void> markSeen(DateTime seenAt) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_seenKey(), seenAt.toIso8601String());
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_seenKey(), seenAt.toIso8601String());
+    } catch (_) {
+      // Non-critical: manual can work without this.
+    }
   }
 
   String _seenKey() {
@@ -144,9 +169,15 @@ class CompanyManualRepository {
       // Some deployments serve the PWA and proxy the API under /api.
       // If the response looks like HTML (SPA shell), retry once toggling the /api prefix.
       if (res != null) {
-        // Some adapters/proxies return empty bytes even when the server sent JSON.
-        // Retry once with ResponseType.plain to get a reliable string payload.
-        if (_looksLikeEmptyPayload(res.data)) {
+        final isInvalid = e.message.trim().startsWith(
+          _invalidResponseMessage(action),
+        );
+
+        // Some adapters/proxies return empty bytes even when the server sent JSON,
+        // or return bytes that need a different decoding path.
+        // Retry with ResponseType.plain first (string payload), then ResponseType.stream
+        // to force reading the raw byte stream.
+        if (_looksLikeEmptyPayload(res.data) || isInvalid) {
           try {
             final alt = await _dio
                 .getUri(
@@ -166,7 +197,31 @@ class CompanyManualRepository {
             final decoded = jsonDecode(_stripBom(raw).trim());
             return _requireMap(decoded, action);
           } catch (_) {
-            // Fall through to other retries / enriched error.
+            // Try reading as a stream as a stronger fallback.
+            try {
+              final alt = await _dio
+                  .getUri(
+                    res.realUri.replace(
+                      queryParameters: {
+                        ...res.realUri.queryParameters,
+                        ...?query?.map(
+                          (k, v) => MapEntry(k, v?.toString() ?? ''),
+                        ),
+                      },
+                    ),
+                    options: _streamOptions(extra: extra),
+                  )
+                  .timeout(_timeout);
+
+              final body = alt.data;
+              if (body is ResponseBody) {
+                final bytes = await _collectResponseBytes(body);
+                final decoded = _decodeJsonFromBytes(bytes, action);
+                return _requireMap(decoded, action);
+              }
+            } catch (_) {
+              // Fall through to other retries / enriched error.
+            }
           }
         }
 
@@ -197,6 +252,9 @@ class CompanyManualRepository {
             e.message,
             uri: res.realUri,
             baseUrl: _dio.options.baseUrl,
+            statusCode: res.statusCode,
+            headers: res.headers.map,
+            data: res.data,
           ),
         );
       }
@@ -323,36 +381,106 @@ class CompanyManualRepository {
       throw ApiException(_invalidResponseMessage(action));
     }
 
-    Uint8List payload = bytes;
-    if (_looksLikeGzip(payload)) {
+    final candidates = <Uint8List>[bytes];
+
+    // gzip
+    if (_looksLikeGzip(bytes)) {
       try {
-        payload = Uint8List.fromList(GZipDecoder().decodeBytes(payload));
+        candidates.add(Uint8List.fromList(GZipDecoder().decodeBytes(bytes)));
       } catch (_) {
-        // If it's not actually valid gzip, continue with raw bytes.
-        payload = bytes;
+        // ignore
       }
     }
 
-    String decoded;
+    // zlib/deflate (sometimes proxies compress without proper headers)
     try {
-      decoded = utf8.decode(payload);
-    } on FormatException {
-      // Some servers omit charset; fall back to latin1 to avoid throwing.
-      decoded = latin1.decode(payload);
+      candidates.add(Uint8List.fromList(ZLibDecoder().decodeBytes(bytes)));
+    } catch (_) {
+      // ignore
     }
 
-    final raw = _stripBom(decoded).trim();
-    if (raw.isEmpty) {
-      throw ApiException(_invalidResponseMessage(action));
+    Object? lastError;
+    for (final payload in candidates) {
+      // UTF-8 first (allow malformed so we can still show diagnostics)
+      final decodedUtf8 = utf8.decode(payload, allowMalformed: true);
+      final rawUtf8 = _stripBom(decodedUtf8).trim();
+      if (rawUtf8.isNotEmpty) {
+        try {
+          return jsonDecode(rawUtf8);
+        } on FormatException catch (e) {
+          lastError = e;
+        }
+      }
+
+      // If it looks like UTF-16, try that too.
+      final decodedUtf16 = _tryDecodeUtf16(payload);
+      if (decodedUtf16 != null) {
+        final rawUtf16 = _stripBom(decodedUtf16).trim();
+        if (rawUtf16.isNotEmpty) {
+          try {
+            return jsonDecode(rawUtf16);
+          } on FormatException catch (e) {
+            lastError = e;
+          }
+        }
+      }
+
+      // latin1 last-resort
+      final decodedLatin1 = latin1.decode(payload);
+      final rawLatin1 = _stripBom(decodedLatin1).trim();
+      if (rawLatin1.isNotEmpty) {
+        try {
+          return jsonDecode(rawLatin1);
+        } on FormatException catch (e) {
+          lastError = e;
+        }
+      }
     }
 
-    try {
-      return jsonDecode(raw);
-    } on FormatException catch (e) {
+    if (lastError is FormatException) {
+      final preview = _peekTextPreview(bytes) ?? '';
       throw ApiException(
-        _invalidResponseMessage(action) + _formatDecodeHint(raw, e),
+        _invalidResponseMessage(action) + _formatDecodeHint(preview, lastError),
       );
     }
+
+    throw ApiException(_invalidResponseMessage(action));
+  }
+
+  String? _tryDecodeUtf16(Uint8List bytes) {
+    if (bytes.length < 4) return null;
+    // BOM-based detection
+    final hasLeBom = bytes[0] == 0xFF && bytes[1] == 0xFE;
+    final hasBeBom = bytes[0] == 0xFE && bytes[1] == 0xFF;
+
+    // Heuristic: lots of NUL bytes in even/odd positions.
+    int nulEven = 0;
+    int nulOdd = 0;
+    final sampleLen = bytes.length > 200 ? 200 : bytes.length;
+    for (var i = 0; i < sampleLen; i++) {
+      if (bytes[i] == 0x00) {
+        if (i.isEven) {
+          nulEven++;
+        } else {
+          nulOdd++;
+        }
+      }
+    }
+    final looksLe =
+        hasLeBom || (nulOdd > (sampleLen / 10) && nulEven < (sampleLen / 50));
+    final looksBe =
+        hasBeBom || (nulEven > (sampleLen / 10) && nulOdd < (sampleLen / 50));
+    if (!looksLe && !looksBe) return null;
+
+    final start = (hasLeBom || hasBeBom) ? 2 : 0;
+    final codeUnits = <int>[];
+    for (var i = start; i + 1 < bytes.length; i += 2) {
+      final unit = looksLe
+          ? (bytes[i] | (bytes[i + 1] << 8))
+          : ((bytes[i] << 8) | bytes[i + 1]);
+      codeUnits.add(unit);
+    }
+    return String.fromCharCodes(codeUnits);
   }
 
   bool _looksLikeGzip(Uint8List bytes) {
@@ -435,8 +563,72 @@ class CompanyManualRepository {
     String message, {
     required Uri uri,
     required String baseUrl,
+    int? statusCode,
+    Map<String, List<String>>? headers,
+    dynamic data,
   }) {
-    return '$message\nEndpoint: ${uri.path}\nURI: $uri\nBaseURL: $baseUrl';
+    final ct =
+        headers?['content-type']?.firstOrNull ??
+        headers?['Content-Type']?.firstOrNull;
+    final cl =
+        headers?['content-length']?.firstOrNull ??
+        headers?['Content-Length']?.firstOrNull;
+    final ce =
+        headers?['content-encoding']?.firstOrNull ??
+        headers?['Content-Encoding']?.firstOrNull;
+    final rt = data == null ? 'null' : data.runtimeType.toString();
+
+    String? hex;
+    try {
+      Uint8List? bytes;
+      if (data is Uint8List) bytes = data;
+      if (data is ByteBuffer) bytes = data.asUint8List();
+      if (data is List<int>) bytes = Uint8List.fromList(data);
+      if (bytes != null && bytes.isNotEmpty) {
+        final take = bytes.length > 16 ? bytes.sublist(0, 16) : bytes;
+        hex = take.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+      }
+    } catch (_) {
+      hex = null;
+    }
+
+    final preview = _peekTextPreview(data);
+
+    String? len;
+    try {
+      if (data is Uint8List) len = data.length.toString();
+      if (data is ByteBuffer) len = data.lengthInBytes.toString();
+      if (data is List<int>) len = data.length.toString();
+      if (data is String) len = data.length.toString();
+    } catch (_) {
+      len = null;
+    }
+
+    final meta = <String>[
+      if (statusCode != null) 'Status: $statusCode',
+      if (ct != null && ct.trim().isNotEmpty) 'Content-Type: $ct',
+      if (cl != null && cl.trim().isNotEmpty) 'Content-Length: $cl',
+      if (ce != null && ce.trim().isNotEmpty) 'Content-Encoding: $ce',
+      'DataType: $rt',
+      if (len != null) 'DataLen: $len',
+      if (hex != null) 'FirstBytes(hex): $hex',
+      if (preview != null && preview.trim().isNotEmpty)
+        'Preview: "${preview.replaceAll(RegExp(r"\s+"), " ").trim()}"',
+    ];
+
+    return '$message\nEndpoint: ${uri.path}\nURI: $uri\nBaseURL: $baseUrl\n${meta.join('\n')}';
+  }
+
+  Options _streamOptions({Map<String, dynamic>? extra}) {
+    return _options(extra: extra).copyWith(responseType: ResponseType.stream);
+  }
+
+  Future<Uint8List> _collectResponseBytes(ResponseBody body) async {
+    final chunks = <int>[];
+    await for (final chunk in body.stream) {
+      chunks.addAll(chunk);
+    }
+    return Uint8List.fromList(chunks);
   }
 
   String _stripBom(String value) {
@@ -452,6 +644,7 @@ class CompanyManualRepository {
 
   Options _jsonOptions({Map<String, dynamic>? extra}) {
     // Use bytes to reliably handle gzip or mis-labeled encodings.
+    // (We decode ourselves in _decodeResponseBody/_decodeJsonFromBytes.)
     return _options(extra: extra).copyWith(responseType: ResponseType.bytes);
   }
 
@@ -469,7 +662,12 @@ class CompanyManualRepository {
   }
 
   Options _options({Map<String, dynamic>? extra}) {
-    return Options(extra: {'skipLoader': true, ...?extra});
+    // Prevent servers/CDNs from sending brotli/deflate that may not be decoded
+    // consistently across desktop adapters.
+    return Options(
+      extra: {'skipLoader': true, ...?extra},
+      headers: const {'Accept-Encoding': 'identity'},
+    );
   }
 
   String _extractMessage(DioException e, String fallback) {

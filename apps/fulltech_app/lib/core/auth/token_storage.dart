@@ -20,17 +20,30 @@ class TokenStorage {
   bool get _useSecureStorage {
     if (kIsWeb) return false;
     return defaultTargetPlatform == TargetPlatform.android ||
-      defaultTargetPlatform == TargetPlatform.iOS ||
-      defaultTargetPlatform == TargetPlatform.windows ||
-      defaultTargetPlatform == TargetPlatform.linux ||
-      defaultTargetPlatform == TargetPlatform.macOS;
+        defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS;
   }
 
   static const Duration _prefsTimeout = Duration(seconds: 2);
   static const Duration _secureTimeout = Duration(seconds: 2);
 
+  bool _prefsBroken = false;
+
   Future<SharedPreferences> _prefs() {
-    return SharedPreferences.getInstance().timeout(_prefsTimeout);
+    if (_prefsBroken) {
+      return Future.error(StateError('SharedPreferences unavailable'));
+    }
+
+    return SharedPreferences.getInstance().timeout(_prefsTimeout).catchError((
+      e,
+    ) {
+      // On some Windows setups the underlying prefs JSON can become corrupted,
+      // causing FormatException on any access. Mark as broken to avoid spamming logs.
+      _prefsBroken = true;
+      throw e;
+    });
   }
 
   Future<void> saveTokens(String accessToken, [String? refreshToken]) async {
@@ -216,6 +229,7 @@ class TokenStorage {
   }
 
   Future<void> _saveInPrefs(String accessToken, [String? refreshToken]) async {
+    if (_prefsBroken) return;
     try {
       final prefs = await _prefs();
       await prefs.setString(_accessTokenKey, accessToken);
@@ -223,6 +237,7 @@ class TokenStorage {
         await prefs.setString(_refreshTokenKey, refreshToken);
       }
     } catch (e, st) {
+      _prefsBroken = true;
       TraceLog.log(
         'TokenStorage',
         '_saveInPrefs ERROR',
@@ -235,10 +250,12 @@ class TokenStorage {
 
   Future<void> _writePrefValue(String key, String value) async {
     if (value.isEmpty) return;
+    if (_prefsBroken) return;
     try {
       final prefs = await _prefs();
       await prefs.setString(key, value);
     } catch (e, st) {
+      _prefsBroken = true;
       TraceLog.log(
         'TokenStorage',
         '_writePrefValue ERROR key=$key',
@@ -275,7 +292,9 @@ class TokenStorage {
   Future<void> _writeSecureValue(String key, String value) async {
     if (!_useSecureStorage || value.isEmpty) return;
     try {
-      await _secureStorage.write(key: key, value: value).timeout(_secureTimeout);
+      await _secureStorage
+          .write(key: key, value: value)
+          .timeout(_secureTimeout);
     } catch (e, st) {
       TraceLog.log(
         'TokenStorage',
@@ -354,9 +373,14 @@ class TokenStorage {
     } catch (_) {}
 
     try {
-      await _secureStorage.delete(key: _userSnapshotKey).timeout(_secureTimeout);
+      await _secureStorage
+          .delete(key: _userSnapshotKey)
+          .timeout(_secureTimeout);
     } catch (_) {}
 
-    TraceLog.log('TokenStorage', 'Removed corrupted user snapshot from $source');
+    TraceLog.log(
+      'TokenStorage',
+      'Removed corrupted user snapshot from $source',
+    );
   }
 }

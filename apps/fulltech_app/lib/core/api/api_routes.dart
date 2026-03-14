@@ -55,8 +55,8 @@ class ApiRoutes {
   // Clientes
   static const clients = '/clients';
   static String clientDetail(String id) => '/clients/$id';
-    static String clientProfile(String id) => '/clients/$id/profile';
-    static String clientTimeline(String id) => '/clients/$id/timeline';
+  static String clientProfile(String id) => '/clients/$id/profile';
+  static String clientTimeline(String id) => '/clients/$id/timeline';
 
   // Productos
   static const products = '/products';
@@ -141,6 +141,9 @@ class ApiRoutes {
   static String cotizacionDetail(String id) => '/cotizaciones/$id';
   static const cotizacionAiAnalyze = '/cotizaciones/ai/analyze';
   static const cotizacionAiChat = '/cotizaciones/ai/chat';
+
+  // Asistente IA (global)
+  static const aiChat = '/ai/chat';
 
   // Horarios (Work Scheduling)
   static const workSchedulingEmployees = '/work-scheduling/employees';
