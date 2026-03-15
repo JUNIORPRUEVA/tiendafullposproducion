@@ -689,6 +689,17 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     try {
       final created = await _createService(draft);
 
+      final paymentNote = (draft.paymentNote ?? '').trim();
+      if (paymentNote.isNotEmpty) {
+        try {
+          await ref
+              .read(operationsControllerProvider.notifier)
+              .addNote(created.id, paymentNote);
+        } catch (_) {
+          // No bloquea la creación.
+        }
+      }
+
       final reservationAt = draft.reservationAt;
       if (reservationAt != null) {
         try {
@@ -785,6 +796,17 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     try {
       final created = await _createService(draft, orderType: normalized);
 
+      final paymentNote = (draft.paymentNote ?? '').trim();
+      if (paymentNote.isNotEmpty) {
+        try {
+          await ref
+              .read(operationsControllerProvider.notifier)
+              .addNote(created.id, paymentNote);
+        } catch (_) {
+          // No bloquea la creación.
+        }
+      }
+
       final reservationAt = draft.reservationAt;
       if (reservationAt != null) {
         try {
@@ -866,6 +888,17 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
 
     try {
       final created = await _createService(draft, orderType: lower);
+
+      final paymentNote = (draft.paymentNote ?? '').trim();
+      if (paymentNote.isNotEmpty) {
+        try {
+          await ref
+              .read(operationsControllerProvider.notifier)
+              .addNote(created.id, paymentNote);
+        } catch (_) {
+          // No bloquea la creación.
+        }
+      }
 
       final reservationAt = draft.reservationAt;
       if (reservationAt != null) {
@@ -1951,8 +1984,7 @@ bool _looksLikeValidLocationText(String value) {
   if (v.isEmpty) return false;
   if (RegExp(r'https?://', caseSensitive: false).hasMatch(v)) return true;
   if (parseLatLngFromText(v) != null) return true;
-  final compact = v.replaceAll(RegExp(r'\s+'), ' ').trim();
-  return compact.length >= 8;
+  return false;
 }
 
 bool _isFinalizedService(ServiceModel s) {
@@ -1966,21 +1998,36 @@ bool _isFinalizedService(ServiceModel s) {
 List<String> _missingPhaseRequirements(ServiceModel s, String phase) {
   final p = phase.trim().toLowerCase();
 
-  if (p == 'instalacion' || p == 'mantenimiento' || p == 'levantamiento') {
-    final missing = <String>[];
-    final quoted = (s.quotedAmount ?? 0);
-    final total = (s.finalCost ?? 0);
-    if (quoted <= 0) missing.add('Cotización');
-    if (total <= 0) missing.add('Monto total');
-    if (!_looksLikeValidLocationText(s.customerAddress)) {
-      missing.add('Ubicación');
-    }
-    return missing;
-  }
+  const requiresData = {
+    'levantamiento',
+    'instalacion',
+    'mantenimiento',
+    'garantia',
+  };
 
-  if (p == 'garantia') {
+  if (requiresData.contains(p)) {
     final missing = <String>[];
-    if (!_isFinalizedService(s)) missing.add('Orden finalizada');
+
+    if (s.customerId.trim().isEmpty) missing.add('Cliente');
+    if (s.customerName.trim().isEmpty) missing.add('Nombre cliente');
+    if (s.customerPhone.trim().isEmpty) missing.add('Teléfono cliente');
+
+    final quoted = (s.quotedAmount ?? 0);
+    if (quoted <= 0) missing.add('Cotización');
+
+    if (!_looksLikeValidLocationText(s.customerAddress)) {
+      missing.add('Ubicación GPS');
+    }
+
+    if (p == 'instalacion' || p == 'mantenimiento') {
+      final total = (s.finalCost ?? 0);
+      if (total <= 0) missing.add('Monto total');
+    }
+
+    if (p == 'garantia' && !_isFinalizedService(s)) {
+      missing.add('Orden finalizada');
+    }
+
     return missing;
   }
 
@@ -4225,6 +4272,153 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     }
   }
 
+  Future<void> _pickAndChangePayment(ServiceModel service) async {
+    final current = _extractPaymentInfo(service);
+
+    String status = current.status.trim().toLowerCase();
+    if (status.isEmpty) status = 'pendiente';
+    String method = (current.method ?? 'efectivo').trim().toLowerCase();
+    if (method.isEmpty) method = 'efectivo';
+
+    final amountCtrl = TextEditingController(
+      text: current.amount == null ? '' : current.amount!.toStringAsFixed(2),
+    );
+    final formKey = GlobalKey<FormState>();
+
+    Future<void> closeWith(bool ok) async {
+      Navigator.pop(context, ok);
+    }
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Estado de pago'),
+              content: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      value: status,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Estado de pago',
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'pendiente',
+                          child: Text('Pendiente'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'pagado',
+                          child: Text('Pagado'),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        setDialogState(
+                          () => status = (value ?? 'pendiente')
+                              .trim()
+                              .toLowerCase(),
+                        );
+                      },
+                    ),
+                    if (status == 'pagado') ...[
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: amountCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Monto pagado',
+                        ),
+                        validator: (value) {
+                          if (status != 'pagado') return null;
+                          final raw = (value ?? '').trim();
+                          if (raw.isEmpty) return 'Requerido';
+                          final parsed = double.tryParse(raw);
+                          if (parsed == null || parsed <= 0) return 'Requerido';
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        value: method,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Método de pago',
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'efectivo',
+                            child: Text('Efectivo'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'transferencia',
+                            child: Text('Transferencia'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'tarjeta',
+                            child: Text('Tarjeta'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          method = (value ?? 'efectivo').trim().toLowerCase();
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => closeWith(false),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    if (!(formKey.currentState?.validate() ?? true)) return;
+
+                    final note = status == 'pagado'
+                        ? _buildPaymentNote(
+                            status: 'pagado',
+                            amount: double.parse(amountCtrl.text.trim()),
+                            method: method,
+                          )
+                        : _buildPaymentNote(status: 'pendiente');
+                    try {
+                      await widget.onAddNote(note);
+                      if (!context.mounted) return;
+                      await closeWith(true);
+                    } catch (e) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(e is ApiException ? e.message : '$e'),
+                        ),
+                      );
+                    }
+                  },
+                  child: const Text('Guardar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    amountCtrl.dispose();
+    if (!mounted || ok != true) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Estado de pago actualizado')));
+  }
+
   String? _suggestOrderStateForStatus(String status) {
     switch (status.trim().toLowerCase()) {
       case 'scheduled':
@@ -4517,7 +4711,14 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final service = _service;
+    final opsState = ref.watch(operationsControllerProvider);
+    ServiceModel service = _service;
+    for (final s in opsState.services) {
+      if (s.id == _service.id) {
+        service = s;
+        break;
+      }
+    }
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
     final auth = ref.watch(authStateProvider);
@@ -4553,6 +4754,8 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
       final safe = v.isNaN ? 0.0 : v;
       return 'RD\$${safe.toStringAsFixed(2)}';
     }
+
+    final payment = _extractPaymentInfo(service);
 
     final headerTitle = categoryText.isEmpty
         ? typeText
@@ -4737,13 +4940,32 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         onChangePhase: (phase, scheduledAt, note) async {
           final missing = _missingPhaseRequirements(service, phase);
           if (missing.isNotEmpty) {
-            messenger.showSnackBar(
-              SnackBar(
-                content: Text(
-                  'No se puede cambiar a ${phaseLabel(phase)}. Falta: ${missing.join(', ')}',
-                ),
-              ),
+            final goEdit = await showDialog<bool>(
+              context: context,
+              builder: (context) {
+                return AlertDialog(
+                  title: const Text('Datos obligatorios faltantes'),
+                  content: Text(
+                    'Antes de cambiar a "${phaseLabel(phase)}" debes completar:\n\n- ${missing.join('\n- ')}',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Entendido'),
+                    ),
+                    if (canEdit)
+                      FilledButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const Text('Editar datos'),
+                      ),
+                  ],
+                );
+              },
             );
+            if (!mounted) return;
+            if (goEdit == true) {
+              await editFlow();
+            }
             return;
           }
           try {
@@ -5056,6 +5278,52 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                 'Total',
                 money(service.quotedAmount ?? service.depositAmount),
               ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 92,
+                      child: Text(
+                        'Estado de pago',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.75),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _paymentStatusLabel(payment.status),
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      onPressed: canOperate
+                          ? () => _pickAndChangePayment(service)
+                          : null,
+                      child: const Text('Cambiar'),
+                    ),
+                  ],
+                ),
+              ),
+              if (payment.status.trim().toLowerCase() == 'pagado') ...[
+                _kv(context, 'Monto pagado', money(payment.amount)),
+                _kv(
+                  context,
+                  'Método',
+                  payment.method == null
+                      ? '—'
+                      : _paymentMethodLabel(payment.method!),
+                ),
+              ],
             ],
           ),
         ),
@@ -5360,6 +5628,98 @@ Widget _kv(BuildContext context, String label, String value) {
       ],
     ),
   );
+}
+
+class _PaymentInfo {
+  final String status;
+  final double? amount;
+  final String? method;
+
+  const _PaymentInfo({required this.status, this.amount, this.method});
+}
+
+String _buildPaymentNote({
+  required String status,
+  double? amount,
+  String? method,
+}) {
+  final normalizedStatus = status.trim().toLowerCase().isEmpty
+      ? 'pendiente'
+      : status.trim().toLowerCase();
+  final parts = <String>['[PAGO]', 'estado=$normalizedStatus'];
+  if (normalizedStatus == 'pagado') {
+    if (amount != null) {
+      final safe = amount.isNaN ? 0.0 : amount;
+      parts.add('monto=${safe.toStringAsFixed(2)}');
+    }
+    final m = (method ?? '').trim().toLowerCase();
+    if (m.isNotEmpty) parts.add('metodo=$m');
+  }
+  return parts.join(' ');
+}
+
+_PaymentInfo _extractPaymentInfo(ServiceModel service) {
+  final updates = service.updates;
+
+  Map<String, String> parseKv(String raw) {
+    final tokens = raw.split(RegExp(r'\s+'));
+    final out = <String, String>{};
+    for (final token in tokens) {
+      final i = token.indexOf('=');
+      if (i <= 0) continue;
+      final k = token.substring(0, i).trim().toLowerCase();
+      final v = token.substring(i + 1).trim();
+      if (k.isEmpty || v.isEmpty) continue;
+      out[k] = v;
+    }
+    return out;
+  }
+
+  for (var i = updates.length - 1; i >= 0; i--) {
+    final msg = updates[i].message.trim();
+    if (!msg.startsWith('[PAGO]')) continue;
+    final rest = msg.substring('[PAGO]'.length).trim();
+    final kv = parseKv(rest);
+
+    final status = (kv['estado'] ?? kv['status'] ?? 'pendiente')
+        .trim()
+        .toLowerCase();
+    final method = (kv['metodo'] ?? kv['method'])?.trim().toLowerCase();
+    final amountRaw = kv['monto'] ?? kv['amount'];
+    final amount = amountRaw == null ? null : double.tryParse(amountRaw);
+
+    return _PaymentInfo(
+      status: status.isEmpty ? 'pendiente' : status,
+      amount: amount,
+      method: method == null || method.isEmpty ? null : method,
+    );
+  }
+
+  return const _PaymentInfo(status: 'pendiente');
+}
+
+String _paymentStatusLabel(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'pagado':
+      return 'Pagado';
+    case 'pendiente':
+      return 'Pendiente';
+    default:
+      return status.trim().isEmpty ? 'Pendiente' : status;
+  }
+}
+
+String _paymentMethodLabel(String method) {
+  switch (method.trim().toLowerCase()) {
+    case 'efectivo':
+      return 'Efectivo';
+    case 'transferencia':
+      return 'Transferencia';
+    case 'tarjeta':
+      return 'Tarjeta';
+    default:
+      return method.trim().isEmpty ? '—' : method;
+  }
 }
 
 class OperacionesHistorialBody extends ConsumerStatefulWidget {
@@ -6143,6 +6503,7 @@ class _CreateServiceDraft {
   final double? finalCost;
   final double? quotedAmount;
   final double? depositAmount;
+  final String? paymentNote;
   final List<String> tags;
   final PlatformFile? referencePhoto;
 
@@ -6163,6 +6524,7 @@ class _CreateServiceDraft {
     this.finalCost,
     this.quotedAmount,
     this.depositAmount,
+    this.paymentNote,
     this.tags = const [],
     this.referencePhoto,
   });
@@ -6200,6 +6562,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   final _gpsCtrl = TextEditingController();
   final _quotedCtrl = TextEditingController();
   final _depositCtrl = TextEditingController();
+  final _paidAmountCtrl = TextEditingController();
   final _relatedServiceCtrl = TextEditingController();
   final _surveyResultCtrl = TextEditingController();
   final _materialsUsedCtrl = TextEditingController();
@@ -6220,6 +6583,9 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   bool _checkingCotizaciones = false;
   bool _hasCotizaciones = false;
   CotizacionModel? _selectedCotizacion;
+
+  String _paymentStatus = 'pendiente';
+  String _paymentMethod = 'efectivo';
 
   String _cotizacionesRouteForSelectedClient() {
     final id = (_customerId ?? '').trim();
@@ -6300,6 +6666,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     _gpsResolveDebounce?.cancel();
     _quotedCtrl.dispose();
     _depositCtrl.dispose();
+    _paidAmountCtrl.dispose();
     _relatedServiceCtrl.dispose();
     _surveyResultCtrl.dispose();
     _materialsUsedCtrl.dispose();
@@ -7363,6 +7730,138 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                   ],
                 ),
               const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _paymentStatus,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Estado de pago',
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'pendiente',
+                    child: Text('Pendiente'),
+                  ),
+                  DropdownMenuItem(value: 'pagado', child: Text('Pagado')),
+                ],
+                onChanged: (value) {
+                  final next = (value ?? 'pendiente').trim().toLowerCase();
+                  setState(() {
+                    _paymentStatus = next;
+                    if (next != 'pagado') _paidAmountCtrl.clear();
+                  });
+                },
+              ),
+              if (_paymentStatus == 'pagado') ...[
+                const SizedBox(height: 8),
+                if (isCompact) ...[
+                  TextFormField(
+                    controller: _paidAmountCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: 'Monto pagado',
+                    ),
+                    validator: (value) {
+                      if (_paymentStatus != 'pagado') return null;
+                      final raw = (value ?? '').trim();
+                      if (raw.isEmpty) return 'Requerido';
+                      final parsed = double.tryParse(raw);
+                      if (parsed == null || parsed <= 0) return 'Requerido';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: _paymentMethod,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: 'Método de pago',
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'efectivo',
+                        child: Text('Efectivo'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'transferencia',
+                        child: Text('Transferencia'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'tarjeta',
+                        child: Text('Tarjeta'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      setState(
+                        () => _paymentMethod = (value ?? 'efectivo')
+                            .trim()
+                            .toLowerCase(),
+                      );
+                    },
+                  ),
+                ] else
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _paidAmountCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            labelText: 'Monto pagado',
+                          ),
+                          validator: (value) {
+                            if (_paymentStatus != 'pagado') return null;
+                            final raw = (value ?? '').trim();
+                            if (raw.isEmpty) return 'Requerido';
+                            final parsed = double.tryParse(raw);
+                            if (parsed == null || parsed <= 0) {
+                              return 'Requerido';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _paymentMethod,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            labelText: 'Método de pago',
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'efectivo',
+                              child: Text('Efectivo'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'transferencia',
+                              child: Text('Transferencia'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'tarjeta',
+                              child: Text('Tarjeta'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            setState(
+                              () => _paymentMethod = (value ?? 'efectivo')
+                                  .trim()
+                                  .toLowerCase(),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+
+              const SizedBox(height: 12),
               FilledButton.icon(
                 onPressed: _saving ? null : _save,
                 icon: const Icon(Icons.save_outlined),
@@ -7893,6 +8392,31 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     final tags = <String>[];
     if ((deposit ?? 0) > 0) tags.add('seguro');
 
+    String? paymentNote;
+    if (_paymentStatus.trim().toLowerCase() == 'pagado') {
+      final paidAmount = double.tryParse(_paidAmountCtrl.text.trim());
+      if (paidAmount == null || paidAmount <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El monto pagado es requerido')),
+        );
+        return;
+      }
+
+      final method = _paymentMethod.trim().toLowerCase();
+      if (method.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El método de pago es requerido')),
+        );
+        return;
+      }
+
+      paymentNote = _buildPaymentNote(
+        status: 'pagado',
+        amount: paidAmount,
+        method: method,
+      );
+    }
+
     setState(() => _saving = true);
     try {
       final gpsText = _gpsCtrl.text.trim();
@@ -7941,6 +8465,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           finalCost: double.tryParse(_finalCostCtrl.text.trim()),
           quotedAmount: quoted,
           depositAmount: deposit,
+          paymentNote: paymentNote,
           tags: tags,
           referencePhoto: _referencePhoto,
         ),
@@ -7963,6 +8488,11 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       _finalCostCtrl.clear();
       _quotedCtrl.clear();
       _depositCtrl.clear();
+      _paidAmountCtrl.clear();
+      setState(() {
+        _paymentStatus = 'pendiente';
+        _paymentMethod = 'efectivo';
+      });
     } finally {
       if (mounted) setState(() => _saving = false);
     }

@@ -592,8 +592,7 @@ class ServiceActionsSheet {
                                 },
                                 child: InputDecorator(
                                   decoration: const InputDecoration(
-                                    labelText:
-                                        'Nueva fecha y hora (obligatorio)',
+                                    labelText: 'Fecha y hora (opcional)',
                                     border: OutlineInputBorder(),
                                   ),
                                   child: Row(

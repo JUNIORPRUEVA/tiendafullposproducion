@@ -16,7 +16,11 @@ class AppLoadingOverlay extends ConsumerWidget {
 
     return Positioned.fill(
       child: IgnorePointer(
-        ignoring: false,
+        // IMPORTANT: do not block input globally.
+        // The loader should be visual-only; otherwise any background request can
+        // prevent focusing text fields and make it feel like the keyboard is
+        // "blocked".
+        ignoring: true,
         child: Stack(
           children: [
             ModalBarrier(

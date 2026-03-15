@@ -15,6 +15,7 @@
     "integrity:check": "ts-node prisma/scripts/fix_integrity.ts --check",
     "integrity:fix": "ts-node prisma/scripts/fix_integrity.ts --fix",
     "test:integration:users": "ts-node scripts/integration-users-get.ts",
+    "test:smoke:reservation-reminder": "ts-node scripts/smoke-reservation-reminder.ts",
     "auth:reset-password": "node scripts/reset-password.cjs",
     "test:smoke": "ts-node scripts/smoke-test.ts"
   },

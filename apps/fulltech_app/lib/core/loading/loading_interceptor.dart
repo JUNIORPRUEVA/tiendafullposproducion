@@ -33,13 +33,17 @@ class LoadingInterceptor extends Interceptor {
 
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) {
-    controller.requestEnded(_requestIdFor(response.requestOptions));
+    if (_shouldTrack(response.requestOptions)) {
+      controller.requestEnded(_requestIdFor(response.requestOptions));
+    }
     handler.next(response);
   }
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    controller.requestEnded(_requestIdFor(err.requestOptions));
+    if (_shouldTrack(err.requestOptions)) {
+      controller.requestEnded(_requestIdFor(err.requestOptions));
+    }
     handler.next(err);
   }
 

@@ -15,6 +15,193 @@ export class NotificationsService {
     private readonly evolution: EvolutionWhatsAppService,
   ) {}
 
+  private pad2(n: number) {
+    return String(n).padStart(2, '0');
+  }
+
+  private formatLocalYmdHm(d: Date) {
+    const yyyy = d.getFullYear();
+    const mm = this.pad2(d.getMonth() + 1);
+    const dd = this.pad2(d.getDate());
+    const hh = this.pad2(d.getHours());
+    const min = this.pad2(d.getMinutes());
+    return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+  }
+
+  private computeNextBusinessReminderAt(now: Date) {
+    const next = new Date(now.getTime() + 60 * 60 * 1000);
+
+    const startOfDay = new Date(next);
+    startOfDay.setHours(9, 0, 0, 0);
+
+    const endOfDay = new Date(next);
+    endOfDay.setHours(18, 0, 0, 0);
+
+    if (next < startOfDay) return startOfDay;
+    if (next > endOfDay) {
+      const tomorrow = new Date(next);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(9, 0, 0, 0);
+      return tomorrow;
+    }
+
+    // If it's exactly within business hours (<= 18:00), keep it.
+    return next;
+  }
+
+  private isReservationStillDue(service: {
+    status: string;
+    orderType: string;
+    currentPhase: string;
+    scheduledStart: Date | null;
+  }) {
+    const status = (service.status ?? '').toString();
+    if (['CANCELLED', 'CLOSED', 'COMPLETED'].includes(status)) return false;
+
+    const orderType = (service.orderType ?? '').toString();
+    const phase = (service.currentPhase ?? '').toString();
+    const isReserva = orderType === 'RESERVA' || phase === 'RESERVA';
+    if (!isReserva) return false;
+
+    if (!service.scheduledStart) return false;
+    return service.scheduledStart.getTime() <= Date.now();
+  }
+
+  private buildReservationReminderMessage(params: {
+    scheduledStart: Date;
+    scheduledEnd: Date | null;
+    serviceTitle: string;
+    serviceDetail: string | null;
+    customerName: string;
+    customerPhoneRaw: string | null;
+  }) {
+    const whenText = this.formatLocalYmdHm(params.scheduledStart);
+    const customerPhone = (params.customerPhoneRaw ?? '').toString().trim();
+    const customerDigits = this.evolution.normalizeWhatsAppNumber(customerPhone);
+
+    const prefill = [
+      `Hola ${params.customerName},`,
+      `le escribo para confirmar su reserva: ${params.serviceTitle}.`,
+      `Fecha/hora: ${whenText}.`,
+      'Por favor avísenos cualquier detalle en la app.',
+    ].join(' ');
+
+    const waLink = customerDigits
+      ? `https://wa.me/${customerDigits}?text=${encodeURIComponent(prefill)}`
+      : '';
+
+    const messageLines = [
+      '*Recordatorio de reserva*',
+      `Servicio: ${params.serviceTitle}`,
+      params.serviceDetail ? `Detalle: ${params.serviceDetail}` : null,
+      `Cliente: ${params.customerName}`,
+      customerPhone ? `Teléfono: ${customerPhone}` : 'Teléfono: (no registrado)',
+      `Agenda: ${whenText}`,
+      waLink ? `WhatsApp cliente: ${waLink}` : 'WhatsApp cliente: (teléfono inválido)',
+      'Por favor confirmar con el cliente. Avisar en la app cualquier detalle.',
+    ].filter(Boolean) as string[];
+
+    return { messageText: messageLines.join('\n'), waLink: waLink || null, customerPhone: customerPhone || null };
+  }
+
+  async upsertWhatsAppRawTextScheduled(params: {
+    dedupeKey: string;
+    toNumber: string;
+    messageText: string;
+    nextAttemptAt: Date;
+    payload?: unknown;
+    recipientUserId?: string | null;
+  }) {
+    const dedupeKey = (params.dedupeKey ?? '').toString().trim();
+    if (!dedupeKey) {
+      throw new Error('dedupeKey es requerido');
+    }
+
+    const rawPhone = (params.toNumber ?? '').toString().trim();
+    const normalized = this.evolution.normalizeWhatsAppNumber(rawPhone);
+    const messageText = (params.messageText ?? '').toString();
+
+    const now = new Date();
+
+    const commonData = {
+      channel: 'WHATSAPP' as const,
+      templateKey: 'custom_text',
+      dedupeKey,
+      messageText,
+      payload: (params.payload ?? null) as any,
+      recipientUserId: (params.recipientUserId ?? null) as any,
+      toNumber: rawPhone,
+      toNumberNormalized: normalized || '',
+      lockedAt: null as any,
+      lockedBy: null as any,
+      lastStatusCode: null as any,
+    };
+
+    if (!normalized) {
+      return this.prisma.notificationOutbox.upsert({
+        where: { dedupeKey },
+        create: {
+          ...commonData,
+          status: 'FAILED',
+          attempts: 0,
+          nextAttemptAt: now,
+          lastError: 'Número de WhatsApp inválido',
+          sentAt: null,
+        },
+        update: {
+          ...commonData,
+          status: 'FAILED',
+          attempts: 0,
+          nextAttemptAt: now,
+          lastError: 'Número de WhatsApp inválido',
+          sentAt: null,
+        },
+      });
+    }
+
+    if (!messageText.trim()) {
+      return this.prisma.notificationOutbox.upsert({
+        where: { dedupeKey },
+        create: {
+          ...commonData,
+          status: 'FAILED',
+          attempts: 0,
+          nextAttemptAt: now,
+          lastError: 'Mensaje vacío',
+          sentAt: null,
+        },
+        update: {
+          ...commonData,
+          status: 'FAILED',
+          attempts: 0,
+          nextAttemptAt: now,
+          lastError: 'Mensaje vacío',
+          sentAt: null,
+        },
+      });
+    }
+
+    return this.prisma.notificationOutbox.upsert({
+      where: { dedupeKey },
+      create: {
+        ...commonData,
+        status: 'PENDING',
+        attempts: 0,
+        nextAttemptAt: params.nextAttemptAt,
+        lastError: null,
+        sentAt: null,
+      },
+      update: {
+        ...commonData,
+        status: 'PENDING',
+        attempts: 0,
+        nextAttemptAt: params.nextAttemptAt,
+        lastError: null,
+        sentAt: null,
+      },
+    });
+  }
+
   async enqueueWhatsAppRawText(params: {
     toNumber: string;
     messageText: string;
@@ -206,6 +393,83 @@ export class NotificationsService {
             lastStatusCode: null,
           },
         });
+
+        // If this was a reservation reminder, chain the next hourly reminder (business hours only)
+        // while the service remains due and in RESERVA.
+        try {
+          const payload = (row.payload ?? null) as any;
+          const kind = payload?.kind ? String(payload.kind) : '';
+          const serviceId = payload?.serviceId ? String(payload.serviceId) : '';
+
+          if (kind === 'reservation_reminder' && serviceId) {
+            const service = await this.prisma.service.findUnique({
+              where: { id: serviceId },
+              select: {
+                id: true,
+                isDeleted: true,
+                status: true,
+                orderType: true,
+                currentPhase: true,
+                scheduledStart: true,
+                scheduledEnd: true,
+                title: true,
+                description: true,
+                createdByUserId: true,
+                customer: { select: { nombre: true, telefono: true } },
+              },
+            });
+
+            if (service && !service.isDeleted && this.isReservationStillDue(service as any)) {
+              const creator = await this.prisma.user.findUnique({
+                where: { id: service.createdByUserId },
+                select: { id: true, blocked: true, numeroFlota: true },
+              });
+
+              const fleetNumber = (creator?.numeroFlota ?? '').toString().trim();
+              if (creator && !creator.blocked && fleetNumber && service.scheduledStart) {
+                const nextAttemptAt = this.computeNextBusinessReminderAt(new Date());
+
+                const customerName = (service.customer?.nombre ?? 'Cliente').toString().trim() || 'Cliente';
+                const customerPhoneRaw = (service.customer?.telefono ?? '').toString().trim() || null;
+                const serviceTitle = (service.title ?? '').toString().trim() || 'Reserva';
+                const serviceDetail = (service.description ?? '').toString().trim() || null;
+
+                const built = this.buildReservationReminderMessage({
+                  scheduledStart: service.scheduledStart,
+                  scheduledEnd: service.scheduledEnd,
+                  serviceTitle,
+                  serviceDetail,
+                  customerName,
+                  customerPhoneRaw,
+                });
+
+                const minuteKey = nextAttemptAt.toISOString().slice(0, 16);
+                void this.upsertWhatsAppRawTextScheduled({
+                  dedupeKey: `reservation_reminder_hourly:${service.id}:${minuteKey}`,
+                  toNumber: fleetNumber,
+                  messageText: built.messageText,
+                  nextAttemptAt,
+                  recipientUserId: creator.id,
+                  payload: {
+                    kind: 'reservation_reminder',
+                    serviceId: service.id,
+                    cadence: 'hourly_business_hours',
+                    scheduledStart: service.scheduledStart.toISOString(),
+                    scheduledEnd: service.scheduledEnd ? service.scheduledEnd.toISOString() : null,
+                    customerName,
+                    customerPhone: built.customerPhone,
+                    customerWaMe: built.waLink,
+                    nextAttemptAt: nextAttemptAt.toISOString(),
+                  },
+                }).catch(() => {
+                  // ignore
+                });
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
       } catch (e) {
         const attempts = (row.attempts ?? 0) + 1;
         const maxAttempts = 6;

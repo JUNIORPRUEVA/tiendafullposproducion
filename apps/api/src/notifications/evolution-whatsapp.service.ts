@@ -99,6 +99,22 @@ export class EvolutionWhatsAppService {
   }
 
   async sendTextMessage(params: { toNumber: string; message: string }) {
+    const mock = (process.env.NOTIFICATIONS_MOCK_SUCCESS ?? '').trim().toLowerCase();
+    const mockEnabled = mock === '1' || mock === 'true' || mock === 'yes';
+
+    // Mock mode: validate inputs but skip external calls.
+    if (mockEnabled) {
+      const number = this.normalizeWhatsAppNumber(params.toNumber);
+      if (!number) {
+        throw new BadRequestException('Número de WhatsApp inválido');
+      }
+      const message = (params.message ?? '').toString();
+      if (!message.trim()) {
+        throw new BadRequestException('Mensaje vacío');
+      }
+      return;
+    }
+
     const config = await this.getRuntimeConfig();
 
     if (!config.baseUrl) {

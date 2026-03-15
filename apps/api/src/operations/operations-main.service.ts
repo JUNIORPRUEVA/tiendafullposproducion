@@ -1061,6 +1061,112 @@ export class OperationsService {
       return row;
     });
 
+    // Best-effort reminder: when a reservation reaches its scheduled datetime,
+    // notify the creator's fleet number via WhatsApp with customer details and a wa.me link.
+    try {
+      const isReservation = service.orderType === OrderType.RESERVA || service.currentPhase === ServicePhaseType.RESERVA;
+      const isActiveStatus = ![ServiceStatus.CANCELLED, ServiceStatus.CLOSED, ServiceStatus.COMPLETED].includes(updated.status);
+      if (isReservation && isActiveStatus) {
+        const creator = await this.prisma.user.findUnique({
+          where: { id: service.createdByUserId },
+          select: { id: true, blocked: true, numeroFlota: true },
+        });
+
+        const fleetNumber = (creator?.numeroFlota ?? '').toString().trim();
+        if (creator && !creator.blocked && fleetNumber) {
+          const normalizeForWaMe = (raw: string) => {
+            let input = (raw ?? '').toString().trim();
+            if (!input) return '';
+
+            const waMeMatch = /wa\.me\/([0-9]+)/i.exec(input);
+            if (waMeMatch?.[1]) input = waMeMatch[1];
+
+            input = input.replace(/(@c\.us|@s\.whatsapp\.net)$/i, '');
+
+            let digits = input.replace(/[^0-9]/g, '');
+            if (!digits) return '';
+
+            if (digits.startsWith('00')) {
+              digits = digits.replace(/^00+/, '');
+              if (!digits) return '';
+            }
+
+            const isDominicanLocal = digits.length === 10 && /^(809|829|849)/.test(digits);
+            if (isDominicanLocal) return `1${digits}`;
+
+            if (digits.length === 11 && digits.startsWith('1')) return digits;
+
+            return digits;
+          };
+
+          const pad2 = (n: number) => String(n).padStart(2, '0');
+          const fmtLocal = (d: Date) => {
+            const yyyy = d.getFullYear();
+            const mm = pad2(d.getMonth() + 1);
+            const dd = pad2(d.getDate());
+            const hh = pad2(d.getHours());
+            const min = pad2(d.getMinutes());
+            return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+          };
+
+          const customerName = (updated.customer?.nombre ?? 'Cliente').toString().trim() || 'Cliente';
+          const customerPhoneRaw = (updated.customer?.telefono ?? '').toString().trim();
+          const customerDigits = normalizeForWaMe(customerPhoneRaw);
+
+          const serviceTitle = (updated.title ?? '').toString().trim() || 'Reserva';
+          const serviceDetail = (updated.description ?? '').toString().trim();
+          const whenText = fmtLocal(start);
+
+          const customerPrefill = [
+            `Hola ${customerName},`,
+            `le escribo para confirmar su reserva: ${serviceTitle}.`,
+            `Fecha/hora: ${whenText}.`,
+            'Por favor avísenos cualquier detalle en la app.',
+          ].join(' ');
+
+          const waLink = customerDigits
+            ? `https://wa.me/${customerDigits}?text=${encodeURIComponent(customerPrefill)}`
+            : '';
+
+          const messageLines = [
+            '*Recordatorio de reserva*',
+            `Servicio: ${serviceTitle}`,
+            serviceDetail ? `Detalle: ${serviceDetail}` : null,
+            `Cliente: ${customerName}`,
+            customerPhoneRaw ? `Teléfono: ${customerPhoneRaw}` : 'Teléfono: (no registrado)',
+            `Agenda: ${whenText}`,
+            waLink ? `WhatsApp cliente: ${waLink}` : 'WhatsApp cliente: (teléfono inválido)',
+            'Por favor confirmar con el cliente. Avisar en la app cualquier detalle.',
+          ].filter(Boolean) as string[];
+
+          const messageText = messageLines.join('\n');
+
+          void this.notifications
+            .upsertWhatsAppRawTextScheduled({
+              dedupeKey: `reservation_reminder_initial:${updated.id}`,
+              toNumber: fleetNumber,
+              messageText,
+              nextAttemptAt: start,
+              payload: {
+                kind: 'reservation_reminder',
+                serviceId: updated.id,
+                scheduledStart: start.toISOString(),
+                scheduledEnd: end.toISOString(),
+                customerName,
+                customerPhone: customerPhoneRaw || null,
+                customerWaMe: waLink || null,
+              },
+              recipientUserId: creator.id,
+            })
+            .catch(() => {
+              // ignore
+            });
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     return {
       ...this.normalizeService(updated),
       conflicts: conflicts.map((c) => ({
