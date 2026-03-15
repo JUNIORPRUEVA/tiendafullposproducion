@@ -36,6 +36,7 @@ class ServiceMediaModel {
   final String serviceId;
   final String fileUrl;
   final String fileType;
+  final String? caption;
   final String? storageProvider;
   final String? objectKey;
   final String? originalFileName;
@@ -55,6 +56,7 @@ class ServiceMediaModel {
     required this.serviceId,
     required this.fileUrl,
     required this.fileType,
+    this.caption,
     this.storageProvider,
     this.objectKey,
     this.originalFileName,
@@ -88,6 +90,7 @@ class ServiceMediaModel {
       serviceId: (json['serviceId'] ?? '').toString(),
       fileUrl: (json['fileUrl'] ?? '').toString(),
       fileType: (json['fileType'] ?? '').toString(),
+      caption: json['caption']?.toString(),
       storageProvider: json['storageProvider']?.toString(),
       objectKey: json['objectKey']?.toString(),
       originalFileName: json['originalFileName']?.toString(),

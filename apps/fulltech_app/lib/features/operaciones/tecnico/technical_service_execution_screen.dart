@@ -1,3 +1,5 @@
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -52,6 +54,95 @@ class _TechnicalServiceExecutionScreenState
     return status == ServiceStatus.closed ||
         status == ServiceStatus.cancelled ||
         status == ServiceStatus.completed;
+  }
+
+  Future<String?> _askEvidenceCaption(BuildContext context) async {
+    final ctrl = TextEditingController();
+    String? error;
+
+    final res = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Descripción de la evidencia'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Escribe un texto corto (ej: antes/después, serial, detalle).',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: ctrl,
+                    autofocus: true,
+                    maxLength: 140,
+                    decoration: InputDecoration(
+                      hintText: 'Ej: Evidencia después de instalación',
+                      errorText: error,
+                    ),
+                    onChanged: (_) {
+                      if (error != null) {
+                        setState(() => error = null);
+                      }
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final v = ctrl.text.trim();
+                    if (v.isEmpty) {
+                      setState(() => error = 'Requerido');
+                      return;
+                    }
+                    Navigator.pop(dialogContext, v);
+                  },
+                  child: const Text('Continuar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    ctrl.dispose();
+    return res?.trim().isEmpty == true ? null : res;
+  }
+
+  Future<void> _pickAndUploadEvidence(
+    BuildContext context,
+    TechnicalExecutionController ctrl,
+  ) async {
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+      type: FileType.custom,
+      allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp', 'mp4'],
+      withReadStream: !kIsWeb,
+      withData: kIsWeb,
+      dialogTitle: 'Selecciona una evidencia (imagen o video)',
+    );
+
+    final file = result?.files.isNotEmpty == true ? result!.files.first : null;
+    if (file == null) return;
+
+    if (!context.mounted) return;
+
+    final caption = await _askEvidenceCaption(context);
+    if (caption == null || caption.trim().isEmpty) return;
+
+    if (!context.mounted) return;
+
+    await ctrl.uploadEvidence(file: file, caption: caption);
   }
 
   Future<void> _previewEvidence(BuildContext context, ServiceFileModel file) {
@@ -337,7 +428,8 @@ class _TechnicalServiceExecutionScreenState
                   const SizedBox(height: 12),
                   EvidenceGalleryCard(
                     files: service.files,
-                    onUpload: () => ctrl.uploadEvidence(),
+                    pending: st.pendingEvidence,
+                    onUpload: () => _pickAndUploadEvidence(context, ctrl),
                     onPreview: (f) => _previewEvidence(context, f),
                   ),
                   const SizedBox(height: 12),

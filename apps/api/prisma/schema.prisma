@@ -950,6 +950,7 @@ model ServiceFile {
   uploadedByUserId String   @db.Uuid
   fileUrl          String
   fileType         String
+  caption          String?
   storageProvider  String   @default("LOCAL")
   objectKey        String?
   originalFileName String?

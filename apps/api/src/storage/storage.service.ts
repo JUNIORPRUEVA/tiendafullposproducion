@@ -163,6 +163,7 @@ export class StorageService {
     mimeType: string;
     fileSize: number;
     kind: string;
+    caption?: string;
     uploadedByUserId?: string;
     width?: number | null;
     height?: number | null;
@@ -202,6 +203,8 @@ export class StorageService {
     }
 
     const publicUrl = dto.publicUrl.trim() || this.r2.buildPublicUrl(dto.objectKey);
+    const caption = typeof dto.caption === 'string' ? dto.caption.trim() : '';
+    const captionOrNull = caption.length ? caption.slice(0, 140) : null;
 
     const created = await this.prisma.$transaction(async (tx) => {
       const row = await tx.serviceFile.create({
@@ -210,6 +213,7 @@ export class StorageService {
           uploadedByUserId: user.id,
           fileUrl: publicUrl,
           fileType: mimeType, // legacy
+          caption: captionOrNull,
           storageProvider: 'R2',
           objectKey: dto.objectKey,
           originalFileName: (dto.fileName ?? '').trim() || null,
@@ -237,8 +241,9 @@ export class StorageService {
             mimeType,
             kind: dto.kind,
             mediaType,
+            caption: captionOrNull,
           },
-          message: 'Archivo subido (R2)',
+          message: captionOrNull ? `Archivo subido (R2): ${captionOrNull}` : 'Archivo subido (R2)',
         },
       });
 

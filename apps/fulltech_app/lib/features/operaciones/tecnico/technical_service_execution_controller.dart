@@ -1,14 +1,17 @@
 import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/cache/local_json_cache.dart';
 import '../../../core/errors/api_exception.dart';
+import '../../../core/storage/storage_repository.dart';
 import '../data/operations_repository.dart';
 import '../operations_models.dart';
 import '../presentation/operations_permissions.dart';
+import 'technical_evidence_upload.dart';
 
 class TechnicalExecutionState {
   final bool loading;
@@ -16,6 +19,7 @@ class TechnicalExecutionState {
   final String? error;
   final ServiceModel? service;
   final List<ServiceExecutionChangeModel> changes;
+  final List<PendingEvidenceUpload> pendingEvidence;
 
   final DateTime? arrivedAt;
   final DateTime? startedAt;
@@ -29,6 +33,7 @@ class TechnicalExecutionState {
     this.error,
     this.service,
     this.changes = const [],
+    this.pendingEvidence = const [],
     this.arrivedAt,
     this.startedAt,
     this.finishedAt,
@@ -45,6 +50,7 @@ class TechnicalExecutionState {
     bool clearError = false,
     ServiceModel? service,
     List<ServiceExecutionChangeModel>? changes,
+    List<PendingEvidenceUpload>? pendingEvidence,
     DateTime? arrivedAt,
     DateTime? startedAt,
     DateTime? finishedAt,
@@ -57,6 +63,7 @@ class TechnicalExecutionState {
       error: clearError ? null : (error ?? this.error),
       service: service ?? this.service,
       changes: changes ?? this.changes,
+      pendingEvidence: pendingEvidence ?? this.pendingEvidence,
       arrivedAt: arrivedAt ?? this.arrivedAt,
       startedAt: startedAt ?? this.startedAt,
       finishedAt: finishedAt ?? this.finishedAt,
@@ -161,6 +168,33 @@ class TechnicalExecutionController
     } catch (e) {
       state = state.copyWith(loading: false, error: e.toString());
     }
+  }
+
+  String _guessMimeType(PlatformFile file) {
+    final ext = (file.extension ?? '').trim().toLowerCase();
+    if (ext == 'jpg' || ext == 'jpeg') return 'image/jpeg';
+    if (ext == 'png') return 'image/png';
+    if (ext == 'webp') return 'image/webp';
+    if (ext == 'mp4') return 'video/mp4';
+    return 'application/octet-stream';
+  }
+
+  void _upsertPending(PendingEvidenceUpload next) {
+    final list = state.pendingEvidence;
+    final idx = list.indexWhere((e) => e.id == next.id);
+    if (idx < 0) {
+      state = state.copyWith(pendingEvidence: [next, ...list]);
+      return;
+    }
+
+    final updated = [...list];
+    updated[idx] = next;
+    state = state.copyWith(pendingEvidence: updated);
+  }
+
+  void _removePending(String id) {
+    final next = state.pendingEvidence.where((e) => e.id != id).toList();
+    state = state.copyWith(pendingEvidence: next);
   }
 
   bool get _readOnly {
@@ -305,28 +339,91 @@ class TechnicalExecutionController
     }
   }
 
-  Future<void> uploadEvidence() async {
+  Future<void> uploadEvidence({
+    required PlatformFile file,
+    required String caption,
+  }) async {
     if (_readOnly) return;
     final service = state.service;
     if (service == null) return;
 
+    final trimmedCaption = caption.trim();
+    if (trimmedCaption.isEmpty) return;
+
+    final id = DateTime.now().microsecondsSinceEpoch.toString();
+    final mimeType = _guessMimeType(file);
+    final kind = mimeType.startsWith('video/') ? 'video_evidence' : 'evidence_final';
+
+    _upsertPending(
+      PendingEvidenceUpload(
+        id: id,
+        fileName: file.name,
+        mimeType: mimeType,
+        caption: trimmedCaption,
+        fileSize: file.size,
+        path: file.path,
+        bytes: file.bytes,
+      ),
+    );
+
     try {
-      final result = await FilePicker.platform.pickFiles(
-        withData: true,
-        allowMultiple: false,
+      final storage = ref.read(storageRepositoryProvider);
+
+      final presign = await storage.presign(
+        serviceId: serviceId,
+        fileName: file.name,
+        contentType: mimeType,
+        fileSize: file.size,
+        kind: kind,
       );
-      final file = result?.files.isNotEmpty == true
-          ? result!.files.first
-          : null;
-      if (file == null) return;
+
+      await storage.uploadToPresignedUrl(
+        uploadUrl: presign.uploadUrl,
+        bytes: file.bytes,
+        stream: kIsWeb ? null : file.readStream,
+        contentType: mimeType,
+        onProgress: (sent, total) {
+          if (total <= 0) return;
+          final p = sent / total;
+          final bounded = p < 0 ? 0.0 : (p > 1 ? 1.0 : p);
+          final cur = state.pendingEvidence.firstWhere(
+            (e) => e.id == id,
+            orElse: () => PendingEvidenceUpload(
+              id: id,
+              fileName: file.name,
+              mimeType: mimeType,
+              caption: trimmedCaption,
+              fileSize: file.size,
+              path: file.path,
+              bytes: file.bytes,
+            ),
+          );
+          _upsertPending(cur.copyWith(progress: bounded));
+        },
+      );
+
+      await storage.confirm(
+        serviceId: serviceId,
+        objectKey: presign.objectKey,
+        publicUrl: presign.publicUrl,
+        fileName: file.name,
+        mimeType: mimeType,
+        fileSize: file.size,
+        kind: kind,
+        caption: trimmedCaption,
+      );
 
       final repo = ref.read(operationsRepositoryProvider);
-      await repo.uploadEvidence(serviceId: serviceId, file: file);
-
       final refreshed = await repo.getService(serviceId);
+      _removePending(id);
       state = state.copyWith(service: refreshed);
     } catch (e) {
-      state = state.copyWith(error: e.toString());
+      _removePending(id);
+      if (e is ApiException) {
+        state = state.copyWith(error: e.message);
+      } else {
+        state = state.copyWith(error: e.toString());
+      }
     }
   }
 

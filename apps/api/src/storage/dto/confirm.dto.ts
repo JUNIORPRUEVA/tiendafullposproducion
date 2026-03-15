@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { ALLOWED_KINDS } from '../helpers/storage_helpers';
 import { IsIn } from 'class-validator';
 
@@ -30,6 +30,11 @@ export class ConfirmStorageDto {
   @IsString()
   @IsIn(ALLOWED_KINDS as unknown as string[])
   kind!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(140)
+  caption?: string;
 
   @IsOptional()
   @IsUUID()

@@ -69,15 +69,20 @@ class StorageRepository {
   /// Algunos interceptores/headers (Authorization) pueden romper la subida.
   Future<void> uploadToPresignedUrl({
     required String uploadUrl,
-    required List<int> bytes,
+    List<int>? bytes,
+    Stream<List<int>>? stream,
     required String contentType,
     void Function(int sentBytes, int totalBytes)? onProgress,
     CancelToken? cancelToken,
   }) async {
+    if (bytes == null && stream == null) {
+      throw ArgumentError('bytes o stream requerido');
+    }
+
     final direct = Dio();
     await direct.put(
       uploadUrl,
-      data: Stream.value(bytes),
+      data: stream ?? Stream.value(bytes!),
       options: Options(
         headers: {'Content-Type': contentType},
         responseType: ResponseType.plain,
@@ -97,6 +102,7 @@ class StorageRepository {
     required String mimeType,
     required int fileSize,
     required String kind,
+    String? caption,
     int? width,
     int? height,
     int? durationSeconds,
@@ -112,6 +118,8 @@ class StorageRepository {
           'mimeType': mimeType,
           'fileSize': fileSize,
           'kind': kind,
+          if (caption != null && caption.trim().isNotEmpty)
+            'caption': caption.trim(),
           if (executionReportId != null && executionReportId.isNotEmpty)
             'executionReportId': executionReportId,
           if (width != null) 'width': width,

@@ -1,6 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
+import '../../../../core/widgets/local_file_image.dart';
 import '../../operations_models.dart';
+import '../technical_evidence_upload.dart';
 
 class TechnicalSectionCard extends StatelessWidget {
   final IconData icon;
@@ -500,12 +504,14 @@ class ServiceChecklistCard extends StatelessWidget {
 
 class EvidenceGalleryCard extends StatelessWidget {
   final List<ServiceFileModel> files;
+  final List<PendingEvidenceUpload> pending;
   final VoidCallback onUpload;
   final void Function(ServiceFileModel file) onPreview;
 
   const EvidenceGalleryCard({
     super.key,
     required this.files,
+    required this.pending,
     required this.onUpload,
     required this.onPreview,
   });
@@ -520,6 +526,13 @@ class EvidenceGalleryCard extends StatelessWidget {
         url.endsWith('.webp');
   }
 
+  bool _isLikelyVideo(ServiceFileModel file) {
+    final ft = file.fileType.trim().toLowerCase();
+    final url = file.fileUrl.trim().toLowerCase();
+    if (ft.contains('video')) return true;
+    return url.endsWith('.mp4');
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -531,7 +544,9 @@ class EvidenceGalleryCard extends StatelessWidget {
       label: const Text('Subir evidencia'),
     );
 
-    if (files.isEmpty) {
+    final hasAny = files.isNotEmpty || pending.isNotEmpty;
+
+    if (!hasAny) {
       return TechnicalSectionCard(
         icon: Icons.photo_camera_outlined,
         title: 'Evidencias del servicio',
@@ -570,6 +585,8 @@ class EvidenceGalleryCard extends StatelessWidget {
           final w = constraints.maxWidth;
           final crossAxisCount = w >= 700 ? 4 : (w >= 420 ? 3 : 2);
 
+          final totalCount = pending.length + files.length;
+
           return GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -579,10 +596,17 @@ class EvidenceGalleryCard extends StatelessWidget {
               mainAxisSpacing: 10,
               childAspectRatio: 1,
             ),
-            itemCount: files.length,
+            itemCount: totalCount,
             itemBuilder: (context, index) {
-              final file = files[index];
+              if (index < pending.length) {
+                final item = pending[index];
+                return _PendingEvidenceTile(item: item);
+              }
+
+              final file = files[index - pending.length];
               final isImage = _isLikelyImage(file);
+              final isVideo = _isLikelyVideo(file);
+              final caption = (file.caption ?? '').trim();
 
               return InkWell(
                 onTap: () => onPreview(file),
@@ -594,21 +618,207 @@ class EvidenceGalleryCard extends StatelessWidget {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: isImage
-                        ? Image.network(
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (isImage)
+                          Image.network(
                             file.fileUrl,
                             fit: BoxFit.cover,
                             errorBuilder: (context, error, stack) {
                               return _FilePlaceholder(file: file);
                             },
                           )
-                        : _FilePlaceholder(file: file),
+                        else
+                          _FilePlaceholder(file: file),
+                        Positioned(
+                          top: 8,
+                          left: 8,
+                          child: _TypeBadge(
+                            icon: isVideo
+                                ? Icons.play_circle_outline
+                                : (isImage
+                                    ? Icons.photo_outlined
+                                    : Icons.insert_drive_file_outlined),
+                            label: isVideo
+                                ? 'VIDEO'
+                                : (isImage ? 'IMG' : 'FILE'),
+                          ),
+                        ),
+                        if (caption.isNotEmpty)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                              color: cs.surfaceContainerHighest
+                                  .withValues(alpha: 0.92),
+                              child: Text(
+                                caption,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               );
             },
           );
         },
+      ),
+    );
+  }
+}
+
+class _PendingEvidenceTile extends StatelessWidget {
+  final PendingEvidenceUpload item;
+
+  const _PendingEvidenceTile({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final caption = item.caption.trim();
+
+    Widget preview;
+    if (item.isImage && item.bytes != null) {
+      preview = Image.memory(
+        Uint8List.fromList(item.bytes!),
+        fit: BoxFit.cover,
+      );
+    } else if (item.isImage && (item.path ?? '').trim().isNotEmpty) {
+      preview = localFileImage(path: item.path!.trim(), fit: BoxFit.cover);
+    } else {
+      preview = Center(
+        child: Icon(
+          item.isVideo ? Icons.play_circle_outline : Icons.upload_file_outlined,
+          size: 42,
+          color: cs.onSurfaceVariant,
+        ),
+      );
+    }
+
+    final percent = (item.progress * 100).round();
+
+    return Ink(
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.primary.withValues(alpha: 0.35)),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            preview,
+            Positioned(
+              top: 8,
+              left: 8,
+              child: _TypeBadge(
+                icon: item.isVideo
+                    ? Icons.cloud_upload_outlined
+                    : Icons.cloud_upload_outlined,
+                label: 'SUBIENDO',
+              ),
+            ),
+            Positioned(
+              left: 10,
+              right: 10,
+              bottom: 10,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  LinearProgressIndicator(
+                    value: item.progress <= 0 ? null : item.progress,
+                    minHeight: 6,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: cs.surfaceContainerHighest
+                          .withValues(alpha: 0.92),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          percent > 0 ? '$percent% • Subiendo…' : 'Subiendo…',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                        if (caption.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            caption,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TypeBadge extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _TypeBadge({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: cs.primaryContainer.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: cs.onPrimaryContainer),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: cs.onPrimaryContainer,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
       ),
     );
   }

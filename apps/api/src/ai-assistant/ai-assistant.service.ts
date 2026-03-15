@@ -120,6 +120,15 @@ export class AiAssistantService {
       }, []);
     }
 
+    if (this.isOtherUserSensitiveRequest(user, message, context)) {
+      return this.finalizeChatResponse(user, effectiveDto, {
+        source: 'policy',
+        content: 'Puedo ayudarte con tu propia información, pero no puedo revelar datos personales, de nómina, contrato o perfil de otro usuario.',
+        citations: [],
+        denied: true,
+      }, []);
+    }
+
     const knowledge = await this.buildKnowledge(user, effectiveDto);
     this.logDebug('ai.chat.context', context);
     this.logDebug('ai.chat.knowledge', knowledge.map((k) => ({ id: k.id, title: k.title, module: k.module })));
@@ -158,7 +167,7 @@ export class AiAssistantService {
       'Debes responder de forma humana, clara y profesional. ' +
       `${currentUserName ? `Debes dirigirte al usuario actual por su nombre, ${currentUserName}, cuando sea natural hacerlo. ` : ''}` +
       'Nunca menciones memoria interna, contexto interno, tokens, ranking, fuentes tecnicas, historiales internos ni mecanismos del sistema. Si recuerdas algo util, usalo con naturalidad sin explicar como lo recordaste. ' +
-      'REGLAS DE SEGURIDAD: 1) solo puedes usar el conocimiento interno enviado por el sistema; 2) no inventes; 3) no uses conocimiento externo; 4) no reveles datos privados de otros usuarios; 5) si falta permiso o datos, dilo con respeto. ' +
+      'REGLAS DE SEGURIDAD: 1) solo puedes usar el conocimiento interno enviado por el sistema; 2) no inventes; 3) no uses conocimiento externo; 4) no reveles datos privados de otros usuarios; 5) si el conocimiento incluye datos del usuario autenticado sobre sí mismo, sí puedes responderlos; 6) nunca conviertas una consulta del propio usuario en una negativa si el sistema ya envió sus datos autorizados; 7) si falta permiso o datos, dilo con respeto. ' +
       'REGLAS DE CALIDAD: si la respuesta es larga, resume al inicio; si el usuario pide pasos, responde paso a paso. ' +
       'Devuelve únicamente JSON válido.';
 
@@ -169,8 +178,9 @@ export class AiAssistantService {
       'Reglas estrictas: ' +
       '1) si respondes algo útil basado en conocimiento enviado, citations no puede ir vacío; ' +
       '2) no incluyas citas inventadas; ' +
-      '3) si el usuario pide información no autorizada, usa denied=true y content debe explicar que no tiene permisos; ' +
-      '4) si no hay información suficiente, denied=false y content debe pedir más contexto.';
+      '3) si el usuario pide información no autorizada de un tercero, usa denied=true y content debe explicar que no tiene permisos; ' +
+      '4) si el usuario pregunta por su propia información y existe conocimiento del usuario actual, responde con esos datos y denied=false; ' +
+      '5) si no hay información suficiente, denied=false y content debe pedir más contexto.';
 
     const parsed = await this.requestStrictJsonFromOpenAi<{
       content?: unknown;
@@ -442,6 +452,9 @@ export class AiAssistantService {
     const hasContractKnowledge = knowledge.some(
       (item) => item.id.startsWith('app-data:contract:') || item.id.startsWith('app-data:contract-match:'),
     );
+    const hasSelfKnowledge = knowledge.some(
+      (item) => item.id.startsWith('app-data:self:') || item.id.startsWith('app-data:contract:'),
+    );
     const explicitClientLookup =
       hasMatchedClient ||
       this.hasAnyToken(tokens, ['cliente', 'clientes', 'nombre', 'telefono', 'teléfono', 'movimientos', 'ventas', 'servicios']);
@@ -480,8 +493,9 @@ export class AiAssistantService {
         'nomina',
         'nómina',
       ]);
+    const explicitSelfLookup = hasSelfKnowledge || this.isSelfInfoRequest(message, context);
 
-    return explicitClientLookup || explicitCatalogLookup || explicitManualLookup || explicitContractLookup;
+    return explicitClientLookup || explicitCatalogLookup || explicitManualLookup || explicitContractLookup || explicitSelfLookup;
   }
 
   private canAccessQuoteData(role: Role) {
@@ -1351,8 +1365,50 @@ export class AiAssistantService {
       raw.includes('mi rol') ||
       raw.includes('mi usuario') ||
       raw.includes('mi perfil') ||
+      raw.includes('mi cuenta') ||
+      raw.includes('mis datos') ||
+      raw.includes('mis pagos') ||
+      raw.includes('mi contrato') ||
+      raw.includes('mi salario') ||
+      raw.includes('mi sueldo') ||
       raw.includes('de mi')
     );
+  }
+
+  private isOtherUserSensitiveRequest(
+    user: { id: string; role: Role },
+    message: string,
+    context: NormalizedAiContext,
+  ) {
+    const targetEntityType = (context.entityType ?? '').trim().toLowerCase();
+    const targetEntityId = (context.entityId ?? '').trim();
+    const referencesAnotherUser = targetEntityType === 'user' && targetEntityId.length > 0 && targetEntityId !== user.id;
+
+    if (!referencesAnotherUser) return false;
+
+    const tokens = new Set(this.tokenize(`${message} ${context.module} ${context.screenName ?? ''}`));
+    return this.hasAnyToken(tokens, [
+      'usuario',
+      'usuarios',
+      'empleado',
+      'empleados',
+      'perfil',
+      'correo',
+      'email',
+      'telefono',
+      'teléfono',
+      'rol',
+      'nomina',
+      'nómina',
+      'contrato',
+      'salario',
+      'sueldo',
+      'pago',
+      'pagos',
+      'datos',
+      'informacion',
+      'información',
+    ]);
   }
 
   private async buildSelfKnowledge(
@@ -1381,6 +1437,13 @@ export class AiAssistantService {
         'dato-autorizado',
         'Perfil del usuario actual',
         `Tu nombre en la app es ${record.nombreCompleto}. Correo: ${record.email}. Teléfono: ${record.telefono}. Rol: ${record.role}. ${record.workContractJobTitle ? `Puesto: ${record.workContractJobTitle}. ` : ''}${record.fechaIngreso ? `Fecha de ingreso: ${record.fechaIngreso.toISOString().slice(0, 10)}.` : ''}`,
+      ),
+      this.createAppKnowledgeRecord(
+        'app-data:self:privacy-scope',
+        'profile',
+        'politica-app',
+        'Alcance de datos del usuario actual',
+        'El asistente sí puede responder datos del usuario autenticado que está haciendo la consulta cuando esos datos fueron enviados como conocimiento autorizado. No puede responder datos personales de terceros.',
       ),
     ];
 
@@ -1413,6 +1476,16 @@ export class AiAssistantService {
     const rankedAuthorizedVisible = rankedAuthorized.filter((item) => this.isUserVisibleKnowledge(item));
     const rankedAuthorizedInternal = rankedAuthorized.filter((item) => !this.isUserVisibleKnowledge(item));
     const normalizedModule = this.normalizeModuleKey(input.context.module);
+    const isSelfRequest = this.isSelfInfoRequest(input.prompt, input.context);
+    const prioritizedSelfKnowledge = rankedAuthorizedVisible.filter(
+      (item) =>
+        item.id.startsWith('app-data:self:') ||
+        item.id.startsWith('app-data:contract:') ||
+        item.id === 'app-data:contracts-policy',
+    );
+    const remainingAuthorizedVisible = rankedAuthorizedVisible.filter(
+      (item) => !prioritizedSelfKnowledge.some((candidate) => candidate.id === item.id),
+    );
     const wantsManualDepth =
       normalizedModule === 'manual-interno' ||
       this.hasAnyToken(
@@ -1436,13 +1509,16 @@ export class AiAssistantService {
       }
     };
 
+    if (isSelfRequest) {
+      addRecords(prioritizedSelfKnowledge, 6);
+    }
     addRecords(
       input.staticHelp.filter(
         (item) => item.module === 'seguridad' || item.module === 'manual-interno',
       ),
       3,
     );
-    addRecords(rankedAuthorizedVisible, wantsManualDepth ? 8 : 10);
+    addRecords(remainingAuthorizedVisible, wantsManualDepth ? 8 : 10);
     addRecords(
       rankedManual.filter(
         (item) =>
@@ -2345,8 +2421,6 @@ export class AiAssistantService {
   }
 
   private async buildContractKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
-    const isAdmin = user.role === Role.ADMIN;
-
     const base: KnowledgeRecord[] = [
       this.createAppKnowledgeRecord(
         'app-data:contracts-policy',
@@ -2373,203 +2447,127 @@ export class AiAssistantService {
       workContractWorkLocation: true,
       workContractSalary: true,
       workContractPaymentFrequency: true,
-      workContractPaymentMethod: true,
-      workContractClauseOverrides: true,
-      workContractCustomClauses: true,
-    } satisfies Prisma.UserSelect;
-
-    const targetUserId =
-      dto.context.entityType === 'user' && (dto.context.entityId ?? '').trim().length > 0
-        ? dto.context.entityId!.trim()
-        : user.id;
-
-    const accessibleUserWhere: Prisma.UserWhereInput = isAdmin
-      ? { id: { not: '' } }
-      : { id: user.id };
-
-    const searchTerms = this.extractMeaningfulQueryTerms(dto.message, {
-      extraNoise: [
-        'contrato',
-        'contratos',
-        'trabajo',
-        'laboral',
-        'salario',
-        'sueldo',
-        'nomina',
-        'nómina',
-        'clausula',
-        'cláusula',
-        'pago',
-        'pagos',
-        'frecuencia',
-        'firma',
-        'empleado',
-        'empleada',
-        'persona',
-      ],
       limit: 5,
     });
-
+      where: { id: user.id },
     const highlightedRecords: Array<Prisma.UserGetPayload<{ select: typeof contractSelect }>> = [];
 
     const targetRecord = await this.prisma.user.findFirst({
-      where: { AND: [accessibleUserWhere, { id: targetUserId }] },
-      select: contractSelect,
-    });
-
-    if (targetRecord) {
-      highlightedRecords.push(targetRecord);
-    }
-
-    if (isAdmin && searchTerms.length > 0) {
-      const searchedRecords = await this.prisma.user.findMany({
-        where: {
-          AND: [
-            accessibleUserWhere,
-            {
-              OR: searchTerms.flatMap((term) => [
-                { nombreCompleto: { contains: term, mode: 'insensitive' } },
-                { email: { contains: term, mode: 'insensitive' } },
-                { telefono: { contains: term, mode: 'insensitive' } },
-                { workContractJobTitle: { contains: term, mode: 'insensitive' } },
-              ]),
-            },
-          ],
-        },
-        take: 5,
-        select: contractSelect,
-      });
-
-      for (const record of searchedRecords) {
-        if (!highlightedRecords.some((item) => item.id === record.id)) {
-          highlightedRecords.push(record);
-        }
-      }
-    }
+    if (!targetRecord) return base;
 
     if (highlightedRecords.length === 0) return base;
 
-    const primaryRecord = highlightedRecords[0];
+        `app-data:contract:${targetRecord.id}`,
 
     base.push(
-      this.createAppKnowledgeRecord(
-        `app-data:contract:${primaryRecord.id}`,
-        'nomina',
-        'dato-autorizado',
-        isAdmin && primaryRecord.id !== user.id
-          ? `Contrato laboral de ${primaryRecord.nombreCompleto}`
-          : 'Contrato laboral (alcance personal)',
-        this.formatContractKnowledge(primaryRecord),
+        'Contrato laboral (alcance personal)',
+        this.formatContractKnowledge(targetRecord),
       ),
     );
-
-    if (isAdmin && highlightedRecords.length > 1) {
-      for (const record of highlightedRecords.slice(0, 4)) {
-        base.push(
-          this.createAppKnowledgeRecord(
-            `app-data:contract-match:${record.id}`,
-            'nomina',
-            'dato-autorizado',
-            `Contrato encontrado: ${record.nombreCompleto}`,
-            this.formatContractKnowledge(record),
-          ),
-        );
-      }
-    }
-
-    if (isAdmin) {
-      base.push(
-        this.createAppKnowledgeRecord(
-          'app-data:contracts-admin-note',
-          'nomina',
-          'politica-app',
-          'Nota para ADMIN',
-          'Para consultar contratos de otros empleados, usa los módulos administrativos correspondientes. El asistente no debe exponer contratos de terceros a roles no autorizados.',
-        ),
-      );
-    }
 
     return base;
   }
 
-  private rankKnowledgeForPrompt(prompt: string, context: NormalizedAiContext, all: KnowledgeRecord[]) {
-    const desired = new Set([
-      context.module,
-      this.normalizeModuleKey(context.module),
-      'manual-interno',
-      'seguridad',
-    ].filter(Boolean));
-    const tokens = new Set(
-      this.tokenize([
-        prompt,
-        context.module,
-        context.screenName ?? '',
-        context.route ?? '',
-        context.entityType ?? '',
-      ].join(' ')),
+  private buildRuleOnlyFallback(
+    message: string,
+    knowledge: KnowledgeRecord[],
+    currentUserName?: string | null,
+  ): AiAssistantChatResponse {
+    const normalizedMessage = message.trim().toLowerCase();
+    const hasMeaningfulQuestion = this.tokenize(normalizedMessage).length > 0;
+    const matched = hasMeaningfulQuestion ? this.rankRulesForPrompt(message, knowledge).slice(0, 2) : [];
+    const visibleKnowledge = knowledge.filter((item) => this.isUserVisibleKnowledge(item));
+    const visibleMatched = matched.filter((item) => this.isUserVisibleKnowledge(item));
+    const top = visibleMatched[0] ?? visibleKnowledge[0] ?? matched[0] ?? knowledge[0];
+
+    if (!top) {
+      return {
+        source: 'rules-only',
+        content: this.personalizeContent(AiAssistantService.notEnoughDataMessage, currentUserName),
+        citations: [],
+      };
+    }
+
+    const selected = visibleMatched.length ? visibleMatched : [top];
+    const citations = this.toUserVisibleCitations(selected);
+
+    const selfMatches = visibleKnowledge.filter(
+      (k) => k.id.startsWith('app-data:self:') || k.id.startsWith('app-data:contract:'),
     );
+    if (selfMatches.length > 0 && this.isSelfInfoRequest(message, { module: 'profile' })) {
+      const profileMatch = selfMatches.find((item) => item.id.startsWith('app-data:self:'));
+      const contractMatch = selfMatches.find((item) => item.id.startsWith('app-data:contract:'));
+      const parts = [
+        profileMatch?.content?.trim() ?? '',
+        contractMatch ? `Resumen de tu contrato actual:\n${contractMatch.content.trim()}` : '',
+      ].filter((item) => item.length > 0);
 
-    return all
-      .map((entry) => {
-        const module = this.normalizeModuleKey(entry.module);
-        const text = `${entry.title} ${entry.summary ?? ''} ${entry.content} ${entry.category} ${module}`.toLowerCase();
-        const entryTokens = new Set(this.tokenize(text));
-        let score = 0;
+      return {
+        source: 'rules-only',
+        content: this.personalizeContent(parts.join('\n\n'), currentUserName),
+        citations: this.toUserVisibleCitations(selfMatches),
+        denied: false,
+      };
+    }
 
-        if (!module) score += 5;
-        if (desired.has(module)) score += 8;
+    const clientMatches = selected.filter((k) => k.id.startsWith('app-data:client-match:'));
+    if (clientMatches.length > 0) {
+      const intro = clientMatches.length == 1
+        ? 'Si, encontre una coincidencia con ese cliente:'
+        : `Si, encontre ${clientMatches.length} coincidencias con ese nombre:`;
+      const blocks = clientMatches
+        .map((k) => k.content.trim())
+        .filter((x) => x.length > 0)
+        .join('\n\n');
 
-        for (const token of tokens) {
-          if (entryTokens.has(token)) score += token.length >= 5 ? 2 : 1;
-        }
+      return {
+        source: 'rules-only',
+        content: this.personalizeContent(`${intro}\n\n${blocks}`, currentUserName),
+        citations: this.toUserVisibleCitations(clientMatches),
+        denied: false,
+      };
+    }
 
-        if (entry.severity === 'critical') score += 2;
-        if (entry.severity === 'warning') score += 1;
+    const productMatches = selected.filter((k) => k.id.startsWith('app-data:product-match:'));
+    if (productMatches.length > 0) {
+      const intro = productMatches.length == 1
+        ? 'Si, encontre este producto relacionado con tu consulta:'
+        : `Si, encontre ${productMatches.length} productos relacionados con tu consulta:`;
+      const blocks = productMatches
+        .map((k) => k.content.trim())
+        .filter((x) => x.length > 0)
+        .join('\n\n');
 
-        return { entry, score };
-      })
-      .filter((x) => x.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .map((x) => x.entry);
-  }
+      return {
+        source: 'rules-only',
+        content: this.personalizeContent(`${intro}\n\n${blocks}`, currentUserName),
+        citations: this.toUserVisibleCitations(productMatches),
+        denied: false,
+      };
+    }
 
-  private normalizeModuleKey(raw: string) {
-    return (raw ?? '').trim().toLowerCase().replaceAll('_', '-');
-  }
+    const contractMatches = selected.filter(
+      (k) => k.id.startsWith('app-data:contract:') || k.id.startsWith('app-data:contract-match:'),
+    );
+    if (contractMatches.length > 0) {
+      const intro = contractMatches.length === 1
+        ? 'Si, encontre la informacion del contrato laboral relacionada con tu consulta:'
+        : `Si, encontre ${contractMatches.length} contratos laborales relacionados con tu consulta:`;
+      const blocks = contractMatches
+        .map((k) => k.content.trim())
+        .filter((x) => x.length > 0)
+        .join('\n\n');
 
-  private toManualKnowledge(entry: any): KnowledgeRecord {
-    const moduleKey = (entry.moduleKey ?? '').toString().trim().toLowerCase();
-    const category = this.mapRuleCategory(entry.kind as CompanyManualEntryKind);
-    const title = (entry.title ?? '').toString();
-    const content = (entry.content ?? '').toString();
-    const summary = entry.summary ? String(entry.summary) : null;
-
-    return {
-      id: String(entry.id),
-      module: moduleKey.length ? moduleKey : 'general',
-      category,
-      title,
-      content,
-      summary,
-      keywords: this.tokenize(`${title} ${summary ?? ''} ${content} ${moduleKey} ${category}`).slice(0, 18),
-      severity: this.inferSeverity(entry.kind as CompanyManualEntryKind, title, content),
-      active: entry.published === true,
-      createdAt: entry.createdAt ? entry.createdAt.toISOString() : null,
-      updatedAt: entry.updatedAt ? entry.updatedAt.toISOString() : null,
-    };
-  }
-
-  private mapRuleCategory(kind: CompanyManualEntryKind) {
-    switch (kind) {
-      case CompanyManualEntryKind.PRICE_RULE:
-        return 'precios';
-      case CompanyManualEntryKind.WARRANTY_POLICY:
-        return 'garantias';
-      case CompanyManualEntryKind.SERVICE_RULE:
-        return 'servicios';
-      case CompanyManualEntryKind.PRODUCT_SERVICE:
-        return 'productos';
-      case CompanyManualEntryKind.MODULE_GUIDE:
+      return {
+        source: 'rules-only',
+        content: this.personalizeContent(
+          `${intro}\n\nResumen del contrato:\n${blocks}\n\nSi necesitas que te explique una clausula, forma de pago, fecha de inicio, puesto o cualquier detalle del contrato, dime exactamente cual parte quieres revisar.`,
+          currentUserName,
+          'politica-app',
+        citations: this.toUserVisibleCitations(contractMatches),
+        denied: false,
+          'Nota para ADMIN',
+          'Para consultar contratos de otros empleados, usa los módulos administrativos correspondientes. El asistente no debe exponer contratos de terceros a roles no autorizados.',
         return 'modulo';
       case CompanyManualEntryKind.POLICY:
         return 'politicas';
