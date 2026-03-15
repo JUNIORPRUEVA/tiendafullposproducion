@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CompanyManualAudience, CompanyManualEntryKind, DepositOrderStatus, Prisma, Role } from '@prisma/client';
+import { CompanyManualAudience, CompanyManualEntry, CompanyManualEntryKind, DepositOrderStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CatalogProductsService } from '../products/catalog-products.service';
 import { ChatAiAssistantDto } from './dto/chat-ai-assistant.dto';
@@ -272,6 +272,60 @@ export class AiAssistantService {
       ...(entityType ? { entityType } : {}),
       ...(entityId ? { entityId } : {}),
     };
+  }
+
+  private normalizeModuleKey(value: unknown) {
+    if (typeof value !== 'string') return 'general';
+
+    const trimmed = value.trim();
+    if (!trimmed) return 'general';
+
+    const normalized = trimmed
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[\s_]+/g, '-')
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    switch (normalized) {
+      case 'manual':
+      case 'manualinterno':
+      case 'manual-interno':
+      case 'company-manual':
+        return 'manual-interno';
+      case 'catalogo':
+      case 'catalog':
+        return 'catalogo';
+      case 'ventas':
+      case 'venta':
+        return 'ventas';
+      case 'operacion':
+      case 'operaciones':
+        return 'operaciones';
+      case 'cotizacion':
+      case 'cotizaciones':
+        return 'cotizaciones';
+      case 'cliente':
+      case 'clientes':
+        return 'clientes';
+      case 'nomina':
+        return 'nomina';
+      case 'contabilidad':
+        return 'contabilidad';
+      case 'administracion':
+      case 'admin':
+        return 'administracion';
+      case 'configuracion':
+      case 'settings':
+        return 'configuracion';
+      case 'perfil':
+      case 'profile':
+        return 'profile';
+      default:
+        return normalized || 'general';
+    }
   }
 
   private parseRouteContext(route?: string) {
@@ -576,6 +630,59 @@ export class AiAssistantService {
       authorizedData,
       all,
     });
+  }
+
+  private toManualKnowledge(entry: CompanyManualEntry): KnowledgeRecord {
+    const category = (() => {
+      switch (entry.kind) {
+        case CompanyManualEntryKind.POLICY:
+          return 'politicas';
+        case CompanyManualEntryKind.WARRANTY_POLICY:
+          return 'garantias';
+        case CompanyManualEntryKind.PRICE_RULE:
+          return 'precios';
+        case CompanyManualEntryKind.SERVICE_RULE:
+          return 'servicios';
+        case CompanyManualEntryKind.PRODUCT_SERVICE:
+          return 'productos';
+        case CompanyManualEntryKind.MODULE_GUIDE:
+          return 'modulo';
+        case CompanyManualEntryKind.GENERAL_RULE:
+        case CompanyManualEntryKind.ROLE_RULE:
+        case CompanyManualEntryKind.RESPONSIBILITY:
+        default:
+          return 'general';
+      }
+    })();
+
+    const module = entry.moduleKey ? this.normalizeModuleKey(entry.moduleKey) : 'manual-interno';
+    const titleSuffix = entry.moduleKey ? ` (${this.normalizeModuleKey(entry.moduleKey)})` : '';
+    const severity = this.inferSeverity(entry.kind, entry.title, entry.content);
+    const keywordBag = Array.from(
+      new Set(
+        [
+          ...this.tokenize(`${entry.title} ${entry.summary ?? ''} ${entry.content}`),
+          ...this.tokenize(entry.kind),
+          ...(entry.moduleKey ? this.tokenize(entry.moduleKey) : []),
+          'manual',
+          'interno',
+        ].filter((x) => x.trim().length > 0),
+      ),
+    ).slice(0, 18);
+
+    return {
+      id: `manual:${entry.id}`,
+      module,
+      category,
+      title: `${entry.title}${titleSuffix}`,
+      content: entry.content,
+      summary: entry.summary,
+      keywords: keywordBag,
+      severity,
+      active: entry.published,
+      createdAt: entry.createdAt ? entry.createdAt.toISOString() : null,
+      updatedAt: entry.updatedAt ? entry.updatedAt.toISOString() : null,
+    };
   }
 
   private buildStaticModuleHelp(manualCount: number): KnowledgeRecord[] {
@@ -1535,6 +1642,32 @@ export class AiAssistantService {
     return selected.slice(0, limit);
   }
 
+  private rankKnowledgeForPrompt(prompt: string, context: NormalizedAiContext, knowledge: KnowledgeRecord[]): KnowledgeRecord[] {
+    const tokens = new Set(this.tokenize(`${prompt} ${context.module} ${context.screenName ?? ''} ${context.entityType ?? ''}`));
+    const normalizedModule = this.normalizeModuleKey(context.module);
+
+    return knowledge
+      .map((k) => {
+        const haystack = `${k.title} ${k.summary ?? ''} ${k.content} ${k.module} ${k.category} ${(k.keywords ?? []).join(' ')}`;
+        const kTokens = new Set(this.tokenize(haystack));
+
+        let score = 0;
+        for (const token of tokens) {
+          if (kTokens.has(token)) score += token.length >= 5 ? 2 : 1;
+        }
+
+        if (this.normalizeModuleKey(k.module) === normalizedModule) score += 3;
+        if (score === 0 && this.normalizeModuleKey(k.module) === normalizedModule) score = 1;
+        if (k.severity === 'critical') score += 2;
+        if (k.severity === 'warning') score += 1;
+
+        return { k, score };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((item) => item.k);
+  }
+
   private async buildClientKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
     const isAdmin = user.role === Role.ADMIN;
 
@@ -2451,6 +2584,9 @@ export class AiAssistantService {
       workContractWorkLocation: true,
       workContractSalary: true,
       workContractPaymentFrequency: true,
+      workContractPaymentMethod: true,
+      workContractClauseOverrides: true,
+      workContractCustomClauses: true,
     };
 
     const targetRecord = await this.prisma.user.findUnique({
