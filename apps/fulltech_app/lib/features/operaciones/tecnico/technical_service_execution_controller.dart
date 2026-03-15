@@ -441,6 +441,53 @@ class TechnicalExecutionController
     }
   }
 
+  Future<void> changeOrderState({
+    required String orderState,
+    String? message,
+  }) async {
+    if (_readOnly) return;
+    if (state.saving) return;
+
+    final service = state.service;
+    if (service == null) return;
+
+    final next = orderState.trim().toLowerCase();
+    if (next.isEmpty) return;
+
+    state = state.copyWith(saving: true, clearError: true);
+    try {
+      final repo = ref.read(operationsRepositoryProvider);
+      await repo.changeOrderState(
+        serviceId: serviceId,
+        orderState: next,
+        message: message,
+      );
+
+      final techId = (ref.read(authStateProvider).user?.id ?? '').trim();
+      final logMsg = [
+        'state=$next',
+        if (techId.isNotEmpty) 'technicianId=$techId',
+      ].join(' | ');
+
+      try {
+        await repo.addUpdate(
+          serviceId: serviceId,
+          type: 'tech_status',
+          message: logMsg,
+        );
+      } catch (_) {
+        // Best-effort; do not block status update.
+      }
+
+      final refreshed = await repo.getService(serviceId);
+      state = state.copyWith(saving: false, service: refreshed);
+    } on ApiException catch (e) {
+      state = state.copyWith(saving: false, error: e.message);
+    } catch (e) {
+      state = state.copyWith(saving: false, error: e.toString());
+    }
+  }
+
   Future<void> toggleStep(ServiceStepModel step, bool next) async {
     if (_readOnly) return;
     final service = state.service;

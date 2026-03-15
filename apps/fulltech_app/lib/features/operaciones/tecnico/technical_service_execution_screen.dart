@@ -11,16 +11,17 @@ import 'package:video_player/video_player.dart';
 import 'package:signature/signature.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 import 'package:dio/dio.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/routing/routes.dart';
 import '../operations_models.dart';
 import '../presentation/operations_permissions.dart';
+import '../presentation/status_picker_sheet.dart';
 import 'technical_service_execution_controller.dart';
 import 'widgets/technical_execution_cards.dart';
 import 'widgets/service_execution_form.dart';
+import 'widgets/service_report_pdf_screen.dart';
 
 class TechnicalServiceExecutionScreen extends ConsumerStatefulWidget {
   final String serviceId;
@@ -610,14 +611,13 @@ class _TechnicalServiceExecutionScreenState
     }
   }
 
-  Future<void> _exportPdf({
-    required BuildContext context,
+  Future<Uint8List> _buildServiceReportPdfBytes({
     required TechnicalExecutionState st,
     required TechnicalExecutionController ctrl,
     required List<ExecutionChecklistItem> checklist,
   }) async {
     final service = st.service;
-    if (service == null) return;
+    if (service == null) return Uint8List(0);
 
     final sig = st.phaseSpecificData['clientSignature'];
     final sigUrl = sig is Map ? (sig['fileUrl'] ?? '').toString().trim() : '';
@@ -741,11 +741,33 @@ class _TechnicalServiceExecutionScreenState
       ),
     );
 
-    final bytes = await doc.save();
-    if (!context.mounted) return;
-    await Printing.layoutPdf(
-      onLayout: (_) async => bytes,
-      name: 'reporte_servicio_${service.id}.pdf',
+    return doc.save();
+  }
+
+  Future<void> _openServiceReportPdf({
+    required BuildContext context,
+    required TechnicalExecutionState st,
+    required TechnicalExecutionController ctrl,
+    required List<ExecutionChecklistItem> checklist,
+  }) async {
+    final service = st.service;
+    if (service == null) return;
+
+    final fileName = 'reporte_servicio_${service.id}.pdf';
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) {
+          return ServiceReportPdfScreen(
+            fileName: fileName,
+            loadBytes: () => _buildServiceReportPdfBytes(
+              st: st,
+              ctrl: ctrl,
+              checklist: checklist,
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -1164,6 +1186,85 @@ class _TechnicalServiceExecutionScreenState
                   ],
                   ServiceHeaderCard(service: service),
                   const SizedBox(height: 12),
+                  TechnicalSectionCard(
+                    icon: Icons.playlist_add_check_circle_outlined,
+                    title: 'Estado del servicio',
+                    trailing: FilledButton.tonalIcon(
+                      onPressed: _isReadOnly(service: service, user: auth.user)
+                          ? null
+                          : () async {
+                              final current =
+                                  (service.orderState.trim().isNotEmpty
+                                          ? service.orderState
+                                          : service.status)
+                                      .trim();
+
+                              final next = await StatusPickerSheet.show(
+                                context,
+                                current: current,
+                              );
+                              if (next == null) return;
+
+                              final currentNorm = current.toLowerCase();
+                              if (next.trim().toLowerCase() == currentNorm) {
+                                return;
+                              }
+
+                              await ctrl.changeOrderState(orderState: next);
+                              if (!context.mounted) return;
+
+                              final msg =
+                                  'Estado actualizado: ${StatusPickerSheet.label(next)}';
+                              ScaffoldMessenger.maybeOf(
+                                context,
+                              )?.showSnackBar(SnackBar(content: Text(msg)));
+                            },
+                      icon: const Icon(Icons.swap_horiz_rounded),
+                      label: const Text('Cambiar estado'),
+                    ),
+                    child: Builder(
+                      builder: (context) {
+                        final theme = Theme.of(context);
+                        final cs = theme.colorScheme;
+
+                        final raw =
+                            (service.orderState.trim().isNotEmpty
+                                    ? service.orderState
+                                    : service.status)
+                                .trim()
+                                .toLowerCase();
+
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: cs.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                StatusPickerSheet.icon(raw),
+                                color: cs.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  StatusPickerSheet.label(raw),
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   _billingManagementCard(service),
                   const SizedBox(height: 12),
                   ExecutionTimelineCard(
@@ -1383,7 +1484,7 @@ class _TechnicalServiceExecutionScreenState
                           onPressed: () {
                             final checklist = _buildDynamicChecklist(service);
                             unawaited(
-                              _exportPdf(
+                              _openServiceReportPdf(
                                 context: context,
                                 st: st,
                                 ctrl: ctrl,
@@ -1392,7 +1493,7 @@ class _TechnicalServiceExecutionScreenState
                             );
                           },
                           icon: const Icon(Icons.picture_as_pdf_outlined),
-                          label: const Text('Exportar PDF'),
+                          label: const Text('Ver PDF'),
                         ),
                         const SizedBox(height: 10),
                         Builder(

@@ -18,6 +18,18 @@ class StorageRepository {
 
   StorageRepository(this._dio);
 
+  Future<ServiceMediaModel> getById(String id) async {
+    try {
+      final res = await _dio.get(ApiRoutes.storageItem(id));
+      return ServiceMediaModel.fromJson((res.data as Map).cast<String, dynamic>());
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo cargar el archivo'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
   String _extractMessage(dynamic data, String fallback) {
     if (data is Map) {
       final message = data['message'];

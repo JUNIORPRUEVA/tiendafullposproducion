@@ -72,8 +72,19 @@ export class NotificationsService {
       const createdAt = (service as any).createdAt instanceof Date ? (service as any).createdAt : null;
       return this.computeFallbackOrderNumber({ createdAt, serviceId: id });
     } catch {
-      // Best-effort: if migrations are missing, don't block notification enqueue.
-      return null;
+      // Best-effort: if migrations are missing, try again without selecting orderNumber.
+      try {
+        const service = await this.prisma.service.findUnique({
+          where: { id },
+          select: { id: true, createdAt: true } as any,
+        });
+
+        if (!service) return null;
+        const createdAt = (service as any).createdAt instanceof Date ? (service as any).createdAt : null;
+        return this.computeFallbackOrderNumber({ createdAt, serviceId: id });
+      } catch {
+        return null;
+      }
     }
   }
 
