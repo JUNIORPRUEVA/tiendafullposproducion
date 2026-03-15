@@ -1065,7 +1065,10 @@ export class OperationsService {
     // notify the creator's fleet number via WhatsApp with customer details and a wa.me link.
     try {
       const isReservation = service.orderType === OrderType.RESERVA || service.currentPhase === ServicePhaseType.RESERVA;
-      const isActiveStatus = ![ServiceStatus.CANCELLED, ServiceStatus.CLOSED, ServiceStatus.COMPLETED].includes(updated.status);
+      const isActiveStatus =
+        updated.status !== ServiceStatus.CANCELLED &&
+        updated.status !== ServiceStatus.CLOSED &&
+        updated.status !== ServiceStatus.COMPLETED;
       if (isReservation && isActiveStatus) {
         const creator = await this.prisma.user.findUnique({
           where: { id: service.createdByUserId },

@@ -12,12 +12,15 @@ import 'package:geolocator/geolocator.dart' hide ServiceStatus;
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/models/user_model.dart';
 import '../../core/models/punch_model.dart';
 import '../../core/routing/routes.dart';
+import '../../core/storage/storage_repository.dart';
+import '../../core/storage/storage_models.dart';
 import '../../core/utils/geo_utils.dart';
 import '../../core/utils/external_launcher.dart';
 import '../../core/utils/safe_url_launcher.dart';
@@ -722,24 +725,23 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
         }
       }
 
-      final referencePhoto = draft.referencePhoto;
-      if (referencePhoto != null) {
-        try {
-          await ref
-              .read(operationsControllerProvider.notifier)
-              .uploadEvidence(created.id, referencePhoto);
-        } catch (e) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                e is ApiException
-                    ? e.message
-                    : 'No se pudo subir la foto de referencia',
-              ),
+      try {
+        await _postCreateUploadReferences(
+          ref: ref,
+          serviceId: created.id,
+          referenceText: draft.referenceText,
+          images: draft.referenceImages,
+          video: draft.referenceVideo,
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e is ApiException ? e.message : 'No se pudo subir la referencia',
             ),
-          );
-        }
+          ),
+        );
       }
 
       if (!mounted) return;
@@ -833,15 +835,16 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
         }
       }
 
-      final referencePhoto = draft.referencePhoto;
-      if (referencePhoto != null) {
-        try {
-          await ref
-              .read(operationsControllerProvider.notifier)
-              .uploadEvidence(created.id, referencePhoto);
-        } catch (_) {
-          // No bloquea la creación.
-        }
+      try {
+        await _postCreateUploadReferences(
+          ref: ref,
+          serviceId: created.id,
+          referenceText: draft.referenceText,
+          images: draft.referenceImages,
+          video: draft.referenceVideo,
+        );
+      } catch (_) {
+        // No bloquea la creación.
       }
 
       if (!mounted) return false;
@@ -915,15 +918,16 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
         }
       }
 
-      final referencePhoto = draft.referencePhoto;
-      if (referencePhoto != null) {
-        try {
-          await ref
-              .read(operationsControllerProvider.notifier)
-              .uploadEvidence(created.id, referencePhoto);
-        } catch (_) {
-          // No bloquea la creación desde agenda.
-        }
+      try {
+        await _postCreateUploadReferences(
+          ref: ref,
+          serviceId: created.id,
+          referenceText: draft.referenceText,
+          images: draft.referenceImages,
+          video: draft.referenceVideo,
+        );
+      } catch (_) {
+        // No bloquea la creación desde agenda.
       }
 
       if (targetStatus != null && targetStatus != created.status) {
@@ -1391,24 +1395,23 @@ class _OperacionesAgendaScreenState
         }
       }
 
-      final referencePhoto = draft.referencePhoto;
-      if (referencePhoto != null) {
-        try {
-          await ref
-              .read(operationsControllerProvider.notifier)
-              .uploadEvidence(created.id, referencePhoto);
-        } catch (e) {
-          if (!mounted) return false;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                e is ApiException
-                    ? e.message
-                    : 'No se pudo subir la foto de referencia',
-              ),
+      try {
+        await _postCreateUploadReferences(
+          ref: ref,
+          serviceId: created.id,
+          referenceText: draft.referenceText,
+          images: draft.referenceImages,
+          video: draft.referenceVideo,
+        );
+      } catch (e) {
+        if (!mounted) return false;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e is ApiException ? e.message : 'No se pudo subir la referencia',
             ),
-          );
-        }
+          ),
+        );
       }
 
       if (targetStatus != null && targetStatus != created.status) {
@@ -1486,24 +1489,23 @@ class _OperacionesAgendaScreenState
         }
       }
 
-      final referencePhoto = draft.referencePhoto;
-      if (referencePhoto != null) {
-        try {
-          await ref
-              .read(operationsControllerProvider.notifier)
-              .uploadEvidence(created.id, referencePhoto);
-        } catch (e) {
-          if (!mounted) return false;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                e is ApiException
-                    ? e.message
-                    : 'No se pudo subir la foto de referencia',
-              ),
+      try {
+        await _postCreateUploadReferences(
+          ref: ref,
+          serviceId: created.id,
+          referenceText: draft.referenceText,
+          images: draft.referenceImages,
+          video: draft.referenceVideo,
+        );
+      } catch (e) {
+        if (!mounted) return false;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e is ApiException ? e.message : 'No se pudo subir la referencia',
             ),
-          );
-        }
+          ),
+        );
       }
 
       if (!mounted) return false;
@@ -4056,11 +4058,15 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
   bool _phaseHistoryLoading = false;
   String? _phaseHistoryError;
 
+  Future<List<ServiceMediaModel>>? _referenceMediaFuture;
+  String? _lastReferenceText;
+
   @override
   void initState() {
     super.initState();
     _service = widget.service;
     _loadPhaseHistory();
+    _primeReferenceFuture(widget.service);
   }
 
   @override
@@ -4072,7 +4078,132 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
       _phaseHistoryError = null;
       _phaseHistoryLoading = false;
       _loadPhaseHistory();
+      _primeReferenceFuture(widget.service);
     }
+  }
+
+  void _primeReferenceFuture(ServiceModel service) {
+    final refText = _extractLatestReferenceText(service);
+    _lastReferenceText = refText;
+    _referenceMediaFuture = _loadReferenceMedia(service.id);
+  }
+
+  Future<List<ServiceMediaModel>> _loadReferenceMedia(String serviceId) {
+    return ref
+        .read(storageRepositoryProvider)
+        .listByService(serviceId: serviceId);
+  }
+
+  String? _extractLatestReferenceText(ServiceModel service) {
+    for (var i = service.updates.length - 1; i >= 0; i--) {
+      final msg = service.updates[i].message.trim();
+      if (!msg.startsWith('[REF]')) continue;
+      final rest = msg.substring('[REF]'.length).trim();
+      if (rest.isEmpty) continue;
+      return rest;
+    }
+    return null;
+  }
+
+  bool _looksLikeVideoMedia(ServiceMediaModel media) {
+    final mime = (media.mimeType ?? media.fileType).trim().toLowerCase();
+    if (mime.startsWith('video/')) return true;
+    final mt = (media.mediaType ?? '').trim().toLowerCase();
+    if (mt == 'video') return true;
+    final kind = (media.kind ?? '').trim().toLowerCase();
+    if (kind.contains('video')) return true;
+    final url = media.fileUrl.trim().toLowerCase();
+    return url.endsWith('.mp4') || url.contains('.mp4?');
+  }
+
+  Future<void> _openReferenceViewer(ServiceMediaModel media) async {
+    final url = media.fileUrl.trim();
+    if (url.isEmpty) return;
+    final isVideo = _looksLikeVideoMedia(media);
+    final title = (media.originalFileName ?? '').trim().isNotEmpty
+        ? (media.originalFileName ?? '').trim()
+        : (media.fileType).trim().isEmpty
+        ? 'Referencia'
+        : media.fileType;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return Dialog(
+          insetPadding: const EdgeInsets.all(14),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Cerrar',
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  if (!isVideo)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: ColoredBox(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
+                        child: AspectRatio(
+                          aspectRatio: 1,
+                          child: InteractiveViewer(
+                            minScale: 0.8,
+                            maxScale: 5,
+                            child: Image.network(
+                              url,
+                              fit: BoxFit.contain,
+                              loadingBuilder: (context, child, progress) {
+                                if (progress == null) return child;
+                                return const Center(
+                                  child: CircularProgressIndicator(),
+                                );
+                              },
+                              errorBuilder: (context, _, __) {
+                                return Center(
+                                  child: Text(
+                                    'No se pudo cargar la imagen',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(fontWeight: FontWeight.w700),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    _VideoReferenceViewer(url: url),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _loadPhaseHistory() async {
@@ -4757,6 +4888,12 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
 
     final payment = _extractPaymentInfo(service);
 
+    final referenceText = _extractLatestReferenceText(service);
+    if (_referenceMediaFuture == null || _lastReferenceText != referenceText) {
+      _lastReferenceText = referenceText;
+      _referenceMediaFuture = _loadReferenceMedia(service.id);
+    }
+
     final headerTitle = categoryText.isEmpty
         ? typeText
         : '$typeText · $categoryText';
@@ -5329,6 +5466,125 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         ),
         const SizedBox(height: 10),
         InfoCard(
+          title: 'Referencias',
+          child: FutureBuilder<List<ServiceMediaModel>>(
+            future: _referenceMediaFuture,
+            builder: (context, snap) {
+              if (referenceText == null || referenceText.trim().isEmpty) {
+                return const Text('Sin referencias');
+              }
+
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: LinearProgressIndicator(minHeight: 2),
+                );
+              }
+
+              if (snap.hasError) {
+                return const Text('No se pudieron cargar las referencias');
+              }
+
+              final all = snap.data ?? const <ServiceMediaModel>[];
+              final filtered = all
+                  .where((m) {
+                    final caption = (m.caption ?? '').trim();
+                    if (caption != referenceText.trim()) return false;
+                    final kind = (m.kind ?? '').trim().toLowerCase();
+                    return kind == 'evidence_final' || kind == 'video_evidence';
+                  })
+                  .toList(growable: false);
+
+              final images = filtered
+                  .where((m) => !_looksLikeVideoMedia(m))
+                  .toList();
+              final videos = filtered
+                  .where((m) => _looksLikeVideoMedia(m))
+                  .toList();
+
+              if (filtered.isEmpty) {
+                return Text(
+                  'Texto: "$referenceText"\nSin fotos/video adjuntos.',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                );
+              }
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Texto: $referenceText',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (images.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final media in images)
+                            Padding(
+                              padding: EdgeInsets.only(
+                                right: media == images.last ? 0 : 8,
+                              ),
+                              child: InkWell(
+                                onTap: () => _openReferenceViewer(media),
+                                borderRadius: BorderRadius.circular(12),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Container(
+                                    width: 92,
+                                    height: 92,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.surfaceContainerHighest,
+                                    child: Image.network(
+                                      media.fileUrl,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => Center(
+                                        child: Icon(
+                                          Icons.broken_image_outlined,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface
+                                              .withValues(alpha: 0.65),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  if (videos.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    for (final media in videos)
+                      OutlinedButton.icon(
+                        onPressed: () => _openReferenceViewer(media),
+                        icon: const Icon(Icons.play_circle_outline),
+                        label: Text(
+                          (media.originalFileName ?? '').trim().isEmpty
+                              ? 'Ver video'
+                              : 'Ver video: ${media.originalFileName}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                ],
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 10),
+        InfoCard(
           title: 'Gestión de facturación del servicio',
           child: Builder(
             builder: (context) {
@@ -5597,6 +5853,136 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
   }
 }
 
+class _VideoReferenceViewer extends StatefulWidget {
+  final String url;
+
+  const _VideoReferenceViewer({required this.url});
+
+  @override
+  State<_VideoReferenceViewer> createState() => _VideoReferenceViewerState();
+}
+
+class _VideoReferenceViewerState extends State<_VideoReferenceViewer> {
+  VideoPlayerController? _controller;
+  Future<void>? _init;
+
+  @override
+  void initState() {
+    super.initState();
+    final uri = Uri.tryParse(widget.url.trim());
+    if (uri == null) return;
+    final c = VideoPlayerController.networkUrl(uri);
+    _controller = c;
+    _init = c.initialize();
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = _controller;
+    if (controller == null || _init == null) {
+      return const Padding(
+        padding: EdgeInsets.all(12),
+        child: Text('Video inválido'),
+      );
+    }
+
+    return FutureBuilder<void>(
+      future: _init,
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.all(12),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snap.hasError) {
+          return const Padding(
+            padding: EdgeInsets.all(12),
+            child: Text('No se pudo cargar el video'),
+          );
+        }
+
+        final aspect = controller.value.aspectRatio;
+        final safeAspect = (aspect.isFinite && aspect > 0) ? aspect : (16 / 9);
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: AspectRatio(
+                aspectRatio: safeAspect,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    ColoredBox(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
+                      child: VideoPlayer(controller),
+                    ),
+                    Positioned.fill(
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () {
+                            if (!mounted) return;
+                            setState(() {
+                              if (controller.value.isPlaying) {
+                                controller.pause();
+                              } else {
+                                controller.play();
+                              }
+                            });
+                          },
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.surface.withValues(alpha: 0.85),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.outline.withValues(alpha: 0.25),
+                                ),
+                              ),
+                              child: Icon(
+                                controller.value.isPlaying
+                                    ? Icons.pause_rounded
+                                    : Icons.play_arrow_rounded,
+                                size: 28,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            VideoProgressIndicator(
+              controller,
+              allowScrubbing: true,
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
 Widget _kv(BuildContext context, String label, String value) {
   final theme = Theme.of(context);
   final scheme = theme.colorScheme;
@@ -5636,6 +6022,141 @@ class _PaymentInfo {
   final String? method;
 
   const _PaymentInfo({required this.status, this.amount, this.method});
+}
+
+String _buildReferenceNote(String text) {
+  final t = text.trim();
+  return '[REF] $t';
+}
+
+bool _isVideoFile(PlatformFile file) {
+  String extOf(PlatformFile f) {
+    final direct = (f.extension ?? '').trim();
+    if (direct.isNotEmpty) return direct;
+    final name = f.name.trim();
+    final i = name.lastIndexOf('.');
+    if (i < 0) return '';
+    return name.substring(i + 1);
+  }
+
+  final ext = extOf(file).trim().toLowerCase();
+  return ext == 'mp4' ||
+      ext == 'mov' ||
+      ext == 'm4v' ||
+      ext == 'avi' ||
+      ext == 'mkv' ||
+      ext == 'webm' ||
+      ext == '3gp';
+}
+
+String _guessMimeTypeForPlatformFile(PlatformFile file) {
+  String extOf(PlatformFile f) {
+    final direct = (f.extension ?? '').trim();
+    if (direct.isNotEmpty) return direct;
+    final name = f.name.trim();
+    final i = name.lastIndexOf('.');
+    if (i < 0) return '';
+    return name.substring(i + 1);
+  }
+
+  final ext = extOf(file).trim().toLowerCase();
+  if (ext == 'jpg' || ext == 'jpeg') return 'image/jpeg';
+  if (ext == 'png') return 'image/png';
+  if (ext == 'webp') return 'image/webp';
+  if (ext == 'heic') return 'image/heic';
+  if (ext == 'heif') return 'image/heif';
+  if (ext == 'mp4') return 'video/mp4';
+  if (ext == 'mov') return 'video/quicktime';
+  if (ext == 'm4v') return 'video/x-m4v';
+  if (ext == 'webm') return 'video/webm';
+  if (ext == '3gp') return 'video/3gpp';
+  return 'application/octet-stream';
+}
+
+Future<void> _uploadPlatformFileDirectToStorage({
+  required WidgetRef ref,
+  required String serviceId,
+  required PlatformFile file,
+  required String caption,
+}) async {
+  final mimeType = _guessMimeTypeForPlatformFile(file);
+  final kind = _isVideoFile(file) || mimeType.startsWith('video/')
+      ? 'video_evidence'
+      : 'evidence_final';
+
+  final storage = ref.read(storageRepositoryProvider);
+  final presign = await storage.presign(
+    serviceId: serviceId,
+    fileName: file.name,
+    contentType: mimeType,
+    fileSize: file.size,
+    kind: kind,
+  );
+
+  await storage.uploadToPresignedUrl(
+    uploadUrl: presign.uploadUrl,
+    bytes: file.bytes,
+    stream: kIsWeb ? null : file.readStream,
+    contentType: mimeType,
+    contentLength: file.size,
+  );
+
+  await storage.confirm(
+    serviceId: serviceId,
+    objectKey: presign.objectKey,
+    publicUrl: presign.publicUrl,
+    fileName: file.name,
+    mimeType: mimeType,
+    fileSize: file.size,
+    kind: kind,
+    caption: caption.trim().isEmpty ? null : caption.trim(),
+  );
+}
+
+Future<void> _postCreateUploadReferences({
+  required WidgetRef ref,
+  required String serviceId,
+  required String referenceText,
+  required List<PlatformFile> images,
+  PlatformFile? video,
+}) async {
+  final text = referenceText.trim();
+  if (text.isEmpty) {
+    throw ApiException('El texto de referencia es requerido', 400);
+  }
+
+  // Guardar texto siempre, aunque no haya medios.
+  try {
+    await ref
+        .read(operationsRepositoryProvider)
+        .addUpdate(
+          serviceId: serviceId,
+          type: 'note',
+          message: _buildReferenceNote(text),
+        );
+  } catch (_) {
+    // No bloquea la creación.
+  }
+
+  for (final img in images) {
+    await _uploadPlatformFileDirectToStorage(
+      ref: ref,
+      serviceId: serviceId,
+      file: img,
+      caption: text,
+    );
+  }
+
+  if (video != null) {
+    await _uploadPlatformFileDirectToStorage(
+      ref: ref,
+      serviceId: serviceId,
+      file: video,
+      caption: text,
+    );
+  }
+
+  await ref.read(operationsControllerProvider.notifier).refresh();
 }
 
 String _buildPaymentNote({
@@ -6505,7 +7026,9 @@ class _CreateServiceDraft {
   final double? depositAmount;
   final String? paymentNote;
   final List<String> tags;
-  final PlatformFile? referencePhoto;
+  final String referenceText;
+  final List<PlatformFile> referenceImages;
+  final PlatformFile? referenceVideo;
 
   _CreateServiceDraft({
     required this.customerId,
@@ -6526,7 +7049,9 @@ class _CreateServiceDraft {
     this.depositAmount,
     this.paymentNote,
     this.tags = const [],
-    this.referencePhoto,
+    required this.referenceText,
+    this.referenceImages = const [],
+    this.referenceVideo,
   });
 }
 
@@ -6558,6 +7083,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   final _searchClientCtrl = TextEditingController();
   final _reservationDateCtrl = TextEditingController();
   final _descriptionCtrl = TextEditingController();
+  final _referenceTextCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
   final _gpsCtrl = TextEditingController();
   final _quotedCtrl = TextEditingController();
@@ -6610,7 +7136,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   Timer? _gpsResolveDebounce;
   bool _resolvingGps = false;
   int _gpsResolveSeq = 0;
-  PlatformFile? _referencePhoto;
+  List<PlatformFile> _referenceImages = const [];
+  PlatformFile? _referenceVideo;
   bool _saving = false;
 
   bool get _isAgendaReserva {
@@ -6661,6 +7188,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     _searchClientCtrl.dispose();
     _reservationDateCtrl.dispose();
     _descriptionCtrl.dispose();
+    _referenceTextCtrl.dispose();
     _addressCtrl.dispose();
     _gpsCtrl.dispose();
     _gpsResolveDebounce?.cancel();
@@ -6881,13 +7409,47 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     }
   }
 
-  Future<void> _pickReferencePhoto() async {
+  Future<void> _pickReferenceImages() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
+      allowMultiple: true,
       withData: true,
     );
     if (result == null || result.files.isEmpty) return;
-    setState(() => _referencePhoto = result.files.first);
+
+    final next = <PlatformFile>[];
+    for (final f in result.files) {
+      if ((f.name).trim().isEmpty) continue;
+      next.add(f);
+    }
+    if (next.isEmpty) return;
+
+    setState(() {
+      final combined = [..._referenceImages, ...next];
+      final seen = <String>{};
+      _referenceImages = combined
+          .where((f) => seen.add((f.path ?? f.name).trim()))
+          .toList(growable: false);
+    });
+  }
+
+  Future<void> _pickReferenceVideo() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.video,
+      withReadStream: !kIsWeb,
+      withData: kIsWeb,
+    );
+    if (result == null || result.files.isEmpty) return;
+    setState(() => _referenceVideo = result.files.first);
+  }
+
+  void _removeReferenceImageAt(int index) {
+    if (index < 0 || index >= _referenceImages.length) return;
+    setState(() {
+      final next = [..._referenceImages];
+      next.removeAt(index);
+      _referenceImages = next;
+    });
   }
 
   Future<void> _pasteGpsFromClipboard() async {
@@ -7519,52 +8081,144 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       const Text(
-                        'Foto de referencia (casa)',
+                        'Referencias del cliente',
                         style: TextStyle(fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        _referencePhoto == null
-                            ? 'Opcional: sube una foto para ubicar la casa más rápido.'
-                            : 'Seleccionada: ${_referencePhoto!.name}',
+                        'Texto: obligatorio. Fotos y/o video: opcional (si el cliente envió referencias).',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      if (_referencePhoto != null) ...[
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: _referenceTextCtrl,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Texto de referencia (obligatorio)',
+                          helperText:
+                              'Ej: “Casa azul, portón negro, al lado del colmado”.',
+                        ),
+                        validator: (value) {
+                          final v = (value ?? '').trim();
+                          if (v.isEmpty) return 'Requerido';
+                          return null;
+                        },
+                      ),
+                      if (_referenceImages.isNotEmpty) ...[
                         const SizedBox(height: 10),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              width: 92,
-                              height: 92,
-                              decoration: BoxDecoration(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.surfaceContainerHighest,
-                                border: Border.all(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.outline.withValues(alpha: 0.25),
+                        Text(
+                          'Fotos seleccionadas: ${_referenceImages.length}',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 8),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: List.generate(_referenceImages.length, (
+                              index,
+                            ) {
+                              final f = _referenceImages[index];
+                              return Padding(
+                                padding: EdgeInsets.only(
+                                  right: index == _referenceImages.length - 1
+                                      ? 0
+                                      : 8,
                                 ),
-                              ),
-                              child: (_referencePhoto!.bytes != null)
-                                  ? Image.memory(
-                                      _referencePhoto!.bytes!,
-                                      fit: BoxFit.cover,
-                                    )
-                                  : Center(
-                                      child: Icon(
-                                        Icons.image_outlined,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurface
-                                            .withValues(alpha: 0.65),
+                                child: Stack(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: Container(
+                                        width: 92,
+                                        height: 92,
+                                        decoration: BoxDecoration(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.surfaceContainerHighest,
+                                          border: Border.all(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .outline
+                                                .withValues(alpha: 0.25),
+                                          ),
+                                        ),
+                                        child: (f.bytes != null)
+                                            ? Image.memory(
+                                                f.bytes!,
+                                                fit: BoxFit.cover,
+                                              )
+                                            : Center(
+                                                child: Icon(
+                                                  Icons.image_outlined,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurface
+                                                      .withValues(alpha: 0.65),
+                                                ),
+                                              ),
                                       ),
                                     ),
-                            ),
+                                    Positioned(
+                                      top: 4,
+                                      right: 4,
+                                      child: InkWell(
+                                        onTap: () =>
+                                            _removeReferenceImageAt(index),
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                        child: Container(
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: BoxDecoration(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .surface
+                                                .withValues(alpha: 0.9),
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
+                                            border: Border.all(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .outline
+                                                  .withValues(alpha: 0.25),
+                                            ),
+                                          ),
+                                          child: const Icon(
+                                            Icons.close_rounded,
+                                            size: 16,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
                           ),
+                        ),
+                      ],
+                      if (_referenceVideo != null) ...[
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            const Icon(Icons.videocam_outlined, size: 18),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Video: ${_referenceVideo!.name}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Quitar video',
+                              onPressed: () =>
+                                  setState(() => _referenceVideo = null),
+                              icon: const Icon(Icons.delete_outline),
+                            ),
+                          ],
                         ),
                       ],
                       const SizedBox(height: 10),
@@ -7573,18 +8227,30 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                         runSpacing: 8,
                         children: [
                           OutlinedButton.icon(
-                            onPressed: _pickReferencePhoto,
-                            icon: const Icon(Icons.photo_camera_outlined),
+                            onPressed: _pickReferenceImages,
+                            icon: const Icon(Icons.photo_library_outlined),
+                            label: const Text('Agregar fotos'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: _pickReferenceVideo,
+                            icon: const Icon(Icons.videocam_outlined),
                             label: Text(
-                              _referencePhoto == null ? 'Agregar' : 'Cambiar',
+                              _referenceVideo == null
+                                  ? 'Agregar video'
+                                  : 'Cambiar video',
                             ),
                           ),
                           OutlinedButton.icon(
-                            onPressed: _referencePhoto == null
+                            onPressed:
+                                (_referenceImages.isEmpty &&
+                                    _referenceVideo == null)
                                 ? null
-                                : () => setState(() => _referencePhoto = null),
-                            icon: const Icon(Icons.delete_outline),
-                            label: const Text('Quitar'),
+                                : () => setState(() {
+                                    _referenceImages = const [];
+                                    _referenceVideo = null;
+                                  }),
+                            icon: const Icon(Icons.delete_sweep_outlined),
+                            label: const Text('Quitar todo'),
                           ),
                         ],
                       ),
@@ -8467,7 +9133,9 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           depositAmount: deposit,
           paymentNote: paymentNote,
           tags: tags,
-          referencePhoto: _referencePhoto,
+          referenceText: _referenceTextCtrl.text.trim(),
+          referenceImages: _referenceImages,
+          referenceVideo: _referenceVideo,
         ),
       );
       if (!mounted) return;
@@ -8475,10 +9143,12 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       _reservationDateCtrl.clear();
       _reservationAt = null;
       _descriptionCtrl.clear();
+      _referenceTextCtrl.clear();
       _addressCtrl.clear();
       _gpsCtrl.clear();
       _gpsPoint = null;
-      _referencePhoto = null;
+      _referenceImages = const [];
+      _referenceVideo = null;
       _orderState = 'pendiente';
       _technicianId = null;
       _priorityTouched = false;

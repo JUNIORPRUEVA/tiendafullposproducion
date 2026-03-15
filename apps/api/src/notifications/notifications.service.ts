@@ -444,7 +444,7 @@ export class NotificationsService {
                 });
 
                 const minuteKey = nextAttemptAt.toISOString().slice(0, 16);
-                void this.upsertWhatsAppRawTextScheduled({
+                await this.upsertWhatsAppRawTextScheduled({
                   dedupeKey: `reservation_reminder_hourly:${service.id}:${minuteKey}`,
                   toNumber: fleetNumber,
                   messageText: built.messageText,
@@ -461,8 +461,6 @@ export class NotificationsService {
                     customerWaMe: built.waLink,
                     nextAttemptAt: nextAttemptAt.toISOString(),
                   },
-                }).catch(() => {
-                  // ignore
                 });
               }
             }

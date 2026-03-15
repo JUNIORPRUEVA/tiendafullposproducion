@@ -69,7 +69,8 @@ async function main() {
   await http('PATCH', `/users/${me.id}`, { numeroFlota: fleetNumber }, token);
   console.log('numeroFlota set on admin', fleetNumber);
 
-  const clientPhone = '8090000098';
+  const seed = Date.now();
+  const clientPhone = `809${String(seed % 10_000_000).padStart(7, '0')}`;
   const client = await http(
     'POST',
     '/clients',
@@ -129,7 +130,13 @@ async function main() {
     }
     console.log('initial outbox row exists', { status: initialRowBefore.status, nextAttemptAt: initialRowBefore.nextAttemptAt });
 
-    await notifications.processOutboxBatch(25);
+    console.log('processing outbox batch...');
+    const t0 = Date.now();
+    await Promise.race([
+      notifications.processOutboxBatch(25),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('processOutboxBatch timeout (20s)')), 20_000)),
+    ]);
+    console.log('outbox batch processed', `${Date.now() - t0}ms`);
 
     const initialRowAfter = await prisma.notificationOutbox.findUnique({
       where: { dedupeKey: initialKey },
