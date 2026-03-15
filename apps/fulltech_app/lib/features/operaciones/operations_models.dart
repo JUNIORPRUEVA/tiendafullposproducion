@@ -105,6 +105,12 @@ String phaseLabel(dynamic raw) {
       return 'Mantenimiento';
     case 'garantia':
       return 'Garantía';
+    case 'finalizado':
+    case 'finalizada':
+      return 'Finalizado';
+    case 'cancelado':
+    case 'cancelada':
+      return 'Cancelado';
     default:
       return value;
   }
@@ -535,10 +541,10 @@ class ServiceModel {
           .toString(),
       orderType: (json['orderType'] ?? 'reserva').toString(),
       orderState: (json['orderState'] ?? 'pending').toString(),
-        adminPhase: json['adminPhase'] == null
+      adminPhase: json['adminPhase'] == null
           ? null
           : (json['adminPhase'] ?? '').toString(),
-        adminStatus: json['adminStatus'] == null
+      adminStatus: json['adminStatus'] == null
           ? null
           : (json['adminStatus'] ?? '').toString(),
       technicianId: json['technicianId'] == null
@@ -574,7 +580,9 @@ class ServiceModel {
       steps: parseList(json['steps'], ServiceStepModel.fromJson),
       files: parseList(json['files'], ServiceFileModel.fromJson),
       updates: parseList(json['updates'], ServiceUpdateModel.fromJson),
-      closing: closingRaw == null ? null : ServiceClosingSummaryModel.fromJson(closingRaw),
+      closing: closingRaw == null
+          ? null
+          : ServiceClosingSummaryModel.fromJson(closingRaw),
     );
   }
 }

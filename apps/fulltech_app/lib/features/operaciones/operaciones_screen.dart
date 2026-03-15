@@ -115,7 +115,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
                         isExpanded: true,
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
-                          labelText: 'Tipo de orden',
+                          labelText: 'Fase de orden',
                         ),
                         items: const [
                           DropdownMenuItem(
@@ -3627,15 +3627,6 @@ class _PanelOptionsState extends State<_PanelOptions> {
     final perms = OperationsPermissions(user: widget.currentUser, service: s);
     final canChangePhase = perms.canChangePhase;
 
-    final orderType = s.orderType.trim().toLowerCase();
-    final currentPhaseRaw = (s.adminPhase ?? '').trim().toLowerCase();
-    final currentAdminPhase = currentPhaseRaw.isNotEmpty
-        ? currentPhaseRaw
-        : (orderType == 'reserva' ? 'reserva' : 'programacion');
-    final allowedAdminPhaseTargets = ServiceActionsSheet.allowedNextAdminPhases(
-      currentAdminPhase,
-    );
-
     return ServiceAgendaCard(
       service: s,
       subtitle: subtitle,
@@ -3643,25 +3634,34 @@ class _PanelOptionsState extends State<_PanelOptions> {
       scheduledText: scheduledText,
       onView: () => widget.onOpenService(s),
       onChangeState: () => _pickAndChangeOrderState(s),
-      onChangePhase: (!canChangePhase || allowedAdminPhaseTargets.isEmpty)
+      onChangePhase: !canChangePhase
           ? null
           : () {
               unawaited(() async {
-                final picked = await ServiceActionsSheet.pickAdminPhase(
+                final draft = await ServiceActionsSheet.pickChangePhaseDraft(
                   context,
-                  current: currentAdminPhase,
-                  allowed: allowedAdminPhaseTargets,
+                  current: s.currentPhase,
+                  initialScheduledAt: s.scheduledStart,
                 );
-                if (!mounted || picked == null) return;
+                if (!mounted || draft == null) return;
 
-                final phase = picked.trim().toLowerCase();
-                if (phase.isEmpty) return;
+                final next = (draft['phase'] ?? '').trim();
+                final scheduledAtRaw = (draft['scheduledAt'] ?? '').trim();
+                if (next.isEmpty) return;
+
+                final scheduledAt = DateTime.tryParse(scheduledAtRaw);
+                if (scheduledAt == null) return;
 
                 try {
-                  await widget.onChangeAdminPhase(s.id, phase);
+                  await widget.onChangePhase(
+                    s,
+                    next,
+                    scheduledAt,
+                    draft['note'],
+                  );
                   if (!mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Fase: ${adminPhaseLabel(phase)}')),
+                    SnackBar(content: Text('Fase: ${phaseLabel(next)}')),
                   );
                 } catch (e) {
                   if (!mounted) return;
@@ -4861,7 +4861,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _kv(context, 'Tipo de orden', _orderTypeLabel(service.orderType)),
+              _kv(context, 'Fase de orden', _orderTypeLabel(service.orderType)),
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
@@ -5981,7 +5981,7 @@ class _AgendaTab extends StatelessWidget {
                         isExpanded: true,
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
-                          labelText: 'Tipo de orden',
+                          labelText: 'Fase de orden',
                         ),
                         items: const [
                           DropdownMenuItem(
@@ -6756,9 +6756,12 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                 readOnly: true,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
-                  labelText: 'Fecha y hora (opcional)',
+                  labelText: 'Fecha y hora',
                   suffixIcon: Icon(Icons.schedule_outlined),
                 ),
+                validator: (_) {
+                  return _reservationAt == null ? 'Requerido' : null;
+                },
                 onTap: _pickReservationDate,
               ),
               const SizedBox(height: 10),

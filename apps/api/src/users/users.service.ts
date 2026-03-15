@@ -502,6 +502,7 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
           email: true,
           nombreCompleto: true,
           telefono: true,
+          numeroFlota: true,
           telefonoFamiliar: true,
           cedula: true,
           fotoCedulaUrl: true,
@@ -576,6 +577,7 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         passwordHash,
         nombreCompleto: dto.nombreCompleto.trim(),
         telefono: dto.telefono.trim(),
+        numeroFlota: dto.numeroFlota.trim(),
         telefonoFamiliar: this.normalizeOptionalString(dto.telefonoFamiliar),
         cedula,
         fotoCedulaUrl: this.normalizeOptionalString(dto.fotoCedulaUrl),
@@ -611,6 +613,7 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         email: true,
         nombreCompleto: true,
         telefono: true,
+        numeroFlota: true,
         telefonoFamiliar: true,
         cedula: true,
         fotoCedulaUrl: true,
@@ -654,6 +657,7 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
         email: true,
         nombreCompleto: true,
         telefono: true,
+        numeroFlota: true,
         telefonoFamiliar: true,
         cedula: true,
         fotoCedulaUrl: true,
@@ -757,6 +761,8 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
     const existing = await this.prisma.user.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('User not found');
 
+    const existingNumeroFlota = ((existing as any).numeroFlota ?? '').toString().trim();
+
     const nextEmail = this.hasValue(dto.email) ? this.normalizeEmail(dto.email) : undefined;
     const nextCedula = this.hasValue(dto.cedula) ? this.normalizeOptionalString(dto.cedula) : undefined;
 
@@ -777,6 +783,7 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
     if (passwordHash !== undefined) data.passwordHash = passwordHash;
     if (this.hasValue(dto.nombreCompleto)) data.nombreCompleto = dto.nombreCompleto.trim();
     if (this.hasValue(dto.telefono)) data.telefono = dto.telefono.trim();
+    if (this.hasValue(dto.numeroFlota)) data.numeroFlota = dto.numeroFlota.trim();
     if (this.hasValue(dto.telefonoFamiliar)) data.telefonoFamiliar = this.normalizeOptionalString(dto.telefonoFamiliar) ?? null;
     if (dto.cedula !== undefined) data.cedula = nextCedula ?? null;
     if (this.hasValue(dto.fotoCedulaUrl)) data.fotoCedulaUrl = this.normalizeOptionalString(dto.fotoCedulaUrl) ?? null;
@@ -811,6 +818,11 @@ Requisitos: sin emojis, sin chistes, no menciones IA, no uses información no pr
 
     if (Object.keys(data).length === 0) {
       return this.findById(id);
+    }
+
+    // Enforce numeroFlota when editing users that don't have it yet.
+    if (existingNumeroFlota.length === 0 && (data as any).numeroFlota === undefined) {
+      throw new BadRequestException('numeroFlota es obligatorio');
     }
 
     await this.prisma.user.update({

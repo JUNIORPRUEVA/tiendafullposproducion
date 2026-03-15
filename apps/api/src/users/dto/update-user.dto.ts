@@ -1,5 +1,5 @@
 import { Role } from '@prisma/client';
-import { IsArray, IsBoolean, IsDateString, IsEmail, IsEnum, IsInt, IsObject, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsEmail, IsEnum, IsInt, IsObject, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 
 export class UpdateUserDto {
   @IsOptional()
@@ -18,6 +18,11 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   telefono?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d+$/, { message: 'numeroFlota debe ser numérico' })
+  numeroFlota?: string;
 
   @IsOptional()
   @IsString()

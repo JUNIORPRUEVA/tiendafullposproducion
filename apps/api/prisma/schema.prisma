@@ -255,6 +255,7 @@ model User {
   passwordHash     String
   nombreCompleto   String
   telefono         String
+  numeroFlota      String?
   telefonoFamiliar String?
   cedula           String?  @unique
   fotoCedulaUrl    String?

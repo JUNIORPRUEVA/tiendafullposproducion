@@ -124,13 +124,14 @@ class ServiceAgendaCard extends StatelessWidget {
     const previewHeight = 96.0;
 
     final statusRaw = (service.adminStatus ?? '').trim().isNotEmpty
-      ? service.adminStatus!
-      : (service.orderState.isEmpty ? service.status : service.orderState);
+        ? service.adminStatus!
+        : (service.orderState.isEmpty ? service.status : service.orderState);
 
+    final servicePhaseText = phaseLabel(service.currentPhase);
     final adminPhaseRaw = (service.adminPhase ?? '').trim();
-    final phaseText = adminPhaseRaw.isNotEmpty
-      ? adminPhaseLabel(adminPhaseRaw)
-      : phaseLabel(service.currentPhase);
+    final phaseText = servicePhaseText != '—'
+        ? servicePhaseText
+        : (adminPhaseRaw.isNotEmpty ? adminPhaseLabel(adminPhaseRaw) : '—');
 
     return Card(
       elevation: 1,
@@ -161,9 +162,7 @@ class ServiceAgendaCard extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    StatusChip(
-                      status: statusRaw,
-                    ),
+                    StatusChip(status: statusRaw),
                     if (createdByShort != null) ...[
                       const SizedBox(height: 2),
                       Text(

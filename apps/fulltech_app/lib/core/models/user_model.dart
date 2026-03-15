@@ -5,6 +5,7 @@ class UserModel {
   final String email;
   final String nombreCompleto;
   final String telefono;
+  final String? numeroFlota;
   final String? cedula;
   final String? telefonoFamiliar;
   final String? fotoCedulaUrl;
@@ -42,6 +43,7 @@ class UserModel {
     required this.email,
     required this.nombreCompleto,
     required this.telefono,
+    this.numeroFlota,
     this.cedula,
     this.telefonoFamiliar,
     this.fotoCedulaUrl,
@@ -98,11 +100,14 @@ class UserModel {
                   (entry.value as String).trim(),
                 ),
               )
-              .where((entry) => entry.key.trim().isNotEmpty && entry.value.isNotEmpty)
+              .where(
+                (entry) =>
+                    entry.key.trim().isNotEmpty && entry.value.isNotEmpty,
+              )
               .fold<Map<String, String>>(<String, String>{}, (map, entry) {
-                  map[entry.key.trim()] = entry.value;
-                  return map;
-                })
+                map[entry.key.trim()] = entry.value;
+                return map;
+              })
         : <String, String>{};
 
     return UserModel(
@@ -110,6 +115,7 @@ class UserModel {
       email: json['email'] ?? '',
       nombreCompleto: json['nombreCompleto'] ?? json['nombre'] ?? '',
       telefono: json['telefono'] ?? '',
+      numeroFlota: json['numeroFlota'],
       cedula: json['cedula'],
       telefonoFamiliar: json['telefonoFamiliar'],
       fotoCedulaUrl: json['fotoCedulaUrl'],
@@ -173,6 +179,7 @@ class UserModel {
       'email': email,
       'nombreCompleto': nombreCompleto,
       'telefono': telefono,
+      'numeroFlota': numeroFlota,
       'cedula': cedula,
       'telefonoFamiliar': telefonoFamiliar,
       'fotoCedulaUrl': fotoCedulaUrl,

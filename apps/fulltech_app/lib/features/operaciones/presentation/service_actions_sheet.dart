@@ -94,14 +94,14 @@ class ServiceActionsSheet {
                       )
                     else
                       for (final phase in options)
-                      ListTile(
-                        leading: const Icon(Icons.flag_outlined),
-                        title: Text(adminPhaseLabel(phase)),
-                        trailing: phase == normalized
-                            ? const Icon(Icons.check_rounded)
-                            : null,
-                        onTap: () => Navigator.pop(context, phase),
-                      ),
+                        ListTile(
+                          leading: const Icon(Icons.flag_outlined),
+                          title: Text(adminPhaseLabel(phase)),
+                          trailing: phase == normalized
+                              ? const Icon(Icons.check_rounded)
+                              : null,
+                          onTap: () => Navigator.pop(context, phase),
+                        ),
                   ],
                 ),
               ),
@@ -221,9 +221,7 @@ class ServiceActionsSheet {
         final canChangeAdminPhaseEffective =
             changeAdminPhase != null && canChangeAdminPhase;
 
-        final phaseSubtitle = (service.adminPhase ?? '').trim().isNotEmpty
-            ? adminPhaseLabel(service.adminPhase)
-            : phaseLabel(service.currentPhase);
+        final phaseSubtitle = phaseLabel(service.currentPhase);
 
         return SafeArea(
           child: ConstrainedBox(
@@ -270,45 +268,41 @@ class ServiceActionsSheet {
                   subtitle: 'Actual: $phaseSubtitle',
                   enabled:
                       canChangeAdminPhaseEffective || canChangePhaseEffective,
-                  disabledReason: canChangeAdminPhaseEffective
+                  disabledReason: canChangePhaseEffective
                       ? null
-                      : (canChangePhaseEffective
+                      : (canChangeAdminPhaseEffective
                             ? null
-                            : ((onChangeAdminPhase != null)
-                                  ? (changeAdminPhaseDeniedReason ??
-                                        'Solo creador o admin')
-                                  : (changePhaseDeniedReason ??
-                                        'Solo creador o admin'))),
+                            : (changePhaseDeniedReason ??
+                                  changeAdminPhaseDeniedReason ??
+                                  'Solo creador o admin')),
                   onTap: () async {
-                    if (canChangeAdminPhaseEffective) {
-                      final current = (service.adminPhase ?? 'reserva').trim();
-                      final next = await pickAdminPhase(
+                    if (canChangePhaseEffective) {
+                      final draft = await _pickServicePhaseWithScheduleAndNote(
                         context,
-                        current: current,
+                        current: service.currentPhase,
+                        initialScheduledAt: service.scheduledStart,
                       );
-                      if (next == null) return;
-                      await closeAnd(() => changeAdminPhase(next));
+                      if (draft == null) return;
+                      final next = (draft['phase'] ?? '').trim();
+                      final scheduledAtRaw = (draft['scheduledAt'] ?? '')
+                          .trim();
+                      if (next.isEmpty) return;
+                      final scheduledAt = DateTime.tryParse(scheduledAtRaw);
+                      if (scheduledAt == null) return;
+                      await closeAnd(
+                        () => changePhase(next, scheduledAt, draft['note']),
+                      );
                       return;
                     }
 
-                    if (!canChangePhaseEffective) {
-                      return;
-                    }
-
-                    final draft = await _pickServicePhaseWithScheduleAndNote(
+                    if (!canChangeAdminPhaseEffective) return;
+                    final current = (service.adminPhase ?? 'reserva').trim();
+                    final next = await pickAdminPhase(
                       context,
-                      current: service.currentPhase,
-                      initialScheduledAt: service.scheduledStart,
+                      current: current,
                     );
-                    if (draft == null) return;
-                    final next = (draft['phase'] ?? '').trim();
-                    final scheduledAtRaw = (draft['scheduledAt'] ?? '').trim();
-                    if (next.isEmpty) return;
-                    final scheduledAt = DateTime.tryParse(scheduledAtRaw);
-                    if (scheduledAt == null) return;
-                    await closeAnd(
-                      () => changePhase(next, scheduledAt, draft['note']),
-                    );
+                    if (next == null) return;
+                    await closeAnd(() => changeAdminPhase(next));
                   },
                 ),
                 item(
@@ -478,10 +472,13 @@ class ServiceActionsSheet {
   }
 
   static const _servicePhases = <String>[
+    'reserva',
+    'levantamiento',
     'instalacion',
     'mantenimiento',
     'garantia',
-    'levantamiento',
+    'finalizado',
+    'cancelado',
   ];
 
   static Future<DateTime?> _pickDateTime(

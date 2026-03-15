@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
@@ -721,6 +722,9 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
     final nameCtrl = TextEditingController(text: user?.nombreCompleto ?? '');
     final emailCtrl = TextEditingController(text: user?.email ?? '');
     final phoneCtrl = TextEditingController(text: user?.telefono ?? '');
+    final numeroFlotaCtrl = TextEditingController(
+      text: user?.numeroFlota ?? '',
+    );
     final cedulaCtrl = TextEditingController(text: user?.cedula ?? '');
     final familiarPhoneCtrl = TextEditingController(
       text: user?.telefonoFamiliar ?? '',
@@ -793,6 +797,15 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                 TextField(
                   controller: phoneCtrl,
                   decoration: const InputDecoration(labelText: 'Teléfono'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: numeroFlotaCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Número de flota',
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -1299,6 +1312,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                       : passwordCtrl.text,
                   'nombreCompleto': nameCtrl.text.trim(),
                   'telefono': phoneCtrl.text.trim(),
+                  'numeroFlota': numeroFlotaCtrl.text.trim(),
                   'telefonoFamiliar': familiarPhoneCtrl.text.trim(),
                   'cedula': cedulaCtrl.text.trim(),
                   'fotoCedulaUrl': fotoCedulaUrl,
@@ -1349,6 +1363,15 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                 if (!payload.containsKey('cedula')) {
                   showSnack(
                     const SnackBar(content: Text('La cédula es obligatoria')),
+                  );
+                  return;
+                }
+
+                if (!payload.containsKey('numeroFlota')) {
+                  showSnack(
+                    const SnackBar(
+                      content: Text('El número de flota es obligatorio'),
+                    ),
                   );
                   return;
                 }
