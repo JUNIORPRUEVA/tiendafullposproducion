@@ -502,6 +502,139 @@ class ServiceChecklistCard extends StatelessWidget {
   }
 }
 
+class ExecutionChecklistItem {
+  final String key;
+  final String label;
+  final bool required;
+
+  const ExecutionChecklistItem({
+    required this.key,
+    required this.label,
+    this.required = true,
+  });
+}
+
+class DynamicExecutionChecklistCard extends StatelessWidget {
+  final String title;
+  final List<ExecutionChecklistItem> items;
+  final Map<String, dynamic> checklistData;
+  final void Function(String key, bool next) onChanged;
+
+  const DynamicExecutionChecklistCard({
+    super.key,
+    this.title = 'Checklist del servicio',
+    required this.items,
+    required this.checklistData,
+    required this.onChanged,
+  });
+
+  bool _valueFor(String key) {
+    final rawItems = checklistData['items'];
+    if (rawItems is Map) {
+      return rawItems[key] == true;
+    }
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    if (items.isEmpty) {
+      return TechnicalSectionCard(
+        icon: Icons.playlist_add_check_outlined,
+        title: title,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.playlist_remove_outlined, color: cs.onSurfaceVariant),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Sin checklist',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final requiredItems = items.where((i) => i.required).toList();
+    final completedRequired = requiredItems
+        .where((i) => _valueFor(i.key))
+        .length;
+    final requiredTotal = requiredItems.length;
+
+    return TechnicalSectionCard(
+      icon: Icons.playlist_add_check_outlined,
+      title: title,
+      trailing: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: cs.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          '$completedRequired/$requiredTotal',
+          style: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w900,
+            color: cs.onSurfaceVariant,
+          ),
+        ),
+      ),
+      child: Column(
+        children: [
+          for (final item in items) ...[
+            Stack(
+              children: [
+                _ChecklistTile(
+                  label: item.label,
+                  done: _valueFor(item.key),
+                  onTap: () => onChanged(item.key, !_valueFor(item.key)),
+                ),
+                if (!item.required)
+                  Positioned(
+                    top: 8,
+                    right: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: cs.surface,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: cs.outlineVariant),
+                      ),
+                      child: Text(
+                        'OPC',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            if (item != items.last) const SizedBox(height: 10),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class EvidenceGalleryCard extends StatelessWidget {
   final String title;
   final String emptyLabel;

@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/routing/routes.dart';
 import '../data/operations_repository.dart';
 import '../operations_models.dart';
 import '../presentation/operations_permissions.dart';
+import '../presentation/service_location_helpers.dart';
 
 import 'widgets/service_card_widget.dart';
 
@@ -59,25 +61,83 @@ class TechOperationsController extends StateNotifier<TechOperationsState> {
 
     try {
       final repo = ref.read(operationsRepositoryProvider);
+      final user = ref.read(authStateProvider).user;
+      final role = (user?.role ?? '').trim().toLowerCase();
+      final userId = (user?.id ?? '').trim();
 
-      final now = DateTime.now();
-      final todayStart = DateTime(now.year, now.month, now.day);
-      final todayEnd = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
+      final techFilterId = (role == 'tecnico' && userId.isNotEmpty)
+          ? userId
+          : null;
 
-      final basePage = await repo.listServices(page: 1, pageSize: 200);
-      final todayPage = await repo.listServices(
-        from: todayStart,
-        to: todayEnd,
-        page: 1,
-        pageSize: 200,
+      const statuses = <String>[
+        'survey',
+        'scheduled',
+        'in_progress',
+        'warranty',
+        'pending',
+        'completed',
+        'closed',
+        'cancelled',
+      ];
+
+      Future<List<ServiceModel>> listByStatuses({
+        required String? technicianId,
+        required String? assignedTo,
+      }) async {
+        final all = <ServiceModel>[];
+        for (final status in statuses) {
+          try {
+            final page = await repo.listServices(
+              status: status,
+              technicianId: technicianId,
+              assignedTo: assignedTo,
+              page: 1,
+              pageSize: 200,
+            );
+            all.addAll(page.items);
+          } catch (_) {
+            // Some deployments may reject unknown statuses.
+            // Ignore and continue.
+          }
+        }
+        return all;
+      }
+
+      final techItems = await listByStatuses(
+        technicianId: techFilterId,
+        assignedTo: techFilterId,
       );
 
+      final shouldFallbackFilters = techFilterId != null && techItems.isEmpty;
+      final fallbackItems = shouldFallbackFilters
+          ? await listByStatuses(technicianId: null, assignedTo: null)
+          : const <ServiceModel>[];
+
+      final shouldFallbackNoStatus = techItems.isEmpty && fallbackItems.isEmpty;
+      final legacyItems = shouldFallbackNoStatus
+          ? (await repo.listServices(
+              technicianId: techFilterId,
+              assignedTo: techFilterId,
+              page: 1,
+              pageSize: 200,
+            ))
+          : null;
+      final legacyFallbackItems = shouldFallbackNoStatus && techFilterId != null
+          ? (await repo.listServices(page: 1, pageSize: 200))
+          : null;
+
       final merged = <String, ServiceModel>{
-        for (final s in basePage.items) s.id: s,
-        for (final s in todayPage.items) s.id: s,
+        for (final s in techItems) s.id: s,
+        for (final s in fallbackItems) s.id: s,
+        for (final s in legacyItems?.items ?? const <ServiceModel>[]) s.id: s,
+        for (final s in legacyFallbackItems?.items ?? const <ServiceModel>[])
+          s.id: s,
       };
 
-      state = state.copyWith(loading: false, services: merged.values.toList());
+      state = state.copyWith(
+        loading: false,
+        services: merged.values.toList(growable: false),
+      );
     } catch (e) {
       state = state.copyWith(loading: false, error: e.toString());
     }
@@ -92,18 +152,26 @@ class TechOperationsController extends StateNotifier<TechOperationsState> {
 class OperacionesTecnicoScreen extends ConsumerWidget {
   const OperacionesTecnicoScreen({super.key});
 
+  String _normalizeKey(String raw) {
+    var v = raw.trim().toLowerCase();
+    if (v.isEmpty) return '';
+    v = v
+        .replaceAll('á', 'a')
+        .replaceAll('é', 'e')
+        .replaceAll('í', 'i')
+        .replaceAll('ó', 'o')
+        .replaceAll('ú', 'u')
+        .replaceAll('ñ', 'n');
+    v = v.replaceAll(' ', '_').replaceAll('-', '_');
+    return v;
+  }
+
   bool _isSameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
   List<ServiceModel> _filter(List<ServiceModel> all, TechOpsTab tab) {
     final now = DateTime.now();
-
-    bool isAllowedPhase(ServiceModel service) {
-      final phase = service.currentPhase.trim().toLowerCase();
-      if (phase.isEmpty) return true;
-      return phase != 'reserva' && phase != 'reserved';
-    }
 
     bool isAllowedServiceType(ServiceModel service) {
       final type = techAllowedServiceTypeFrom(service);
@@ -120,8 +188,7 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
     }
 
     bool isPendiente(ServiceStatus status) {
-      return status == ServiceStatus.reserved ||
-          status == ServiceStatus.survey ||
+      return status == ServiceStatus.survey ||
           status == ServiceStatus.scheduled;
     }
 
@@ -132,15 +199,42 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
 
     final filtered = all
         .where((service) {
+          final rawStatus = service.orderState.trim().isEmpty
+              ? service.status
+              : service.orderState;
+          final status = parseStatus(rawStatus);
+
           // BUSINESS RULE: technicians must NOT see reservations.
-          if (!isAllowedPhase(service)) return false;
+          // Avoid hiding everything when backend omits fields and the model
+          // defaults to reserva/pending.
+          final hasScheduling =
+              service.scheduledStart != null || service.scheduledEnd != null;
+          final hasTechnician = (service.technicianId ?? '').trim().isNotEmpty;
+          final hasAssignments = service.assignments.isNotEmpty;
+          final hasCompletion = service.completedAt != null;
+          final orderTypeKey = _normalizeKey(service.orderType);
+          final phaseKey = _normalizeKey(service.currentPhase);
+          final hasReservationHint =
+              orderTypeKey.contains('reserva') ||
+              orderTypeKey.contains('reserv') ||
+              phaseKey.contains('reserva') ||
+              phaseKey.contains('reserv') ||
+              status == ServiceStatus.reserved;
+
+          final looksLikeReservation =
+              hasReservationHint &&
+              !hasScheduling &&
+              !hasTechnician &&
+              !hasAssignments &&
+              !hasCompletion;
+          if (looksLikeReservation) return false;
+
           // Only show these types: Installation, Maintenance, Warranty, Survey.
           if (!isAllowedServiceType(service)) return false;
 
-          final status = parseStatus(service.status);
           switch (tab) {
             case TechOpsTab.hoy:
-              final start = service.scheduledStart;
+              final start = service.scheduledStart ?? service.scheduledEnd;
               if (start == null) return false;
               return _isSameDay(start.toLocal(), now);
             case TechOpsTab.pendientes:
@@ -154,8 +248,10 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
         .toList(growable: false);
 
     filtered.sort((a, b) {
-      final aTime = a.scheduledStart?.millisecondsSinceEpoch ?? 0;
-      final bTime = b.scheduledStart?.millisecondsSinceEpoch ?? 0;
+      final aTime =
+          (a.scheduledStart ?? a.scheduledEnd)?.millisecondsSinceEpoch ?? 0;
+      final bTime =
+          (b.scheduledStart ?? b.scheduledEnd)?.millisecondsSinceEpoch ?? 0;
       return aTime.compareTo(bTime);
     });
 
@@ -237,7 +333,12 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
                       }
 
                       final type = techAllowedServiceTypeFrom(s);
-                      final status = techStatusBadgeFrom(parseStatus(s.status));
+                      final rawStatus = s.orderState.trim().isEmpty
+                          ? s.status
+                          : s.orderState;
+                      final status = techStatusBadgeFrom(
+                        parseStatus(rawStatus),
+                      );
                       final scheduled = s.scheduledStart ?? s.scheduledEnd;
                       final assignedNames = s.assignments
                           .map((a) => a.userName.trim())
@@ -252,26 +353,48 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
                           user != null &&
                           (perms.isAdminLike || perms.canOperate);
 
-                      return ServiceCardWidget(
-                        service: s,
-                        type: type,
-                        status: status,
-                        scheduledDateLabel: fmtDate(scheduled),
-                        orderIdLabel: s.id.trim().isEmpty ? '—' : s.id.trim(),
-                        assignedTechnicianLabel: assignedNames.isEmpty
-                            ? '—'
-                            : assignedNames.join(', '),
-                        canManage: canManage,
-                        onViewOrder: () {
-                          final id = s.id.trim();
-                          if (id.isEmpty) return;
-                          context.go(Routes.operacionesTecnicoOrder(id));
-                        },
-                        onManageService: () {
-                          final id = s.id.trim();
-                          if (id.isEmpty) return;
-                          context.go(Routes.operacionesTecnicoDetail(id));
-                        },
+                      final location = buildServiceLocationInfo(
+                        addressOrText: s.customerAddress,
+                      );
+
+                      VoidCallback? onOpenLocation;
+                      if (location.canOpenMaps) {
+                        onOpenLocation = () async {
+                          final uri = location.mapsUri;
+                          if (uri == null) return;
+                          await launchUrl(
+                            uri,
+                            mode: LaunchMode.externalApplication,
+                          );
+                        };
+                      }
+
+                      final id = s.id.trim();
+                      return Align(
+                        alignment: Alignment.topCenter,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 560),
+                          child: ServiceCardWidget(
+                            service: s,
+                            type: type,
+                            status: status,
+                            scheduledDateLabel: fmtDate(scheduled),
+                            orderIdLabel: id.isEmpty ? '—' : id,
+                            assignedTechnicianLabel: assignedNames.isEmpty
+                                ? '—'
+                                : assignedNames.join(', '),
+                            canManage: canManage,
+                            onOpenDetails: () {
+                              if (id.isEmpty) return;
+                              context.go(Routes.operacionesTecnicoOrder(id));
+                            },
+                            onManageService: () {
+                              if (id.isEmpty) return;
+                              context.go(Routes.operacionesTecnicoDetail(id));
+                            },
+                            onOpenLocation: onOpenLocation,
+                          ),
+                        ),
                       );
                     },
                   ),

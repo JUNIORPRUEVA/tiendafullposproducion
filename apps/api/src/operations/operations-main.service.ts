@@ -21,6 +21,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { R2Service } from '../storage/r2.service';
+import { ServiceClosingService } from '../service-closing/service-closing.service';
 import { ServicesQueryDto } from './dto/services-query.dto';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { ChangeServiceStatusDto } from './dto/change-service-status.dto';
@@ -54,6 +55,7 @@ export class OperationsService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly r2: R2Service,
+    private readonly serviceClosing: ServiceClosingService,
   ) {}
 
   private async decorateServiceFilesForView(service: any) {
@@ -283,7 +285,15 @@ export class OperationsService {
     this.assertCanView(user, service.createdByUserId, service.assignments.map((a) => a.userId), techViewAll);
 
     const hydrated = await this.decorateServiceFilesForView(service);
-    return this.normalizeService(hydrated);
+    const normalized = this.normalizeService(hydrated);
+
+    // Best-effort: closing workflow summary (won't break servers missing migrations).
+    try {
+      const summary = await this.serviceClosing.getSummaryBestEffort(id);
+      return { ...normalized, closing: summary };
+    } catch {
+      return normalized;
+    }
   }
 
   async create(user: AuthUser, dto: CreateServiceDto) {
@@ -882,6 +892,19 @@ export class OperationsService {
       return row;
     });
 
+    // Start automated service closing workflow when marking as completed.
+    try {
+      if (nextStatus === ServiceStatus.COMPLETED) {
+        void this.serviceClosing
+          .tryStartOnServiceFinalized({ serviceId: id, triggeredByUserId: user.id })
+          .catch(() => {
+            // ignore
+          });
+      }
+    } catch {
+      // ignore
+    }
+
     // Best-effort internal notification (WhatsApp via Evolution)
     try {
       const important =
@@ -942,6 +965,19 @@ export class OperationsService {
       data: { orderState: nextOrderState },
       include: this.serviceInclude(),
     });
+
+    // Also trigger closing workflow when order is marked FINALIZED.
+    try {
+      if (nextOrderState === OrderState.FINALIZED) {
+        void this.serviceClosing
+          .tryStartOnServiceFinalized({ serviceId: id, triggeredByUserId: user.id })
+          .catch(() => {
+            // ignore
+          });
+      }
+    } catch {
+      // ignore
+    }
 
     await this.prisma.client.update({
       where: { id: service.customerId },

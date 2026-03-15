@@ -667,8 +667,8 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
                   .read(operationsControllerProvider.notifier)
                   .changeOrderStateOptimistic(service.id, orderState),
               onChangeAdminPhase: (adminPhase) => ref
-                .read(operationsControllerProvider.notifier)
-                .changeAdminPhaseOptimistic(service.id, adminPhase),
+                  .read(operationsControllerProvider.notifier)
+                  .changeAdminPhaseOptimistic(service.id, adminPhase),
               onSchedule: (start, end) =>
                   _scheduleService(service.id, start, end),
               onCreateWarranty: () => _createWarranty(service.id),
@@ -1099,8 +1099,8 @@ class _OperacionesAgendaScreenState
                   .read(operationsControllerProvider.notifier)
                   .changeOrderStateOptimistic(service.id, orderState),
               onChangeAdminPhase: (adminPhase) => ref
-                .read(operationsControllerProvider.notifier)
-                .changeAdminPhaseOptimistic(service.id, adminPhase),
+                  .read(operationsControllerProvider.notifier)
+                  .changeAdminPhaseOptimistic(service.id, adminPhase),
               onSchedule: (start, end) =>
                   _scheduleService(service.id, start, end),
               onCreateWarranty: () => _createWarranty(service.id),
@@ -3018,9 +3018,12 @@ class _PanelOptionsState extends State<_PanelOptions> {
       return isCompletedByLegacy(effectiveLegacyStatus(s));
     }
 
-    int pendingCount(List<ServiceModel> list) => list.where(isPendingService).length;
-    int inProgressCount(List<ServiceModel> list) => list.where(isInProgressService).length;
-    int completedCount(List<ServiceModel> list) => list.where(isCompletedService).length;
+    int pendingCount(List<ServiceModel> list) =>
+        list.where(isPendingService).length;
+    int inProgressCount(List<ServiceModel> list) =>
+        list.where(isInProgressService).length;
+    int completedCount(List<ServiceModel> list) =>
+        list.where(isCompletedService).length;
 
     final pendientesCount = pendingCount(visibleOrders);
     final procesoCount = inProgressCount(visibleOrders);
@@ -3629,8 +3632,9 @@ class _PanelOptionsState extends State<_PanelOptions> {
     final currentAdminPhase = currentPhaseRaw.isNotEmpty
         ? currentPhaseRaw
         : (orderType == 'reserva' ? 'reserva' : 'programacion');
-    final allowedAdminPhaseTargets =
-        ServiceActionsSheet.allowedNextAdminPhases(currentAdminPhase);
+    final allowedAdminPhaseTargets = ServiceActionsSheet.allowedNextAdminPhases(
+      currentAdminPhase,
+    );
 
     return ServiceAgendaCard(
       service: s,
@@ -4210,9 +4214,9 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
       await widget.onChangeAdminPhase(next);
       if (!mounted) return;
       setState(() => _service = _service.copyWith(adminPhase: next));
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Fase: ${adminPhaseLabel(next)}')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Fase: ${adminPhaseLabel(next)}')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -4558,13 +4562,13 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         : '$customerName · $customerPhone';
 
     final statusChipValue = service.orderState.trim().isNotEmpty
-      ? service.orderState.trim()
-      : service.status.trim();
+        ? service.orderState.trim()
+        : service.status.trim();
 
     final adminStatusValue = _effectiveAdminStatus(service);
     final statusChipEffective = (service.adminStatus ?? '').trim().isNotEmpty
-      ? adminStatusValue
-      : statusChipValue;
+        ? adminStatusValue
+        : statusChipValue;
 
     final location = buildServiceLocationInfo(addressOrText: addressText);
 
@@ -4922,7 +4926,8 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                     ),
                     const SizedBox(width: 8),
                     OutlinedButton(
-                      onPressed: canOperate &&
+                      onPressed:
+                          canOperate &&
                               ServiceActionsSheet.allowedNextAdminPhases(
                                 _effectiveAdminPhase(service),
                               ).isNotEmpty
@@ -5052,6 +5057,65 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                 money(service.quotedAmount ?? service.depositAmount),
               ),
             ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        InfoCard(
+          title: 'Gestión de facturación del servicio',
+          child: Builder(
+            builder: (context) {
+              final c = service.closing;
+
+              String invoiceStatus() {
+                if (c == null) return 'No generada';
+                if ((c.invoiceFinalFileId ?? '').isNotEmpty) return 'Final';
+                if ((c.invoiceApprovedFileId ?? '').isNotEmpty) {
+                  return 'Aprobada';
+                }
+                if ((c.invoiceDraftFileId ?? '').isNotEmpty) {
+                  return 'Pendiente aprobación';
+                }
+                return 'En proceso';
+              }
+
+              String warrantyStatus() {
+                if (c == null) return 'No generada';
+                if ((c.warrantyFinalFileId ?? '').isNotEmpty) return 'Final';
+                if ((c.warrantyApprovedFileId ?? '').isNotEmpty) {
+                  return 'Aprobada';
+                }
+                if ((c.warrantyDraftFileId ?? '').isNotEmpty) {
+                  return 'Pendiente aprobación';
+                }
+                return 'En proceso';
+              }
+
+              String approvalStatus() {
+                final s = c?.approvalStatus.toUpperCase().trim() ?? '';
+                if (s == 'APPROVED') return 'Aprobada';
+                if (s == 'REJECTED') return 'Rechazada';
+                if (s == 'PENDING') return 'Pendiente';
+                return s.isEmpty ? 'N/D' : s;
+              }
+
+              String signatureStatus() {
+                final s = c?.signatureStatus.toUpperCase().trim() ?? '';
+                if (s == 'SIGNED') return 'Firmada';
+                if (s == 'SKIPPED') return 'No firmada (opcional)';
+                if (s == 'PENDING') return 'Pendiente';
+                return s.isEmpty ? 'N/D' : s;
+              }
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _kv(context, 'Factura', invoiceStatus()),
+                  _kv(context, 'Garantía', warrantyStatus()),
+                  _kv(context, 'Aprobación', approvalStatus()),
+                  _kv(context, 'Firma cliente', signatureStatus()),
+                ],
+              );
+            },
           ),
         ),
         const SizedBox(height: 10),

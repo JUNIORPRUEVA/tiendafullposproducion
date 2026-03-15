@@ -94,6 +94,23 @@ export class R2Service {
     return uploadUrl;
   }
 
+  async putObject(params: { objectKey: string; body: Buffer | Uint8Array; contentType: string }) {
+    if (!this.bucket) {
+      throw new InternalServerErrorException('R2 bucket no configurado');
+    }
+
+    await this.s3.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: params.objectKey,
+        Body: params.body,
+        ContentType: params.contentType,
+      }),
+    );
+
+    return { ok: true };
+  }
+
   async createPresignedGetUrl(params: { objectKey: string; expiresInSeconds: number }) {
     if (!this.bucket) {
       throw new InternalServerErrorException('R2 bucket no configurado');

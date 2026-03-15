@@ -237,6 +237,18 @@ enum NotificationStatus {
   FAILED
 }
 
+enum ServiceClosingApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ServiceClosingSignatureStatus {
+  PENDING
+  SIGNED
+  SKIPPED
+}
+
 model User {
   id               String   @id @default(uuid()) @db.Uuid
   email            String   @unique
@@ -301,6 +313,9 @@ model User {
   pagosCombustibleTecnicos PagoCombustibleTecnico[]
 
   notificationOutbox NotificationOutbox[]
+
+  serviceClosingsApproved ServiceClosing[] @relation("ServiceClosingApprovedBy")
+  serviceClosingsRejected ServiceClosing[] @relation("ServiceClosingRejectedBy")
 
   workEmployeeConfig WorkEmployeeConfig?
 
@@ -788,6 +803,8 @@ model Service {
   executionReports ServiceExecutionReport[]
   executionChanges ServiceExecutionChange[]
 
+  closing ServiceClosing?
+
   salidasTecnicas SalidaTecnica[]
 
   @@index([customerId])
@@ -803,6 +820,60 @@ model Service {
   @@index([priority])
   @@index([scheduledStart])
   @@index([isDeleted])
+}
+
+model ServiceClosing {
+  id        String   @id @default(uuid()) @db.Uuid
+  serviceId String   @unique @db.Uuid
+
+  // Draft/editable data snapshots.
+  invoiceData  Json?
+  warrantyData Json?
+
+  // Files (stored as ServiceFile records).
+  invoiceDraftFileId   String? @db.Uuid
+  warrantyDraftFileId  String? @db.Uuid
+  invoiceApprovedFileId  String? @db.Uuid
+  warrantyApprovedFileId String? @db.Uuid
+  invoiceFinalFileId   String? @db.Uuid
+  warrantyFinalFileId  String? @db.Uuid
+
+  approvalStatus ServiceClosingApprovalStatus @default(PENDING)
+  approvedByUserId String? @db.Uuid
+  approvedAt        DateTime?
+  rejectedByUserId  String? @db.Uuid
+  rejectedAt        DateTime?
+  rejectReason      String?
+
+  signatureStatus ServiceClosingSignatureStatus @default(PENDING)
+  signatureFileId String? @db.Uuid
+  signedAt        DateTime?
+
+  sentToTechnicianAt DateTime?
+  sentToClientAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  approvedBy User? @relation("ServiceClosingApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  rejectedBy User? @relation("ServiceClosingRejectedBy", fields: [rejectedByUserId], references: [id], onDelete: SetNull)
+
+  signatureFile ServiceFile? @relation("ServiceClosingSignatureFile", fields: [signatureFileId], references: [id], onDelete: SetNull)
+
+  invoiceDraftFile ServiceFile? @relation("ServiceClosingInvoiceDraftFile", fields: [invoiceDraftFileId], references: [id], onDelete: SetNull)
+  warrantyDraftFile ServiceFile? @relation("ServiceClosingWarrantyDraftFile", fields: [warrantyDraftFileId], references: [id], onDelete: SetNull)
+  invoiceApprovedFile ServiceFile? @relation("ServiceClosingInvoiceApprovedFile", fields: [invoiceApprovedFileId], references: [id], onDelete: SetNull)
+  warrantyApprovedFile ServiceFile? @relation("ServiceClosingWarrantyApprovedFile", fields: [warrantyApprovedFileId], references: [id], onDelete: SetNull)
+  invoiceFinalFile ServiceFile? @relation("ServiceClosingInvoiceFinalFile", fields: [invoiceFinalFileId], references: [id], onDelete: SetNull)
+  warrantyFinalFile ServiceFile? @relation("ServiceClosingWarrantyFinalFile", fields: [warrantyFinalFileId], references: [id], onDelete: SetNull)
+
+  @@index([serviceId])
+  @@index([approvalStatus])
+  @@index([signatureStatus])
+  @@index([approvedAt])
+  @@index([signedAt])
 }
 
 model Vehiculo {
@@ -1001,6 +1072,14 @@ model ServiceFile {
   service    Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   uploadedBy User    @relation(fields: [uploadedByUserId], references: [id], onDelete: Restrict)
   executionReport ServiceExecutionReport? @relation(fields: [executionReportId], references: [id], onDelete: SetNull)
+
+  serviceClosingSignatureFor ServiceClosing[] @relation("ServiceClosingSignatureFile")
+  serviceClosingInvoiceDraftFor ServiceClosing[] @relation("ServiceClosingInvoiceDraftFile")
+  serviceClosingWarrantyDraftFor ServiceClosing[] @relation("ServiceClosingWarrantyDraftFile")
+  serviceClosingInvoiceApprovedFor ServiceClosing[] @relation("ServiceClosingInvoiceApprovedFile")
+  serviceClosingWarrantyApprovedFor ServiceClosing[] @relation("ServiceClosingWarrantyApprovedFile")
+  serviceClosingInvoiceFinalFor ServiceClosing[] @relation("ServiceClosingInvoiceFinalFile")
+  serviceClosingWarrantyFinalFor ServiceClosing[] @relation("ServiceClosingWarrantyFinalFile")
 
   @@index([serviceId])
   @@index([serviceId, createdAt])

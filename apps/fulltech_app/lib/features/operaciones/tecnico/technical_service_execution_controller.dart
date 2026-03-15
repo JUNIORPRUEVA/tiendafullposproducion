@@ -1,8 +1,8 @@
 import 'dart:async';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart' as geo;
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/auth/auth_provider.dart';
@@ -27,6 +27,7 @@ class TechnicalExecutionState {
   final DateTime? finishedAt;
   final String notes;
   final bool clientApproved;
+  final Map<String, dynamic> checklistData;
   final Map<String, dynamic> phaseSpecificData;
 
   const TechnicalExecutionState({
@@ -41,6 +42,7 @@ class TechnicalExecutionState {
     this.finishedAt,
     this.notes = '',
     this.clientApproved = false,
+    this.checklistData = const {},
     this.phaseSpecificData = const {},
   });
 
@@ -59,6 +61,7 @@ class TechnicalExecutionState {
     DateTime? finishedAt,
     String? notes,
     bool? clientApproved,
+    Map<String, dynamic>? checklistData,
     Map<String, dynamic>? phaseSpecificData,
   }) {
     return TechnicalExecutionState(
@@ -73,6 +76,7 @@ class TechnicalExecutionState {
       finishedAt: finishedAt ?? this.finishedAt,
       notes: notes ?? this.notes,
       clientApproved: clientApproved ?? this.clientApproved,
+      checklistData: checklistData ?? this.checklistData,
       phaseSpecificData: phaseSpecificData ?? this.phaseSpecificData,
     );
   }
@@ -168,6 +172,10 @@ class TechnicalExecutionController
           ? parseMap(draft!['phaseSpecificData'])
           : (bundle.report?.phaseSpecificData ?? const <String, dynamic>{});
 
+      final checklistData = draft?['checklistData'] != null
+          ? parseMap(draft!['checklistData'])
+          : (bundle.report?.checklistData ?? const <String, dynamic>{});
+
       state = state.copyWith(
         loading: false,
         error: reportError,
@@ -178,6 +186,7 @@ class TechnicalExecutionController
         finishedAt: finishedAt,
         notes: notes,
         clientApproved: clientApproved,
+        checklistData: checklistData,
         phaseSpecificData: phaseSpecificData,
       );
     } catch (e) {
@@ -249,9 +258,41 @@ class TechnicalExecutionController
       'finishedAt': state.finishedAt?.toIso8601String(),
       'notes': state.notes,
       'clientApproved': state.clientApproved,
+      'checklistData': state.checklistData,
       'phaseSpecificData': state.phaseSpecificData,
       'at': DateTime.now().toIso8601String(),
     });
+  }
+
+  void setChecklistItem(String key, bool value) {
+    if (_readOnly) return;
+    final k = key.trim();
+    if (k.isEmpty) return;
+
+    final next = <String, dynamic>{...state.checklistData};
+    final items = <String, dynamic>{
+      ...(next['items'] is Map
+          ? (next['items'] as Map).cast<String, dynamic>()
+          : const <String, dynamic>{}),
+    };
+    items[k] = value;
+    next['items'] = items;
+    next['updatedAt'] = DateTime.now().toIso8601String();
+
+    state = state.copyWith(checklistData: next);
+    unawaited(_persistDraft());
+    _debouncedSave();
+  }
+
+  bool checklistValue(String key) {
+    final k = key.trim();
+    if (k.isEmpty) return false;
+    final rawItems = state.checklistData['items'];
+    if (rawItems is Map) {
+      final v = rawItems[k];
+      return v == true;
+    }
+    return false;
   }
 
   void updatePhaseSpecificField(String key, String value) {
@@ -293,8 +334,54 @@ class TechnicalExecutionController
   }
 
   void markArrivedNow() {
+    unawaited(_markArrivedNow());
+  }
+
+  Future<void> _markArrivedNow() async {
     if (_readOnly) return;
     state = state.copyWith(arrivedAt: DateTime.now());
+
+    try {
+      final serviceEnabled = await geo.Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw Exception('Servicios de ubicación desactivados');
+      }
+
+      var permission = await geo.Geolocator.checkPermission();
+      if (permission == geo.LocationPermission.denied) {
+        permission = await geo.Geolocator.requestPermission();
+      }
+      if (permission == geo.LocationPermission.denied) {
+        throw Exception('Permiso de ubicación denegado');
+      }
+      if (permission == geo.LocationPermission.deniedForever) {
+        throw Exception('Permiso de ubicación denegado permanentemente');
+      }
+
+      final pos = await geo.Geolocator.getCurrentPosition(
+        desiredAccuracy: geo.LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 12),
+      );
+
+      if (!mounted) return;
+
+      final next = <String, dynamic>{...state.phaseSpecificData};
+      next['arrivalGps'] = {
+        'lat': pos.latitude,
+        'lng': pos.longitude,
+        'accuracy': pos.accuracy,
+        'altitude': pos.altitude,
+        'heading': pos.heading,
+        'speed': pos.speed,
+        'capturedAt': DateTime.now().toIso8601String(),
+      };
+
+      state = state.copyWith(phaseSpecificData: next);
+    } catch (e) {
+      // Do not block arrival timestamp.
+      state = state.copyWith(error: 'GPS: $e');
+    }
+
     unawaited(_persistDraft());
     unawaited(saveNow());
   }
@@ -338,6 +425,7 @@ class TechnicalExecutionController
         startedAt: state.startedAt,
         finishedAt: state.finishedAt,
         notes: state.notes,
+        checklistData: state.checklistData.isEmpty ? null : state.checklistData,
         phaseSpecificData: state.phaseSpecificData.isEmpty
             ? null
             : state.phaseSpecificData,
@@ -592,6 +680,108 @@ class TechnicalExecutionController
       if (!mounted) return;
       _removePending(id);
       state = state.copyWith(service: refreshed);
+    } catch (e) {
+      if (!mounted) return;
+      _removePending(id);
+      if (e is ApiException) {
+        state = state.copyWith(error: e.message);
+      } else {
+        state = state.copyWith(error: e.toString());
+      }
+    }
+  }
+
+  Future<void> uploadClientSignaturePng({required Uint8List pngBytes}) async {
+    if (_readOnly) return;
+    final service = state.service;
+    if (service == null) return;
+
+    final id = DateTime.now().microsecondsSinceEpoch.toString();
+    const mimeType = 'image/png';
+    final fileName = 'firma_cliente_$id.png';
+    final size = pngBytes.length;
+
+    _upsertPending(
+      PendingEvidenceUpload(
+        id: id,
+        fileName: fileName,
+        mimeType: mimeType,
+        caption: 'Firma del cliente',
+        fileSize: size,
+        bytes: pngBytes,
+      ),
+    );
+
+    try {
+      final storage = ref.read(storageRepositoryProvider);
+
+      final presign = await storage.presign(
+        serviceId: serviceId,
+        fileName: fileName,
+        contentType: mimeType,
+        fileSize: size,
+        kind: 'client_signature',
+      );
+
+      if (!mounted) return;
+
+      await storage.uploadToPresignedUrl(
+        uploadUrl: presign.uploadUrl,
+        bytes: pngBytes,
+        stream: null,
+        contentType: mimeType,
+        contentLength: size,
+        onProgress: (sent, total) {
+          if (!mounted) return;
+          if (total <= 0) return;
+          final p = sent / total;
+          final bounded = p < 0 ? 0.0 : (p > 1 ? 1.0 : p);
+          final cur = state.pendingEvidence.firstWhere(
+            (e) => e.id == id,
+            orElse: () => PendingEvidenceUpload(
+              id: id,
+              fileName: fileName,
+              mimeType: mimeType,
+              caption: 'Firma del cliente',
+              fileSize: size,
+              bytes: pngBytes,
+            ),
+          );
+          _upsertPending(cur.copyWith(progress: bounded));
+        },
+      );
+
+      if (!mounted) return;
+
+      final media = await storage.confirm(
+        serviceId: serviceId,
+        objectKey: presign.objectKey,
+        publicUrl: presign.publicUrl,
+        fileName: fileName,
+        mimeType: mimeType,
+        fileSize: size,
+        kind: 'client_signature',
+        caption: 'Firma del cliente',
+      );
+
+      if (!mounted) return;
+
+      final next = <String, dynamic>{...state.phaseSpecificData};
+      next['clientSignature'] = {
+        'fileId': media.id,
+        'fileUrl': media.fileUrl,
+        'signedAt': DateTime.now().toIso8601String(),
+      };
+      state = state.copyWith(phaseSpecificData: next);
+      unawaited(_persistDraft());
+
+      final repo = ref.read(operationsRepositoryProvider);
+      final refreshed = await repo.getService(serviceId);
+
+      if (!mounted) return;
+      _removePending(id);
+      state = state.copyWith(service: refreshed);
+      unawaited(saveNow());
     } catch (e) {
       if (!mounted) return;
       _removePending(id);

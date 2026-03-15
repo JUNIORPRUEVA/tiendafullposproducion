@@ -286,6 +286,65 @@ class TechnicianModel {
   }
 }
 
+class ServiceClosingSummaryModel {
+  final String approvalStatus;
+  final String signatureStatus;
+  final String? invoiceDraftFileId;
+  final String? warrantyDraftFileId;
+  final String? invoiceApprovedFileId;
+  final String? warrantyApprovedFileId;
+  final String? invoiceFinalFileId;
+  final String? warrantyFinalFileId;
+  final DateTime? approvedAt;
+  final DateTime? signedAt;
+  final DateTime? sentToClientAt;
+
+  const ServiceClosingSummaryModel({
+    required this.approvalStatus,
+    required this.signatureStatus,
+    this.invoiceDraftFileId,
+    this.warrantyDraftFileId,
+    this.invoiceApprovedFileId,
+    this.warrantyApprovedFileId,
+    this.invoiceFinalFileId,
+    this.warrantyFinalFileId,
+    this.approvedAt,
+    this.signedAt,
+    this.sentToClientAt,
+  });
+
+  static String _s(dynamic v) => (v ?? '').toString();
+  static String? _sn(dynamic v) {
+    final s = _s(v).trim();
+    return s.isEmpty ? null : s;
+  }
+
+  factory ServiceClosingSummaryModel.fromJson(Map<String, dynamic> json) {
+    DateTime? asDate(dynamic raw) {
+      if (raw == null) return null;
+      return DateTime.tryParse(raw.toString());
+    }
+
+    return ServiceClosingSummaryModel(
+      approvalStatus: _s(json['approvalStatus']).trim().isEmpty
+          ? 'PENDING'
+          : _s(json['approvalStatus']).trim(),
+      signatureStatus: _s(json['signatureStatus']).trim().isEmpty
+          ? 'PENDING'
+          : _s(json['signatureStatus']).trim(),
+      invoiceDraftFileId: _sn(json['invoiceDraftFileId']),
+      warrantyDraftFileId: _sn(json['warrantyDraftFileId']),
+      invoiceApprovedFileId: _sn(json['invoiceApprovedFileId']),
+      warrantyApprovedFileId: _sn(json['warrantyApprovedFileId']),
+      invoiceFinalFileId: _sn(json['invoiceFinalFileId']),
+      warrantyFinalFileId: _sn(json['warrantyFinalFileId']),
+      approvedAt: asDate(json['approvedAt']),
+      signedAt: asDate(json['signedAt']),
+      sentToClientAt: asDate(json['sentToClientAt']),
+    );
+  }
+}
+
 class ServiceModel {
   final String id;
   final String title;
@@ -317,6 +376,7 @@ class ServiceModel {
   final List<ServiceStepModel> steps;
   final List<ServiceFileModel> files;
   final List<ServiceUpdateModel> updates;
+  final ServiceClosingSummaryModel? closing;
 
   ServiceModel({
     required this.id,
@@ -342,6 +402,7 @@ class ServiceModel {
     required this.steps,
     required this.files,
     required this.updates,
+    this.closing,
     this.technicianId,
     this.quotedAmount,
     this.depositAmount,
@@ -381,6 +442,7 @@ class ServiceModel {
     List<ServiceStepModel>? steps,
     List<ServiceFileModel>? files,
     List<ServiceUpdateModel>? updates,
+    ServiceClosingSummaryModel? closing,
   }) {
     return ServiceModel(
       id: id,
@@ -413,6 +475,7 @@ class ServiceModel {
       steps: steps ?? this.steps,
       files: files ?? this.files,
       updates: updates ?? this.updates,
+      closing: closing ?? this.closing,
     );
   }
 
@@ -458,6 +521,8 @@ class ServiceModel {
           .map((item) => parser(item.cast<String, dynamic>()))
           .toList();
     }
+
+    final closingRaw = (json['closing'] as Map?)?.cast<String, dynamic>();
 
     return ServiceModel(
       id: (json['id'] ?? '').toString(),
@@ -509,6 +574,7 @@ class ServiceModel {
       steps: parseList(json['steps'], ServiceStepModel.fromJson),
       files: parseList(json['files'], ServiceFileModel.fromJson),
       updates: parseList(json['updates'], ServiceUpdateModel.fromJson),
+      closing: closingRaw == null ? null : ServiceClosingSummaryModel.fromJson(closingRaw),
     );
   }
 }

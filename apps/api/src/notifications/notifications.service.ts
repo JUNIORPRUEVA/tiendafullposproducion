@@ -15,6 +15,71 @@ export class NotificationsService {
     private readonly evolution: EvolutionWhatsAppService,
   ) {}
 
+  async enqueueWhatsAppRawText(params: {
+    toNumber: string;
+    messageText: string;
+    dedupeKey?: string;
+    payload?: unknown;
+  }) {
+    const rawPhone = (params.toNumber ?? '').toString().trim();
+    const normalized = this.evolution.normalizeWhatsAppNumber(rawPhone);
+    const messageText = (params.messageText ?? '').toString();
+
+    if (!normalized) {
+      return this.prisma.notificationOutbox.create({
+        data: {
+          channel: 'WHATSAPP',
+          status: 'FAILED',
+          templateKey: 'custom_text',
+          dedupeKey: params.dedupeKey ?? null,
+          messageText,
+          payload: (params.payload ?? null) as any,
+          recipientUserId: null,
+          toNumber: rawPhone,
+          toNumberNormalized: '',
+          attempts: 0,
+          nextAttemptAt: new Date(),
+          lastError: 'Número de WhatsApp inválido',
+        },
+      });
+    }
+
+    if (!messageText.trim()) {
+      return this.prisma.notificationOutbox.create({
+        data: {
+          channel: 'WHATSAPP',
+          status: 'FAILED',
+          templateKey: 'custom_text',
+          dedupeKey: params.dedupeKey ?? null,
+          messageText,
+          payload: (params.payload ?? null) as any,
+          recipientUserId: null,
+          toNumber: rawPhone,
+          toNumberNormalized: normalized,
+          attempts: 0,
+          nextAttemptAt: new Date(),
+          lastError: 'Mensaje vacío',
+        },
+      });
+    }
+
+    return this.prisma.notificationOutbox.create({
+      data: {
+        channel: 'WHATSAPP',
+        status: 'PENDING',
+        templateKey: 'custom_text',
+        dedupeKey: params.dedupeKey ?? null,
+        messageText,
+        payload: (params.payload ?? null) as any,
+        recipientUserId: null,
+        toNumber: rawPhone,
+        toNumberNormalized: normalized,
+        attempts: 0,
+        nextAttemptAt: new Date(),
+      },
+    });
+  }
+
   async enqueueWhatsAppToUser(params: {
     recipientUserId: string;
     payload: NotificationPayload;

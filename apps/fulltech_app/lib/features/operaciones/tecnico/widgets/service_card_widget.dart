@@ -148,8 +148,9 @@ class ServiceCardWidget extends StatelessWidget {
   final String orderIdLabel;
   final String assignedTechnicianLabel;
   final bool canManage;
-  final VoidCallback onViewOrder;
+  final VoidCallback onOpenDetails;
   final VoidCallback onManageService;
+  final VoidCallback? onOpenLocation;
 
   const ServiceCardWidget({
     super.key,
@@ -160,8 +161,9 @@ class ServiceCardWidget extends StatelessWidget {
     required this.orderIdLabel,
     required this.assignedTechnicianLabel,
     this.canManage = true,
-    required this.onViewOrder,
+    required this.onOpenDetails,
     required this.onManageService,
+    this.onOpenLocation,
   });
 
   Color _badgeBg(ColorScheme cs, {required bool primary}) {
@@ -190,85 +192,105 @@ class ServiceCardWidget extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.55)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+      child: InkWell(
+        onTap: onOpenDetails,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          customer,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          typeTitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text(
-                        customer,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
+                      _Badge(
+                        label: techServiceTypeBadgeLabel(type),
+                        background: _badgeBg(cs, primary: true),
+                        foreground: _badgeFg(cs, primary: true),
                       ),
-                      const SizedBox(height: 3),
-                      Text(
-                        typeTitle,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: cs.onSurfaceVariant,
-                        ),
+                      const SizedBox(height: 6),
+                      _Badge(
+                        label: techStatusBadgeLabel(status),
+                        background: _badgeBg(cs, primary: false),
+                        foreground: _badgeFg(cs, primary: false),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    _Badge(
-                      label: techServiceTypeBadgeLabel(type),
-                      background: _badgeBg(cs, primary: true),
-                      foreground: _badgeFg(cs, primary: true),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _InfoRow(label: 'Fecha:', value: scheduledDateLabel),
+              const SizedBox(height: 4),
+              _InfoRow(label: 'Orden:', value: orderIdLabel),
+              const SizedBox(height: 4),
+              _InfoRow(label: 'Técnico:', value: assignedTechnicianLabel),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                      ),
+                      onPressed: canManage ? onManageService : null,
+                      icon: const Icon(Icons.build_outlined, size: 18),
+                      label: const Text('Gestionar'),
                     ),
-                    const SizedBox(height: 6),
-                    _Badge(
-                      label: techStatusBadgeLabel(status),
-                      background: _badgeBg(cs, primary: false),
-                      foreground: _badgeFg(cs, primary: false),
+                  ),
+                  if (onOpenLocation != null) ...[
+                    const SizedBox(width: 10),
+                    IconButton(
+                      style: IconButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      constraints: const BoxConstraints.tightFor(
+                        width: 40,
+                        height: 40,
+                      ),
+                      padding: EdgeInsets.zero,
+                      tooltip: 'Ubicación (GPS)',
+                      onPressed: onOpenLocation,
+                      icon: const Icon(Icons.location_on_outlined),
                     ),
                   ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _InfoRow(label: 'Fecha:', value: scheduledDateLabel),
-            const SizedBox(height: 6),
-            _InfoRow(label: 'Orden:', value: orderIdLabel),
-            const SizedBox(height: 6),
-            _InfoRow(label: 'Técnico:', value: assignedTechnicianLabel),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onViewOrder,
-                    icon: const Icon(Icons.description_outlined),
-                    label: const Text('Ver orden de servicio'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: canManage ? onManageService : null,
-                    icon: const Icon(Icons.build_outlined),
-                    label: const Text('Gestionar servicio'),
-                  ),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
