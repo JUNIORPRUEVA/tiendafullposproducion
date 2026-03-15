@@ -370,6 +370,7 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
                       }
 
                       final id = s.id.trim();
+                      final orderLabel = s.orderLabel.trim();
                       return Align(
                         alignment: Alignment.topCenter,
                         child: ConstrainedBox(
@@ -379,7 +380,7 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
                             type: type,
                             status: status,
                             scheduledDateLabel: fmtDate(scheduled),
-                            orderIdLabel: id.isEmpty ? '—' : id,
+                            orderIdLabel: orderLabel.isEmpty ? '—' : orderLabel,
                             assignedTechnicianLabel: assignedNames.isEmpty
                                 ? '—'
                                 : assignedNames.join(', '),

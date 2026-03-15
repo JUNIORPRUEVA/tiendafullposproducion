@@ -3,11 +3,48 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../ai_assistant/application/ai_assistant_controller.dart';
+import '../ai_assistant/presentation/ai_chat_context_resolver.dart';
+import '../ai_assistant/presentation/widgets/ai_assistant_dock_button.dart';
 import '../auth/auth_provider.dart';
 import '../location/location_tracker_provider.dart';
 import '../models/user_model.dart';
 import '../routing/routes.dart';
 import 'app_navigation.dart';
+
+Color _desktopSidebarBaseColor(ThemeData theme) {
+  final cs = theme.colorScheme;
+  final deepBlue = Color.alphaBlend(
+    cs.primary.withValues(alpha: 0.86),
+    cs.tertiary,
+  );
+  return Color.alphaBlend(cs.secondary.withValues(alpha: 0.08), deepBlue);
+}
+
+Color _desktopSidebarHoverColor(ThemeData theme) {
+  final base = _desktopSidebarBaseColor(theme);
+  return Color.alphaBlend(
+    theme.colorScheme.primary.withValues(alpha: 0.22),
+    base,
+  );
+}
+
+BoxDecoration _desktopSurfaceDecoration(ThemeData theme) {
+  return BoxDecoration(
+    color: theme.colorScheme.surface.withValues(alpha: 0.92),
+    borderRadius: BorderRadius.circular(20),
+    border: Border.all(
+      color: theme.colorScheme.outlineVariant.withValues(alpha: 0.40),
+    ),
+    boxShadow: [
+      BoxShadow(
+        color: theme.colorScheme.shadow.withValues(alpha: 0.08),
+        blurRadius: 30,
+        offset: const Offset(0, 14),
+      ),
+    ],
+  );
+}
 
 class ResponsiveShell extends ConsumerStatefulWidget {
   const ResponsiveShell({super.key, required this.child});
@@ -39,87 +76,136 @@ class _ResponsiveShellState extends ConsumerState<ResponsiveShell> {
 
     return Material(
       color: Colors.transparent,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              theme.colorScheme.surface,
-              Color.alphaBlend(
-                theme.colorScheme.primary.withValues(alpha: 0.05),
-                theme.colorScheme.surface,
-              ),
-              Color.alphaBlend(
-                theme.colorScheme.secondary.withValues(alpha: 0.07),
-                theme.colorScheme.surface,
-              ),
-            ],
+      child: Row(
+        children: [
+          DesktopSidebar(
+            collapsed: _collapsed,
+            currentUser: user,
+            sections: sections,
+            currentLocation: location,
+            onToggleSidebar: () {
+              setState(() => _collapsed = !_collapsed);
+            },
+            onNavigate: (route) => context.go(route),
           ),
-        ),
-        child: SafeArea(
-          child: Row(
-            children: [
-              DesktopSidebar(
-                collapsed: _collapsed,
-                currentUser: user,
-                sections: sections,
-                currentLocation: location,
-                onToggleSidebar: () {
-                  setState(() => _collapsed = !_collapsed);
-                },
-                onNavigate: (route) => context.go(route),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(0, showShellAppBar ? 14 : 10, 16, 16),
-                  child: Column(
-                    children: [
-                      if (showShellAppBar) ...[
-                        DesktopShellAppBar(
-                          collapsed: _collapsed,
-                          title: title,
-                          currentUser: user,
-                          onToggleSidebar: () {
-                            setState(() => _collapsed = !_collapsed);
-                          },
-                        ),
-                        const SizedBox(height: 14),
-                      ],
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(28),
-                          child: Material(
-                            color: theme.colorScheme.surface,
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: theme.colorScheme.surface,
-                                border: Border.all(
-                                  color: theme.colorScheme.outlineVariant.withValues(
-                                    alpha: 0.45,
-                                  ),
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.05),
-                                    blurRadius: 28,
-                                    offset: const Offset(0, 12),
-                                  ),
-                                ],
-                              ),
-                              child: widget.child,
-                            ),
+          Expanded(
+            child: Column(
+              children: [
+                if (showShellAppBar)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                    child: DesktopShellAppBar(
+                      collapsed: _collapsed,
+                      title: title,
+                      currentUser: user,
+                      onToggleSidebar: () {
+                        setState(() => _collapsed = !_collapsed);
+                      },
+                    ),
+                  ),
+                Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      showShellAppBar ? 0 : 12,
+                      16,
+                      12,
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: DecoratedBox(
+                        decoration: _desktopSurfaceDecoration(theme),
+                        child: Theme(
+                          data: theme.copyWith(
+                            scaffoldBackgroundColor: Colors.transparent,
                           ),
+                          child: widget.child,
                         ),
                       ),
-                    ],
+                    ),
+                  ),
+                ),
+                const DesktopShellFooter(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class DesktopShellFooter extends ConsumerWidget {
+  const DesktopShellFooter({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final now = DateTime.now();
+
+    final open = ref.watch(desktopAiAssistantPanelOpenProvider);
+
+    return StreamBuilder<DateTime>(
+      stream: Stream<DateTime>.periodic(
+        const Duration(seconds: 15),
+        (_) => DateTime.now(),
+      ),
+      initialData: now,
+      builder: (context, snapshot) {
+        final dateTime = snapshot.data ?? DateTime.now();
+        final timeText = DateFormat('HH:mm').format(dateTime);
+
+        return Container(
+          height: 52,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface.withValues(alpha: 0.88),
+            border: Border(
+              top: BorderSide(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.60),
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '© 2026 FULLTECH, SRL — Todos los derechos reservados',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: theme.colorScheme.onSurface,
+                    letterSpacing: 0.1,
                   ),
                 ),
               ),
+              Text(
+                timeText,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  color: theme.colorScheme.onSurface,
+                  letterSpacing: 0.3,
+                ),
+              ),
+              const SizedBox(width: 14),
+              AiAssistantDockButton(
+                compact: true,
+                isActive: open,
+                onPressed: () {
+                  final location = safeCurrentLocation(context);
+                  final ctx = buildAiChatContextFromLocation(location);
+                  ref
+                      .read(aiAssistantControllerProvider.notifier)
+                      .setContext(ctx);
+                  ref.read(desktopAiAssistantPanelOpenProvider.notifier).state =
+                      !open;
+                },
+              ),
             ],
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -155,13 +241,6 @@ class DesktopShellAppBar extends StatelessWidget {
         border: Border.all(
           color: theme.colorScheme.outlineVariant.withValues(alpha: 0.42),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
-          ),
-        ],
       ),
       child: Row(
         children: [
@@ -217,17 +296,15 @@ class DesktopShellAppBar extends StatelessWidget {
                 color: theme.colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                  color: theme.colorScheme.outlineVariant.withValues(
+                    alpha: 0.5,
+                  ),
                 ),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.circle,
-                    size: 8,
-                    color: theme.colorScheme.primary,
-                  ),
+                  Icon(Icons.circle, size: 8, color: theme.colorScheme.primary),
                   const SizedBox(width: 8),
                   Text(
                     title,
@@ -256,8 +333,12 @@ class DesktopShellAppBar extends StatelessWidget {
               children: [
                 CircleAvatar(
                   radius: 15,
-                  backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.14),
-                  backgroundImage: photoUrl.isEmpty ? null : NetworkImage(photoUrl),
+                  backgroundColor: theme.colorScheme.primary.withValues(
+                    alpha: 0.14,
+                  ),
+                  backgroundImage: photoUrl.isEmpty
+                      ? null
+                      : NetworkImage(photoUrl),
                   child: photoUrl.isEmpty
                       ? Text(
                           userInitials(currentUser),
@@ -322,46 +403,35 @@ class DesktopSidebar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final width = collapsed ? 84.0 : 272.0;
-    final gradientTop = Color.alphaBlend(
-      theme.colorScheme.primary.withValues(alpha: 0.10),
-      theme.colorScheme.surface,
-    );
-    final gradientBottom = Color.alphaBlend(
-      theme.colorScheme.secondary.withValues(alpha: 0.12),
-      theme.colorScheme.surface,
-    );
+    final width = collapsed ? 84.0 : 280.0;
+    final base = _desktopSidebarBaseColor(theme);
+    final onBase = theme.colorScheme.onPrimary;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 240),
       curve: Curves.easeOutCubic,
       width: width,
-      margin: const EdgeInsets.fromLTRB(16, 14, 14, 16),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [gradientTop, theme.colorScheme.surface, gradientBottom],
-        ),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
-        ),
+        color: base,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 28,
-            offset: const Offset(0, 12),
+            color: theme.colorScheme.shadow.withValues(alpha: 0.10),
+            blurRadius: 20,
+            offset: const Offset(6, 0),
           ),
         ],
       ),
       child: Material(
         color: Colors.transparent,
-        child: SafeArea(
-          child: Column(
+        child: Column(
           children: [
             Padding(
-              padding: EdgeInsets.fromLTRB(collapsed ? 12 : 16, 14, collapsed ? 12 : 16, 10),
+              padding: EdgeInsets.fromLTRB(
+                collapsed ? 12 : 16,
+                14,
+                collapsed ? 12 : 16,
+                10,
+              ),
               child: Tooltip(
                 message: collapsed ? 'Expandir menú' : 'Encoger menú',
                 child: Material(
@@ -377,10 +447,10 @@ class DesktopSidebar extends ConsumerWidget {
                               width: double.infinity,
                               padding: const EdgeInsets.symmetric(vertical: 10),
                               decoration: BoxDecoration(
-                                color: theme.colorScheme.surface.withValues(alpha: 0.76),
+                                color: onBase.withValues(alpha: 0.06),
                                 borderRadius: BorderRadius.circular(18),
                                 border: Border.all(
-                                  color: theme.colorScheme.primary.withValues(alpha: 0.18),
+                                  color: onBase.withValues(alpha: 0.10),
                                 ),
                               ),
                               child: Column(
@@ -388,18 +458,18 @@ class DesktopSidebar extends ConsumerWidget {
                                 children: [
                                   CircleAvatar(
                                     radius: 20,
-                                    backgroundColor:
-                                        theme.colorScheme.primary.withValues(alpha: 0.14),
+                                    backgroundColor: theme.colorScheme.primary
+                                        .withValues(alpha: 0.20),
                                     child: Icon(
                                       Icons.business_rounded,
-                                      color: theme.colorScheme.primary,
+                                      color: onBase,
                                     ),
                                   ),
                                   const SizedBox(height: 8),
                                   Icon(
                                     Icons.keyboard_double_arrow_left_rounded,
                                     size: 16,
-                                    color: theme.colorScheme.onSurfaceVariant,
+                                    color: onBase.withValues(alpha: 0.80),
                                   ),
                                 ],
                               ),
@@ -411,49 +481,72 @@ class DesktopSidebar extends ConsumerWidget {
                                 vertical: 12,
                               ),
                               decoration: BoxDecoration(
-                                color: theme.colorScheme.surface.withValues(alpha: 0.76),
+                                color: onBase.withValues(alpha: 0.06),
                                 borderRadius: BorderRadius.circular(18),
                                 border: Border.all(
-                                  color: theme.colorScheme.primary.withValues(alpha: 0.18),
+                                  color: onBase.withValues(alpha: 0.10),
                                 ),
                               ),
-                              child: Row(
-                                children: [
-                                  CircleAvatar(
-                                    radius: 18,
-                                    backgroundColor: theme.colorScheme.primary,
-                                    child: const Icon(
-                                      Icons.business_rounded,
-                                      color: Colors.white,
-                                      size: 18,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'FULLTECH',
-                                          style: theme.textTheme.labelLarge?.copyWith(
-                                            fontWeight: FontWeight.w900,
-                                            letterSpacing: 0.8,
-                                          ),
+                              child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final isNarrow = constraints.maxWidth < 190;
+
+                                  return Row(
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 18,
+                                        backgroundColor: theme
+                                            .colorScheme
+                                            .primary
+                                            .withValues(alpha: 0.96),
+                                        child: const Icon(
+                                          Icons.business_rounded,
+                                          color: Colors.white,
+                                          size: 18,
                                         ),
-                                        Text(
-                                          'Toca para encoger menú',
-                                          style: theme.textTheme.bodySmall?.copyWith(
-                                            color: theme.colorScheme.onSurfaceVariant,
-                                          ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              'FULLTECH',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: theme.textTheme.labelLarge
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w900,
+                                                    letterSpacing: 0.8,
+                                                    color: onBase,
+                                                  ),
+                                            ),
+                                            if (!isNarrow)
+                                              Text(
+                                                'Toca para encoger menú',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: theme.textTheme.bodySmall
+                                                    ?.copyWith(
+                                                      color: onBase.withValues(
+                                                        alpha: 0.78,
+                                                      ),
+                                                    ),
+                                              ),
+                                          ],
                                         ),
-                                      ],
-                                    ),
-                                  ),
-                                  Icon(
-                                    Icons.keyboard_double_arrow_left_rounded,
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
-                                ],
+                                      ),
+                                      if (!isNarrow)
+                                        Icon(
+                                          Icons
+                                              .keyboard_double_arrow_left_rounded,
+                                          color: onBase.withValues(alpha: 0.80),
+                                        ),
+                                    ],
+                                  );
+                                },
                               ),
                             ),
                     ),
@@ -462,35 +555,93 @@ class DesktopSidebar extends ConsumerWidget {
               ),
             ),
             Expanded(
-              child: ListView(
-                padding: EdgeInsets.fromLTRB(collapsed ? 10 : 12, 4, collapsed ? 10 : 12, 8),
-                children: [
-                  for (final section in sections) ...[
-                    if (!collapsed)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 10, 8, 6),
-                        child: Text(
-                          section.title,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.5,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  collapsed ? 10 : 12,
+                  4,
+                  collapsed ? 10 : 12,
+                  8,
+                ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final itemCount = sections.fold<int>(
+                      0,
+                      (sum, section) => sum + section.items.length,
+                    );
+                    final titleCount = collapsed ? 0 : sections.length;
+                    final titleHeight = collapsed ? 0.0 : 18.0;
+                    final reservedForTitles = titleCount * titleHeight;
+                    final availableForItems =
+                        (constraints.maxHeight - reservedForTitles).clamp(
+                          0.0,
+                          constraints.maxHeight,
+                        );
+                    final rawItemHeight = itemCount == 0
+                        ? 0.0
+                        : (availableForItems / itemCount);
+                    final itemHeight = rawItemHeight > 64.0
+                        ? 64.0
+                        : rawItemHeight;
+
+                    final children = <Widget>[];
+                    for (final section in sections) {
+                      if (!collapsed) {
+                        children.add(
+                          SizedBox(
+                            height: titleHeight,
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
+                                child: Text(
+                                  section.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: onBase.withValues(alpha: 0.72),
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.7,
+                                  ),
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                    for (final item in section.items)
-                      _DesktopSidebarItem(
-                        collapsed: collapsed,
-                        item: item,
-                        selected: isNavigationRouteActive(currentLocation, item.route),
-                        onTap: () => onNavigate(item.route),
-                      ),
-                  ],
-                ],
+                        );
+                      }
+
+                      for (final item in section.items) {
+                        children.add(
+                          SizedBox(
+                            height: itemHeight,
+                            child: _DesktopSidebarItem(
+                              collapsed: collapsed,
+                              item: item,
+                              height: itemHeight,
+                              selected: isNavigationRouteActive(
+                                currentLocation,
+                                item.route,
+                              ),
+                              onTap: () => onNavigate(item.route),
+                            ),
+                          ),
+                        );
+                      }
+                    }
+
+                    return Column(children: children);
+                  },
+                ),
               ),
             ),
             Padding(
-              padding: EdgeInsets.fromLTRB(collapsed ? 10 : 12, 8, collapsed ? 10 : 12, 12),
+              padding: EdgeInsets.fromLTRB(
+                collapsed ? 10 : 12,
+                8,
+                collapsed ? 10 : 12,
+                12,
+              ),
               child: Column(
                 children: [
                   Material(
@@ -504,10 +655,10 @@ class DesktopSidebar extends ConsumerWidget {
                           vertical: 10,
                         ),
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.surface.withValues(alpha: 0.82),
+                          color: onBase.withValues(alpha: 0.06),
                           borderRadius: BorderRadius.circular(18),
                           border: Border.all(
-                            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+                            color: onBase.withValues(alpha: 0.10),
                           ),
                         ),
                         child: Row(
@@ -517,12 +668,11 @@ class DesktopSidebar extends ConsumerWidget {
                           children: [
                             CircleAvatar(
                               radius: 16,
-                              backgroundColor:
-                                  theme.colorScheme.primary.withValues(alpha: 0.14),
+                              backgroundColor: onBase.withValues(alpha: 0.12),
                               child: Text(
                                 userInitials(currentUser),
                                 style: TextStyle(
-                                  color: theme.colorScheme.primary,
+                                  color: onBase,
                                   fontWeight: FontWeight.w800,
                                   fontSize: 12,
                                 ),
@@ -535,18 +685,24 @@ class DesktopSidebar extends ConsumerWidget {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      (currentUser?.nombreCompleto ?? 'Perfil').toString(),
+                                      (currentUser?.nombreCompleto ?? 'Perfil')
+                                          .toString(),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.labelLarge?.copyWith(
-                                        fontWeight: FontWeight.w800,
-                                      ),
+                                      style: theme.textTheme.labelLarge
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w800,
+                                            color: onBase,
+                                          ),
                                     ),
                                     Text(
                                       'Ver perfil',
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: theme.colorScheme.onSurfaceVariant,
-                                      ),
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: onBase.withValues(
+                                              alpha: 0.74,
+                                            ),
+                                          ),
                                     ),
                                   ],
                                 ),
@@ -585,60 +741,86 @@ class DesktopSidebar extends ConsumerWidget {
             ),
           ],
         ),
-        ),
       ),
     );
   }
 }
 
-class _DesktopSidebarItem extends StatelessWidget {
+class _DesktopSidebarItem extends StatefulWidget {
   const _DesktopSidebarItem({
     required this.collapsed,
     required this.item,
+    required this.height,
     required this.selected,
     required this.onTap,
   });
 
   final bool collapsed;
   final AppNavigationItem item;
+  final double height;
   final bool selected;
   final VoidCallback onTap;
 
   @override
+  State<_DesktopSidebarItem> createState() => _DesktopSidebarItemState();
+}
+
+class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final base = _desktopSidebarBaseColor(theme);
+    final onBase = theme.colorScheme.onPrimary;
+    final selected = widget.selected;
     final background = selected
         ? Color.alphaBlend(
-            theme.colorScheme.primary.withValues(alpha: 0.12),
-            theme.colorScheme.surface,
+            theme.colorScheme.primary.withValues(alpha: 0.34),
+            base,
           )
         : Colors.transparent;
-    final iconColor = selected
-        ? theme.colorScheme.primary
-        : theme.colorScheme.onSurfaceVariant;
+    final iconColor = selected ? onBase : onBase.withValues(alpha: 0.88);
+
+    final hoverBg = selected
+        ? _desktopSidebarHoverColor(theme)
+        : onBase.withValues(alpha: 0.08);
+
+    final effectiveBg = _hovered ? hoverBg : background;
+
+    final height = widget.height;
+    final computedIconSize = (height * 0.44).clamp(12.0, 22.0);
+    final maxIconSize = (height - 6).clamp(10.0, 22.0);
+    final iconSize = computedIconSize > maxIconSize
+        ? maxIconSize
+        : computedIconSize;
+    final horizontalPadding = widget.collapsed ? 0.0 : 10.0;
+    final fontSize = (height * 0.33).clamp(10.0, 14.0);
+
+    final arrowSize = (height * 0.30).clamp(12.0, 18.0);
+    final arrowColor = selected ? onBase : onBase.withValues(alpha: 0.70);
 
     final child = Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      constraints: BoxConstraints(minHeight: collapsed ? 52 : 0),
-      padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 14, vertical: 12),
+      padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
       decoration: BoxDecoration(
-        color: background,
+        color: effectiveBg,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: selected
-              ? theme.colorScheme.primary.withValues(alpha: 0.22)
-              : theme.colorScheme.outlineVariant.withValues(alpha: 0.14),
+              ? onBase.withValues(alpha: 0.16)
+              : onBase.withValues(alpha: 0.08),
         ),
       ),
       child: Row(
-        mainAxisAlignment:
-            collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
+        mainAxisAlignment: widget.collapsed
+            ? MainAxisAlignment.center
+            : MainAxisAlignment.start,
         children: [
           Stack(
             clipBehavior: Clip.none,
             children: [
-              Icon(item.icon, size: 22, color: iconColor),
-              if (item.showIndicator)
+              Icon(widget.item.icon, size: iconSize, color: iconColor),
+              if (widget.item.showIndicator)
                 Positioned(
                   right: -2,
                   top: -1,
@@ -653,18 +835,24 @@ class _DesktopSidebarItem extends StatelessWidget {
                 ),
             ],
           ),
-          if (!collapsed) ...[
+          if (!widget.collapsed) ...[
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                item.title,
+                widget.item.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
-                  color: selected ? theme.colorScheme.primary : null,
+                  color: iconColor,
+                  fontSize: fontSize,
                 ),
               ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: arrowSize,
+              color: arrowColor,
             ),
           ],
         ],
@@ -672,13 +860,26 @@ class _DesktopSidebarItem extends StatelessWidget {
     );
 
     return Tooltip(
-      message: collapsed ? item.title : '',
+      message: widget.collapsed ? widget.item.title : '',
       child: Material(
         color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onTap: onTap,
-          child: child,
+        child: MouseRegion(
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOut,
+            transform: Matrix4.translationValues(
+              0,
+              _hovered && !selected ? -0.5 : 0,
+              0,
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: widget.onTap,
+              child: Center(child: child),
+            ),
+          ),
         ),
       ),
     );

@@ -16,34 +16,31 @@ class AppDrawer extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final sections = buildAppNavigationSections(ref, currentUser);
     final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
     final mediaQuery = MediaQuery.of(context);
     final isCompactMobile = mediaQuery.size.width < 390;
     final location = safeCurrentLocation(context);
 
-    // Theme-driven blue/white gradient (more visible than a tiny lerp).
-    final gradientTop = Color.alphaBlend(
-      colorScheme.primary.withValues(alpha: 0.08),
-      colorScheme.surface,
+    // Deep professional blue, consistent with desktop sidebar (theme-based).
+    final deepBlue = Color.alphaBlend(
+      colorScheme.primary.withValues(alpha: 0.86),
+      colorScheme.tertiary,
     );
-    final gradientMid = Color.alphaBlend(
-      colorScheme.primary.withValues(alpha: 0.14),
-      colorScheme.surface,
+    final base = Color.alphaBlend(
+      colorScheme.secondary.withValues(alpha: 0.08),
+      deepBlue,
     );
-    final gradientBottom = Color.alphaBlend(
-      colorScheme.secondary.withValues(alpha: 0.18),
-      colorScheme.surface,
+    final onBase = colorScheme.onPrimary;
+
+    final panelShadow = BoxShadow(
+      color: theme.colorScheme.shadow.withValues(alpha: 0.10),
+      blurRadius: 20,
+      offset: const Offset(6, 0),
     );
 
     return Drawer(
       child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [gradientTop, gradientMid, gradientBottom],
-            stops: const [0.0, 0.55, 1.0],
-          ),
-        ),
+        decoration: BoxDecoration(color: base, boxShadow: [panelShadow]),
         child: SafeArea(
           child: Column(
             children: [
@@ -61,19 +58,17 @@ class AppDrawer extends ConsumerWidget {
                     vertical: isCompactMobile ? 7 : 8,
                   ),
                   decoration: BoxDecoration(
-                    color: colorScheme.surface.withValues(alpha: 0.72),
+                    color: onBase.withValues(alpha: 0.06),
                     borderRadius: BorderRadius.circular(
                       isCompactMobile ? 9 : 10,
                     ),
-                    border: Border.all(
-                      color: colorScheme.primary.withValues(alpha: 0.16),
-                    ),
+                    border: Border.all(color: onBase.withValues(alpha: 0.10)),
                   ),
                   child: Row(
                     children: [
                       Icon(
                         Icons.business_rounded,
-                        color: colorScheme.primary,
+                        color: onBase,
                         size: isCompactMobile ? 15 : 16,
                       ),
                       SizedBox(width: isCompactMobile ? 6 : 8),
@@ -81,7 +76,7 @@ class AppDrawer extends ConsumerWidget {
                         child: Text(
                           'FULLTECH, SRL',
                           style: TextStyle(
-                            color: colorScheme.primary,
+                            color: onBase,
                             fontSize: isCompactMobile ? 12 : 13,
                             fontWeight: FontWeight.w600,
                             letterSpacing: 0.1,
@@ -97,13 +92,19 @@ class AppDrawer extends ConsumerWidget {
                   padding: EdgeInsets.zero,
                   children: [
                     for (final section in sections) ...[
-                      _DrawerSectionTitle(section.title, compact: isCompactMobile),
+                      _DrawerSectionTitle(
+                        section.title,
+                        compact: isCompactMobile,
+                      ),
                       for (final item in section.items)
                         _DrawerMenuItem(
                           icon: item.icon,
                           title: item.title,
                           compact: isCompactMobile,
-                          selected: isNavigationRouteActive(location, item.route),
+                          selected: isNavigationRouteActive(
+                            location,
+                            item.route,
+                          ),
                           showIndicator: item.showIndicator,
                           onTap: () {
                             Navigator.pop(context);
@@ -115,7 +116,7 @@ class AppDrawer extends ConsumerWidget {
                   ],
                 ),
               ),
-              const Divider(height: 1),
+              Divider(height: 1, color: onBase.withValues(alpha: 0.12)),
               Padding(
                 padding: EdgeInsets.fromLTRB(
                   isCompactMobile ? 8 : 10,
@@ -126,40 +127,18 @@ class AppDrawer extends ConsumerWidget {
                 child: Row(
                   children: [
                     Expanded(
-                      child: ListTile(
-                        selected: isNavigationRouteActive(location, Routes.profile),
-                        selectedTileColor: colorScheme.primary.withValues(
-                          alpha: 0.10,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                            isCompactMobile ? 10 : 12,
-                          ),
-                        ),
-                        leading: Icon(
-                          Icons.badge_outlined,
-                          size: isCompactMobile ? 20 : 22,
-                        ),
-                        title: Text(
-                          'Perfil',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: isCompactMobile ? 13 : 14,
-                          ),
-                        ),
-                        trailing: Icon(
-                          Icons.chevron_right_rounded,
-                          color: colorScheme.onSurfaceVariant,
-                          size: isCompactMobile ? 18 : 20,
+                      child: _DrawerMenuItem(
+                        icon: Icons.badge_outlined,
+                        title: 'Perfil',
+                        compact: isCompactMobile,
+                        selected: isNavigationRouteActive(
+                          location,
+                          Routes.profile,
                         ),
                         onTap: () {
                           Navigator.pop(context);
                           context.go(Routes.profile);
                         },
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: isCompactMobile ? 12 : 16,
-                          vertical: isCompactMobile ? 4 : 6,
-                        ),
                       ),
                     ),
                     IconButton(
@@ -216,19 +195,25 @@ class _DrawerMenuItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final deepBlue = Color.alphaBlend(
+      colorScheme.primary.withValues(alpha: 0.86),
+      colorScheme.tertiary,
+    );
+    final base = Color.alphaBlend(
+      colorScheme.secondary.withValues(alpha: 0.08),
+      deepBlue,
+    );
+    final onBase = colorScheme.onPrimary;
     final tileBg = selected
-        ? Color.alphaBlend(
-            colorScheme.primary.withValues(alpha: 0.08),
-            colorScheme.surface,
-          )
-        : colorScheme.surface.withValues(alpha: 0.92);
+        ? Color.alphaBlend(colorScheme.primary.withValues(alpha: 0.26), base)
+        : Colors.transparent;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
         compact ? 8 : 10,
-        compact ? 2 : 3,
+        compact ? 1 : 2,
         compact ? 8 : 10,
-        compact ? 2 : 3,
+        compact ? 1 : 2,
       ),
       child: Container(
         decoration: BoxDecoration(
@@ -236,8 +221,8 @@ class _DrawerMenuItem extends StatelessWidget {
           borderRadius: BorderRadius.circular(compact ? 12 : 14),
           border: Border.all(
             color: selected
-                ? colorScheme.primary.withValues(alpha: 0.20)
-                : colorScheme.outlineVariant.withValues(alpha: 0.35),
+                ? onBase.withValues(alpha: 0.16)
+                : onBase.withValues(alpha: 0.08),
           ),
         ),
         child: ListTile(
@@ -249,14 +234,14 @@ class _DrawerMenuItem extends StatelessWidget {
           leading: Icon(
             icon,
             size: compact ? 20 : 22,
-            color: selected ? colorScheme.primary : colorScheme.onSurface,
+            color: selected ? onBase : onBase.withValues(alpha: 0.88),
           ),
           title: Text(
             title,
             style: TextStyle(
               fontWeight: FontWeight.w600,
               fontSize: compact ? 13.5 : 14.5,
-              color: selected ? colorScheme.primary : null,
+              color: selected ? onBase : onBase.withValues(alpha: 0.92),
             ),
           ),
           trailing: Row(
@@ -275,9 +260,7 @@ class _DrawerMenuItem extends StatelessWidget {
               Icon(
                 Icons.chevron_right_rounded,
                 size: compact ? 18 : 19,
-                color: selected
-                    ? colorScheme.primary
-                    : colorScheme.onSurfaceVariant,
+                color: selected ? onBase : onBase.withValues(alpha: 0.70),
               ),
             ],
           ),
@@ -300,6 +283,8 @@ class _DrawerSectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final onBase = scheme.onPrimary;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         compact ? 12 : 14,
@@ -315,7 +300,7 @@ class _DrawerSectionTitle extends StatelessWidget {
               style: TextStyle(
                 fontSize: compact ? 10.5 : 11,
                 fontWeight: FontWeight.w700,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                color: onBase.withValues(alpha: 0.68),
                 letterSpacing: 0.2,
               ),
             ),

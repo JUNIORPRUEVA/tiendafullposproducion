@@ -358,7 +358,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Detalle de servicio ${service.id.substring(0, 8)}'),
+        title: Text('Detalle de servicio ${service.orderLabel}'),
         content: SizedBox(
           width: 720,
           child: SingleChildScrollView(

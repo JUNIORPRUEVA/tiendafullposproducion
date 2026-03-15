@@ -39,6 +39,8 @@ final aiAssistantControllerProvider =
       return AiAssistantController(ref.watch(aiAssistantServiceProvider));
     });
 
+final desktopAiAssistantPanelOpenProvider = StateProvider<bool>((ref) => false);
+
 class AiAssistantController extends StateNotifier<AiAssistantState> {
   AiAssistantController(this._service)
     : super(AiAssistantState(context: const AiChatContext(module: 'general')));

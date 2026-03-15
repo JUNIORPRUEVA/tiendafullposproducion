@@ -93,6 +93,8 @@ class ServiceAgendaCard extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
 
+    final isDesktop = MediaQuery.sizeOf(context).width >= 900;
+
     final createdByShort = _creatorFirstName();
     final showTechnicianRow =
         service.assignments.isNotEmpty && technicianText.trim().isNotEmpty;
@@ -141,7 +143,11 @@ class ServiceAgendaCard extends StatelessWidget {
         side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.55)),
       ),
       child: Padding(
-        padding: EdgeInsets.all(isCompactCard ? 10 : 12),
+        padding: EdgeInsets.all(
+          isDesktop
+              ? (isCompactCard ? 8 : 10)
+              : (isCompactCard ? 10 : 12),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -153,7 +159,10 @@ class ServiceAgendaCard extends StatelessWidget {
                     customerName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(
+                    style: (isDesktop
+                            ? theme.textTheme.titleSmall
+                            : theme.textTheme.titleMedium)
+                        ?.copyWith(
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -194,9 +203,9 @@ class ServiceAgendaCard extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isDesktop ? 8 : 10,
+                    vertical: isDesktop ? 5 : 6,
                   ),
                   decoration: BoxDecoration(
                     color: scheme.onSurface.withValues(alpha: 0.06),

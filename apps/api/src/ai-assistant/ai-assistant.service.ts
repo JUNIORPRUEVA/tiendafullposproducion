@@ -33,6 +33,15 @@ type NormalizedAiContext = {
   entityId?: string;
 };
 
+type AiIntent =
+  | 'explain-screen'
+  | 'explain-module'
+  | 'clients'
+  | 'catalog'
+  | 'operations'
+  | 'manual'
+  | 'general';
+
 type AiAssistantCitation = {
   id: string;
   module: string;
@@ -163,13 +172,28 @@ export class AiAssistantService {
     const safeHistory = this.normalizeHistory(dto.history).slice(-8);
 
     const systemPrompt =
-      `Eres el asistente administrativo interno de ${runtime.companyName} dentro de la app FULLTECH. ` +
-      'Debes responder de forma humana, clara y profesional. ' +
-      `${currentUserName ? `Debes dirigirte al usuario actual por su nombre, ${currentUserName}, cuando sea natural hacerlo. ` : ''}` +
-      'Nunca menciones memoria interna, contexto interno, tokens, ranking, fuentes tecnicas, historiales internos ni mecanismos del sistema. Si recuerdas algo util, usalo con naturalidad sin explicar como lo recordaste. ' +
-      'REGLAS DE SEGURIDAD: 1) solo puedes usar el conocimiento interno enviado por el sistema; 2) no inventes; 3) no uses conocimiento externo; 4) no reveles datos privados de otros usuarios; 5) si el conocimiento incluye datos del usuario autenticado sobre sí mismo, sí puedes responderlos; 6) nunca conviertas una consulta del propio usuario en una negativa si el sistema ya envió sus datos autorizados; 7) si falta permiso o datos, dilo con respeto. ' +
-      'REGLAS DE CALIDAD: si la respuesta es larga, resume al inicio; si el usuario pide pasos, responde paso a paso. ' +
-      'Devuelve únicamente JSON válido.';
+      `SYSTEM PROMPT — FULLTECH AI\n` +
+      `You are FULLTECH AI, an intelligent assistant integrated into the FULLTECH internal system for ${runtime.companyName}.\n` +
+      'Your purpose is to help employees understand how to use the system, access authorized information, and guide them in their work.\n\n' +
+      'Knowledge sources (provided by the system per request):\n' +
+      '1) Company products catalog\n' +
+      '2) Client database\n' +
+      '3) Service operations and orders\n' +
+      '4) Internal manual and company rules\n' +
+      '5) Application modules and their functions\n' +
+      '6) Logged-in user information\n\n' +
+      'Rules:\n' +
+      '- Use ONLY the provided internal knowledge.\n' +
+      '- Never invent data. If something is not available, say so and ask for missing context.\n' +
+      '- Do not use external knowledge.\n' +
+      '- Do not reveal private data of other users; you MAY answer the logged-in user\'s own authorized data if provided.\n' +
+      '- If the user asks about the screen they are currently viewing, explain what that screen/module does and how to use it step by step.\n\n' +
+      'Style:\n' +
+      '- Answer clearly, professionally, and practically.\n' +
+      `${currentUserName ? `- If natural, address the user by name: ${currentUserName}.\n` : ''}` +
+      '- If the answer is long, give a short summary first.\n' +
+      '- Never mention internal mechanisms (memory, tokens, ranking, internal context).\n\n' +
+      'Return ONLY valid JSON.';
 
     const userPrompt =
       `${JSON.stringify({ message, context, history: safeHistory, knowledge, currentUserName })}\n\n` +
@@ -795,6 +819,9 @@ export class AiAssistantService {
 
     const knowledge: KnowledgeRecord[] = [];
 
+    // Always include a minimal, non-sensitive context explainer for the current screen/module.
+    knowledge.push(...this.buildScreenContextKnowledge(dto));
+
     if (wantsAdaptiveLearning) {
       const adaptiveKnowledge = await this.buildAdaptiveKnowledge(user);
       knowledge.push(...adaptiveKnowledge);
@@ -845,6 +872,280 @@ export class AiAssistantService {
     }
 
     return knowledge;
+  }
+
+  private detectIntent(message: string, context: NormalizedAiContext): AiIntent {
+    const tokens = new Set(this.tokenize(`${message} ${context.module} ${context.screenName ?? ''}`));
+
+    if (this.isScreenExplanationRequest(message, context)) return 'explain-screen';
+    if (this.isModuleExplanationRequest(message, context)) return 'explain-module';
+    if (this.hasAnyToken(tokens, ['manual', 'interno', 'politica', 'política', 'regla', 'reglas', 'protocolo'])) return 'manual';
+    if (this.hasAnyToken(tokens, ['cliente', 'clientes', 'telefono', 'teléfono', 'direccion', 'dirección'])) return 'clients';
+    if (this.hasAnyToken(tokens, ['producto', 'productos', 'catalogo', 'catálogo', 'precio', 'precios', 'stock', 'inventario'])) return 'catalog';
+    if (this.hasAnyToken(tokens, ['servicio', 'servicios', 'operacion', 'operaciones', 'fase', 'técnico', 'tecnico', 'orden'])) return 'operations';
+    return 'general';
+  }
+
+  private isScreenExplanationRequest(message: string, context: NormalizedAiContext) {
+    const text = (message ?? '').trim().toLowerCase();
+    if (!text) return false;
+
+    const hasScreenContext = (context.screenName ?? '').trim().length > 0 || (context.route ?? '').trim().length > 0;
+    const patterns = [
+      'explicame esta pantalla',
+      'explícame esta pantalla',
+      'explica esta pantalla',
+      'que es esta pantalla',
+      'qué es esta pantalla',
+      'que hago aqui',
+      'qué hago aquí',
+      'que puedo hacer aqui',
+      'qué puedo hacer aquí',
+      'como se usa esta pantalla',
+      'cómo se usa esta pantalla',
+    ];
+
+    const matched = patterns.some((p) => text.includes(p));
+    return matched || (hasScreenContext && (text.includes('esta pantalla') || text.includes('pantalla actual')));
+  }
+
+  private isModuleExplanationRequest(message: string, context: NormalizedAiContext) {
+    const text = (message ?? '').trim().toLowerCase();
+    if (!text) return false;
+    const hasModule = this.normalizeModuleKey(context.module) !== 'general';
+    return (
+      text.includes('este modulo') ||
+      text.includes('este módulo') ||
+      text.includes('que puedo hacer en este modulo') ||
+      text.includes('qué puedo hacer en este módulo')
+    ) && hasModule;
+  }
+
+  private buildScreenContextKnowledge(dto: ChatAiAssistantDto): KnowledgeRecord[] {
+    const module = this.normalizeModuleKey(dto.context.module);
+    const screen = (dto.context.screenName ?? '').trim();
+    const route = (dto.context.route ?? '').trim();
+    const entityType = (dto.context.entityType ?? '').trim();
+    const entityId = (dto.context.entityId ?? '').trim();
+    const intent = this.detectIntent(dto.message, dto.context);
+
+    const contextLines = [
+      `Módulo: ${module || 'general'}.`,
+      screen ? `Pantalla: ${screen}.` : null,
+      route ? `Ruta: ${route}.` : null,
+      entityType ? `Entidad: ${entityType}${entityId ? ` (${entityId})` : ''}.` : null,
+    ].filter((x): x is string => !!x);
+
+    const result: KnowledgeRecord[] = [
+      this.createAppKnowledgeRecord(
+        'app-context:current',
+        module || 'general',
+        'contexto',
+        'Contexto actual (pantalla y módulo)',
+        contextLines.join('\n'),
+      ),
+    ];
+
+    const moduleHelp = this.staticModuleOverview(module);
+    if (moduleHelp) {
+      result.push(
+        this.createAppKnowledgeRecord(
+          `app-context:module:${module}`, 
+          module,
+          'modulo',
+          `Guía rápida del módulo: ${this.prettyModuleName(module)}`,
+          moduleHelp,
+        ),
+      );
+    }
+
+    const screenHelp = this.staticScreenHelp(module, screen);
+    if (screenHelp) {
+      result.push(
+        this.createAppKnowledgeRecord(
+          `app-context:screen:${module}:${this.slugify(screen || 'pantalla')}`,
+          module,
+          'pantalla',
+          screen ? `Cómo usar: ${screen}` : 'Cómo usar esta pantalla',
+          screenHelp,
+        ),
+      );
+    }
+
+    // If user explicitly asks to explain the screen/module, add a short instruction on how to ask for data.
+    if (intent === 'explain-screen' || intent === 'explain-module') {
+      result.push(
+        this.createAppKnowledgeRecord(
+          'app-context:tips',
+          module || 'general',
+          'guia-app',
+          'Cómo pedirme información útil',
+          'Para ayudarte mejor, dime qué objetivo tienes (ej: crear una orden, buscar un cliente, ver un producto, revisar una regla). Si se trata de una entidad, indícame el nombre/ID/telefono del cliente, o el número de servicio, o el producto.',
+        ),
+      );
+    }
+
+    return result;
+  }
+
+  private prettyModuleName(module: string) {
+    switch (this.normalizeModuleKey(module)) {
+      case 'clientes':
+        return 'Clientes';
+      case 'catalogo':
+        return 'Catálogo';
+      case 'ventas':
+        return 'Ventas';
+      case 'cotizaciones':
+        return 'Cotizaciones';
+      case 'operaciones':
+        return 'Operaciones';
+      case 'contabilidad':
+        return 'Contabilidad';
+      case 'nomina':
+        return 'Nómina';
+      case 'manual-interno':
+        return 'Manual interno';
+      case 'configuracion':
+        return 'Configuración';
+      case 'administracion':
+        return 'Administración';
+      default:
+        return 'FULLTECH';
+    }
+  }
+
+  private staticModuleOverview(module: string): string | null {
+    switch (this.normalizeModuleKey(module)) {
+      case 'operaciones':
+        return (
+          'Este módulo gestiona órdenes/servicios.\n' +
+          'Aquí normalmente puedes: ver servicios, revisar detalles, cambiar fase/estado según reglas, asignar técnicos (si tu rol lo permite) y registrar evidencias/referencias.\n' +
+          'Si me dices el número de servicio o el cliente, puedo orientarte con pasos concretos.'
+        );
+      case 'clientes':
+        return (
+          'Este módulo gestiona la información de clientes.\n' +
+          'Puedes buscar clientes, crear nuevos, editar datos y consultar historial según tu rol.\n' +
+          'Para buscar: dime el nombre o teléfono.'
+        );
+      case 'catalogo':
+        return (
+          'Este módulo muestra el catálogo de productos.\n' +
+          'Puedes consultar productos por categoría, existencia/stock y precios (según permisos).\n' +
+          'Para consultar: dime el nombre del producto o categoría.'
+        );
+      case 'manual-interno':
+        return (
+          'Este módulo contiene reglas oficiales, políticas, procedimientos y guías.\n' +
+          'Si preguntas por una regla, dime el tema (ej: garantía, pagos, protocolos, uso de teléfono).' 
+        );
+      case 'cotizaciones':
+        return (
+          'Este módulo se usa para crear y revisar cotizaciones.\n' +
+          'Puedes preparar propuestas, ver historial por cliente y validar reglas comerciales del Manual Interno.'
+        );
+      case 'contabilidad':
+        return (
+          'Este módulo agrupa tareas contables (cierres, depósitos, facturas, pagos pendientes) según permisos.\n' +
+          'Si me dices qué pantalla estás usando, te explico el flujo.'
+        );
+      case 'nomina':
+        return (
+          'Este módulo maneja información sensible de nómina.\n' +
+          'Solo usuarios autorizados pueden acceder a datos de terceros; sí puedes consultar tus propios datos si están autorizados.'
+        );
+      default:
+        return null;
+    }
+  }
+
+  private staticScreenHelp(module: string, screenName?: string): string | null {
+    const screen = (screenName ?? '').trim().toLowerCase();
+    const mod = this.normalizeModuleKey(module);
+
+    if (mod === 'operaciones') {
+      if (screen.includes('agenda')) {
+        return (
+          'En Agenda de operaciones puedes ver y organizar servicios por fecha/hora.\n' +
+          'Pasos típicos: 1) selecciona rango/fecha, 2) abre una orden, 3) revisa detalle y fase, 4) si aplica, reagenda o asigna técnico, 5) guarda.'
+        );
+      }
+      if (screen.includes('mapa')) {
+        return (
+          'En Mapa de clientes puedes visualizar ubicaciones para planificar visitas.\n' +
+          'Pasos típicos: 1) busca/filtra por cliente o servicio, 2) abre un punto, 3) revisa datos, 4) navega al detalle de la orden.'
+        );
+      }
+      if (screen.includes('regla')) {
+        return (
+          'En Reglas operativas se consultan reglas del flujo de operaciones (requisitos, fases, validaciones).\n' +
+          'Si me dices qué regla te está bloqueando, te indico qué falta y dónde completarlo.'
+        );
+      }
+      if (screen.includes('operaciones')) {
+        return (
+          'En Operaciones puedes gestionar órdenes de servicio.\n' +
+          'Qué puedes hacer: ver servicios, abrir detalle, cambiar fase/estado (según reglas), asignar técnico (si aplica) y registrar referencias/evidencias.\n' +
+          'Dime qué estás intentando hacer y te guío paso a paso.'
+        );
+      }
+    }
+
+    if (mod === 'clientes') {
+      if (screen.includes('nuevo')) {
+        return 'En Nuevo cliente puedes registrar un cliente. Completa nombre, teléfono y dirección si aplica, luego guarda.';
+      }
+      if (screen.includes('detalle')) {
+        return 'En Detalle de cliente puedes ver y editar datos del cliente, y abrir historial relacionado (cotizaciones/servicios) según permisos.';
+      }
+      if (screen.includes('clientes')) {
+        return 'En Clientes puedes buscar y abrir perfiles. Usa nombre/teléfono para encontrar rápido.';
+      }
+    }
+
+    if (mod === 'catalogo') {
+      if (screen.includes('cat')) {
+        return 'En Catálogo puedes consultar productos por categoría y revisar disponibilidad/precios según permisos.';
+      }
+    }
+
+    if (mod === 'cotizaciones') {
+      if (screen.includes('historial')) {
+        return 'En Historial de cotizaciones puedes ver cotizaciones anteriores por cliente y seleccionar una para revisar/usar.';
+      }
+      if (screen.includes('cotizacion')) {
+        return 'En Cotizaciones puedes crear o revisar propuestas. Si ya tienes un cliente, abre su historial para reutilizar información.';
+      }
+    }
+
+    if (mod === 'contabilidad') {
+      if (screen.includes('cierres')) return 'En Cierres diarios registras/resumes cierres del día según permisos.';
+      if (screen.includes('factura')) return 'En Facturas fiscales gestionas facturación fiscal según permisos.';
+      if (screen.includes('pagos')) return 'En Pagos pendientes revisas pagos que faltan por completar según permisos.';
+      if (screen.includes('contabilidad')) return 'En Contabilidad tienes accesos a cierres, depósitos, facturas y pagos pendientes según permisos.';
+    }
+
+    if (mod === 'nomina') {
+      if (screen.includes('mis pagos') || screen.includes('pagos')) return 'En Mis pagos puedes consultar tus pagos. No puedo mostrar nómina de terceros.';
+      if (screen.includes('nómina') || screen.includes('nomina')) return 'En Nómina se gestiona información sensible de empleados según permisos.';
+    }
+
+    if (mod === 'manual-interno') {
+      if (screen.includes('manual')) return 'En Manual interno puedes consultar reglas oficiales, políticas y procedimientos. Pídeme una regla por tema.';
+    }
+
+    return null;
+  }
+
+  private slugify(value: string) {
+    return (value ?? '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
   }
 
   private isLikelyCatalogLookup(dto: ChatAiAssistantDto, tokens: Set<string>) {
@@ -1603,6 +1904,7 @@ export class AiAssistantService {
     const limit = wantsManualDepth ? 28 : 20;
     const selected: KnowledgeRecord[] = [];
     const seenIds = new Set<string>();
+    const intent = this.detectIntent(input.prompt, input.context);
 
     const addRecords = (items: KnowledgeRecord[], maxCount?: number) => {
       let added = 0;
@@ -1618,6 +1920,22 @@ export class AiAssistantService {
 
     if (isSelfRequest) {
       addRecords(prioritizedSelfKnowledge, 6);
+    }
+
+    if (intent === 'explain-screen' || intent === 'explain-module') {
+      // Force screen/module help to the top so "Explícame esta pantalla" never ends up using an unrelated manual entry.
+      addRecords(
+        rankedAuthorizedVisible.filter((item) => item.id.startsWith('app-context:')),
+        6,
+      );
+      addRecords(
+        rankedManual.filter((item) => item.category === 'modulo' && this.normalizeModuleKey(item.module) === normalizedModule),
+        4,
+      );
+      addRecords(
+        input.staticHelp.filter((item) => this.normalizeModuleKey(item.module) === normalizedModule),
+        2,
+      );
     }
     addRecords(
       input.staticHelp.filter(

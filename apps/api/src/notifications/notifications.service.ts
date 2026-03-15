@@ -19,6 +19,102 @@ export class NotificationsService {
     return String(n).padStart(2, '0');
   }
 
+  private pad3(n: number) {
+    return String(n).padStart(3, '0');
+  }
+
+  private computeFallbackOrderNumber(params: { createdAt?: Date | null; serviceId: string }) {
+    const createdAt = params.createdAt instanceof Date ? params.createdAt : new Date();
+    const serviceId = (params.serviceId ?? '').toString();
+
+    const yyyy = createdAt.getFullYear();
+    const MM = this.pad2(createdAt.getMonth() + 1);
+    const dd = this.pad2(createdAt.getDate());
+    const HH = this.pad2(createdAt.getHours());
+    const mm = this.pad2(createdAt.getMinutes());
+    const ss = this.pad2(createdAt.getSeconds());
+    const SSS = this.pad3(createdAt.getMilliseconds());
+
+    const hexTail = serviceId.replace(/-/g, '').slice(-6);
+    const tailNum = hexTail ? parseInt(hexTail, 16) : 0;
+    const stableSuffix = this.pad3(Math.abs(tailNum) % 1000);
+
+    return `${yyyy}${MM}${dd}${HH}${mm}${ss}${SSS}${stableSuffix}`;
+  }
+
+  private extractServiceIdFromPayload(payload: unknown): string | null {
+    try {
+      const p: any = payload as any;
+      const direct = p?.serviceId ? String(p.serviceId) : '';
+      if (direct) return direct;
+      const dataId = p?.data?.serviceId ? String(p.data.serviceId) : '';
+      if (dataId) return dataId;
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async resolveServiceOrderNumber(serviceId: string): Promise<string | null> {
+    const id = (serviceId ?? '').toString().trim();
+    if (!id) return null;
+
+    try {
+      const service = await this.prisma.service.findUnique({
+        where: { id },
+        select: { id: true, orderNumber: true, createdAt: true } as any,
+      });
+
+      if (!service) return null;
+      const raw = typeof (service as any).orderNumber === 'string' ? (service as any).orderNumber.trim() : '';
+      if (raw) return raw;
+
+      const createdAt = (service as any).createdAt instanceof Date ? (service as any).createdAt : null;
+      return this.computeFallbackOrderNumber({ createdAt, serviceId: id });
+    } catch {
+      // Best-effort: if migrations are missing, don't block notification enqueue.
+      return null;
+    }
+  }
+
+  private stripServiceIdFromMessage(messageText: string, serviceId: string) {
+    const id = (serviceId ?? '').toString().trim();
+    if (!id) return messageText;
+    return messageText
+      .replace(`ID: ${id}.`, '')
+      .replace(`ID: ${id}`, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+
+  private injectOrderNumberLine(messageText: string, orderNumber: string) {
+    if (!orderNumber.trim()) return messageText;
+    if (messageText.toLowerCase().includes('orden:')) return messageText;
+
+    const orderLine = `Orden: ${orderNumber}`;
+    if (messageText.includes('\n')) {
+      const lines = messageText.split('\n');
+      lines.splice(1, 0, orderLine);
+      return lines.join('\n');
+    }
+
+    const base = messageText.trim();
+    if (!base) return orderLine;
+    const sep = base.endsWith('.') ? ' ' : '. ';
+    return `${base}${sep}${orderLine}.`;
+  }
+
+  private async maybeInjectOrderNumber(messageText: string, payload?: unknown) {
+    const serviceId = this.extractServiceIdFromPayload(payload);
+    if (!serviceId) return messageText;
+
+    const orderNumber = await this.resolveServiceOrderNumber(serviceId);
+    if (!orderNumber) return messageText;
+
+    const stripped = this.stripServiceIdFromMessage(messageText, serviceId);
+    return this.injectOrderNumberLine(stripped, orderNumber);
+  }
+
   private formatLocalYmdHm(d: Date) {
     const yyyy = d.getFullYear();
     const mm = this.pad2(d.getMonth() + 1);
@@ -124,7 +220,8 @@ export class NotificationsService {
 
     const rawPhone = (params.toNumber ?? '').toString().trim();
     const normalized = this.evolution.normalizeWhatsAppNumber(rawPhone);
-    const messageText = (params.messageText ?? '').toString();
+    let messageText = (params.messageText ?? '').toString();
+    messageText = await this.maybeInjectOrderNumber(messageText, params.payload);
 
     const now = new Date();
 
@@ -215,7 +312,8 @@ export class NotificationsService {
   }) {
     const rawPhone = (params.toNumber ?? '').toString().trim();
     const normalized = this.evolution.normalizeWhatsAppNumber(rawPhone);
-    const messageText = (params.messageText ?? '').toString();
+    let messageText = (params.messageText ?? '').toString();
+    messageText = await this.maybeInjectOrderNumber(messageText, params.payload);
 
     if (!normalized) {
       return this.prisma.notificationOutbox.create({
@@ -285,7 +383,8 @@ export class NotificationsService {
     const rawPhone = (user?.telefono ?? '').trim();
     const normalized = this.evolution.normalizeWhatsAppNumber(rawPhone);
 
-    const messageText = buildNotificationMessage(params.payload);
+    let messageText = buildNotificationMessage(params.payload);
+    messageText = await this.maybeInjectOrderNumber(messageText, params.payload);
 
     if (!user || user.blocked) {
       return this.prisma.notificationOutbox.create({

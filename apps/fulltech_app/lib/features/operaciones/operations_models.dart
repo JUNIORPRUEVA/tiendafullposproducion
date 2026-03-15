@@ -353,6 +353,7 @@ class ServiceClosingSummaryModel {
 
 class ServiceModel {
   final String id;
+  final String orderNumber;
   final String title;
   final String description;
   final String serviceType;
@@ -387,6 +388,7 @@ class ServiceModel {
 
   ServiceModel({
     required this.id,
+    this.orderNumber = '',
     required this.title,
     required this.description,
     required this.serviceType,
@@ -420,7 +422,16 @@ class ServiceModel {
     this.completedAt,
   });
 
+  String get orderLabel {
+    final v = orderNumber.trim();
+    if (v.isNotEmpty) return v;
+    final idTrim = id.trim();
+    if (idTrim.length >= 8) return idTrim.substring(0, 8);
+    return idTrim;
+  }
+
   ServiceModel copyWith({
+    String? orderNumber,
     String? title,
     String? description,
     String? serviceType,
@@ -455,6 +466,7 @@ class ServiceModel {
   }) {
     return ServiceModel(
       id: id,
+      orderNumber: orderNumber ?? this.orderNumber,
       title: title ?? this.title,
       description: description ?? this.description,
       serviceType: serviceType ?? this.serviceType,
@@ -536,6 +548,7 @@ class ServiceModel {
 
     return ServiceModel(
       id: (json['id'] ?? '').toString(),
+      orderNumber: (json['orderNumber'] ?? '').toString(),
       title: (json['title'] ?? '').toString(),
       description: (json['description'] ?? '').toString(),
       serviceType: (json['serviceType'] ?? 'other').toString(),

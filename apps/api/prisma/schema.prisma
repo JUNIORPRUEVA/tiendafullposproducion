@@ -760,6 +760,8 @@ model CompanyManualEntry {
 
 model Service {
   id                      String        @id @default(uuid()) @db.Uuid
+  // Short human-friendly order number (e.g. YYYYMMDDHHmmssSSSxx). Nullable for backward compatibility.
+  orderNumber             String?       @unique
   customerId              String        @db.Uuid
   createdByUserId         String        @db.Uuid
   serviceType             ServiceType

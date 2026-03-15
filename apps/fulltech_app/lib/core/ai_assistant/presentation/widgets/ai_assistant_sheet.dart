@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/ai_assistant_controller.dart';
 import '../../domain/models/ai_chat_context.dart';
 import '../../domain/models/ai_assistant_message.dart';
+import '../../../widgets/app_navigation.dart';
+import '../ai_chat_context_resolver.dart';
 
 class GlobalAiChatSheet extends ConsumerStatefulWidget {
   const GlobalAiChatSheet({super.key, this.onClose});
@@ -35,9 +37,7 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
 
   void _scrollToBottom() {
     if (!_scrollController.hasClients) return;
-    _scrollController.jumpTo(
-      0,
-    );
+    _scrollController.jumpTo(0);
   }
 
   @override
@@ -45,6 +45,15 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
     final theme = Theme.of(context);
     final aiState = ref.watch(aiAssistantControllerProvider);
     final controller = ref.read(aiAssistantControllerProvider.notifier);
+
+    final liveLocation = safeCurrentLocation(context);
+    final liveContext = buildAiChatContextFromLocation(liveLocation);
+    if (!_isSameContext(liveContext, aiState.context)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        controller.setContext(liveContext);
+      });
+    }
     final size = MediaQuery.sizeOf(context);
     final isDesktop = size.width >= 900;
     final quickPrompts = _quickPromptsForContext(aiState.context);
@@ -126,7 +135,9 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
                           height: 180,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: const Color(0xFF29B7C8).withValues(alpha: 0.09),
+                            color: const Color(
+                              0xFF29B7C8,
+                            ).withValues(alpha: 0.09),
                           ),
                         ),
                       ),
@@ -138,258 +149,282 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
                           height: 150,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: const Color(0xFF2457D6).withValues(alpha: 0.11),
+                            color: const Color(
+                              0xFF2457D6,
+                            ).withValues(alpha: 0.11),
                           ),
                         ),
                       ),
                       Column(
                         children: [
-                        Container(
-                          padding: const EdgeInsets.fromLTRB(18, 16, 12, 14),
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Color(0xFF0F2F73),
-                                Color(0xFF1D4FBE),
-                                Color(0xFF15AFC0),
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
+                          Container(
+                            padding: const EdgeInsets.fromLTRB(18, 16, 12, 14),
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Color(0xFF0F2F73),
+                                  Color(0xFF1D4FBE),
+                                  Color(0xFF15AFC0),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
                             ),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 46,
-                                height: 46,
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.14),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.18),
-                                  ),
-                                ),
-                                child: const Icon(
-                                  Icons.memory_rounded,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'FULLTECH AI Console',
-                                      style: theme.textTheme.titleMedium?.copyWith(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w900,
-                                        letterSpacing: 0.2,
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 46,
+                                  height: 46,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.14),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.18,
                                       ),
                                     ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      _buildContextLabel(aiState.context),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: Colors.white.withValues(alpha: 0.82),
-                                        height: 1.3,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 7,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(999),
-                                  border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.16),
                                   ),
-                                ),
-                                child: Text(
-                                  'Context Live',
-                                  style: theme.textTheme.labelSmall?.copyWith(
+                                  child: const Icon(
+                                    Icons.memory_rounded,
                                     color: Colors.white,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: 0.2,
                                   ),
                                 ),
-                              ),
-                              IconButton(
-                                onPressed: widget.onClose ??
-                                    () => Navigator.of(context).pop(),
-                                icon: const Icon(
-                                  Icons.close_rounded,
-                                  color: Colors.white,
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'FULLTECH AI Console',
+                                        style: theme.textTheme.titleMedium
+                                            ?.copyWith(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.w900,
+                                              letterSpacing: 0.2,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        _buildContextLabel(aiState.context),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.82,
+                                              ),
+                                              height: 1.3,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-                          color: const Color(0xFFEDF4FF),
-                          child: Text(
-                            'Consulta productos, clientes, reglas del manual y acciones disponibles en esta pantalla.',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF26427D),
-                              fontWeight: FontWeight.w600,
-                              height: 1.35,
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 7,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.16,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    'Context Live',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed:
+                                      widget.onClose ??
+                                      () => Navigator.of(context).pop(),
+                                  icon: const Icon(
+                                    Icons.close_rounded,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                children: quickPrompts
-                                    .map(
-                                      (prompt) => Padding(
-                                        padding: const EdgeInsets.only(right: 8),
-                                        child: ActionChip(
-                                          onPressed: aiState.sending
-                                              ? null
-                                              : () =>
-                                                    _sendPreset(controller, prompt),
-                                          backgroundColor: Colors.white,
-                                          side: BorderSide(
-                                            color: const Color(0xFFB7C8EF)
-                                                .withValues(alpha: 0.9),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                            color: const Color(0xFFEDF4FF),
+                            child: Text(
+                              'Consulta productos, clientes, reglas del manual y acciones disponibles en esta pantalla.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: const Color(0xFF26427D),
+                                fontWeight: FontWeight.w600,
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: quickPrompts
+                                      .map(
+                                        (prompt) => Padding(
+                                          padding: const EdgeInsets.only(
+                                            right: 8,
                                           ),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(14),
-                                          ),
-                                          label: Text(
-                                            prompt,
-                                            style: theme.textTheme.labelMedium
-                                                ?.copyWith(
-                                                  color: const Color(0xFF173D8E),
-                                                  fontWeight: FontWeight.w800,
-                                                ),
+                                          child: ActionChip(
+                                            onPressed: aiState.sending
+                                                ? null
+                                                : () => _sendPreset(
+                                                    controller,
+                                                    prompt,
+                                                  ),
+                                            backgroundColor: Colors.white,
+                                            side: BorderSide(
+                                              color: const Color(
+                                                0xFFB7C8EF,
+                                              ).withValues(alpha: 0.9),
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                            label: Text(
+                                              prompt,
+                                              style: theme.textTheme.labelMedium
+                                                  ?.copyWith(
+                                                    color: const Color(
+                                                      0xFF173D8E,
+                                                    ),
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                    )
-                                    .toList(growable: false),
+                                      )
+                                      .toList(growable: false),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        Expanded(
-                          child: _ChatMessagesList(
-                            controller: _scrollController,
-                            messages: aiState.messages,
+                          Expanded(
+                            child: _ChatMessagesList(
+                              controller: _scrollController,
+                              messages: aiState.messages,
+                            ),
                           ),
-                        ),
-                        if ((aiState.lastError ?? '').trim().isNotEmpty)
+                          if ((aiState.lastError ?? '').trim().isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF3F0),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: const Color(0xFFF3B3A6),
+                                  ),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Text(
+                                    aiState.lastError!,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF8A2D1B),
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFFF3F0),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: const Color(0xFFF3B3A6),
-                                ),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Text(
-                                  aiState.lastError!,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: const Color(0xFF8A2D1B),
-                                    height: 1.35,
+                            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _messageController,
+                                    minLines: 1,
+                                    maxLines: 4,
+                                    textInputAction: TextInputAction.send,
+                                    onSubmitted: (_) async {
+                                      await _send(controller);
+                                    },
+                                    decoration: InputDecoration(
+                                      hintText:
+                                          'Pregunta por productos, clientes o procesos...',
+                                      isDense: true,
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 15,
+                                          ),
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(20),
+                                        borderSide: const BorderSide(
+                                          color: Color(0xFFB7C8EF),
+                                        ),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(20),
+                                        borderSide: const BorderSide(
+                                          color: Color(0xFFB7C8EF),
+                                        ),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(20),
+                                        borderSide: const BorderSide(
+                                          color: Color(0xFF2457D6),
+                                          width: 1.4,
+                                        ),
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
+                                const SizedBox(width: 10),
+                                SizedBox(
+                                  height: 52,
+                                  width: 52,
+                                  child: FilledButton(
+                                    onPressed: aiState.sending
+                                        ? null
+                                        : () => _send(controller),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: const Color(0xFF1D4FBE),
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(18),
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                    ),
+                                    child: aiState.sending
+                                        ? const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: Colors.white,
+                                            ),
+                                          )
+                                        : const Icon(
+                                            Icons.arrow_upward_rounded,
+                                          ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _messageController,
-                                  minLines: 1,
-                                  maxLines: 4,
-                                  textInputAction: TextInputAction.send,
-                                  onSubmitted: (_) async {
-                                    await _send(controller);
-                                  },
-                                  decoration: InputDecoration(
-                                    hintText: 'Pregunta por productos, clientes o procesos...',
-                                    isDense: true,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 15,
-                                    ),
-                                    filled: true,
-                                    fillColor: Colors.white,
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(20),
-                                      borderSide: const BorderSide(
-                                        color: Color(0xFFB7C8EF),
-                                      ),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(20),
-                                      borderSide: const BorderSide(
-                                        color: Color(0xFFB7C8EF),
-                                      ),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(20),
-                                      borderSide: const BorderSide(
-                                        color: Color(0xFF2457D6),
-                                        width: 1.4,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              SizedBox(
-                                height: 52,
-                                width: 52,
-                                child: FilledButton(
-                                  onPressed: aiState.sending
-                                      ? null
-                                      : () => _send(controller),
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: const Color(0xFF1D4FBE),
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(18),
-                                    ),
-                                    padding: EdgeInsets.zero,
-                                  ),
-                                  child: aiState.sending
-                                      ? const SizedBox(
-                                          width: 18,
-                                          height: 18,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white,
-                                          ),
-                                        )
-                                      : const Icon(Icons.arrow_upward_rounded),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                         ],
                       ),
                     ],
@@ -401,6 +436,14 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
         ),
       ),
     );
+  }
+
+  bool _isSameContext(AiChatContext a, AiChatContext b) {
+    return a.module == b.module &&
+        a.screenName == b.screenName &&
+        a.route == b.route &&
+        a.entityType == b.entityType &&
+        a.entityId == b.entityId;
   }
 
   List<String> _quickPromptsForContext(AiChatContext context) {
@@ -451,6 +494,9 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
     _messageController.clear();
+
+    final location = safeCurrentLocation(context);
+    controller.setContext(buildAiChatContextFromLocation(location));
     await controller.sendMessage(text);
   }
 
@@ -459,6 +505,9 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
     String prompt,
   ) async {
     _messageController.clear();
+
+    final location = safeCurrentLocation(context);
+    controller.setContext(buildAiChatContextFromLocation(location));
     await controller.sendMessage(prompt);
   }
 
@@ -518,9 +567,7 @@ class _ChatMessagesList extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(22),
-              border: Border.all(
-                color: const Color(0xFFB7C8EF),
-              ),
+              border: Border.all(color: const Color(0xFFB7C8EF)),
             ),
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -576,13 +623,9 @@ class _MessageBubble extends StatelessWidget {
     final theme = Theme.of(context);
     final isUser = message.isUser;
 
-    final background = isUser
-      ? const Color(0xFF2457D6)
-      : Colors.white;
+    final background = isUser ? const Color(0xFF2457D6) : Colors.white;
 
-    final foreground = isUser
-      ? Colors.white
-      : const Color(0xFF1A2A4E);
+    final foreground = isUser ? Colors.white : const Color(0xFF1A2A4E);
 
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -592,17 +635,12 @@ class _MessageBubble extends StatelessWidget {
           decoration: BoxDecoration(
             color: background,
             borderRadius: BorderRadius.circular(18),
-            border: isUser
-                ? null
-                : Border.all(
-                    color: const Color(0xFFB7C8EF),
-                  ),
+            border: isUser ? null : Border.all(color: const Color(0xFFB7C8EF)),
             boxShadow: [
               BoxShadow(
-                color: (isUser
-                        ? const Color(0xFF2457D6)
-                        : const Color(0xFF173D8E))
-                    .withValues(alpha: 0.08),
+                color:
+                    (isUser ? const Color(0xFF2457D6) : const Color(0xFF173D8E))
+                        .withValues(alpha: 0.08),
                 blurRadius: 14,
                 offset: const Offset(0, 8),
               ),

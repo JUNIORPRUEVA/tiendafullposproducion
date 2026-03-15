@@ -27,7 +27,7 @@ class AppTheme {
     return ThemeData(
       brightness: Brightness.light,
       colorScheme: scheme,
-      scaffoldBackgroundColor: backgroundColor,
+      scaffoldBackgroundColor: Colors.transparent,
       useMaterial3: true,
 
       // AppBar Theme
@@ -88,9 +88,10 @@ class AppTheme {
       cardTheme: CardThemeData(
         margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        elevation: 3,
-        color: surfaceColor,
-        shadowColor: Colors.black.withValues(alpha: 0.14),
+        elevation: 2,
+        color: Colors.white.withValues(alpha: 0.92),
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.black.withValues(alpha: 0.10),
       ),
 
       // Input Decoration Theme

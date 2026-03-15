@@ -47,6 +47,149 @@ import 'presentation/service_location_helpers.dart';
 import 'presentation/status_picker_sheet.dart';
 import '../../modules/clientes/cliente_model.dart';
 
+bool _isDesktopPlatform() {
+  if (kIsWeb) return false;
+  return defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.linux ||
+      defaultTargetPlatform == TargetPlatform.macOS;
+}
+
+bool _useRightSidePanel(BuildContext context) {
+  if (!_isDesktopPlatform()) return false;
+  final width = MediaQuery.sizeOf(context).width;
+  return width >= 980;
+}
+
+double _rightSidePanelWidth(BuildContext context) {
+  final width = MediaQuery.sizeOf(context).width;
+  final target = width * 0.42;
+  return target.clamp(520.0, 740.0);
+}
+
+double _rightSidePanelHeight(BuildContext context) {
+  final height = MediaQuery.sizeOf(context).height;
+  return (height * 0.96).clamp(560.0, height);
+}
+
+Future<T?> _showRightSideDialog<T>(
+  BuildContext context, {
+  required WidgetBuilder builder,
+}) {
+  return showGeneralDialog<T>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+    barrierColor: Colors.black.withValues(alpha: 0.32),
+    transitionDuration: const Duration(milliseconds: 220),
+    pageBuilder: (dialogContext, animation, secondaryAnimation) {
+      final scheme = Theme.of(dialogContext).colorScheme;
+      final panelWidth = _rightSidePanelWidth(dialogContext);
+      final panelHeight = _rightSidePanelHeight(dialogContext);
+      final bottomInset = MediaQuery.viewInsetsOf(dialogContext).bottom;
+
+      final radius = BorderRadius.circular(18);
+
+      return Align(
+        alignment: Alignment.centerRight,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: ClipRRect(
+            borderRadius: radius,
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: panelWidth,
+                height: panelHeight,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [scheme.surfaceContainerHighest, scheme.surface],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                  borderRadius: radius,
+                  border: Border.all(
+                    color: scheme.outline.withValues(alpha: 0.22),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: scheme.shadow.withValues(alpha: 0.18),
+                      blurRadius: 28,
+                      offset: const Offset(-10, 16),
+                    ),
+                  ],
+                ),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              scheme.primary.withValues(alpha: 0.06),
+                              scheme.surface.withValues(alpha: 0.0),
+                            ],
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: -36,
+                      right: -46,
+                      child: Container(
+                        width: 190,
+                        height: 190,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: scheme.tertiary.withValues(alpha: 0.10),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 110,
+                      left: -60,
+                      child: Container(
+                        width: 210,
+                        height: 210,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: scheme.secondary.withValues(alpha: 0.09),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.only(bottom: bottomInset),
+                      child: builder(dialogContext),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+    transitionBuilder: (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0.08, 0),
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
 class OperacionesScreen extends ConsumerStatefulWidget {
   const OperacionesScreen({super.key});
 
@@ -69,6 +212,66 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     const initialServiceType = 'maintenance';
 
     var orderType = 'mantenimiento';
+
+    if (_useRightSidePanel(context)) {
+      await _showRightSideDialog<void>(
+        context,
+        builder: (_) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Cerrar',
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: _CreateReservationTab(
+                      onCreate: (draft) async {
+                        final ok = await _handleCreateGenericOrder(
+                          draft,
+                          orderType: orderType,
+                        );
+                        if (ok && context.mounted) Navigator.pop(context);
+                      },
+                      submitLabel: submitLabel,
+                      initialServiceType: initialServiceType,
+                      showServiceTypeField: false,
+                      agendaKind: orderType,
+                      showAgendaKindPicker: true,
+                      onAgendaKindChanged: (value) {
+                        final next = value.trim().toLowerCase();
+                        if (next.isEmpty) return;
+                        setDialogState(() => orderType = next);
+                      },
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+      return;
+    }
 
     await showModalBottomSheet<void>(
       context: context,
@@ -107,48 +310,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
                     ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                      child: Text(
-                        'Crea una orden genérica. La etapa se puede ajustar luego en Detalles.',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                      child: DropdownButtonFormField<String>(
-                        key: ValueKey('quick-create-orderType-$orderType'),
-                        initialValue: orderType,
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          labelText: 'Fase de orden',
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'reserva',
-                            child: Text('Reserva'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'instalacion',
-                            child: Text('Instalación'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'mantenimiento',
-                            child: Text('Mantenimiento'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'garantia',
-                            child: Text('Garantía'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'levantamiento',
-                            child: Text('Levantamiento'),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setSheetState(() => orderType = value);
-                        },
-                      ),
+                      child: const SizedBox.shrink(),
                     ),
                     const Divider(height: 1),
                     Expanded(
@@ -163,6 +325,13 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
                         submitLabel: submitLabel,
                         initialServiceType: initialServiceType,
                         showServiceTypeField: false,
+                        agendaKind: orderType,
+                        showAgendaKindPicker: true,
+                        onAgendaKindChanged: (value) {
+                          final next = value.trim().toLowerCase();
+                          if (next.isEmpty) return;
+                          setSheetState(() => orderType = next);
+                        },
                       ),
                     ),
                   ],
@@ -453,16 +622,16 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     final scheme = theme.colorScheme;
 
     return AppBar(
-      toolbarHeight: 72,
+      toolbarHeight: 64,
       elevation: 0,
       backgroundColor: scheme.surface,
       foregroundColor: scheme.onSurface,
-      titleSpacing: 18,
+      titleSpacing: 14,
       title: Row(
         children: [
           Expanded(
             child: SizedBox(
-              height: 44,
+              height: 40,
               child: TextField(
                 controller: searchCtrl,
                 textInputAction: TextInputAction.search,
@@ -473,7 +642,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
                   filled: true,
                   fillColor: scheme.surfaceContainerHighest,
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide.none,
                   ),
                   suffixIcon: searchCtrl.text.trim().isNotEmpty
@@ -653,7 +822,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     OperationsController notifier,
   ) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
       child: _PanelOptions(
         key: _panelKey,
         currentUser: currentUser,
@@ -684,6 +853,60 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
   }
 
   Future<void> _openServiceDetail(ServiceModel service) async {
+    if (_useRightSidePanel(context)) {
+      await _showRightSideDialog<void>(
+        context,
+        builder: (context) {
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Detalles de la orden',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Cerrar',
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 22),
+                  child: _ServiceDetailPanel(
+                    service: service,
+                    onChangeStatus: (status) =>
+                        _changeStatus(service.id, status),
+                    onChangeOrderState: (orderState) => ref
+                        .read(operationsControllerProvider.notifier)
+                        .changeOrderStateOptimistic(service.id, orderState),
+                    onSchedule: (start, end) =>
+                        _scheduleService(service.id, start, end),
+                    onCreateWarranty: () => _createWarranty(service.id),
+                    onAssign: (assignments) =>
+                        _assignTechs(service.id, assignments),
+                    onToggleStep: (stepId, done) =>
+                        _toggleStep(service.id, stepId, done),
+                    onAddNote: (message) => _addNote(service.id, message),
+                    onUploadEvidence: () => _uploadEvidence(service.id),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+      return;
+    }
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1147,6 +1370,60 @@ class _OperacionesAgendaScreenState
   }
 
   Future<void> _openServiceDetail(ServiceModel service) async {
+    if (_useRightSidePanel(context)) {
+      await _showRightSideDialog<void>(
+        context,
+        builder: (context) {
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Detalles de la orden',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Cerrar',
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 22),
+                  child: _ServiceDetailPanel(
+                    service: service,
+                    onChangeStatus: (status) =>
+                        _changeStatus(service.id, status),
+                    onChangeOrderState: (orderState) => ref
+                        .read(operationsControllerProvider.notifier)
+                        .changeOrderStateOptimistic(service.id, orderState),
+                    onSchedule: (start, end) =>
+                        _scheduleService(service.id, start, end),
+                    onCreateWarranty: () => _createWarranty(service.id),
+                    onAssign: (assignments) =>
+                        _assignTechs(service.id, assignments),
+                    onToggleStep: (stepId, done) =>
+                        _toggleStep(service.id, stepId, done),
+                    onAddNote: (message) => _addNote(service.id, message),
+                    onUploadEvidence: () => _uploadEvidence(service.id),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+      return;
+    }
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1557,6 +1834,59 @@ class _OperacionesAgendaScreenState
     const title = 'Crear orden de servicio';
     const submitLabel = 'Guardar orden';
     const initialServiceType = 'maintenance';
+
+    if (_useRightSidePanel(context)) {
+      await _showRightSideDialog<void>(
+        context,
+        builder: (context) {
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Cerrar',
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: Text(
+                  'Crea una orden genérica. La etapa se puede ajustar luego en Detalles.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: _CreateReservationTab(
+                  submitLabel: submitLabel,
+                  initialServiceType: initialServiceType,
+                  showServiceTypeField: false,
+                  onCreate: (draft) async {
+                    final ok = await _createGenericFromAgenda(draft);
+                    if (ok && context.mounted) Navigator.pop(context);
+                  },
+                ),
+              ),
+            ],
+          );
+        },
+      );
+      return;
+    }
 
     await showModalBottomSheet<void>(
       context: context,
@@ -3408,7 +3738,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
               border: Border.all(color: tint.withValues(alpha: 0.14)),
             ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
               child: Row(
                 children: [
                   Expanded(
@@ -3431,7 +3761,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
                           value,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleLarge?.copyWith(
+                          style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w900,
                           ),
                         ),
@@ -3456,7 +3786,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
           ),
         ),
         child: Padding(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(8),
           child: Row(
             children: [
               kpi(
@@ -3492,13 +3822,13 @@ class _PanelOptionsState extends State<_PanelOptions> {
                 theme.colorScheme.primary.withValues(alpha: 0.05),
               ],
             ),
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
             ),
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
             child: Column(
               children: [
                 Row(
@@ -3514,7 +3844,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
                             : 'Sin atraso',
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: _OperationsDesktopMetricCard(
                         label: 'En proceso',
@@ -3524,7 +3854,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
                         caption: 'Atención activa',
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: _OperationsDesktopMetricCard(
                         label: 'Completadas',
@@ -3534,15 +3864,15 @@ class _PanelOptionsState extends State<_PanelOptions> {
                         caption: 'Servicios cerrados',
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    SizedBox(width: 260, child: controlOperativoCompact()),
+                    const SizedBox(width: 10),
+                    SizedBox(width: 220, child: controlOperativoCompact()),
                   ],
                 ),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
         Expanded(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3708,25 +4038,25 @@ class _OperationsDesktopMetricCard extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(8),
         child: Row(
           children: [
             Container(
-              width: 36,
-              height: 36,
+              width: 32,
+              height: 32,
               decoration: BoxDecoration(
                 color: tint.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(icon, color: tint, size: 20),
+              child: Icon(icon, color: tint, size: 18),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -3735,7 +4065,7 @@ class _OperationsDesktopMetricCard extends StatelessWidget {
                     label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelLarge?.copyWith(
+                    style: theme.textTheme.labelMedium?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -3753,7 +4083,7 @@ class _OperationsDesktopMetricCard extends StatelessWidget {
             ),
             Text(
               '$value',
-              style: theme.textTheme.headlineSmall?.copyWith(
+              style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.w900,
               ),
             ),
@@ -3786,7 +4116,7 @@ class _OperationsDesktopColumn extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
         ),
@@ -3795,11 +4125,11 @@ class _OperationsDesktopColumn extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Container(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
             decoration: BoxDecoration(
               color: tint.withValues(alpha: 0.08),
               borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(24),
+                top: Radius.circular(20),
               ),
               border: Border(
                 bottom: BorderSide(color: tint.withValues(alpha: 0.18)),
@@ -3810,15 +4140,15 @@ class _OperationsDesktopColumn extends StatelessWidget {
                 Expanded(
                   child: Text(
                     title,
-                    style: theme.textTheme.titleMedium?.copyWith(
+                    style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w900,
                     ),
                   ),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
+                    horizontal: 8,
+                    vertical: 5,
                   ),
                   decoration: BoxDecoration(
                     color: tint.withValues(alpha: 0.14),
@@ -3826,7 +4156,7 @@ class _OperationsDesktopColumn extends StatelessWidget {
                   ),
                   child: Text(
                     '$count',
-                    style: theme.textTheme.labelLarge?.copyWith(
+                    style: theme.textTheme.labelMedium?.copyWith(
                       fontWeight: FontWeight.w900,
                       color: tint,
                     ),
@@ -3839,7 +4169,7 @@ class _OperationsDesktopColumn extends StatelessWidget {
             child: children.isEmpty
                 ? Center(
                     child: Padding(
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.all(16),
                       child: Text(
                         emptyLabel,
                         textAlign: TextAlign.center,
@@ -3851,9 +4181,9 @@ class _OperationsDesktopColumn extends StatelessWidget {
                     ),
                   )
                 : ListView.separated(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(10),
                     itemCount: children.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, index) => children[index],
                   ),
           ),
@@ -6094,6 +6424,130 @@ class OperacionesHistorialBodyState
         return bd.compareTo(ad);
       });
 
+    if (_useRightSidePanel(context)) {
+      await _showRightSideDialog<void>(
+        context,
+        builder: (context) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        service.customerName,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Cerrar',
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text('${service.customerPhone} · ${service.customerAddress}'),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _pill(context, 'Estado', _statusLabel(service.status)),
+                    _pill(context, 'Tipo', _typeLabel(service.serviceType)),
+                    _pill(context, 'Prioridad', 'P${service.priority}'),
+                    if (service.isSeguro) _pill(context, 'SEGURO', 'Sí'),
+                    _pill(context, 'Último', () {
+                      final last =
+                          _lastUpdateAt(service) ?? service.completedAt;
+                      return last == null ? '—' : df.format(last);
+                    }()),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  service.title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Historial de proceso',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: updates.isEmpty
+                      ? Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.info_outline,
+                                  color: theme.colorScheme.primary,
+                                ),
+                                const SizedBox(width: 10),
+                                const Expanded(
+                                  child: Text(
+                                    'Sin actualizaciones registradas para este servicio.',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          itemCount: updates.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 8),
+                          itemBuilder: (context, index) {
+                            final u = updates[index];
+                            final stamp = u.createdAt == null
+                                ? '—'
+                                : df.format(u.createdAt!);
+                            return Card(
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Text(
+                                      u.message,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text('$stamp · ${u.changedBy}'),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+      return;
+    }
+
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -6498,6 +6952,104 @@ class _AgendaTab extends StatelessWidget {
 
     var selectedKind = kind;
 
+    if (_useRightSidePanel(context)) {
+      await _showRightSideDialog<void>(
+        context,
+        builder: (_) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Cerrar',
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                    child: Text(
+                      'Crea una orden genérica. La etapa se puede ajustar luego en Detalles.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                    child: DropdownButtonFormField<String>(
+                      key: ValueKey('agenda-create-kind-$selectedKind'),
+                      initialValue: selectedKind,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Fase de orden',
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'reserva',
+                          child: Text('Reserva'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'instalacion',
+                          child: Text('Instalación'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'mantenimiento',
+                          child: Text('Mantenimiento'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'garantia',
+                          child: Text('Garantía'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'levantamiento',
+                          child: Text('Levantamiento'),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setDialogState(() => selectedKind = value);
+                      },
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: _CreateReservationTab(
+                      onCreate: (draft) async {
+                        final ok = await onCreateFromAgenda(
+                          draft,
+                          selectedKind,
+                        );
+                        if (ok && context.mounted) Navigator.pop(context);
+                      },
+                      submitLabel: submitLabel,
+                      initialServiceType: initialServiceType,
+                      showServiceTypeField: false,
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+      return;
+    }
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -6747,6 +7299,8 @@ class _CreateReservationTab extends ConsumerStatefulWidget {
   final String initialServiceType;
   final bool showServiceTypeField;
   final String? agendaKind;
+  final bool showAgendaKindPicker;
+  final ValueChanged<String>? onAgendaKindChanged;
 
   const _CreateReservationTab({
     // ignore: unused_element_parameter
@@ -6755,8 +7309,9 @@ class _CreateReservationTab extends ConsumerStatefulWidget {
     this.submitLabel = 'Guardar reserva',
     this.initialServiceType = 'installation',
     this.showServiceTypeField = true,
-    // ignore: unused_element_parameter
     this.agendaKind,
+    this.showAgendaKindPicker = false,
+    this.onAgendaKindChanged,
   });
 
   @override
@@ -7499,96 +8054,438 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 430;
-        final formPadding = isCompact ? 10.0 : 14.0;
+        final isWide = constraints.maxWidth >= 520;
+        final formPadding = isCompact ? 10.0 : (isWide ? 12.0 : 14.0);
 
         String money(double value) => NumberFormat.currency(
           locale: 'es_DO',
           symbol: 'RD\$',
         ).format(value);
 
+        final agendaKindPicker = DropdownButtonFormField<String>(
+          key: ValueKey('create-kind-${(widget.agendaKind ?? '').trim()}'),
+          initialValue: (widget.agendaKind ?? 'mantenimiento').trim(),
+          isExpanded: true,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            labelText: 'Fase de orden',
+          ),
+          items: const [
+            DropdownMenuItem(value: 'reserva', child: Text('Reserva')),
+            DropdownMenuItem(value: 'instalacion', child: Text('Instalación')),
+            DropdownMenuItem(
+              value: 'mantenimiento',
+              child: Text('Mantenimiento'),
+            ),
+            DropdownMenuItem(value: 'garantia', child: Text('Garantía')),
+            DropdownMenuItem(
+              value: 'levantamiento',
+              child: Text('Levantamiento'),
+            ),
+          ],
+          onChanged: widget.onAgendaKindChanged == null
+              ? null
+              : (value) {
+                  final next = (value ?? '').trim().toLowerCase();
+                  if (next.isEmpty) return;
+                  widget.onAgendaKindChanged?.call(next);
+                },
+        );
+
+        final reservationField = TextFormField(
+          controller: _reservationDateCtrl,
+          readOnly: true,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            labelText: 'Fecha y hora',
+            suffixIcon: Icon(Icons.schedule_outlined),
+          ),
+          validator: (_) {
+            return _reservationAt == null ? 'Requerido' : null;
+          },
+          onTap: _pickReservationDate,
+        );
+
+        final priorityField = DropdownButtonFormField<int>(
+          initialValue: _priority,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            labelText: 'Prioridad',
+          ),
+          items: const [
+            DropdownMenuItem(value: 1, child: Text('Alta')),
+            DropdownMenuItem(value: 2, child: Text('Media')),
+            DropdownMenuItem(value: 3, child: Text('Baja')),
+          ],
+          onChanged: (value) {
+            if (value != null) {
+              setState(() {
+                _priority = value;
+                _priorityTouched = true;
+              });
+            }
+          },
+        );
+
+        final addressField = TextFormField(
+          controller: _addressCtrl,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            labelText: 'Dirección (ciudad/sector)',
+            helperText: 'Ej: Higüey, Otra Banda, Miches',
+          ),
+        );
+
+        final gpsField = TextFormField(
+          controller: _gpsCtrl,
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            labelText: 'Ubicación GPS (WhatsApp/Maps)',
+            helperText: _resolvingGps
+                ? 'Detectando ubicación desde el link...'
+                : (_gpsPoint == null
+                      ? 'Pega un link de Google Maps o "lat,lng"'
+                      : 'Detectado: ${formatLatLng(_gpsPoint!)}'),
+            suffixIcon: SizedBox(
+              width: 96,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: 'Pegar',
+                    onPressed: _pasteGpsFromClipboard,
+                    icon: const Icon(Icons.content_paste_rounded),
+                  ),
+                  IconButton(
+                    tooltip: 'Ver mapa',
+                    onPressed: _gpsCtrl.text.trim().isEmpty
+                        ? null
+                        : _openGpsInApp,
+                    icon: const Icon(Icons.map_outlined),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          onChanged: (value) {
+            final parsed = parseLatLngFromText(value);
+            setState(() => _gpsPoint = parsed);
+            if (parsed != null) return;
+
+            if (!_looksLikeHttpUrl(value)) return;
+            _gpsResolveDebounce?.cancel();
+            _gpsResolveDebounce = Timer(
+              const Duration(milliseconds: 650),
+              () => _resolveAndSetGpsPoint(value),
+            );
+          },
+        );
+
+        final serviceTypeField = DropdownButtonFormField<String>(
+          initialValue: _serviceType,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            labelText: 'Tipo de servicio',
+          ),
+          items: const [
+            DropdownMenuItem(value: 'installation', child: Text('Instalación')),
+            DropdownMenuItem(
+              value: 'maintenance',
+              child: Text('Mantenimiento'),
+            ),
+            DropdownMenuItem(value: 'warranty', child: Text('Garantía')),
+            DropdownMenuItem(value: 'pos_support', child: Text('Soporte POS')),
+            DropdownMenuItem(value: 'other', child: Text('Otro')),
+          ],
+          onChanged: (value) {
+            if (value == null) return;
+            setState(() {
+              _serviceType = value;
+              if (value == 'installation') _priority = 1;
+            });
+          },
+        );
+
+        final categoryField = DropdownButtonFormField<String>(
+          initialValue: _category,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            labelText: 'Categoría',
+          ),
+          items: const [
+            DropdownMenuItem(value: 'cameras', child: Text('Cámaras')),
+            DropdownMenuItem(
+              value: 'gate_motor',
+              child: Text('Motores de puertones'),
+            ),
+            DropdownMenuItem(value: 'alarm', child: Text('Alarma')),
+            DropdownMenuItem(
+              value: 'electric_fence',
+              child: Text('Cerco eléctrico'),
+            ),
+            DropdownMenuItem(value: 'intercom', child: Text('Intercom')),
+            DropdownMenuItem(value: 'pos', child: Text('Punto de ventas')),
+          ],
+          onChanged: (value) {
+            if (value != null) setState(() => _category = value);
+          },
+        );
+
+        final orderStateField = DropdownButtonFormField<String>(
+          key: ValueKey('orderState-$_orderState'),
+          initialValue: _orderState,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            labelText: 'Estado (auto)',
+            helperText: 'Se calcula automáticamente al asignar técnico.',
+          ),
+          items: const [
+            DropdownMenuItem(value: 'pendiente', child: Text('Pendiente')),
+            DropdownMenuItem(value: 'confirmada', child: Text('Confirmada')),
+            DropdownMenuItem(value: 'asignada', child: Text('Asignada')),
+            DropdownMenuItem(value: 'en_camino', child: Text('En camino')),
+            DropdownMenuItem(value: 'en_proceso', child: Text('En proceso')),
+            DropdownMenuItem(value: 'finalizada', child: Text('Finalizada')),
+            DropdownMenuItem(value: 'cancelada', child: Text('Cancelada')),
+            DropdownMenuItem(value: 'reagendada', child: Text('Reagendada')),
+            DropdownMenuItem(value: 'cerrada', child: Text('Cerrada')),
+          ],
+          onChanged: null,
+        );
+
+        final technicianField = DropdownButtonFormField<String>(
+          key: ValueKey('technician-${_technicianId ?? ''}'),
+          initialValue: _technicianId ?? '',
+          isExpanded: true,
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            labelText: 'Técnico asignado',
+            helperText: _loadingTechnicians
+                ? 'Cargando técnicos...'
+                : (_technicians.isEmpty
+                      ? 'No tienes técnicos registrados. Puedes guardar sin asignar.'
+                      : null),
+          ),
+          items: [
+            const DropdownMenuItem(value: '', child: Text('Sin asignar')),
+            ..._technicians.map(
+              (t) => DropdownMenuItem(value: t.id, child: Text(t.name)),
+            ),
+          ],
+          onChanged: _loadingTechnicians
+              ? null
+              : (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    setState(() => _technicianId = null);
+                  } else {
+                    setState(() => _technicianId = value);
+                  }
+
+                  _applyDefaultsForKind(widget.agendaKind, kindChanged: false);
+                },
+        );
+
         return Form(
           key: _formKey,
           child: ListView(
             padding: EdgeInsets.all(formPadding),
             children: [
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Cliente',
-                              style: TextStyle(fontWeight: FontWeight.w800),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              _customerName == null
-                                  ? 'Sin cliente seleccionado'
-                                  : _customerName!,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            if (_customerName != null) ...[
-                              const SizedBox(height: 8),
-                              if (_checkingCotizaciones)
-                                const SizedBox(
-                                  width: 160,
-                                  child: LinearProgressIndicator(minHeight: 2),
-                                )
-                              else if (_hasCotizaciones)
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: OutlinedButton.icon(
-                                    onPressed: () {
-                                      final phone = (_customerPhone ?? '')
-                                          .trim();
-                                      if (phone.isEmpty) return;
-                                      context.push(
-                                        '${Routes.cotizacionesHistorial}?customerPhone=${Uri.encodeQueryComponent(phone)}&pick=0',
-                                      );
-                                    },
-                                    icon: const Icon(
-                                      Icons.receipt_long_outlined,
+              if (widget.showAgendaKindPicker && isWide) ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: agendaKindPicker),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Cliente',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                      ),
                                     ),
-                                    label: const Text('Ver cotizaciones'),
-                                  ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      _customerName == null
+                                          ? 'Sin cliente seleccionado'
+                                          : _customerName!,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    if (_customerName != null) ...[
+                                      const SizedBox(height: 6),
+                                      if (_checkingCotizaciones)
+                                        const SizedBox(
+                                          width: 160,
+                                          child: LinearProgressIndicator(
+                                            minHeight: 2,
+                                          ),
+                                        )
+                                      else if (_hasCotizaciones)
+                                        Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: OutlinedButton.icon(
+                                            onPressed: () {
+                                              final phone =
+                                                  (_customerPhone ?? '').trim();
+                                              if (phone.isEmpty) return;
+                                              context.push(
+                                                '${Routes.cotizacionesHistorial}?customerPhone=${Uri.encodeQueryComponent(phone)}&pick=0',
+                                              );
+                                            },
+                                            icon: const Icon(
+                                              Icons.receipt_long_outlined,
+                                            ),
+                                            label: const Text(
+                                              'Ver cotizaciones',
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ],
                                 ),
+                              ),
+                              const SizedBox(width: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                alignment: WrapAlignment.end,
+                                children: [
+                                  FilledButton.tonalIcon(
+                                    onPressed: _openClientPicker,
+                                    icon: const Icon(
+                                      Icons.person_search_outlined,
+                                    ),
+                                    label: const Text('Cliente'),
+                                  ),
+                                  OutlinedButton.icon(
+                                    onPressed:
+                                        (_customerId ?? '').trim().isEmpty
+                                        ? null
+                                        : () async {
+                                            final id = _customerId!;
+                                            await context.push(
+                                              Routes.clienteEdit(id),
+                                            );
+                                            if (!mounted) return;
+                                            await _openClientPicker();
+                                          },
+                                    icon: const Icon(
+                                      Icons.edit_outlined,
+                                      size: 18,
+                                    ),
+                                    label: const Text('Editar'),
+                                  ),
+                                ],
+                              ),
                             ],
-                          ],
+                          ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          FilledButton.tonalIcon(
-                            onPressed: _openClientPicker,
-                            icon: const Icon(Icons.person_search_outlined),
-                            label: const Text('Cliente'),
+                    ),
+                  ],
+                ),
+              ] else ...[
+                if (widget.showAgendaKindPicker && !isCompact) ...[
+                  agendaKindPicker,
+                  const SizedBox(height: 10),
+                ],
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Cliente',
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                _customerName == null
+                                    ? 'Sin cliente seleccionado'
+                                    : _customerName!,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (_customerName != null) ...[
+                                const SizedBox(height: 8),
+                                if (_checkingCotizaciones)
+                                  const SizedBox(
+                                    width: 160,
+                                    child: LinearProgressIndicator(
+                                      minHeight: 2,
+                                    ),
+                                  )
+                                else if (_hasCotizaciones)
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: OutlinedButton.icon(
+                                      onPressed: () {
+                                        final phone = (_customerPhone ?? '')
+                                            .trim();
+                                        if (phone.isEmpty) return;
+                                        context.push(
+                                          '${Routes.cotizacionesHistorial}?customerPhone=${Uri.encodeQueryComponent(phone)}&pick=0',
+                                        );
+                                      },
+                                      icon: const Icon(
+                                        Icons.receipt_long_outlined,
+                                      ),
+                                      label: const Text('Ver cotizaciones'),
+                                    ),
+                                  ),
+                              ],
+                            ],
                           ),
-                          const SizedBox(height: 8),
-                          OutlinedButton.icon(
-                            onPressed: (_customerId ?? '').trim().isEmpty
-                                ? null
-                                : () async {
-                                    final id = _customerId!;
-                                    await context.push(Routes.clienteEdit(id));
-                                    if (!mounted) return;
-                                    await _openClientPicker();
-                                  },
-                            icon: const Icon(Icons.edit_outlined, size: 18),
-                            label: const Text('Editar'),
-                          ),
-                        ],
-                      ),
-                    ],
+                        ),
+                        const SizedBox(width: 8),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            FilledButton.tonalIcon(
+                              onPressed: _openClientPicker,
+                              icon: const Icon(Icons.person_search_outlined),
+                              label: const Text('Cliente'),
+                            ),
+                            const SizedBox(height: 8),
+                            OutlinedButton.icon(
+                              onPressed: (_customerId ?? '').trim().isEmpty
+                                  ? null
+                                  : () async {
+                                      final id = _customerId!;
+                                      await context.push(
+                                        Routes.clienteEdit(id),
+                                      );
+                                      if (!mounted) return;
+                                      await _openClientPicker();
+                                    },
+                              icon: const Icon(Icons.edit_outlined, size: 18),
+                              label: const Text('Editar'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
+              ],
               if (_customerName != null) ...[
                 const SizedBox(height: 10),
                 Card(
@@ -7659,313 +8556,57 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                 ),
               ],
               const SizedBox(height: 10),
-              TextFormField(
-                controller: _reservationDateCtrl,
-                readOnly: true,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Fecha y hora',
-                  suffixIcon: Icon(Icons.schedule_outlined),
-                ),
-                validator: (_) {
-                  return _reservationAt == null ? 'Requerido' : null;
-                },
-                onTap: _pickReservationDate,
-              ),
+              if (isWide)
+                Row(
+                  children: [
+                    Expanded(child: reservationField),
+                    const SizedBox(width: 8),
+                    Expanded(child: priorityField),
+                  ],
+                )
+              else
+                reservationField,
               const SizedBox(height: 10),
+
               if (isCompact) ...[
                 if (widget.showServiceTypeField) ...[
-                  DropdownButtonFormField<String>(
-                    initialValue: _serviceType,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      labelText: 'Tipo de servicio',
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'installation',
-                        child: Text('Instalación'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'maintenance',
-                        child: Text('Mantenimiento'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'warranty',
-                        child: Text('Garantía'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'pos_support',
-                        child: Text('Soporte POS'),
-                      ),
-                      DropdownMenuItem(value: 'other', child: Text('Otro')),
-                    ],
-                    onChanged: (value) {
-                      if (value == null) return;
-                      setState(() {
-                        _serviceType = value;
-                        if (value == 'installation') _priority = 1;
-                      });
-                    },
-                  ),
+                  serviceTypeField,
                   const SizedBox(height: 8),
                 ],
-                DropdownButtonFormField<String>(
-                  initialValue: _category,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    labelText: 'Categoría',
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'cameras', child: Text('Cámaras')),
-                    DropdownMenuItem(
-                      value: 'gate_motor',
-                      child: Text('Motores de puertones'),
-                    ),
-                    DropdownMenuItem(value: 'alarm', child: Text('Alarma')),
-                    DropdownMenuItem(
-                      value: 'electric_fence',
-                      child: Text('Cerco eléctrico'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'intercom',
-                      child: Text('Intercom'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'pos',
-                      child: Text('Punto de ventas'),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) setState(() => _category = value);
-                  },
-                ),
+                categoryField,
               ] else ...[
-                if (widget.showServiceTypeField)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _serviceType,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            labelText: 'Tipo de servicio',
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'installation',
-                              child: Text('Instalación'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'maintenance',
-                              child: Text('Mantenimiento'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'warranty',
-                              child: Text('Garantía'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'pos_support',
-                              child: Text('Soporte POS'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'other',
-                              child: Text('Otro'),
-                            ),
-                          ],
-                          onChanged: (value) {
-                            if (value == null) return;
-                            setState(() {
-                              _serviceType = value;
-                              if (value == 'installation') _priority = 1;
-                            });
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _category,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            labelText: 'Categoría',
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'cameras',
-                              child: Text('Cámaras'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'gate_motor',
-                              child: Text('Motores de puertones'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'alarm',
-                              child: Text('Alarma'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'electric_fence',
-                              child: Text('Cerco eléctrico'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'intercom',
-                              child: Text('Intercom'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'pos',
-                              child: Text('Punto de ventas'),
-                            ),
-                          ],
-                          onChanged: (value) {
-                            if (value != null) {
-                              setState(() => _category = value);
-                            }
-                          },
-                        ),
-                      ),
-                    ],
-                  )
-                else
-                  DropdownButtonFormField<String>(
-                    initialValue: _category,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      labelText: 'Categoría',
+                if (widget.showServiceTypeField) ...[
+                  if (isWide)
+                    serviceTypeField
+                  else
+                    Row(
+                      children: [
+                        Expanded(child: serviceTypeField),
+                        const SizedBox(width: 8),
+                        Expanded(child: categoryField),
+                      ],
                     ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'cameras',
-                        child: Text('Cámaras'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'gate_motor',
-                        child: Text('Motores de puertones'),
-                      ),
-                      DropdownMenuItem(value: 'alarm', child: Text('Alarma')),
-                      DropdownMenuItem(
-                        value: 'electric_fence',
-                        child: Text('Cerco eléctrico'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'intercom',
-                        child: Text('Intercom'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'pos',
-                        child: Text('Punto de ventas'),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) setState(() => _category = value);
-                    },
-                  ),
+                ] else ...[
+                  if (!isWide) categoryField,
+                ],
               ],
+              if (!isWide) ...[const SizedBox(height: 10), priorityField],
               const SizedBox(height: 10),
-              DropdownButtonFormField<int>(
-                initialValue: _priority,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Prioridad',
-                ),
-                items: const [
-                  DropdownMenuItem(value: 1, child: Text('Alta')),
-                  DropdownMenuItem(value: 2, child: Text('Media')),
-                  DropdownMenuItem(value: 3, child: Text('Baja')),
-                ],
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() {
-                      _priority = value;
-                      _priorityTouched = true;
-                    });
-                  }
-                },
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                key: ValueKey('orderState-$_orderState'),
-                initialValue: _orderState,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Estado (auto)',
-                  helperText: 'Se calcula automáticamente al asignar técnico.',
-                ),
-                items: const [
-                  DropdownMenuItem(
-                    value: 'pendiente',
-                    child: Text('Pendiente'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'confirmada',
-                    child: Text('Confirmada'),
-                  ),
-                  DropdownMenuItem(value: 'asignada', child: Text('Asignada')),
-                  DropdownMenuItem(
-                    value: 'en_camino',
-                    child: Text('En camino'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'en_proceso',
-                    child: Text('En proceso'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'finalizada',
-                    child: Text('Finalizada'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'cancelada',
-                    child: Text('Cancelada'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'reagendada',
-                    child: Text('Reagendada'),
-                  ),
-                  DropdownMenuItem(value: 'cerrada', child: Text('Cerrada')),
-                ],
-                onChanged: null,
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                key: ValueKey('technician-${_technicianId ?? ''}'),
-                initialValue: _technicianId ?? '',
-                isExpanded: true,
-                decoration: InputDecoration(
-                  border: const OutlineInputBorder(),
-                  labelText: 'Técnico asignado',
-                  helperText: _loadingTechnicians
-                      ? 'Cargando técnicos...'
-                      : (_technicians.isEmpty
-                            ? 'No tienes técnicos registrados. Puedes guardar sin asignar.'
-                            : null),
-                ),
-                items: [
-                  const DropdownMenuItem(value: '', child: Text('Sin asignar')),
-                  ..._technicians.map(
-                    (t) => DropdownMenuItem(value: t.id, child: Text(t.name)),
-                  ),
-                ],
-                onChanged: _loadingTechnicians
-                    ? null
-                    : (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          setState(() => _technicianId = null);
-                        } else {
-                          setState(() => _technicianId = value);
-                        }
-
-                        _applyDefaultsForKind(
-                          widget.agendaKind,
-                          kindChanged: false,
-                        );
-                      },
-              ),
+              if (!isCompact && isWide)
+                Row(
+                  children: [
+                    Expanded(child: categoryField),
+                    const SizedBox(width: 8),
+                    Expanded(child: orderStateField),
+                    const SizedBox(width: 8),
+                    Expanded(child: technicianField),
+                  ],
+                )
+              else ...[
+                orderStateField,
+                const SizedBox(height: 10),
+                technicianField,
+              ],
               if (!_loadingTechnicians && _technicians.isEmpty) ...[
                 const SizedBox(height: 8),
                 Row(
@@ -8244,59 +8885,20 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                 ),
               ),
               const SizedBox(height: 10),
-              TextFormField(
-                controller: _addressCtrl,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Dirección (ciudad/sector)',
-                  helperText: 'Ej: Higüey, Otra Banda, Miches',
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _gpsCtrl,
-                decoration: InputDecoration(
-                  border: const OutlineInputBorder(),
-                  labelText: 'Ubicación GPS (WhatsApp/Maps)',
-                  helperText: _resolvingGps
-                      ? 'Detectando ubicación desde el link...'
-                      : (_gpsPoint == null
-                            ? 'Pega un link de Google Maps o "lat,lng"'
-                            : 'Detectado: ${formatLatLng(_gpsPoint!)}'),
-                  suffixIcon: SizedBox(
-                    width: 96,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          tooltip: 'Pegar',
-                          onPressed: _pasteGpsFromClipboard,
-                          icon: const Icon(Icons.content_paste_rounded),
-                        ),
-                        IconButton(
-                          tooltip: 'Ver mapa',
-                          onPressed: _gpsCtrl.text.trim().isEmpty
-                              ? null
-                              : _openGpsInApp,
-                          icon: const Icon(Icons.map_outlined),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                onChanged: (value) {
-                  final parsed = parseLatLngFromText(value);
-                  setState(() => _gpsPoint = parsed);
-                  if (parsed != null) return;
-
-                  if (!_looksLikeHttpUrl(value)) return;
-                  _gpsResolveDebounce?.cancel();
-                  _gpsResolveDebounce = Timer(
-                    const Duration(milliseconds: 650),
-                    () => _resolveAndSetGpsPoint(value),
-                  );
-                },
-              ),
+              if (isWide)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: addressField),
+                    const SizedBox(width: 8),
+                    Expanded(child: gpsField),
+                  ],
+                )
+              else ...[
+                addressField,
+                const SizedBox(height: 10),
+                gpsField,
+              ],
               if (_gpsPoint != null) ...[
                 const SizedBox(height: 10),
                 _GpsMapPreviewCard(

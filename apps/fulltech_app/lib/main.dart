@@ -15,6 +15,7 @@ import 'core/debug/app_error_overlay.dart';
 import 'core/realtime/catalog_realtime_service.dart';
 import 'core/startup/app_startup_controller.dart';
 import 'core/ai_assistant/presentation/widgets/global_ai_assistant_entry_point.dart';
+import 'core/widgets/fulltech_global_background.dart';
 
 Future<void> main() async {
   runZonedGuarded(
@@ -69,6 +70,14 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
+      builder: (context, child) {
+        return Stack(
+          children: [
+            const FulltechGlobalBackground(),
+            if (child != null) child,
+          ],
+        );
+      },
       home: startup.hasError
           ? AppLoadingScreen(
               title: startup.title,
@@ -135,6 +144,7 @@ class MyApp extends StatelessWidget {
           builder: (context, child) {
             return Stack(
               children: [
+                const FulltechGlobalBackground(),
                 if (child != null) GlobalAiAssistantEntryPoint(child: child),
                 const AppLoadingOverlay(),
                 const AppErrorOverlay(),

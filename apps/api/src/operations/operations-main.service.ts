@@ -385,10 +385,29 @@ export class OperationsService {
 
       let service: any;
       try {
-        service = await tx.service.create({
-          data: createWithOrderFields,
-          include: this.serviceInclude(),
-        });
+        for (let attempt = 0; attempt < 5; attempt++) {
+          try {
+            service = await tx.service.create({
+              data: {
+                ...createWithOrderFields,
+                orderNumber: this.generateOrderNumber(new Date()),
+              } as any,
+              include: this.serviceInclude(),
+            });
+            break;
+          } catch (err) {
+            if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+              continue;
+            }
+            throw err;
+          }
+        }
+        if (!service) {
+          service = await tx.service.create({
+            data: createWithOrderFields,
+            include: this.serviceInclude(),
+          });
+        }
       } catch (error) {
         if (!this.isSchemaMismatch(error)) throw error;
         service = await tx.service.create({
@@ -1064,7 +1083,7 @@ export class OperationsService {
     // Best-effort reminder: when a reservation reaches its scheduled datetime,
     // notify the creator's fleet number via WhatsApp with customer details and a wa.me link.
     try {
-      const isReservation = service.currentPhase === ServicePhaseType.RESERVA;
+      const isReservation = updated.currentPhase === ServicePhaseType.RESERVA;
       const isActiveStatus =
         updated.status !== ServiceStatus.CANCELLED &&
         updated.status !== ServiceStatus.CLOSED &&
@@ -1631,24 +1650,56 @@ export class OperationsService {
     }
 
     const created = await this.prisma.$transaction(async (tx) => {
-      const row = await tx.service.create({
-        data: {
-          customerId: parent.customerId,
-          createdByUserId: user.id,
-          serviceType: ServiceType.WARRANTY,
-          category: parent.category,
-          status: ServiceStatus.WARRANTY,
-          priority: 1,
-          title: dto.title?.trim() || `Garantía: ${parent.title}`,
-          description: dto.description?.trim() || `Garantía derivada del servicio ${parent.id}`,
-          paymentStatus: 'pending',
-          addressSnapshot: parent.addressSnapshot,
-          warrantyParentServiceId: parent.id,
-          tags: parent.tags,
-          steps: { create: defaultSteps },
-        },
-        include: this.serviceInclude(),
-      });
+      let row: any;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          row = await tx.service.create({
+            data: {
+              customerId: parent.customerId,
+              createdByUserId: user.id,
+              serviceType: ServiceType.WARRANTY,
+              category: parent.category,
+              status: ServiceStatus.WARRANTY,
+              priority: 1,
+              title: dto.title?.trim() || `Garantía: ${parent.title}`,
+              description: dto.description?.trim() || `Garantía derivada del servicio ${parent.id}`,
+              paymentStatus: 'pending',
+              addressSnapshot: parent.addressSnapshot,
+              warrantyParentServiceId: parent.id,
+              tags: parent.tags,
+              steps: { create: defaultSteps },
+              orderNumber: this.generateOrderNumber(new Date()),
+            } as any,
+            include: this.serviceInclude(),
+          });
+          break;
+        } catch (err) {
+          if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+            continue;
+          }
+          throw err;
+        }
+      }
+      if (!row) {
+        row = await tx.service.create({
+          data: {
+            customerId: parent.customerId,
+            createdByUserId: user.id,
+            serviceType: ServiceType.WARRANTY,
+            category: parent.category,
+            status: ServiceStatus.WARRANTY,
+            priority: 1,
+            title: dto.title?.trim() || `Garantía: ${parent.title}`,
+            description: dto.description?.trim() || `Garantía derivada del servicio ${parent.id}`,
+            paymentStatus: 'pending',
+            addressSnapshot: parent.addressSnapshot,
+            warrantyParentServiceId: parent.id,
+            tags: parent.tags,
+            steps: { create: defaultSteps },
+          },
+          include: this.serviceInclude(),
+        });
+      }
 
       await tx.serviceUpdate.create({
         data: {
@@ -1831,9 +1882,60 @@ export class OperationsService {
     };
   }
 
+  private pad2(n: number) {
+    return `${n}`.padStart(2, '0');
+  }
+
+  private pad3(n: number) {
+    return `${n}`.padStart(3, '0');
+  }
+
+  private generateOrderNumber(now: Date = new Date()) {
+    const yyyy = now.getFullYear();
+    const MM = this.pad2(now.getMonth() + 1);
+    const dd = this.pad2(now.getDate());
+    const HH = this.pad2(now.getHours());
+    const mm = this.pad2(now.getMinutes());
+    const ss = this.pad2(now.getSeconds());
+    const SSS = this.pad3(now.getMilliseconds());
+    const suffix = this.pad2(Math.floor(Math.random() * 100));
+    return `${yyyy}${MM}${dd}${HH}${mm}${ss}${SSS}${suffix}`;
+  }
+
+  private computeFallbackOrderNumber(params: {
+    createdAt?: Date | null;
+    serviceId?: string | null;
+  }) {
+    const createdAt = params.createdAt instanceof Date ? params.createdAt : new Date();
+    const serviceId = (params.serviceId ?? '').toString();
+
+    const yyyy = createdAt.getFullYear();
+    const MM = this.pad2(createdAt.getMonth() + 1);
+    const dd = this.pad2(createdAt.getDate());
+    const HH = this.pad2(createdAt.getHours());
+    const mm = this.pad2(createdAt.getMinutes());
+    const ss = this.pad2(createdAt.getSeconds());
+    const SSS = this.pad3(createdAt.getMilliseconds());
+
+    const hexTail = serviceId.replace(/-/g, '').slice(-6);
+    const tailNum = hexTail ? parseInt(hexTail, 16) : 0;
+    const stableSuffix = this.pad3(Math.abs(tailNum) % 1000);
+
+    return `${yyyy}${MM}${dd}${HH}${mm}${ss}${SSS}${stableSuffix}`;
+  }
+
   private normalizeService(service: any) {
+    const orderNumber =
+      typeof service?.orderNumber === 'string' && service.orderNumber.trim()
+        ? service.orderNumber.trim()
+        : this.computeFallbackOrderNumber({
+            createdAt: service?.createdAt,
+            serviceId: service?.id,
+          });
+
     return {
       ...service,
+      orderNumber,
       serviceType: this.toApiType(service.serviceType),
       status: this.toApiStatus(service.status),
       currentPhase: service.currentPhase ? this.toApiPhase(service.currentPhase) : 'reserva',

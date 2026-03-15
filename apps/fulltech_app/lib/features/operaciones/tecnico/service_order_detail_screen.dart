@@ -66,6 +66,92 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
     return 'RD\$${safe.toStringAsFixed(2)}';
   }
 
+  ({double? total, double? deposit, double? balance, String status})
+  _paymentInfo(ServiceModel service) {
+    final total = service.finalCost ?? service.quotedAmount;
+    final deposit = service.depositAmount;
+    if (total == null) {
+      return (total: null, deposit: deposit, balance: null, status: 'N/D');
+    }
+
+    final safeTotal = total.isNaN ? 0.0 : total;
+    final safeDeposit = (deposit ?? 0.0).isNaN ? 0.0 : (deposit ?? 0.0);
+    final balance = safeTotal - safeDeposit;
+
+    if (safeTotal <= 0) {
+      return (total: total, deposit: deposit, balance: null, status: 'N/D');
+    }
+    if (safeDeposit <= 0) {
+      return (
+        total: total,
+        deposit: deposit,
+        balance: safeTotal,
+        status: 'Pendiente',
+      );
+    }
+    if (safeDeposit >= safeTotal) {
+      return (
+        total: total,
+        deposit: deposit,
+        balance: 0.0,
+        status: 'Pagado',
+      );
+    }
+
+    return (
+      total: total,
+      deposit: deposit,
+      balance: balance,
+      status: 'Abono recibido',
+    );
+  }
+
+  ({String address, String reference, String gpsText, String mapsText})
+  _parseLocationSnapshot(String raw) {
+    final lines = raw
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList(growable: false);
+
+    String? address;
+    final references = <String>[];
+    String? gps;
+    String? maps;
+
+    bool isUrl(String v) =>
+        RegExp(r'https?://', caseSensitive: false).hasMatch(v);
+
+    for (final line in lines) {
+      final lower = line.toLowerCase();
+      if (lower.startsWith('gps:')) {
+        gps = line.substring(4).trim();
+        continue;
+      }
+      if (lower.startsWith('maps:')) {
+        maps = line.substring(5).trim();
+        continue;
+      }
+      if (isUrl(line)) {
+        maps ??= line;
+        continue;
+      }
+
+      address ??= line;
+      if (address != line) {
+        references.add(line);
+      }
+    }
+
+    address ??= raw.trim().isEmpty ? '—' : raw.trim();
+    return (
+      address: address,
+      reference: references.isEmpty ? '—' : references.join(' · '),
+      gpsText: (gps ?? '').trim().isEmpty ? '—' : gps!.trim(),
+      mapsText: (maps ?? '').trim().isEmpty ? '—' : maps!.trim(),
+    );
+  }
+
   bool _isLikelyImage(ServiceFileModel file) {
     final ft = (file.mimeType ?? file.fileType).trim().toLowerCase();
     final url = file.fileUrl.trim().toLowerCase();
@@ -193,6 +279,16 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
           addressOrText: service.customerAddress,
         );
 
+        final snapshot = _parseLocationSnapshot(service.customerAddress);
+        final pay = _paymentInfo(service);
+
+        final phone = service.customerPhone.trim();
+        final canOpenQuote = phone.isNotEmpty;
+
+        final addressLabel = snapshot.address == '—'
+          ? (location.label.trim().isEmpty ? '—' : location.label)
+          : snapshot.address;
+
         final historyAsync = ref.watch(_serviceHistoryProvider(service));
 
         final images = service.files
@@ -239,8 +335,43 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
               children: [
                 TechnicalSectionCard(
+                  icon: Icons.flash_on_outlined,
+                  title: 'Acciones rápidas',
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final manageButton = FilledButton.icon(
+                        onPressed: () {
+                          final id = service.id.trim();
+                          if (id.isEmpty) return;
+                          context.go(Routes.operacionesTecnicoDetail(id));
+                        },
+                        icon: const Icon(Icons.build_outlined),
+                        label: const Text('Gestionar'),
+                      );
+
+                      return SizedBox(
+                        width: double.infinity,
+                        child: manageButton,
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TechnicalSectionCard(
                   icon: Icons.person_outline,
                   title: 'Información del cliente',
+                  child: Column(
+                    children: [
+                      _KvRow(label: 'Cliente', value: service.customerName),
+                      const SizedBox(height: 10),
+                      _KvRow(label: 'Teléfono', value: service.customerPhone),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TechnicalSectionCard(
+                  icon: Icons.place_outlined,
+                  title: 'Ubicación y referencias',
                   trailing: FilledButton.tonalIcon(
                     onPressed: location.canOpenMaps
                         ? () async {
@@ -257,13 +388,17 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                   ),
                   child: Column(
                     children: [
-                      _KvRow(label: 'Cliente', value: service.customerName),
+                      _KvRow(label: 'Dirección', value: addressLabel),
                       const SizedBox(height: 10),
-                      _KvRow(label: 'Teléfono', value: service.customerPhone),
+                      _KvRow(label: 'Referencia', value: snapshot.reference),
                       const SizedBox(height: 10),
-                      _KvRow(label: 'Dirección', value: location.label),
+                      _KvRow(label: 'GPS', value: snapshot.gpsText),
                       const SizedBox(height: 10),
-                      const _KvRow(label: 'Referencia', value: '—'),
+                      _KvRow(
+                        label: 'MAPS',
+                        value: snapshot.mapsText,
+                        multiline: true,
+                      ),
                     ],
                   ),
                 ),
@@ -334,6 +469,21 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                   child: Column(
                     children: [
                       _KvRow(
+                        label: 'Total a pagar',
+                        value: _money(pay.total),
+                      ),
+                      const SizedBox(height: 10),
+                      _KvRow(
+                        label: 'Estado del pago',
+                        value: pay.status,
+                      ),
+                      const SizedBox(height: 10),
+                      _KvRow(
+                        label: 'Saldo pendiente',
+                        value: _money(pay.balance),
+                      ),
+                      const SizedBox(height: 16),
+                      _KvRow(
                         label: 'Total cotizado',
                         value: _money(service.quotedAmount),
                       ),
@@ -346,6 +496,26 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                       _KvRow(
                         label: 'Costo final',
                         value: _money(service.finalCost),
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.tonalIcon(
+                          onPressed: canOpenQuote
+                              ? () {
+                                  final uri = Uri(
+                                    path: Routes.cotizacionesHistorial,
+                                    queryParameters: {
+                                      'customerPhone': phone,
+                                      'pick': '0',
+                                    },
+                                  );
+                                  context.go(uri.toString());
+                                }
+                              : null,
+                          icon: const Icon(Icons.open_in_new_outlined),
+                          label: const Text('Ver cotización completa'),
+                        ),
                       ),
                     ],
                   ),
@@ -431,31 +601,40 @@ class _KvRow extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    return Row(
-      crossAxisAlignment: multiline
-          ? CrossAxisAlignment.start
-          : CrossAxisAlignment.center,
-      children: [
-        SizedBox(
-          width: 150,
-          child: Text(
-            label,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurfaceVariant,
-              fontWeight: FontWeight.w800,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final labelWidth = w < 360
+            ? 110.0
+            : (w < 420 ? 130.0 : (w < 520 ? 140.0 : 150.0));
+
+        return Row(
+          crossAxisAlignment: multiline
+              ? CrossAxisAlignment.start
+              : CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: labelWidth,
+              child: Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
             ),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            value.trim().isEmpty ? '—' : value.trim(),
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w700,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                value.trim().isEmpty ? '—' : value.trim(),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
-          ),
-        ),
-      ],
+          ],
+        );
+      },
     );
   }
 }
