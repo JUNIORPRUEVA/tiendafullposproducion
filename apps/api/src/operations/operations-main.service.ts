@@ -18,6 +18,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { R2Service } from '../storage/r2.service';
 import { ServicesQueryDto } from './dto/services-query.dto';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { ChangeServiceStatusDto } from './dto/change-service-status.dto';
@@ -48,7 +49,42 @@ export class OperationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly r2: R2Service,
   ) {}
+
+  private async decorateServiceFilesForView(service: any) {
+    const files = Array.isArray(service?.files) ? service.files : [];
+    if (files.length === 0) return service;
+
+    const expiresInSecondsRaw = (process.env.STORAGE_READ_PRESIGN_EXPIRES_SECONDS ?? '').trim();
+    const expiresInSeconds = Number.isFinite(Number(expiresInSecondsRaw)) && Number(expiresInSecondsRaw) > 0
+      ? Math.floor(Number(expiresInSecondsRaw))
+      : 60 * 60;
+
+    const decorated = await Promise.all(
+      files.map(async (f: any) => {
+        const fileUrl = typeof f?.fileUrl === 'string' ? f.fileUrl.trim() : '';
+        const objectKey = typeof f?.objectKey === 'string' ? f.objectKey.trim() : '';
+        const provider = typeof f?.storageProvider === 'string' ? f.storageProvider.trim() : '';
+
+        if (provider !== 'R2' || !objectKey) return f;
+        if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) return f;
+
+        try {
+          const signed = await this.r2.createPresignedGetUrl({
+            objectKey,
+            expiresInSeconds,
+          });
+          return { ...f, fileUrl: signed };
+        } catch {
+          // Fallback: keep original value.
+          return f;
+        }
+      }),
+    );
+
+    return { ...service, files: decorated };
+  }
 
   private isAdminLike(role: Role) {
     return role === Role.ADMIN || role === Role.ASISTENTE;
@@ -174,7 +210,8 @@ export class OperationsService {
     const techViewAll = user.role === Role.TECNICO ? await this.techCanViewAllServices() : false;
     this.assertCanView(user, service.createdByUserId, service.assignments.map((a) => a.userId), techViewAll);
 
-    return this.normalizeService(service);
+    const hydrated = await this.decorateServiceFilesForView(service);
+    return this.normalizeService(hydrated);
   }
 
   async create(user: AuthUser, dto: CreateServiceDto) {

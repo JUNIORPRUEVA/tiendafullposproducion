@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -72,6 +73,7 @@ class StorageRepository {
     List<int>? bytes,
     Stream<List<int>>? stream,
     required String contentType,
+    int? contentLength,
     void Function(int sentBytes, int totalBytes)? onProgress,
     CancelToken? cancelToken,
   }) async {
@@ -82,9 +84,12 @@ class StorageRepository {
     final direct = Dio();
     await direct.put(
       uploadUrl,
-      data: stream ?? Stream.value(bytes!),
+      data: bytes != null ? Uint8List.fromList(bytes) : stream,
       options: Options(
-        headers: {'Content-Type': contentType},
+        headers: {
+          'Content-Type': contentType,
+          if (contentLength != null && contentLength > 0) 'Content-Length': contentLength,
+        },
         responseType: ResponseType.plain,
       ),
       onSendProgress: onProgress,

@@ -377,12 +377,16 @@ class TechnicalExecutionController
         kind: kind,
       );
 
+      if (!mounted) return;
+
       await storage.uploadToPresignedUrl(
         uploadUrl: presign.uploadUrl,
         bytes: file.bytes,
         stream: kIsWeb ? null : file.readStream,
         contentType: mimeType,
+        contentLength: file.size,
         onProgress: (sent, total) {
+          if (!mounted) return;
           if (total <= 0) return;
           final p = sent / total;
           final bounded = p < 0 ? 0.0 : (p > 1 ? 1.0 : p);
@@ -402,6 +406,8 @@ class TechnicalExecutionController
         },
       );
 
+      if (!mounted) return;
+
       await storage.confirm(
         serviceId: serviceId,
         objectKey: presign.objectKey,
@@ -413,11 +419,16 @@ class TechnicalExecutionController
         caption: trimmedCaption,
       );
 
+      if (!mounted) return;
+
       final repo = ref.read(operationsRepositoryProvider);
       final refreshed = await repo.getService(serviceId);
+
+      if (!mounted) return;
       _removePending(id);
       state = state.copyWith(service: refreshed);
     } catch (e) {
+      if (!mounted) return;
       _removePending(id);
       if (e is ApiException) {
         state = state.copyWith(error: e.message);

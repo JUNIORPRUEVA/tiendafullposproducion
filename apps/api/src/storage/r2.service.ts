@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   S3Client,
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   HeadObjectCommandOutput,
   PutObjectCommand,
@@ -91,6 +92,21 @@ export class R2Service {
     });
 
     return uploadUrl;
+  }
+
+  async createPresignedGetUrl(params: { objectKey: string; expiresInSeconds: number }) {
+    if (!this.bucket) {
+      throw new InternalServerErrorException('R2 bucket no configurado');
+    }
+
+    const cmd = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: params.objectKey,
+    });
+
+    return getSignedUrl(this.s3, cmd, {
+      expiresIn: params.expiresInSeconds,
+    });
   }
 
   async headObject(objectKey: string) {

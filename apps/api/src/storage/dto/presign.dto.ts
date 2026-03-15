@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsNotEmpty, IsString, IsUUID, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 import { ALLOWED_CONTENT_TYPES, ALLOWED_KINDS } from '../helpers/storage_helpers';
 
 export class PresignStorageDto {
@@ -23,6 +23,7 @@ export class PresignStorageDto {
   @Max(250 * 1024 * 1024)
   fileSize!: number;
 
+  @IsOptional()
   @IsUUID()
   executionReportId?: string;
 }

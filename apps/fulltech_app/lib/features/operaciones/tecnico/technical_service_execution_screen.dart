@@ -137,6 +137,13 @@ class _TechnicalServiceExecutionScreenState
 
     if (!context.mounted) return;
 
+    // Some platforms/plugins can briefly disturb the widget tree after the native picker.
+    // Deferring the next dialog to the next cycle avoids using a context while routes/inherited
+    // dependencies are still settling.
+    await Future<void>.delayed(Duration.zero);
+
+    if (!context.mounted) return;
+
     final caption = await _askEvidenceCaption(context);
     if (caption == null || caption.trim().isEmpty) return;
 
