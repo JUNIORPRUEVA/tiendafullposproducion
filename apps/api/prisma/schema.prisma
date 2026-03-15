@@ -148,6 +148,31 @@ enum ServicePhaseType {
   GARANTIA
 }
 
+// Admin-only conceptual model (does NOT replace ServiceStatus/OrderState/ServicePhaseType).
+// Used to keep panel administrativo consistent without breaking técnico.
+enum AdminOrderPhase {
+  RESERVA
+  CONFIRMACION
+  PROGRAMACION
+  EJECUCION
+  REVISION
+  FACTURACION
+  CIERRE
+  CANCELADA
+}
+
+enum AdminOrderStatus {
+  PENDIENTE
+  CONFIRMADA
+  ASIGNADA
+  EN_CAMINO
+  EN_PROCESO
+  FINALIZADA
+  REAGENDADA
+  CANCELADA
+  CERRADA
+}
+
 enum WorkShiftKind {
   NORMAL
   REDUCED
@@ -727,6 +752,11 @@ model Service {
   currentPhase             ServicePhaseType @default(RESERVA)
   orderType               OrderType     @default(RESERVA)
   orderState              OrderState    @default(PENDING)
+
+  // Admin-only: separate flow phase + operational status.
+  // Nullable for backward compatibility (existing rows).
+  adminPhase              AdminOrderPhase?
+  adminStatus             AdminOrderStatus?
   technicianId            String?       @db.Uuid
   priority                Int           @default(2)
   title                   String
@@ -767,6 +797,8 @@ model Service {
   @@index([currentPhase])
   @@index([orderType])
   @@index([orderState])
+  @@index([adminPhase])
+  @@index([adminStatus])
   @@index([technicianId])
   @@index([priority])
   @@index([scheduledStart])

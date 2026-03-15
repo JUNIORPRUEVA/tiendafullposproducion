@@ -78,6 +78,8 @@ class ApiRoutes {
   static String serviceStatus(String id) => '/services/$id/status';
   static String serviceOrderState(String id) => '/services/$id/order-state';
   static String servicePhase(String id) => '/services/$id/phase';
+    static String serviceAdminPhase(String id) => '/services/$id/admin-phase';
+    static String serviceAdminStatus(String id) => '/services/$id/admin-status';
   static String servicePhases(String id) => '/services/$id/phases';
   static String serviceSchedule(String id) => '/services/$id/schedule';
   static String serviceAssign(String id) => '/services/$id/assign';

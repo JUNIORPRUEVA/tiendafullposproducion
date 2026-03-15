@@ -1,32 +1,46 @@
 import 'package:flutter/material.dart';
 
 class StatusPickerSheet {
-  static const orderStates = <String>[
-    'pending',
-    'confirmed',
-    'assigned',
-    'in_progress',
-    'finalized',
-    'cancelled',
-    'rescheduled',
+  static const adminStatuses = <String>[
+    'pendiente',
+    'confirmada',
+    'asignada',
+    'en_camino',
+    'en_proceso',
+    'finalizada',
+    'reagendada',
+    'cancelada',
+    'cerrada',
   ];
 
   static String label(String raw) {
     switch (raw) {
+      // AdminOrderStatus
+      case 'pendiente':
       case 'pending':
         return 'Pendiente';
+      case 'confirmada':
       case 'confirmed':
-        return 'Confirmado';
+        return 'Confirmada';
+      case 'asignada':
       case 'assigned':
         return 'Asignado';
+      case 'en_camino':
+        return 'En camino';
+      case 'en_proceso':
       case 'in_progress':
         return 'En proceso';
+      case 'finalizada':
       case 'finalized':
         return 'Finalizado';
+      case 'cancelada':
       case 'cancelled':
         return 'Cancelado';
+      case 'reagendada':
       case 'rescheduled':
-        return 'Reprogramado';
+        return 'Reagendada';
+      case 'cerrada':
+        return 'Cerrada';
       default:
         return raw;
     }
@@ -34,20 +48,31 @@ class StatusPickerSheet {
 
   static IconData icon(String raw) {
     switch (raw) {
+      case 'pendiente':
       case 'pending':
         return Icons.schedule_rounded;
+      case 'confirmada':
       case 'confirmed':
         return Icons.check_circle_outline_rounded;
+      case 'asignada':
       case 'assigned':
         return Icons.person_pin_circle_outlined;
+      case 'en_camino':
+        return Icons.directions_car_outlined;
+      case 'en_proceso':
       case 'in_progress':
         return Icons.play_circle_outline_rounded;
+      case 'finalizada':
       case 'finalized':
         return Icons.verified_outlined;
+      case 'cancelada':
       case 'cancelled':
         return Icons.cancel_outlined;
+      case 'reagendada':
       case 'rescheduled':
         return Icons.event_repeat_rounded;
+      case 'cerrada':
+        return Icons.lock_outline_rounded;
       default:
         return Icons.circle_outlined;
     }
@@ -91,7 +116,7 @@ class StatusPickerSheet {
                 child: ListView(
                   shrinkWrap: true,
                   children: [
-                    for (final state in orderStates)
+                    for (final state in adminStatuses)
                       ListTile(
                         leading: Icon(icon(state)),
                         title: Text(label(state)),

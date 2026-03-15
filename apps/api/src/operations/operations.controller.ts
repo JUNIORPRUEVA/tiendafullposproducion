@@ -31,6 +31,8 @@ import { CreateServiceDto } from './dto/create-service.dto';
 import { ChangeServiceStatusDto } from './dto/change-service-status.dto';
 import { ChangeServiceOrderStateDto } from './dto/change-service-order-state.dto';
 import { ChangeServicePhaseDto } from './dto/change-service-phase.dto';
+import { ChangeServiceAdminPhaseDto } from './dto/change-service-admin-phase.dto';
+import { ChangeServiceAdminStatusDto } from './dto/change-service-admin-status.dto';
 import { ScheduleServiceDto } from './dto/schedule-service.dto';
 import { AssignServiceDto } from './dto/assign-service.dto';
 import { ServiceUpdateDto } from './dto/service-update.dto';
@@ -114,6 +116,28 @@ export class OperationsController {
   changePhase(@Req() req: Request, @Param('id') id: string, @Body() dto: ChangeServicePhaseDto) {
     const user = req.user as { id: string; role: Role };
     return this.operations.changePhase(user, id, dto);
+  }
+
+  @Patch('services/:id/admin-phase')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  changeAdminPhase(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: ChangeServiceAdminPhaseDto,
+  ) {
+    const user = req.user as { id: string; role: Role };
+    return this.operations.changeAdminPhase(user, id, dto);
+  }
+
+  @Patch('services/:id/admin-status')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  changeAdminStatus(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: ChangeServiceAdminStatusDto,
+  ) {
+    const user = req.user as { id: string; role: Role };
+    return this.operations.changeAdminStatus(user, id, dto);
   }
 
   @Get('services/:id/phases')

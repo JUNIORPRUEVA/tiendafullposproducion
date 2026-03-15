@@ -6,6 +6,112 @@ import '../operations_models.dart';
 import 'service_pdf_exporter.dart';
 
 class ServiceActionsSheet {
+  static const adminPhases = <String>[
+    'reserva',
+    'confirmacion',
+    'programacion',
+    'ejecucion',
+    'revision',
+    'facturacion',
+    'cierre',
+    'cancelada',
+  ];
+
+  static List<String> allowedNextAdminPhases(String current) {
+    final normalized = current.trim().toLowerCase();
+    if (normalized.isEmpty) return const ['cancelada'];
+    if (normalized == 'cancelada' || normalized == 'cierre') return const [];
+
+    const linear = <String>[
+      'reserva',
+      'confirmacion',
+      'programacion',
+      'ejecucion',
+      'revision',
+      'facturacion',
+      'cierre',
+    ];
+
+    final idx = linear.indexOf(normalized);
+    if (idx < 0) return const ['cancelada'];
+    final nextIdx = idx + 1;
+    final next = nextIdx < linear.length ? linear[nextIdx] : null;
+    if (next == null) return const [];
+    return [next, 'cancelada'];
+  }
+
+  static Future<String?> pickAdminPhase(
+    BuildContext context, {
+    required String current,
+    List<String>? allowed,
+  }) {
+    final normalized = current.trim().toLowerCase();
+    final options = (allowed ?? allowedNextAdminPhases(normalized))
+        .map((e) => e.trim().toLowerCase())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+
+    return showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Cambiar fase',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                    Text(
+                      normalized.isEmpty ? '—' : adminPhaseLabel(normalized),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.70),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    if (options.isEmpty)
+                      const ListTile(
+                        leading: Icon(Icons.info_outline_rounded),
+                        title: Text('No hay transiciones disponibles'),
+                      )
+                    else
+                      for (final phase in options)
+                      ListTile(
+                        leading: const Icon(Icons.flag_outlined),
+                        title: Text(adminPhaseLabel(phase)),
+                        trailing: phase == normalized
+                            ? const Icon(Icons.check_rounded)
+                            : null,
+                        onTap: () => Navigator.pop(context, phase),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   static Future<Map<String, String?>?> pickChangePhaseDraft(
     BuildContext context, {
     required String current,
@@ -27,6 +133,9 @@ class ServiceActionsSheet {
     String? editDeniedReason,
     bool canChangePhase = false,
     String? changePhaseDeniedReason,
+    bool canChangeAdminPhase = false,
+    String? changeAdminPhaseDeniedReason,
+    Future<void> Function(String adminPhase)? onChangeAdminPhase,
     Future<void> Function(String phase, DateTime scheduledAt, String? note)?
     onChangePhase,
     required List<String> allowedStatusTargets,
@@ -104,8 +213,17 @@ class ServiceActionsSheet {
           await action();
         }
 
+        final changeAdminPhase = onChangeAdminPhase;
+        final changePhase = onChangePhase;
+
         final canChangeStatus = allowedStatusTargets.isNotEmpty;
-        final canChangePhaseEffective = onChangePhase != null && canChangePhase;
+        final canChangePhaseEffective = changePhase != null && canChangePhase;
+        final canChangeAdminPhaseEffective =
+            changeAdminPhase != null && canChangeAdminPhase;
+
+        final phaseSubtitle = (service.adminPhase ?? '').trim().isNotEmpty
+            ? adminPhaseLabel(service.adminPhase)
+            : phaseLabel(service.currentPhase);
 
         return SafeArea(
           child: ConstrainedBox(
@@ -149,31 +267,49 @@ class ServiceActionsSheet {
                 item(
                   icon: Icons.flag_outlined,
                   title: 'Cambiar fase',
-                  subtitle: 'Actual: ${phaseLabel(service.currentPhase)}',
-                  enabled: canChangePhaseEffective,
-                  disabledReason:
-                      (changePhaseDeniedReason ?? 'Solo creador o admin'),
-                  onTap: onChangePhase == null
+                  subtitle: 'Actual: $phaseSubtitle',
+                  enabled:
+                      canChangeAdminPhaseEffective || canChangePhaseEffective,
+                  disabledReason: canChangeAdminPhaseEffective
                       ? null
-                      : () async {
-                          final draft =
-                              await _pickServicePhaseWithScheduleAndNote(
-                                context,
-                                current: service.currentPhase,
-                                initialScheduledAt: service.scheduledStart,
-                              );
-                          if (draft == null) return;
-                          final next = (draft['phase'] ?? '').trim();
-                          final scheduledAtRaw = (draft['scheduledAt'] ?? '')
-                              .trim();
-                          if (next.isEmpty) return;
-                          final scheduledAt = DateTime.tryParse(scheduledAtRaw);
-                          if (scheduledAt == null) return;
-                          await closeAnd(
-                            () =>
-                                onChangePhase(next, scheduledAt, draft['note']),
-                          );
-                        },
+                      : (canChangePhaseEffective
+                            ? null
+                            : ((onChangeAdminPhase != null)
+                                  ? (changeAdminPhaseDeniedReason ??
+                                        'Solo creador o admin')
+                                  : (changePhaseDeniedReason ??
+                                        'Solo creador o admin'))),
+                  onTap: () async {
+                    if (canChangeAdminPhaseEffective) {
+                      final current = (service.adminPhase ?? 'reserva').trim();
+                      final next = await pickAdminPhase(
+                        context,
+                        current: current,
+                      );
+                      if (next == null) return;
+                      await closeAnd(() => changeAdminPhase(next));
+                      return;
+                    }
+
+                    if (!canChangePhaseEffective) {
+                      return;
+                    }
+
+                    final draft = await _pickServicePhaseWithScheduleAndNote(
+                      context,
+                      current: service.currentPhase,
+                      initialScheduledAt: service.scheduledStart,
+                    );
+                    if (draft == null) return;
+                    final next = (draft['phase'] ?? '').trim();
+                    final scheduledAtRaw = (draft['scheduledAt'] ?? '').trim();
+                    if (next.isEmpty) return;
+                    final scheduledAt = DateTime.tryParse(scheduledAtRaw);
+                    if (scheduledAt == null) return;
+                    await closeAnd(
+                      () => changePhase(next, scheduledAt, draft['note']),
+                    );
+                  },
                 ),
                 item(
                   icon: Icons.location_on_outlined,
@@ -237,14 +373,15 @@ class ServiceActionsSheet {
                   disabledReason: operateDeniedReason,
                   onTap: () => closeAnd(onUploadEvidence),
                 ),
-                if (service.status == 'completed' || service.status == 'closed')
-                  item(
-                    icon: Icons.verified_outlined,
-                    title: 'Crear garantía',
-                    enabled: canOperate,
-                    disabledReason: operateDeniedReason,
-                    onTap: () => closeAnd(onCreateWarranty),
-                  ),
+                (service.status == 'completed' || service.status == 'closed')
+                    ? item(
+                        icon: Icons.verified_outlined,
+                        title: 'Crear garantía',
+                        enabled: canOperate,
+                        disabledReason: operateDeniedReason,
+                        onTap: () => closeAnd(onCreateWarranty),
+                      )
+                    : const SizedBox.shrink(),
                 item(
                   icon: Icons.person_outline,
                   title: 'Ver cliente',
@@ -284,18 +421,18 @@ class ServiceActionsSheet {
                   },
                 ),
 
-                if (canDelete) ...[
-                  groupTitle('Peligro'),
-                  item(
-                    icon: Icons.delete_outline,
-                    title: 'Eliminar',
-                    subtitle: 'Esta acción no se puede deshacer',
-                    color: scheme.error,
-                    enabled: canDelete,
-                    disabledReason: deleteDeniedReason,
-                    onTap: () => closeAnd(onDelete),
-                  ),
-                ],
+                canDelete ? groupTitle('Peligro') : const SizedBox.shrink(),
+                canDelete
+                    ? item(
+                        icon: Icons.delete_outline,
+                        title: 'Eliminar',
+                        subtitle: 'Esta acción no se puede deshacer',
+                        color: scheme.error,
+                        enabled: canDelete,
+                        disabledReason: deleteDeniedReason,
+                        onTap: () => closeAnd(onDelete),
+                      )
+                    : const SizedBox.shrink(),
 
                 const SizedBox(height: 8),
               ],
@@ -421,9 +558,7 @@ class ServiceActionsSheet {
                             ),
                             Text(
                               phaseLabel(normalized),
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
+                              style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(
                                     fontWeight: FontWeight.w800,
                                     color: Theme.of(context)
@@ -446,8 +581,7 @@ class ServiceActionsSheet {
                                 title: Text(phaseLabel(p)),
                               ),
                             Padding(
-                              padding:
-                                  const EdgeInsets.fromLTRB(16, 4, 16, 10),
+                              padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
                               child: InkWell(
                                 borderRadius: BorderRadius.circular(12),
                                 onTap: () async {
@@ -461,7 +595,8 @@ class ServiceActionsSheet {
                                 },
                                 child: InputDecorator(
                                   decoration: const InputDecoration(
-                                    labelText: 'Nueva fecha y hora (obligatorio)',
+                                    labelText:
+                                        'Nueva fecha y hora (obligatorio)',
                                     border: OutlineInputBorder(),
                                   ),
                                   child: Row(
@@ -470,16 +605,18 @@ class ServiceActionsSheet {
                                         child: Text(
                                           scheduledAt == null
                                               ? 'Seleccionar…'
-                                              : MaterialLocalizations.of(context)
-                                                      .formatFullDate(
-                                                        scheduledAt!,
-                                                      )
-                                                      .toString()
-                                                      .replaceAll(',', '') +
-                                                  '  ' +
-                                                  TimeOfDay.fromDateTime(
-                                                    scheduledAt!,
-                                                  ).format(context),
+                                              : MaterialLocalizations.of(
+                                                          context,
+                                                        )
+                                                        .formatFullDate(
+                                                          scheduledAt!,
+                                                        )
+                                                        .toString()
+                                                        .replaceAll(',', '') +
+                                                    '  ' +
+                                                    TimeOfDay.fromDateTime(
+                                                      scheduledAt!,
+                                                    ).format(context),
                                         ),
                                       ),
                                       const Icon(Icons.schedule_outlined),
@@ -489,8 +626,7 @@ class ServiceActionsSheet {
                               ),
                             ),
                             Padding(
-                              padding:
-                                  const EdgeInsets.fromLTRB(16, 4, 16, 10),
+                              padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
                               child: TextField(
                                 controller: noteCtrl,
                                 minLines: 2,
@@ -502,8 +638,7 @@ class ServiceActionsSheet {
                               ),
                             ),
                             Padding(
-                              padding:
-                                  const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                               child: Row(
                                 children: [
                                   Expanded(
@@ -521,9 +656,11 @@ class ServiceActionsSheet {
                                               final note = noteCtrl.text.trim();
                                               Navigator.pop(context, {
                                                 'phase': selected,
-                                                'scheduledAt':
-                                                    scheduledAt!.toIso8601String(),
-                                                'note': note.isEmpty ? null : note,
+                                                'scheduledAt': scheduledAt!
+                                                    .toIso8601String(),
+                                                'note': note.isEmpty
+                                                    ? null
+                                                    : note,
                                               });
                                             },
                                       child: const Text('Aplicar'),

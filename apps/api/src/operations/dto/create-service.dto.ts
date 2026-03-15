@@ -4,6 +4,27 @@ import { IsArray, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUI
 const serviceTypes = ['installation', 'maintenance', 'warranty', 'pos_support', 'other'] as const;
 const orderTypes = ['reserva', 'servicio', 'levantamiento', 'garantia', 'mantenimiento', 'instalacion'] as const;
 const orderStates = ['pending', 'confirmed', 'assigned', 'in_progress', 'finalized', 'cancelled', 'rescheduled'] as const;
+const adminPhases = [
+  'reserva',
+  'confirmacion',
+  'programacion',
+  'ejecucion',
+  'revision',
+  'facturacion',
+  'cierre',
+  'cancelada',
+] as const;
+const adminStatuses = [
+  'pendiente',
+  'confirmada',
+  'asignada',
+  'en_camino',
+  'en_proceso',
+  'finalizada',
+  'reagendada',
+  'cancelada',
+  'cerrada',
+] as const;
 
 export class CreateServiceDto {
   @IsUUID()
@@ -76,6 +97,15 @@ export class CreateServiceDto {
   @IsOptional()
   @IsIn(orderStates)
   orderState?: (typeof orderStates)[number];
+
+  // Admin-only conceptual model.
+  @IsOptional()
+  @IsIn(adminPhases)
+  adminPhase?: (typeof adminPhases)[number];
+
+  @IsOptional()
+  @IsIn(adminStatuses)
+  adminStatus?: (typeof adminStatuses)[number];
 
   @IsOptional()
   @IsUUID()

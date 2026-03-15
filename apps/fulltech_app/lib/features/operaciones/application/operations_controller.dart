@@ -347,9 +347,80 @@ class OperationsController extends StateNotifier<OperationsState> {
       );
     }
 
-    final service = await ref
-        .read(operationsRepositoryProvider)
-        .createService(
+    String? normalizeAdminStatus(String? raw) {
+      final v = (raw ?? '').trim().toLowerCase();
+      if (v.isEmpty) return null;
+      const direct = {
+        'pendiente',
+        'confirmada',
+        'asignada',
+        'en_camino',
+        'en_proceso',
+        'finalizada',
+        'reagendada',
+        'cancelada',
+        'cerrada',
+      };
+      if (direct.contains(v)) return v;
+
+      // Legacy orderState values -> adminStatus
+      switch (v) {
+        case 'pending':
+          return 'pendiente';
+        case 'confirmed':
+          return 'confirmada';
+        case 'assigned':
+          return 'asignada';
+        case 'in_progress':
+          return 'en_proceso';
+        case 'finalized':
+          return 'finalizada';
+        case 'cancelled':
+          return 'cancelada';
+        case 'rescheduled':
+          return 'reagendada';
+        default:
+          return null;
+      }
+    }
+
+    String? legacyOrderStateForAdminStatus(String? raw) {
+      final v = (raw ?? '').trim().toLowerCase();
+      if (v.isEmpty) return null;
+      switch (v) {
+        case 'pendiente':
+          return 'pending';
+        case 'confirmada':
+          return 'confirmed';
+        case 'asignada':
+          return 'assigned';
+        case 'en_camino':
+          return 'assigned';
+        case 'en_proceso':
+          return 'in_progress';
+        case 'finalizada':
+        case 'cerrada':
+          return 'finalized';
+        case 'cancelada':
+          return 'cancelled';
+        case 'reagendada':
+          return 'rescheduled';
+        default:
+          return null;
+      }
+    }
+
+    final adminStatus = normalizeAdminStatus(orderState);
+    final hasTech = (technicianId ?? '').trim().isNotEmpty;
+    final effectiveAdminStatus = adminStatus ?? (hasTech ? 'asignada' : 'pendiente');
+    final legacyOrderState = legacyOrderStateForAdminStatus(effectiveAdminStatus);
+
+    final normalizedType = (orderType ?? 'reserva').trim().toLowerCase();
+    final effectiveAdminPhase = normalizedType == 'reserva'
+      ? 'reserva'
+      : 'programacion';
+
+    final service = await ref.read(operationsRepositoryProvider).createService(
           customerId: customerId,
           serviceType: serviceType,
           category: category,
@@ -360,7 +431,9 @@ class OperationsController extends StateNotifier<OperationsState> {
           quotedAmount: quotedAmount,
           depositAmount: depositAmount,
           orderType: orderType,
-          orderState: orderState,
+          orderState: legacyOrderState,
+          adminPhase: effectiveAdminPhase,
+          adminStatus: effectiveAdminStatus,
           technicianId: technicianId,
           warrantyParentServiceId: warrantyParentServiceId,
           surveyResult: surveyResult,
@@ -391,17 +464,19 @@ class OperationsController extends StateNotifier<OperationsState> {
     final index = before.indexWhere((s) => s.id == id);
 
     if (index < 0) {
-      await ref
-          .read(operationsRepositoryProvider)
-          .changeOrderState(serviceId: id, orderState: next, message: message);
+      await ref.read(operationsRepositoryProvider).changeAdminStatus(
+            serviceId: id,
+            adminStatus: next,
+            message: message,
+          );
       await load();
       return;
     }
 
     final current = before[index];
-    if (current.orderState.trim().toLowerCase() == next) return;
+    if ((current.adminStatus ?? '').trim().toLowerCase() == next) return;
 
-    final optimistic = current.copyWith(orderState: next);
+    final optimistic = current.copyWith(adminStatus: next);
     final optimisticList = [...before];
     optimisticList[index] = optimistic;
     state = state.copyWith(services: optimisticList);
@@ -409,7 +484,7 @@ class OperationsController extends StateNotifier<OperationsState> {
     try {
       final updated = await ref
           .read(operationsRepositoryProvider)
-          .changeOrderState(serviceId: id, orderState: next, message: message);
+          .changeAdminStatus(serviceId: id, adminStatus: next, message: message);
 
       final after = [...state.services];
       final idx = after.indexWhere((s) => s.id == id);
@@ -419,6 +494,58 @@ class OperationsController extends StateNotifier<OperationsState> {
       } else {
         await load();
       }
+    } catch (e) {
+      state = state.copyWith(services: before);
+      rethrow;
+    }
+  }
+
+  Future<ServiceModel> changeAdminPhaseOptimistic(
+    String id,
+    String adminPhase, {
+    String? message,
+  }) async {
+    final next = adminPhase.trim().toLowerCase();
+    if (next.isEmpty) {
+      throw ApiException('Fase inválida', 400);
+    }
+
+    final before = state.services;
+    final index = before.indexWhere((s) => s.id == id);
+
+    if (index < 0) {
+      final updated = await ref.read(operationsRepositoryProvider).changeAdminPhase(
+            serviceId: id,
+            adminPhase: next,
+            message: message,
+          );
+      await load();
+      return updated;
+    }
+
+    final current = before[index];
+    if ((current.adminPhase ?? '').trim().toLowerCase() == next) return current;
+
+    final optimistic = current.copyWith(adminPhase: next);
+    final optimisticList = [...before];
+    optimisticList[index] = optimistic;
+    state = state.copyWith(services: optimisticList);
+
+    try {
+      final updated = await ref.read(operationsRepositoryProvider).changeAdminPhase(
+            serviceId: id,
+            adminPhase: next,
+            message: message,
+          );
+
+      final after = [...state.services];
+      final idx = after.indexWhere((s) => s.id == id);
+      if (idx >= 0) {
+        after[idx] = updated;
+        state = state.copyWith(services: after);
+      }
+      await load();
+      return updated;
     } catch (e) {
       state = state.copyWith(services: before);
       rethrow;

@@ -634,6 +634,8 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
         onChangeStatus: _changeStatusWithConfirm,
         onChangeOrderState: (serviceId, orderState) =>
             notifier.changeOrderStateOptimistic(serviceId, orderState),
+        onChangeAdminPhase: (serviceId, adminPhase) =>
+            notifier.changeAdminPhaseOptimistic(serviceId, adminPhase),
         onChangePhase: (service, phase, scheduledAt, note) =>
             notifier.changePhaseOptimistic(
               service.id,
@@ -664,6 +666,9 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
               onChangeOrderState: (orderState) => ref
                   .read(operationsControllerProvider.notifier)
                   .changeOrderStateOptimistic(service.id, orderState),
+              onChangeAdminPhase: (adminPhase) => ref
+                .read(operationsControllerProvider.notifier)
+                .changeAdminPhaseOptimistic(service.id, adminPhase),
               onSchedule: (start, end) =>
                   _scheduleService(service.id, start, end),
               onCreateWarranty: () => _createWarranty(service.id),
@@ -1093,6 +1098,9 @@ class _OperacionesAgendaScreenState
               onChangeOrderState: (orderState) => ref
                   .read(operationsControllerProvider.notifier)
                   .changeOrderStateOptimistic(service.id, orderState),
+              onChangeAdminPhase: (adminPhase) => ref
+                .read(operationsControllerProvider.notifier)
+                .changeAdminPhaseOptimistic(service.id, adminPhase),
               onSchedule: (start, end) =>
                   _scheduleService(service.id, start, end),
               onCreateWarranty: () => _createWarranty(service.id),
@@ -1994,6 +2002,8 @@ class _PanelOptions extends StatefulWidget {
   final Future<void> Function(ServiceModel service) onChangeStatus;
   final Future<void> Function(String serviceId, String orderState)
   onChangeOrderState;
+  final Future<void> Function(String serviceId, String adminPhase)
+  onChangeAdminPhase;
   final Future<void> Function(
     ServiceModel service,
     String phase,
@@ -2013,6 +2023,7 @@ class _PanelOptions extends StatefulWidget {
     required this.onOpenService,
     required this.onChangeStatus,
     required this.onChangeOrderState,
+    required this.onChangeAdminPhase,
     required this.onChangePhase,
   });
 
@@ -2793,7 +2804,15 @@ class _PanelOptionsState extends State<_PanelOptions> {
   }
 
   Future<void> _pickAndChangeOrderState(ServiceModel service) async {
-    final current = service.orderState.trim().toLowerCase();
+    final current =
+        ((service.adminStatus ?? '').trim().isNotEmpty
+                ? service.adminStatus
+                : (service.orderState.trim().isNotEmpty
+                      ? service.orderState
+                      : service.status))
+            .toString()
+            .trim()
+            .toLowerCase();
     final picked = await StatusPickerSheet.show(context, current: current);
     if (!mounted || picked == null) return;
 
@@ -2827,7 +2846,12 @@ class _PanelOptionsState extends State<_PanelOptions> {
         MediaQuery.sizeOf(context).width >=
         _OperacionesScreenState._desktopOperationsBreakpoint;
 
-    ops.ServiceStatus effectiveStatus(ServiceModel s) {
+    String? effectiveAdminStatus(ServiceModel s) {
+      final raw = (s.adminStatus ?? '').trim().toLowerCase();
+      return raw.isEmpty ? null : raw;
+    }
+
+    ops.ServiceStatus effectiveLegacyStatus(ServiceModel s) {
       final raw = s.orderState.trim().isNotEmpty ? s.orderState : s.status;
       return ops.parseStatus(raw);
     }
@@ -2841,7 +2865,41 @@ class _PanelOptionsState extends State<_PanelOptions> {
     final window = widget.state.services.where(inRange).toList()
       ..sort((a, b) => a.scheduledStart!.compareTo(b.scheduledStart!));
 
-    bool isPending(ops.ServiceStatus st) {
+    bool isPendingByAdmin(String st) {
+      switch (st) {
+        case 'pendiente':
+        case 'confirmada':
+        case 'asignada':
+        case 'reagendada':
+          return true;
+        default:
+          return false;
+      }
+    }
+
+    bool isInProgressByAdmin(String st) {
+      switch (st) {
+        case 'en_camino':
+        case 'en_proceso':
+          return true;
+        default:
+          return false;
+      }
+    }
+
+    bool isCompletedByAdmin(String st) {
+      switch (st) {
+        case 'finalizada':
+        case 'cerrada':
+          return true;
+        default:
+          return false;
+      }
+    }
+
+    bool isCancelledByAdmin(String st) => st == 'cancelada';
+
+    bool isPendingByLegacy(ops.ServiceStatus st) {
       switch (st) {
         case ops.ServiceStatus.reserved:
         case ops.ServiceStatus.survey:
@@ -2853,10 +2911,10 @@ class _PanelOptionsState extends State<_PanelOptions> {
       }
     }
 
-    bool isInProgress(ops.ServiceStatus st) =>
+    bool isInProgressByLegacy(ops.ServiceStatus st) =>
         st == ops.ServiceStatus.inProgress;
 
-    bool isCompleted(ops.ServiceStatus st) {
+    bool isCompletedByLegacy(ops.ServiceStatus st) {
       switch (st) {
         case ops.ServiceStatus.completed:
         case ops.ServiceStatus.closed:
@@ -2874,18 +2932,27 @@ class _PanelOptionsState extends State<_PanelOptions> {
     }
 
     bool matchesStatus(ServiceModel s) {
-      final st = effectiveStatus(s);
+      final adminSt = effectiveAdminStatus(s);
+      final legacySt = effectiveLegacyStatus(s);
       switch (_filters.status) {
         case OperationsStatusFilter.all:
           return true;
         case OperationsStatusFilter.pending:
-          return isPending(st);
+          return adminSt != null
+              ? isPendingByAdmin(adminSt)
+              : isPendingByLegacy(legacySt);
         case OperationsStatusFilter.inProgress:
-          return isInProgress(st);
+          return adminSt != null
+              ? isInProgressByAdmin(adminSt)
+              : isInProgressByLegacy(legacySt);
         case OperationsStatusFilter.completed:
-          return isCompleted(st);
+          return adminSt != null
+              ? isCompletedByAdmin(adminSt)
+              : isCompletedByLegacy(legacySt);
         case OperationsStatusFilter.cancelled:
-          return st == ops.ServiceStatus.cancelled;
+          return adminSt != null
+              ? isCancelledByAdmin(adminSt)
+              : legacySt == ops.ServiceStatus.cancelled;
       }
     }
 
@@ -2933,20 +3000,34 @@ class _PanelOptionsState extends State<_PanelOptions> {
         .where(matchesQuery)
         .toList(growable: false);
 
-    int pendingCount(List<ServiceModel> list) =>
-        list.where((s) => isPending(effectiveStatus(s))).length;
-    int inProgressCount(List<ServiceModel> list) =>
-        list.where((s) => isInProgress(effectiveStatus(s))).length;
-    int completedCount(List<ServiceModel> list) =>
-        list.where((s) => isCompleted(effectiveStatus(s))).length;
+    bool isPendingService(ServiceModel s) {
+      final adminSt = effectiveAdminStatus(s);
+      if (adminSt != null) return isPendingByAdmin(adminSt);
+      return isPendingByLegacy(effectiveLegacyStatus(s));
+    }
+
+    bool isInProgressService(ServiceModel s) {
+      final adminSt = effectiveAdminStatus(s);
+      if (adminSt != null) return isInProgressByAdmin(adminSt);
+      return isInProgressByLegacy(effectiveLegacyStatus(s));
+    }
+
+    bool isCompletedService(ServiceModel s) {
+      final adminSt = effectiveAdminStatus(s);
+      if (adminSt != null) return isCompletedByAdmin(adminSt);
+      return isCompletedByLegacy(effectiveLegacyStatus(s));
+    }
+
+    int pendingCount(List<ServiceModel> list) => list.where(isPendingService).length;
+    int inProgressCount(List<ServiceModel> list) => list.where(isInProgressService).length;
+    int completedCount(List<ServiceModel> list) => list.where(isCompletedService).length;
 
     final pendientesCount = pendingCount(visibleOrders);
     final procesoCount = inProgressCount(visibleOrders);
     final completadasCount = completedCount(visibleOrders);
 
     final atrasadas = visibleOrders.where((s) {
-      final st = effectiveStatus(s);
-      if (isCompleted(st)) return false;
+      if (isCompletedService(s)) return false;
       final due = s.scheduledStart;
       if (due == null) return false;
       return due.isBefore(now);
@@ -3543,6 +3624,14 @@ class _PanelOptionsState extends State<_PanelOptions> {
     final perms = OperationsPermissions(user: widget.currentUser, service: s);
     final canChangePhase = perms.canChangePhase;
 
+    final orderType = s.orderType.trim().toLowerCase();
+    final currentPhaseRaw = (s.adminPhase ?? '').trim().toLowerCase();
+    final currentAdminPhase = currentPhaseRaw.isNotEmpty
+        ? currentPhaseRaw
+        : (orderType == 'reserva' ? 'reserva' : 'programacion');
+    final allowedAdminPhaseTargets =
+        ServiceActionsSheet.allowedNextAdminPhases(currentAdminPhase);
+
     return ServiceAgendaCard(
       service: s,
       subtitle: subtitle,
@@ -3550,40 +3639,25 @@ class _PanelOptionsState extends State<_PanelOptions> {
       scheduledText: scheduledText,
       onView: () => widget.onOpenService(s),
       onChangeState: () => _pickAndChangeOrderState(s),
-      onChangePhase: !canChangePhase
+      onChangePhase: (!canChangePhase || allowedAdminPhaseTargets.isEmpty)
           ? null
           : () {
               unawaited(() async {
-                final draft = await ServiceActionsSheet.pickChangePhaseDraft(
+                final picked = await ServiceActionsSheet.pickAdminPhase(
                   context,
-                  current: s.currentPhase,
-                  initialScheduledAt: s.scheduledStart,
+                  current: currentAdminPhase,
+                  allowed: allowedAdminPhaseTargets,
                 );
-                if (!mounted || draft == null) return;
+                if (!mounted || picked == null) return;
 
-                final phase = (draft['phase'] ?? '').trim();
-                final scheduledAtRaw = (draft['scheduledAt'] ?? '').trim();
-                final note = draft['note'];
-                final scheduledAt = DateTime.tryParse(scheduledAtRaw);
-                if (phase.isEmpty || scheduledAt == null) return;
-
-                final missing = _missingPhaseRequirements(s, phase);
-                if (missing.isNotEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'No se puede cambiar a ${phaseLabel(phase)}. Falta: ${missing.join(', ')}',
-                      ),
-                    ),
-                  );
-                  return;
-                }
+                final phase = picked.trim().toLowerCase();
+                if (phase.isEmpty) return;
 
                 try {
-                  await widget.onChangePhase(s, phase, scheduledAt, note);
+                  await widget.onChangeAdminPhase(s.id, phase);
                   if (!mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Fase: ${phaseLabel(phase)}')),
+                    SnackBar(content: Text('Fase: ${adminPhaseLabel(phase)}')),
                   );
                 } catch (e) {
                   if (!mounted) return;
@@ -3896,6 +3970,7 @@ class _ServiceDetailPanel extends ConsumerStatefulWidget {
   final ServiceModel service;
   final Future<void> Function(String status) onChangeStatus;
   final Future<void> Function(String orderState) onChangeOrderState;
+  final Future<void> Function(String adminPhase) onChangeAdminPhase;
   final Future<void> Function(DateTime start, DateTime end) onSchedule;
   final Future<void> Function() onCreateWarranty;
   final Future<void> Function(List<Map<String, String>> assignments) onAssign;
@@ -3907,6 +3982,7 @@ class _ServiceDetailPanel extends ConsumerStatefulWidget {
     required this.service,
     required this.onChangeStatus,
     required this.onChangeOrderState,
+    required this.onChangeAdminPhase,
     required this.onSchedule,
     required this.onCreateWarranty,
     required this.onAssign,
@@ -4034,36 +4110,128 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
 
   String _orderStateLabel(String raw) {
     switch (raw.trim().toLowerCase()) {
+      case 'pendiente':
       case 'pending':
         return 'Pendiente';
+      case 'confirmada':
       case 'confirmed':
         return 'Confirmada';
+      case 'asignada':
       case 'assigned':
         return 'Asignada';
+      case 'en_proceso':
       case 'in_progress':
         return 'En progreso';
+      case 'finalizada':
       case 'finalized':
         return 'Finalizada';
+      case 'cancelada':
       case 'cancelled':
         return 'Cancelada';
+      case 'reagendada':
       case 'rescheduled':
         return 'Reagendada';
+      case 'cerrada':
+        return 'Cerrada';
       default:
         return raw;
+    }
+  }
+
+  String _orderTypeLabel(String raw) {
+    switch (raw.trim().toLowerCase()) {
+      case 'reserva':
+        return 'Reserva';
+      case 'instalacion':
+        return 'Instalación';
+      case 'mantenimiento':
+      case 'servicio':
+        return 'Mantenimiento';
+      case 'garantia':
+        return 'Garantía';
+      case 'levantamiento':
+        return 'Levantamiento';
+      default:
+        return raw;
+    }
+  }
+
+  String _effectiveAdminPhase(ServiceModel s) {
+    final raw = (s.adminPhase ?? '').trim().toLowerCase();
+    if (raw.isNotEmpty) return raw;
+    final type = s.orderType.trim().toLowerCase();
+    return type == 'reserva' ? 'reserva' : 'programacion';
+  }
+
+  String _effectiveAdminStatus(ServiceModel s) {
+    final raw = (s.adminStatus ?? '').trim().toLowerCase();
+    if (raw.isNotEmpty) return raw;
+    final fallback = s.orderState.trim().isNotEmpty ? s.orderState : s.status;
+    return fallback.trim().toLowerCase();
+  }
+
+  Future<void> _pickAndChangeAdminStatus(ServiceModel service) async {
+    final current = _effectiveAdminStatus(service);
+    final picked = await StatusPickerSheet.show(context, current: current);
+    if (!mounted || picked == null) return;
+    final next = picked.trim().toLowerCase();
+    if (next.isEmpty || next == current) return;
+
+    try {
+      await widget.onChangeOrderState(next);
+      if (!mounted) return;
+      setState(() => _service = _service.copyWith(adminStatus: next));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Estado: ${StatusPickerSheet.label(next)}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e is ApiException ? e.message : '$e')),
+      );
+    }
+  }
+
+  Future<void> _pickAndChangeAdminPhase(ServiceModel service) async {
+    final current = _effectiveAdminPhase(service);
+    final allowed = ServiceActionsSheet.allowedNextAdminPhases(current);
+    if (allowed.isEmpty) return;
+
+    final picked = await ServiceActionsSheet.pickAdminPhase(
+      context,
+      current: current,
+      allowed: allowed,
+    );
+    if (!mounted || picked == null) return;
+    final next = picked.trim().toLowerCase();
+    if (next.isEmpty || next == current) return;
+
+    try {
+      await widget.onChangeAdminPhase(next);
+      if (!mounted) return;
+      setState(() => _service = _service.copyWith(adminPhase: next));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Fase: ${adminPhaseLabel(next)}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e is ApiException ? e.message : '$e')),
+      );
     }
   }
 
   String? _suggestOrderStateForStatus(String status) {
     switch (status.trim().toLowerCase()) {
       case 'scheduled':
-        return 'confirmed';
+        return 'confirmada';
       case 'in_progress':
-        return 'in_progress';
+        return 'en_proceso';
       case 'completed':
       case 'closed':
-        return 'finalized';
+        return 'finalizada';
       case 'cancelled':
-        return 'cancelled';
+        return 'cancelada';
       default:
         return null;
     }
@@ -4170,8 +4338,16 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     await _setStatusWithConfirm(target, closePanel: false);
 
     final suggestion = _suggestOrderStateForStatus(target);
-    final currentOrderState = service.orderState.trim().toLowerCase();
-    if (!mounted || suggestion == null || suggestion == currentOrderState) {
+    final currentAdminStatus =
+        ((service.adminStatus ?? '').trim().isNotEmpty
+                ? service.adminStatus
+                : (service.orderState.trim().isNotEmpty
+                      ? service.orderState
+                      : service.status))
+            .toString()
+            .trim()
+            .toLowerCase();
+    if (!mounted || suggestion == null || suggestion == currentAdminStatus) {
       return;
     }
 
@@ -4203,7 +4379,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     if (!mounted) return;
 
     setState(() {
-      _service = _service.copyWith(orderState: suggestion);
+      _service = _service.copyWith(adminStatus: suggestion);
     });
   }
 
@@ -4382,8 +4558,13 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         : '$customerName · $customerPhone';
 
     final statusChipValue = service.orderState.trim().isNotEmpty
-        ? service.orderState.trim()
-        : service.status.trim();
+      ? service.orderState.trim()
+      : service.status.trim();
+
+    final adminStatusValue = _effectiveAdminStatus(service);
+    final statusChipEffective = (service.adminStatus ?? '').trim().isNotEmpty
+      ? adminStatusValue
+      : statusChipValue;
 
     final location = buildServiceLocationInfo(addressOrText: addressText);
 
@@ -4526,8 +4707,9 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
             );
         if (!mounted) return;
         setState(() => _service = updated);
-        messenger
-            .showSnackBar(const SnackBar(content: Text('Orden actualizada')));
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Orden actualizada')),
+        );
       } catch (e) {
         if (!mounted) return;
         messenger.showSnackBar(
@@ -4634,8 +4816,9 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         onAddNote: (message) async {
           await widget.onAddNote(message);
           if (!mounted) return;
-          messenger
-              .showSnackBar(const SnackBar(content: Text('Marcado en historial')));
+          messenger.showSnackBar(
+            const SnackBar(content: Text('Marcado en historial')),
+          );
         },
         onMarkPendingBy: (reason) async {
           await widget.onAddNote('Pendiente por: $reason');
@@ -4653,7 +4836,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         ServiceHeader(
           title: headerTitle,
           subtitle: headerSubtitle,
-          status: statusChipValue,
+          status: statusChipEffective,
           onActions: openActions,
         ),
         if (descText.isNotEmpty) ...[
@@ -4674,9 +4857,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _kv(context, 'Tipo', headerTitle),
-              _kv(context, 'Prioridad', 'P${service.priority}'),
-              _kv(context, 'Fase actual', phaseLabel(service.currentPhase)),
+              _kv(context, 'Tipo de orden', _orderTypeLabel(service.orderType)),
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
@@ -4685,7 +4866,85 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                     SizedBox(
                       width: 92,
                       child: Text(
-                        'Etapa',
+                        'Estado (admin)',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.75),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        StatusPickerSheet.label(adminStatusValue),
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      onPressed: canOperate
+                          ? () => _pickAndChangeAdminStatus(service)
+                          : null,
+                      child: const Text('Cambiar'),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 92,
+                      child: Text(
+                        'Fase (admin)',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.75),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        adminPhaseLabel(_effectiveAdminPhase(service)),
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      onPressed: canOperate &&
+                              ServiceActionsSheet.allowedNextAdminPhases(
+                                _effectiveAdminPhase(service),
+                              ).isNotEmpty
+                          ? () => _pickAndChangeAdminPhase(service)
+                          : null,
+                      child: const Text('Cambiar'),
+                    ),
+                  ],
+                ),
+              ),
+
+              _kv(context, 'Prioridad', 'P${service.priority}'),
+              _kv(context, 'Fase técnica', phaseLabel(service.currentPhase)),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 92,
+                      child: Text(
+                        'Estado técnico',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontWeight: FontWeight.w800,
                           color: Theme.of(
@@ -4725,7 +4984,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
               ),
               _kv(
                 context,
-                'Estado',
+                'Estado (legacy)',
                 service.orderState.trim().isEmpty
                     ? '—'
                     : _orderStateLabel(service.orderState),
@@ -5887,7 +6146,6 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   late int _priority;
   late String _orderState;
   String? _technicianId;
-  bool _orderStateTouched = false;
   bool _priorityTouched = false;
   bool _loadingTechnicians = false;
   List<TechnicianModel> _technicians = const [];
@@ -5945,7 +6203,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     _serviceType = widget.initialServiceType;
     _category = 'cameras';
     _priority = 1;
-    _orderState = 'pending';
+    _orderState = 'pendiente';
     _applyDefaultsForKind(widget.agendaKind, kindChanged: true);
     Future.microtask(_loadTechnicians);
   }
@@ -5989,14 +6247,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     final lower = (kind ?? '').trim().toLowerCase();
 
     final hasTech = (_technicianId ?? '').trim().isNotEmpty;
-    final nextState = !_orderStateTouched
-        ? ((lower == 'mantenimiento' ||
-                      lower == 'instalacion' ||
-                      lower == 'servicio') &&
-                  hasTech
-              ? 'assigned'
-              : 'pending')
-        : _orderState;
+    final nextState = hasTech ? 'asignada' : 'pendiente';
 
     final nextPriority = (!_priorityTouched && lower == 'garantia')
         ? 1
@@ -6668,44 +6919,42 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                 isExpanded: true,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
-                  labelText: 'Estado',
+                  labelText: 'Estado (auto)',
+                  helperText: 'Se calcula automáticamente al asignar técnico.',
                 ),
                 items: const [
-                  DropdownMenuItem(value: 'pending', child: Text('Pendiente')),
                   DropdownMenuItem(
-                    value: 'confirmed',
+                    value: 'pendiente',
+                    child: Text('Pendiente'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'confirmada',
                     child: Text('Confirmada'),
                   ),
-                  DropdownMenuItem(value: 'assigned', child: Text('Asignada')),
+                  DropdownMenuItem(value: 'asignada', child: Text('Asignada')),
                   DropdownMenuItem(
-                    value: 'in_progress',
-                    child: Text('En progreso'),
+                    value: 'en_camino',
+                    child: Text('En camino'),
                   ),
                   DropdownMenuItem(
-                    value: 'finalized',
+                    value: 'en_proceso',
+                    child: Text('En proceso'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'finalizada',
                     child: Text('Finalizada'),
                   ),
                   DropdownMenuItem(
-                    value: 'cancelled',
+                    value: 'cancelada',
                     child: Text('Cancelada'),
                   ),
                   DropdownMenuItem(
-                    value: 'rescheduled',
+                    value: 'reagendada',
                     child: Text('Reagendada'),
                   ),
+                  DropdownMenuItem(value: 'cerrada', child: Text('Cerrada')),
                 ],
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() {
-                    _orderState = value;
-                    _orderStateTouched = true;
-                  });
-                },
-                validator: (value) {
-                  final v = (value ?? '').trim();
-                  if (v.isEmpty) return 'Requerido';
-                  return null;
-                },
+                onChanged: null,
               ),
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
@@ -6736,17 +6985,10 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                           setState(() => _technicianId = value);
                         }
 
-                        final kind = (widget.agendaKind ?? '')
-                            .trim()
-                            .toLowerCase();
-                        if (kind == 'servicio' && !_orderStateTouched) {
-                          setState(() {
-                            _orderState =
-                                (_technicianId ?? '').trim().isNotEmpty
-                                ? 'assigned'
-                                : 'pending';
-                          });
-                        }
+                        _applyDefaultsForKind(
+                          widget.agendaKind,
+                          kindChanged: false,
+                        );
                       },
               ),
               if (!_loadingTechnicians && _technicians.isEmpty) ...[
@@ -7645,9 +7887,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       _gpsCtrl.clear();
       _gpsPoint = null;
       _referencePhoto = null;
-      _orderState = 'pending';
+      _orderState = 'pendiente';
       _technicianId = null;
-      _orderStateTouched = false;
       _priorityTouched = false;
       _relatedServiceCtrl.clear();
       _surveyResultCtrl.clear();

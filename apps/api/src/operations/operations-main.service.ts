@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common';
 import {
   Prisma,
+  AdminOrderPhase,
+  AdminOrderStatus,
   OrderState,
   OrderType,
   Role,
@@ -24,6 +26,8 @@ import { CreateServiceDto } from './dto/create-service.dto';
 import { ChangeServiceStatusDto } from './dto/change-service-status.dto';
 import { ChangeServiceOrderStateDto } from './dto/change-service-order-state.dto';
 import { ChangeServicePhaseDto } from './dto/change-service-phase.dto';
+import { ChangeServiceAdminPhaseDto } from './dto/change-service-admin-phase.dto';
+import { ChangeServiceAdminStatusDto } from './dto/change-service-admin-status.dto';
 import { ScheduleServiceDto } from './dto/schedule-service.dto';
 import { AssignServiceDto } from './dto/assign-service.dto';
 import { ServiceUpdateDto } from './dto/service-update.dto';
@@ -129,6 +133,72 @@ export class OperationsService {
     return false;
   }
 
+  private defaultAdminPhaseForOrderType(orderType: OrderType): AdminOrderPhase {
+    return orderType === OrderType.RESERVA
+      ? AdminOrderPhase.RESERVA
+      : AdminOrderPhase.PROGRAMACION;
+  }
+
+  private defaultAdminStatusForAssignment(hasTechnician: boolean): AdminOrderStatus {
+    return hasTechnician ? AdminOrderStatus.ASIGNADA : AdminOrderStatus.PENDIENTE;
+  }
+
+  private assertAdminPhaseTransition(params: {
+    orderType: OrderType;
+    current: AdminOrderPhase | null;
+    next: AdminOrderPhase;
+  }) {
+    const { orderType, current, next } = params;
+
+    // First-time backfill: allow setting when current is null.
+    if (!current) {
+      if (orderType !== OrderType.RESERVA && next === AdminOrderPhase.RESERVA) {
+        throw new BadRequestException('La fase "reserva" solo aplica a tipo de orden "reserva"');
+      }
+      return;
+    }
+
+    if (current === next) {
+      throw new BadRequestException('La fase seleccionada ya es la actual');
+    }
+
+    if (current === AdminOrderPhase.CANCELADA) {
+      throw new BadRequestException('No se puede cambiar la fase de una orden cancelada');
+    }
+    if (current === AdminOrderPhase.CIERRE) {
+      throw new BadRequestException('No se puede cambiar la fase de una orden cerrada');
+    }
+
+    if (next === AdminOrderPhase.CANCELADA) {
+      // Cancelar corta el flujo en cualquier fase, excepto cierre.
+      return;
+    }
+
+    if (orderType !== OrderType.RESERVA && next === AdminOrderPhase.RESERVA) {
+      throw new BadRequestException('La fase "reserva" solo aplica a tipo de orden "reserva"');
+    }
+
+    const linear: AdminOrderPhase[] = [
+      AdminOrderPhase.RESERVA,
+      AdminOrderPhase.CONFIRMACION,
+      AdminOrderPhase.PROGRAMACION,
+      AdminOrderPhase.EJECUCION,
+      AdminOrderPhase.REVISION,
+      AdminOrderPhase.FACTURACION,
+      AdminOrderPhase.CIERRE,
+    ];
+
+    const fromIndex = linear.indexOf(current);
+    const toIndex = linear.indexOf(next);
+    if (fromIndex < 0 || toIndex < 0) {
+      throw new BadRequestException('Transición de fase inválida');
+    }
+
+    if (toIndex !== fromIndex + 1) {
+      throw new BadRequestException('Solo se permite avanzar a la siguiente fase');
+    }
+  }
+
   async list(user: AuthUser, query: ServicesQueryDto) {
     const techViewAll = user.role === Role.TECNICO ? await this.techCanViewAllServices() : false;
     const page = query.page && query.page > 0 ? query.page : 1;
@@ -142,6 +212,8 @@ export class OperationsService {
       ...(query.type ? { serviceType: this.parseType(query.type) } : {}),
       ...(query.orderType ? this.orderTypeWhere(query.orderType) : {}),
       ...(query.orderState ? { orderState: this.parseOrderState(query.orderState) } : {}),
+      ...(query.adminPhase ? { adminPhase: this.parseAdminPhase(query.adminPhase) } : {}),
+      ...(query.adminStatus ? { adminStatus: this.parseAdminStatus(query.adminStatus) } : {}),
       ...(query.technicianId ? { technicianId: query.technicianId } : {}),
       ...(query.priority ? { priority: query.priority } : {}),
       ...(query.assignedTo ? { assignments: { some: { userId: query.assignedTo } } } : {}),
@@ -277,10 +349,23 @@ export class OperationsService {
         },
       };
 
+      const orderType = dto.orderType ? this.parseOrderType(dto.orderType) : OrderType.RESERVA;
+      const adminPhase = dto.adminPhase
+        ? this.parseAdminPhase(dto.adminPhase)
+        : this.defaultAdminPhaseForOrderType(orderType);
+      const adminStatus = dto.adminStatus
+        ? this.parseAdminStatus(dto.adminStatus)
+        : this.defaultAdminStatusForAssignment(!!technicianId);
+      const orderState = dto.orderState
+        ? this.parseOrderState(dto.orderState)
+        : (!!technicianId ? OrderState.ASSIGNED : OrderState.PENDING);
+
       const createWithOrderFields = {
         ...baseData,
-        orderType: dto.orderType ? this.parseOrderType(dto.orderType) : OrderType.RESERVA,
-        orderState: dto.orderState ? this.parseOrderState(dto.orderState) : OrderState.PENDING,
+        orderType,
+        orderState,
+        adminPhase,
+        adminStatus,
         ...(hasOrderExtras ? { orderExtras: orderExtras as Prisma.InputJsonValue } : {}),
         ...(dto.warrantyParentServiceId
           ? { warrantyParent: { connect: { id: dto.warrantyParentServiceId } } }
@@ -540,6 +625,106 @@ export class OperationsService {
 
       return row;
     });
+
+    return this.normalizeService(updated);
+  }
+
+  async changeAdminPhase(user: AuthUser, id: string, dto: ChangeServiceAdminPhaseDto) {
+    const service = await this.prisma.service.findFirst({
+      where: { id, isDeleted: false },
+      include: { assignments: true },
+    });
+
+    if (!service) throw new NotFoundException('Servicio no encontrado');
+    this.assertCanOperate(user, service.createdByUserId, service.assignments.map((a) => a.userId));
+
+    const next = this.parseAdminPhase(dto.adminPhase);
+
+    try {
+      this.assertAdminPhaseTransition({
+        orderType: service.orderType,
+        current: service.adminPhase,
+        next,
+      });
+    } catch (e) {
+      // In case DB is not migrated and adminPhase is missing, keep consistent error.
+      if (e instanceof BadRequestException) throw e;
+      throw e;
+    }
+
+    let updated: any;
+    try {
+      updated = await this.prisma.service.update({
+        where: { id },
+        data: { adminPhase: next },
+        include: this.serviceInclude(),
+      });
+    } catch (error) {
+      if (!this.isSchemaMismatch(error)) throw error;
+      throw new ServiceUnavailableException('La base de datos no está migrada para adminPhase/adminStatus');
+    }
+
+    const message = (dto.message ?? '').trim();
+    if (message) {
+      try {
+        await this.prisma.serviceUpdate.create({
+          data: {
+            serviceId: id,
+            changedByUserId: user.id,
+            type: ServiceUpdateType.NOTE,
+            oldValue: Prisma.DbNull,
+            newValue: { adminPhase: this.toApiAdminPhase(next) },
+            message,
+          },
+        });
+      } catch {
+        // ignore
+      }
+    }
+
+    return this.normalizeService(updated);
+  }
+
+  async changeAdminStatus(user: AuthUser, id: string, dto: ChangeServiceAdminStatusDto) {
+    const service = await this.prisma.service.findFirst({
+      where: { id, isDeleted: false },
+      include: { assignments: true },
+    });
+
+    if (!service) throw new NotFoundException('Servicio no encontrado');
+    this.assertCanOperate(user, service.createdByUserId, service.assignments.map((a) => a.userId));
+
+    const next = this.parseAdminStatus(dto.adminStatus);
+
+    let updated: any;
+    try {
+      updated = await this.prisma.service.update({
+        where: { id },
+        data: { adminStatus: next },
+        include: this.serviceInclude(),
+      });
+    } catch (error) {
+      if (!this.isSchemaMismatch(error)) throw error;
+      throw new ServiceUnavailableException('La base de datos no está migrada para adminPhase/adminStatus');
+    }
+
+    const message = (dto.message ?? '').trim();
+    if (message) {
+      try {
+        await this.prisma.serviceUpdate.create({
+          data: {
+            serviceId: id,
+            changedByUserId: user.id,
+            type: ServiceUpdateType.NOTE,
+            oldValue: Prisma.DbNull,
+            newValue: { adminStatus: this.toApiAdminStatus(next) },
+            message,
+          },
+        });
+      } catch {
+        // ignore
+      }
+    }
 
     return this.normalizeService(updated);
   }
@@ -1507,6 +1692,8 @@ export class OperationsService {
       currentPhase: service.currentPhase ? this.toApiPhase(service.currentPhase) : 'reserva',
       orderType: service.orderType ? this.toApiOrderType(service.orderType) : 'reserva',
       orderState: service.orderState ? this.toApiOrderState(service.orderState) : 'pending',
+      adminPhase: service.adminPhase ? this.toApiAdminPhase(service.adminPhase) : null,
+      adminStatus: service.adminStatus ? this.toApiAdminStatus(service.adminStatus) : null,
       assignments: (service.assignments ?? []).map((item: any) => ({
         ...item,
         role: this.toApiAssignRole(item.role),
@@ -1660,6 +1847,41 @@ export class OperationsService {
     return parsed;
   }
 
+  private parseAdminPhase(value: string): AdminOrderPhase {
+    const key = value.trim().toLowerCase();
+    const map: Record<string, AdminOrderPhase> = {
+      reserva: AdminOrderPhase.RESERVA,
+      confirmacion: AdminOrderPhase.CONFIRMACION,
+      programacion: AdminOrderPhase.PROGRAMACION,
+      ejecucion: AdminOrderPhase.EJECUCION,
+      revision: AdminOrderPhase.REVISION,
+      facturacion: AdminOrderPhase.FACTURACION,
+      cierre: AdminOrderPhase.CIERRE,
+      cancelada: AdminOrderPhase.CANCELADA,
+    };
+    const parsed = map[key];
+    if (!parsed) throw new BadRequestException('Fase administrativa inválida');
+    return parsed;
+  }
+
+  private parseAdminStatus(value: string): AdminOrderStatus {
+    const key = value.trim().toLowerCase();
+    const map: Record<string, AdminOrderStatus> = {
+      pendiente: AdminOrderStatus.PENDIENTE,
+      confirmada: AdminOrderStatus.CONFIRMADA,
+      asignada: AdminOrderStatus.ASIGNADA,
+      en_camino: AdminOrderStatus.EN_CAMINO,
+      en_proceso: AdminOrderStatus.EN_PROCESO,
+      finalizada: AdminOrderStatus.FINALIZADA,
+      reagendada: AdminOrderStatus.REAGENDADA,
+      cancelada: AdminOrderStatus.CANCELADA,
+      cerrada: AdminOrderStatus.CERRADA,
+    };
+    const parsed = map[key];
+    if (!parsed) throw new BadRequestException('Estado administrativo inválido');
+    return parsed;
+  }
+
   private parseAssignRole(value: string): ServiceAssignmentRole {
     return value === 'lead' ? ServiceAssignmentRole.LEAD : ServiceAssignmentRole.ASSISTANT;
   }
@@ -1753,6 +1975,35 @@ export class OperationsService {
       [OrderState.FINALIZED]: 'finalized',
       [OrderState.CANCELLED]: 'cancelled',
       [OrderState.RESCHEDULED]: 'rescheduled',
+    };
+    return map[value];
+  }
+
+  private toApiAdminPhase(value: AdminOrderPhase): string {
+    const map: Record<AdminOrderPhase, string> = {
+      [AdminOrderPhase.RESERVA]: 'reserva',
+      [AdminOrderPhase.CONFIRMACION]: 'confirmacion',
+      [AdminOrderPhase.PROGRAMACION]: 'programacion',
+      [AdminOrderPhase.EJECUCION]: 'ejecucion',
+      [AdminOrderPhase.REVISION]: 'revision',
+      [AdminOrderPhase.FACTURACION]: 'facturacion',
+      [AdminOrderPhase.CIERRE]: 'cierre',
+      [AdminOrderPhase.CANCELADA]: 'cancelada',
+    };
+    return map[value];
+  }
+
+  private toApiAdminStatus(value: AdminOrderStatus): string {
+    const map: Record<AdminOrderStatus, string> = {
+      [AdminOrderStatus.PENDIENTE]: 'pendiente',
+      [AdminOrderStatus.CONFIRMADA]: 'confirmada',
+      [AdminOrderStatus.ASIGNADA]: 'asignada',
+      [AdminOrderStatus.EN_CAMINO]: 'en_camino',
+      [AdminOrderStatus.EN_PROCESO]: 'en_proceso',
+      [AdminOrderStatus.FINALIZADA]: 'finalizada',
+      [AdminOrderStatus.REAGENDADA]: 'reagendada',
+      [AdminOrderStatus.CANCELADA]: 'cancelada',
+      [AdminOrderStatus.CERRADA]: 'cerrada',
     };
     return map[value];
   }

@@ -110,6 +110,36 @@ String phaseLabel(dynamic raw) {
   }
 }
 
+String adminPhaseLabel(dynamic raw) {
+  if (raw == null) return '—';
+  var value = raw.toString().trim();
+  if (value.isEmpty) return '—';
+
+  value = value.toLowerCase();
+  value = value.replaceAll(' ', '_').replaceAll('-', '_');
+
+  switch (value) {
+    case 'reserva':
+      return 'Reserva';
+    case 'confirmacion':
+      return 'Confirmación';
+    case 'programacion':
+      return 'Programación';
+    case 'ejecucion':
+      return 'Ejecución';
+    case 'revision':
+      return 'Revisión';
+    case 'facturacion':
+      return 'Facturación';
+    case 'cierre':
+      return 'Cierre';
+    case 'cancelada':
+      return 'Cancelada';
+    default:
+      return value;
+  }
+}
+
 class ServiceStepModel {
   final String id;
   final String stepKey;
@@ -266,6 +296,8 @@ class ServiceModel {
   final String currentPhase;
   final String orderType;
   final String orderState;
+  final String? adminPhase;
+  final String? adminStatus;
   final String? technicianId;
   final int priority;
   final double? quotedAmount;
@@ -296,6 +328,8 @@ class ServiceModel {
     required this.currentPhase,
     required this.orderType,
     required this.orderState,
+    this.adminPhase,
+    this.adminStatus,
     required this.priority,
     required this.tags,
     required this.customerId,
@@ -326,6 +360,8 @@ class ServiceModel {
     String? currentPhase,
     String? orderType,
     String? orderState,
+    String? adminPhase,
+    String? adminStatus,
     String? technicianId,
     int? priority,
     double? quotedAmount,
@@ -356,6 +392,8 @@ class ServiceModel {
       currentPhase: currentPhase ?? this.currentPhase,
       orderType: orderType ?? this.orderType,
       orderState: orderState ?? this.orderState,
+      adminPhase: adminPhase ?? this.adminPhase,
+      adminStatus: adminStatus ?? this.adminStatus,
       technicianId: technicianId ?? this.technicianId,
       priority: priority ?? this.priority,
       quotedAmount: quotedAmount ?? this.quotedAmount,
@@ -432,6 +470,12 @@ class ServiceModel {
           .toString(),
       orderType: (json['orderType'] ?? 'reserva').toString(),
       orderState: (json['orderState'] ?? 'pending').toString(),
+        adminPhase: json['adminPhase'] == null
+          ? null
+          : (json['adminPhase'] ?? '').toString(),
+        adminStatus: json['adminStatus'] == null
+          ? null
+          : (json['adminStatus'] ?? '').toString(),
       technicianId: json['technicianId'] == null
           ? null
           : (json['technicianId'] ?? '').toString(),

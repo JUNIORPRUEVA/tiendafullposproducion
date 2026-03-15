@@ -14,20 +14,32 @@ class StatusChip extends StatelessWidget {
 
     String label(String raw) {
       switch (raw) {
+        // AdminOrderStatus
+        case 'pendiente':
         case 'pending':
           return 'Pendiente';
+        case 'confirmada':
         case 'confirmed':
-          return 'Confirmado';
+          return 'Confirmada';
+        case 'asignada':
         case 'assigned':
           return 'Asignado';
+        case 'en_camino':
+          return 'En camino';
+        case 'en_proceso':
         case 'in_progress':
           return 'En proceso';
+        case 'finalizada':
         case 'finalized':
           return 'Finalizado';
+        case 'cerrada':
+          return 'Cerrada';
+        case 'cancelada':
         case 'cancelled':
           return 'Cancelado';
+        case 'reagendada':
         case 'rescheduled':
-          return 'Reprogramado';
+          return 'Reagendada';
 
         // Back-compat: ServiceStatus
         case 'reserved':
@@ -48,18 +60,29 @@ class StatusChip extends StatelessWidget {
 
     IconData icon(String raw) {
       switch (raw) {
+        case 'pendiente':
         case 'pending':
           return Icons.schedule_rounded;
+        case 'confirmada':
         case 'confirmed':
           return Icons.check_circle_outline_rounded;
+        case 'asignada':
         case 'assigned':
           return Icons.person_pin_circle_outlined;
+        case 'en_camino':
+          return Icons.directions_car_outlined;
+        case 'en_proceso':
         case 'in_progress':
           return Icons.play_circle_outline_rounded;
+        case 'finalizada':
         case 'finalized':
           return Icons.verified_outlined;
+        case 'cerrada':
+          return Icons.lock_outline_rounded;
+        case 'cancelada':
         case 'cancelled':
           return Icons.cancel_outlined;
+        case 'reagendada':
         case 'rescheduled':
           return Icons.event_repeat_rounded;
 
@@ -70,18 +93,29 @@ class StatusChip extends StatelessWidget {
 
     Color tint(String raw) {
       switch (raw) {
+        case 'pendiente':
         case 'pending':
           return scheme.error;
+        case 'confirmada':
         case 'confirmed':
           return scheme.primary;
+        case 'asignada':
         case 'assigned':
           return scheme.secondary;
+        case 'en_camino':
+          return scheme.secondary;
+        case 'en_proceso':
         case 'in_progress':
           return scheme.tertiary;
+        case 'finalizada':
         case 'finalized':
           return scheme.primary;
+        case 'cerrada':
+          return scheme.primary;
+        case 'cancelada':
         case 'cancelled':
           return scheme.error;
+        case 'reagendada':
         case 'rescheduled':
           return scheme.secondary;
 

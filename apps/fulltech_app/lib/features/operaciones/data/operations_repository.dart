@@ -518,6 +518,8 @@ class OperationsRepository {
     double? depositAmount,
     String? orderType,
     String? orderState,
+    String? adminPhase,
+    String? adminStatus,
     String? technicianId,
     String? warrantyParentServiceId,
     String? surveyResult,
@@ -543,6 +545,10 @@ class OperationsRepository {
             'orderType': orderType.trim(),
           if (orderState != null && orderState.trim().isNotEmpty)
             'orderState': orderState.trim(),
+          if (adminPhase != null && adminPhase.trim().isNotEmpty)
+            'adminPhase': adminPhase.trim(),
+          if (adminStatus != null && adminStatus.trim().isNotEmpty)
+            'adminStatus': adminStatus.trim(),
           if (technicianId != null && technicianId.trim().isNotEmpty)
             'technicianId': technicianId.trim(),
           if (warrantyParentServiceId != null &&
@@ -641,6 +647,50 @@ class OperationsRepository {
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo cambiar el estado'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<ServiceModel> changeAdminStatus({
+    required String serviceId,
+    required String adminStatus,
+    String? message,
+  }) async {
+    try {
+      final res = await _dio.patch(
+        ApiRoutes.serviceAdminStatus(serviceId),
+        data: {
+          'adminStatus': adminStatus,
+          if (message != null && message.trim().isNotEmpty) 'message': message,
+        },
+      );
+      return ServiceModel.fromJson((res.data as Map).cast<String, dynamic>());
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo cambiar el estado'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<ServiceModel> changeAdminPhase({
+    required String serviceId,
+    required String adminPhase,
+    String? message,
+  }) async {
+    try {
+      final res = await _dio.patch(
+        ApiRoutes.serviceAdminPhase(serviceId),
+        data: {
+          'adminPhase': adminPhase,
+          if (message != null && message.trim().isNotEmpty) 'message': message,
+        },
+      );
+      return ServiceModel.fromJson((res.data as Map).cast<String, dynamic>());
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo cambiar la fase'),
         e.response?.statusCode,
       );
     }
