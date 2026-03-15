@@ -377,6 +377,74 @@ export class NotificationsService {
 
     for (const row of claimed) {
       try {
+        // Reservation reminders: enforce "still RESERVA and already due" before sending,
+        // and restrict sending to business hours (09:00-18:00).
+        try {
+          const payload = (row.payload ?? null) as any;
+          const kind = payload?.kind ? String(payload.kind) : '';
+          const serviceId = payload?.serviceId ? String(payload.serviceId) : '';
+
+          if (kind === 'reservation_reminder' && serviceId) {
+            const service = await this.prisma.service.findUnique({
+              where: { id: serviceId },
+              select: {
+                id: true,
+                isDeleted: true,
+                status: true,
+                orderType: true,
+                currentPhase: true,
+                scheduledStart: true,
+              },
+            });
+
+            if (!service || service.isDeleted || !this.isReservationStillDue(service as any)) {
+              await this.prisma.notificationOutbox.update({
+                where: { id: row.id },
+                data: {
+                  status: 'FAILED',
+                  lockedAt: null,
+                  lockedBy: null,
+                  lastError: 'Recordatorio detenido: la orden ya no está en RESERVA o fue reagendada',
+                  lastStatusCode: null,
+                },
+              });
+              continue;
+            }
+
+            const t = new Date();
+            const hh = t.getHours();
+            const mm = t.getMinutes();
+            const ss = t.getSeconds();
+
+            const isAfter18 = hh > 18 || (hh === 18 && (mm > 0 || ss > 0));
+            const isBefore9 = hh < 9;
+            if (isBefore9 || isAfter18) {
+              const next = new Date(t);
+              if (isBefore9) {
+                next.setHours(9, 0, 0, 0);
+              } else {
+                next.setDate(next.getDate() + 1);
+                next.setHours(9, 0, 0, 0);
+              }
+
+              await this.prisma.notificationOutbox.update({
+                where: { id: row.id },
+                data: {
+                  status: 'PENDING',
+                  nextAttemptAt: next,
+                  lockedAt: null,
+                  lockedBy: null,
+                  lastError: null,
+                  lastStatusCode: null,
+                },
+              });
+              continue;
+            }
+          }
+        } catch {
+          // ignore and attempt send
+        }
+
         await this.evolution.sendTextMessage({
           toNumber: row.toNumberNormalized,
           message: row.messageText,
