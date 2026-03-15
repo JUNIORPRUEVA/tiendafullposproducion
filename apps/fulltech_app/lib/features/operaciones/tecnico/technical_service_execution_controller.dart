@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/cache/local_json_cache.dart';
@@ -26,6 +27,7 @@ class TechnicalExecutionState {
   final DateTime? finishedAt;
   final String notes;
   final bool clientApproved;
+  final Map<String, dynamic> phaseSpecificData;
 
   const TechnicalExecutionState({
     this.loading = false,
@@ -39,6 +41,7 @@ class TechnicalExecutionState {
     this.finishedAt,
     this.notes = '',
     this.clientApproved = false,
+    this.phaseSpecificData = const {},
   });
 
   bool get hasService => service != null && service!.id.trim().isNotEmpty;
@@ -56,6 +59,7 @@ class TechnicalExecutionState {
     DateTime? finishedAt,
     String? notes,
     bool? clientApproved,
+    Map<String, dynamic>? phaseSpecificData,
   }) {
     return TechnicalExecutionState(
       loading: loading ?? this.loading,
@@ -69,6 +73,7 @@ class TechnicalExecutionState {
       finishedAt: finishedAt ?? this.finishedAt,
       notes: notes ?? this.notes,
       clientApproved: clientApproved ?? this.clientApproved,
+      phaseSpecificData: phaseSpecificData ?? this.phaseSpecificData,
     );
   }
 }
@@ -138,6 +143,11 @@ class TechnicalExecutionController
         return DateTime.tryParse(raw.toString());
       }
 
+      Map<String, dynamic> parseMap(dynamic raw) {
+        if (raw is Map) return raw.cast<String, dynamic>();
+        return const <String, dynamic>{};
+      }
+
       final arrivedAt = draft?['arrivedAt'] != null
           ? parseDate(draft!['arrivedAt'])
           : bundle.report?.arrivedAt;
@@ -154,6 +164,10 @@ class TechnicalExecutionController
               false) ==
           true;
 
+      final phaseSpecificData = draft?['phaseSpecificData'] != null
+          ? parseMap(draft!['phaseSpecificData'])
+          : (bundle.report?.phaseSpecificData ?? const <String, dynamic>{});
+
       state = state.copyWith(
         loading: false,
         error: reportError,
@@ -164,6 +178,7 @@ class TechnicalExecutionController
         finishedAt: finishedAt,
         notes: notes,
         clientApproved: clientApproved,
+        phaseSpecificData: phaseSpecificData,
       );
     } catch (e) {
       state = state.copyWith(loading: false, error: e.toString());
@@ -172,6 +187,17 @@ class TechnicalExecutionController
 
   String _guessMimeType(PlatformFile file) {
     final ext = (file.extension ?? '').trim().toLowerCase();
+    if (ext == 'jpg' || ext == 'jpeg') return 'image/jpeg';
+    if (ext == 'png') return 'image/png';
+    if (ext == 'webp') return 'image/webp';
+    if (ext == 'mp4') return 'video/mp4';
+    return 'application/octet-stream';
+  }
+
+  String _guessMimeTypeFromName(String name) {
+    final trimmed = name.trim();
+    final idx = trimmed.lastIndexOf('.');
+    final ext = idx >= 0 ? trimmed.substring(idx + 1).toLowerCase() : '';
     if (ext == 'jpg' || ext == 'jpeg') return 'image/jpeg';
     if (ext == 'png') return 'image/png';
     if (ext == 'webp') return 'image/webp';
@@ -223,8 +249,27 @@ class TechnicalExecutionController
       'finishedAt': state.finishedAt?.toIso8601String(),
       'notes': state.notes,
       'clientApproved': state.clientApproved,
+      'phaseSpecificData': state.phaseSpecificData,
       'at': DateTime.now().toIso8601String(),
     });
+  }
+
+  void updatePhaseSpecificField(String key, String value) {
+    if (_readOnly) return;
+    final k = key.trim();
+    if (k.isEmpty) return;
+    final v = value.trim();
+
+    final next = <String, dynamic>{...state.phaseSpecificData};
+    if (v.isEmpty) {
+      next.remove(k);
+    } else {
+      next[k] = v;
+    }
+
+    state = state.copyWith(phaseSpecificData: next);
+    unawaited(_persistDraft());
+    _debouncedSave();
   }
 
   Future<void> _clearDraft() async {
@@ -293,6 +338,9 @@ class TechnicalExecutionController
         startedAt: state.startedAt,
         finishedAt: state.finishedAt,
         notes: state.notes,
+        phaseSpecificData: state.phaseSpecificData.isEmpty
+            ? null
+            : state.phaseSpecificData,
         clientApproved: state.clientApproved,
       );
 
@@ -341,18 +389,18 @@ class TechnicalExecutionController
 
   Future<void> uploadEvidence({
     required PlatformFile file,
-    required String caption,
+    String? caption,
   }) async {
     if (_readOnly) return;
     final service = state.service;
     if (service == null) return;
 
-    final trimmedCaption = caption.trim();
-    if (trimmedCaption.isEmpty) return;
-
     final id = DateTime.now().microsecondsSinceEpoch.toString();
     final mimeType = _guessMimeType(file);
-    final kind = mimeType.startsWith('video/') ? 'video_evidence' : 'evidence_final';
+    final isVideo = mimeType.startsWith('video/');
+    final trimmedCaption = (caption ?? '').trim();
+    if (!isVideo && trimmedCaption.isEmpty) return;
+    final kind = isVideo ? 'video_evidence' : 'evidence_final';
 
     _upsertPending(
       PendingEvidenceUpload(
@@ -416,7 +464,124 @@ class TechnicalExecutionController
         mimeType: mimeType,
         fileSize: file.size,
         kind: kind,
+        caption: trimmedCaption.isEmpty ? null : trimmedCaption,
+      );
+
+      if (!mounted) return;
+
+      final repo = ref.read(operationsRepositoryProvider);
+      final refreshed = await repo.getService(serviceId);
+
+      if (!mounted) return;
+      _removePending(id);
+      state = state.copyWith(service: refreshed);
+    } catch (e) {
+      if (!mounted) return;
+      _removePending(id);
+      if (e is ApiException) {
+        state = state.copyWith(error: e.message);
+      } else {
+        state = state.copyWith(error: e.toString());
+      }
+    }
+  }
+
+  Future<void> uploadEvidenceXFile({
+    required XFile file,
+    String? caption,
+  }) async {
+    if (_readOnly) return;
+    final service = state.service;
+    if (service == null) return;
+
+    final id = DateTime.now().microsecondsSinceEpoch.toString();
+    final mimeType = _guessMimeTypeFromName(file.name);
+    final isVideo = mimeType.startsWith('video/');
+    final trimmedCaption = (caption ?? '').trim();
+    if (!isVideo && trimmedCaption.isEmpty) return;
+    final kind = isVideo ? 'video_evidence' : 'evidence_final';
+
+    int size;
+    try {
+      size = await file.length();
+    } catch (_) {
+      size = 0;
+    }
+
+    // For web uploads we must provide bytes. For mobile, only keep bytes for images
+    // (to show a quick preview) and stream the upload when possible.
+    List<int>? bytes;
+    if (kIsWeb || (!isVideo)) {
+      try {
+        bytes = await file.readAsBytes();
+      } catch (_) {
+        bytes = null;
+      }
+    }
+
+    _upsertPending(
+      PendingEvidenceUpload(
+        id: id,
+        fileName: file.name,
+        mimeType: mimeType,
         caption: trimmedCaption,
+        fileSize: size,
+        path: kIsWeb ? null : file.path,
+        bytes: bytes,
+      ),
+    );
+
+    try {
+      final storage = ref.read(storageRepositoryProvider);
+
+      final presign = await storage.presign(
+        serviceId: serviceId,
+        fileName: file.name,
+        contentType: mimeType,
+        fileSize: size,
+        kind: kind,
+      );
+
+      if (!mounted) return;
+
+      await storage.uploadToPresignedUrl(
+        uploadUrl: presign.uploadUrl,
+        bytes: bytes,
+        stream: kIsWeb ? null : file.openRead(),
+        contentType: mimeType,
+        contentLength: size,
+        onProgress: (sent, total) {
+          if (!mounted) return;
+          if (total <= 0) return;
+          final p = sent / total;
+          final bounded = p < 0 ? 0.0 : (p > 1 ? 1.0 : p);
+          final cur = state.pendingEvidence.firstWhere(
+            (e) => e.id == id,
+            orElse: () => PendingEvidenceUpload(
+              id: id,
+              fileName: file.name,
+              mimeType: mimeType,
+              caption: trimmedCaption,
+              fileSize: size,
+              path: kIsWeb ? null : file.path,
+              bytes: bytes,
+            ),
+          );
+          _upsertPending(cur.copyWith(progress: bounded));
+        },
+      );
+
+      if (!mounted) return;
+
+      await storage.confirm(
+        serviceId: serviceId,
+        objectKey: presign.objectKey,
+        publicUrl: presign.publicUrl,
+        fileName: file.name,
+        mimeType: mimeType,
+        fileSize: size,
+        kind: kind,
+        caption: trimmedCaption.isEmpty ? null : trimmedCaption,
       );
 
       if (!mounted) return;

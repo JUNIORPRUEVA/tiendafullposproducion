@@ -11,6 +11,7 @@ class Routes {
   static const operaciones = '/operaciones';
   static const operacionesTecnico = '/operaciones/tecnico';
   static const operacionesTecnicoDetalle = '/operaciones/tecnico/:id';
+  static const operacionesTecnicoOrden = '/operaciones/tecnico/:id/orden';
   static const salidasTecnicas = '/salidas-tecnicas';
   static const horarios = '/horarios';
   static const operacionesAgenda = '/operaciones/agenda';
@@ -40,4 +41,7 @@ class Routes {
 
   static String operacionesTecnicoDetail(String id) =>
       '/operaciones/tecnico/$id';
+
+  static String operacionesTecnicoOrder(String id) =>
+      '/operaciones/tecnico/$id/orden';
 }

@@ -3,6 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:chewie/chewie.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/routing/routes.dart';
@@ -10,6 +13,7 @@ import '../operations_models.dart';
 import '../presentation/operations_permissions.dart';
 import 'technical_service_execution_controller.dart';
 import 'widgets/technical_execution_cards.dart';
+import 'widgets/service_execution_form.dart';
 
 class TechnicalServiceExecutionScreen extends ConsumerStatefulWidget {
   final String serviceId;
@@ -24,6 +28,7 @@ class TechnicalServiceExecutionScreen extends ConsumerStatefulWidget {
 class _TechnicalServiceExecutionScreenState
     extends ConsumerState<TechnicalServiceExecutionScreen> {
   late final TextEditingController _notesCtrl;
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
@@ -37,14 +42,6 @@ class _TechnicalServiceExecutionScreenState
     super.dispose();
   }
 
-  String _fmtDateTime(DateTime? dt) {
-    if (dt == null) return '—';
-    final v = dt.toLocal();
-    final h = v.hour.toString().padLeft(2, '0');
-    final m = v.minute.toString().padLeft(2, '0');
-    return '${v.day}/${v.month}/${v.year} $h:$m';
-  }
-
   bool _isReadOnly({required ServiceModel service, required dynamic user}) {
     final perms = OperationsPermissions(user: user, service: service);
     if (!perms.canOperate) return true;
@@ -56,24 +53,47 @@ class _TechnicalServiceExecutionScreenState
         status == ServiceStatus.completed;
   }
 
-  Future<String?> _askEvidenceCaption(BuildContext context) async {
+  bool _isLikelyVideo(ServiceFileModel file) {
+    final ft = (file.mimeType ?? file.fileType).trim().toLowerCase();
+    final url = file.fileUrl.trim().toLowerCase();
+    if (ft.contains('video')) return true;
+    return url.endsWith('.mp4');
+  }
+
+  bool _isLikelyImage(ServiceFileModel file) {
+    final ft = (file.mimeType ?? file.fileType).trim().toLowerCase();
+    final url = file.fileUrl.trim().toLowerCase();
+    if (ft.contains('image')) return true;
+    return url.endsWith('.png') ||
+        url.endsWith('.jpg') ||
+        url.endsWith('.jpeg') ||
+        url.endsWith('.webp');
+  }
+
+  Future<String?> _askEvidenceNote(
+    BuildContext context, {
+    required String title,
+    required String hintText,
+    required bool required,
+  }) async {
+    final theme = Theme.of(context);
     final ctrl = TextEditingController();
     String? error;
 
-    final res = await showDialog<String>(
+    final res = await showDialog<String?>(
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
-          builder: (context, setState) {
+          builder: (dialogContext, setState) {
             return AlertDialog(
-              title: const Text('Descripción de la evidencia'),
+              title: Text(title),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Escribe un texto corto (ej: antes/después, serial, detalle).',
-                    style: Theme.of(context).textTheme.bodySmall,
+                    required ? 'Nota (requerida)' : 'Nota (opcional)',
+                    style: theme.textTheme.bodySmall,
                   ),
                   const SizedBox(height: 10),
                   TextField(
@@ -81,7 +101,7 @@ class _TechnicalServiceExecutionScreenState
                     autofocus: true,
                     maxLength: 140,
                     decoration: InputDecoration(
-                      hintText: 'Ej: Evidencia después de instalación',
+                      hintText: hintText,
                       errorText: error,
                     ),
                     onChanged: (_) {
@@ -100,7 +120,7 @@ class _TechnicalServiceExecutionScreenState
                 FilledButton(
                   onPressed: () {
                     final v = ctrl.text.trim();
-                    if (v.isEmpty) {
+                    if (required && v.isEmpty) {
                       setState(() => error = 'Requerido');
                       return;
                     }
@@ -116,45 +136,223 @@ class _TechnicalServiceExecutionScreenState
     );
 
     ctrl.dispose();
-    return res?.trim().isEmpty == true ? null : res;
+    if (res == null) return null;
+    final trimmed = res.trim();
+    if (required) {
+      return trimmed.isEmpty ? null : trimmed;
+    }
+    return trimmed.isEmpty ? '' : trimmed;
   }
 
-  Future<void> _pickAndUploadEvidence(
+  Future<void> _pickAndUploadImageEvidence(
     BuildContext context,
     TechnicalExecutionController ctrl,
   ) async {
+    Future<void> uploadXFile(XFile xFile) async {
+      if (!context.mounted) return;
+      await Future<void>.delayed(Duration.zero);
+      if (!context.mounted) return;
+
+      final caption = await _askEvidenceNote(
+        context,
+        title: 'Agregar nota',
+        hintText: 'Ej: Evidencia después de instalación',
+        required: true,
+      );
+      if (caption == null || caption.trim().isEmpty) return;
+      if (!context.mounted) return;
+      await ctrl.uploadEvidenceXFile(file: xFile, caption: caption);
+    }
+
+    try {
+      final xFile = await _picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 88,
+      );
+      if (xFile != null) {
+        await uploadXFile(xFile);
+        return;
+      }
+    } catch (_) {
+      // fallback below
+    }
+
+    // Fallback (desktop/web): file picker
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: false,
       type: FileType.custom,
-      allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp', 'mp4'],
+      allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
       withReadStream: !kIsWeb,
       withData: kIsWeb,
-      dialogTitle: 'Selecciona una evidencia (imagen o video)',
+      dialogTitle: 'Selecciona una imagen',
     );
 
     final file = result?.files.isNotEmpty == true ? result!.files.first : null;
     if (file == null) return;
 
     if (!context.mounted) return;
-
-    // Some platforms/plugins can briefly disturb the widget tree after the native picker.
-    // Deferring the next dialog to the next cycle avoids using a context while routes/inherited
-    // dependencies are still settling.
     await Future<void>.delayed(Duration.zero);
-
     if (!context.mounted) return;
 
-    final caption = await _askEvidenceCaption(context);
+    final caption = await _askEvidenceNote(
+      context,
+      title: 'Agregar nota',
+      hintText: 'Ej: Evidencia después de instalación',
+      required: true,
+    );
     if (caption == null || caption.trim().isEmpty) return;
-
     if (!context.mounted) return;
-
     await ctrl.uploadEvidence(file: file, caption: caption);
   }
 
-  Future<void> _previewEvidence(BuildContext context, ServiceFileModel file) {
+  Future<void> _captureAndUploadImageEvidence(
+    BuildContext context,
+    TechnicalExecutionController ctrl,
+  ) async {
+    try {
+      final xFile = await _picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 88,
+      );
+      if (xFile == null) return;
+      if (!context.mounted) return;
+
+      await Future<void>.delayed(Duration.zero);
+      if (!context.mounted) return;
+
+      final caption = await _askEvidenceNote(
+        context,
+        title: 'Agregar nota',
+        hintText: 'Ej: Evidencia después de instalación',
+        required: true,
+      );
+      if (caption == null || caption.trim().isEmpty) return;
+      if (!context.mounted) return;
+
+      await ctrl.uploadEvidenceXFile(file: xFile, caption: caption);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Cámara no disponible: $e')));
+    }
+  }
+
+  Future<void> _pickAndUploadVideoEvidence(
+    BuildContext context,
+    TechnicalExecutionController ctrl,
+  ) async {
+    Future<void> uploadXFile(XFile xFile) async {
+      if (!context.mounted) return;
+      await Future<void>.delayed(Duration.zero);
+      if (!context.mounted) return;
+
+      final note = await _askEvidenceNote(
+        context,
+        title: 'Agregar nota al video',
+        hintText: 'Ej: Video de prueba (opcional)',
+        required: false,
+      );
+      if (note == null) return;
+      if (!context.mounted) return;
+
+      await ctrl.uploadEvidenceXFile(
+        file: xFile,
+        caption: note.trim().isEmpty ? null : note,
+      );
+    }
+
+    try {
+      final xFile = await _picker.pickVideo(source: ImageSource.gallery);
+      if (xFile != null) {
+        await uploadXFile(xFile);
+        return;
+      }
+    } catch (_) {
+      // fallback below
+    }
+
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+      type: FileType.custom,
+      allowedExtensions: const ['mp4'],
+      withReadStream: !kIsWeb,
+      withData: kIsWeb,
+      dialogTitle: 'Selecciona un video',
+    );
+
+    final file = result?.files.isNotEmpty == true ? result!.files.first : null;
+    if (file == null) return;
+
+    if (!context.mounted) return;
+    await Future<void>.delayed(Duration.zero);
+    if (!context.mounted) return;
+
+    final note = await _askEvidenceNote(
+      context,
+      title: 'Agregar nota al video',
+      hintText: 'Ej: Video de prueba (opcional)',
+      required: false,
+    );
+    if (note == null) return;
+    if (!context.mounted) return;
+
+    await ctrl.uploadEvidence(
+      file: file,
+      caption: note.trim().isEmpty ? null : note,
+    );
+  }
+
+  Future<void> _captureAndUploadVideoEvidence(
+    BuildContext context,
+    TechnicalExecutionController ctrl,
+  ) async {
+    try {
+      final xFile = await _picker.pickVideo(source: ImageSource.camera);
+      if (xFile == null) return;
+
+      if (!context.mounted) return;
+      await Future<void>.delayed(Duration.zero);
+      if (!context.mounted) return;
+
+      final note = await _askEvidenceNote(
+        context,
+        title: 'Agregar nota al video',
+        hintText: 'Ej: Video de prueba (opcional)',
+        required: false,
+      );
+      if (note == null) return;
+      if (!context.mounted) return;
+
+      await ctrl.uploadEvidenceXFile(
+        file: xFile,
+        caption: note.trim().isEmpty ? null : note,
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Cámara no disponible: $e')));
+    }
+  }
+
+  Future<void> _previewEvidence(
+    BuildContext context,
+    ServiceFileModel file,
+  ) async {
     final url = file.fileUrl.trim();
     if (url.isEmpty) return Future.value();
+
+    final ft = (file.mimeType ?? file.fileType).trim().toLowerCase();
+    final isVideo = ft.contains('video') || url.toLowerCase().endsWith('.mp4');
+    if (isVideo) {
+      return showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return _VideoPreviewDialog(url: url);
+        },
+      );
+    }
 
     return showDialog<void>(
       context: context,
@@ -204,126 +402,6 @@ class _TechnicalServiceExecutionScreenState
     );
   }
 
-  Future<void> _openAddChangeDialog(
-    BuildContext context,
-    TechnicalExecutionController ctrl,
-  ) async {
-    final typeCtrl = TextEditingController();
-    final descCtrl = TextEditingController();
-    final qtyCtrl = TextEditingController();
-    final extraCtrl = TextEditingController();
-    final noteCtrl = TextEditingController();
-    bool clientApproved = false;
-
-    double? parseNum(String raw) {
-      final t = raw.trim();
-      if (t.isEmpty) return null;
-      return double.tryParse(t.replaceAll(',', '.'));
-    }
-
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Agregar cambio'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: typeCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Tipo (ej: material, repuesto, visita)',
-                  ),
-                  textInputAction: TextInputAction.next,
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: descCtrl,
-                  decoration: const InputDecoration(labelText: 'Descripción'),
-                  minLines: 2,
-                  maxLines: 4,
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: qtyCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Cantidad',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: TextField(
-                        controller: extraCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Costo extra',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: noteCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Nota (opcional)',
-                  ),
-                  minLines: 1,
-                  maxLines: 3,
-                ),
-                const SizedBox(height: 6),
-                StatefulBuilder(
-                  builder: (context, setState) {
-                    return SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Aprobado por cliente'),
-                      value: clientApproved,
-                      onChanged: (v) => setState(() => clientApproved = v),
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final type = typeCtrl.text.trim();
-                final desc = descCtrl.text.trim();
-                await ctrl.addChange(
-                  type: type,
-                  description: desc,
-                  quantity: parseNum(qtyCtrl.text),
-                  extraCost: parseNum(extraCtrl.text),
-                  clientApproved: clientApproved,
-                  note: noteCtrl.text,
-                );
-                if (dialogContext.mounted) Navigator.pop(dialogContext);
-              },
-              child: const Text('Agregar'),
-            ),
-          ],
-        );
-      },
-    );
-
-    typeCtrl.dispose();
-    descCtrl.dispose();
-    qtyCtrl.dispose();
-    extraCtrl.dispose();
-    noteCtrl.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     final st = ref.watch(
@@ -334,7 +412,6 @@ class _TechnicalServiceExecutionScreenState
     );
 
     final auth = ref.watch(authStateProvider);
-    final userId = (auth.user?.id ?? '').trim();
 
     final service = st.service;
     if (_notesCtrl.text != st.notes) {
@@ -406,8 +483,6 @@ class _TechnicalServiceExecutionScreenState
                     ),
                     const SizedBox(height: 12),
                   ],
-                  ServiceHeaderCard(service: service),
-                  const SizedBox(height: 12),
                   ExecutionTimelineCard(
                     arrivedAt: st.arrivedAt,
                     startedAt: st.startedAt,
@@ -428,66 +503,199 @@ class _TechnicalServiceExecutionScreenState
                     readOnly: _isReadOnly(service: service, user: auth.user),
                   ),
                   const SizedBox(height: 12),
+                  TechnicalSectionCard(
+                    icon: Icons.tune_outlined,
+                    title: 'Detalles por tipo de servicio',
+                    child: ServiceExecutionForm(
+                      service: service,
+                      phaseSpecificData: st.phaseSpecificData,
+                      readOnly: _isReadOnly(service: service, user: auth.user),
+                      onChanged: (k, v) => ctrl.updatePhaseSpecificField(k, v),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   ServiceChecklistCard(
                     steps: service.steps,
                     onToggle: ctrl.toggleStep,
                   ),
                   const SizedBox(height: 12),
                   EvidenceGalleryCard(
-                    files: service.files,
-                    pending: st.pendingEvidence,
-                    onUpload: () => _pickAndUploadEvidence(context, ctrl),
+                    title: 'Fotos del servicio',
+                    emptyLabel: 'Sin evidencias aún',
+                    icon: Icons.photo_camera_outlined,
+                    files: service.files.where(_isLikelyImage).toList(),
+                    pending: st.pendingEvidence
+                        .where((p) => p.isImage)
+                        .toList(),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton.filledTonal(
+                          tooltip: 'Cámara',
+                          onPressed: () =>
+                              _captureAndUploadImageEvidence(context, ctrl),
+                          icon: const Icon(Icons.photo_camera_outlined),
+                        ),
+                        const SizedBox(width: 6),
+                        IconButton.filledTonal(
+                          tooltip: 'Galería',
+                          onPressed: () =>
+                              _pickAndUploadImageEvidence(context, ctrl),
+                          icon: const Icon(Icons.photo_library_outlined),
+                        ),
+                      ],
+                    ),
                     onPreview: (f) => _previewEvidence(context, f),
                   ),
                   const SizedBox(height: 12),
-                  ServiceChangesCard(
-                    changes: st.changes,
-                    onAdd: () => _openAddChangeDialog(context, ctrl),
-                    canDelete: (c) {
-                      final perms = OperationsPermissions(
-                        user: auth.user,
-                        service: service,
-                      );
-                      final canDeleteOwn =
-                          userId.isNotEmpty && c.createdByUserId == userId;
-                      return canDeleteOwn || perms.isAdminLike;
-                    },
-                    onDelete: (c) => ctrl.deleteChange(c),
-                  ),
-                  const SizedBox(height: 12),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Historial',
-                            style: Theme.of(context).textTheme.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w900),
-                          ),
-                          const SizedBox(height: 6),
-                          if (service.updates.isEmpty)
-                            const Text('Sin historial')
-                          else
-                            ...service.updates
-                                .take(20)
-                                .map(
-                                  (u) => ListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    title: Text(u.message),
-                                    subtitle: Text(
-                                      '${u.changedBy} • ${_fmtDateTime(u.createdAt)}',
-                                    ),
-                                  ),
-                                ),
-                        ],
-                      ),
+                  EvidenceGalleryCard(
+                    title: 'Videos del servicio',
+                    emptyLabel: 'Sin videos aún',
+                    icon: Icons.videocam_outlined,
+                    files: service.files.where(_isLikelyVideo).toList(),
+                    pending: st.pendingEvidence
+                        .where((p) => p.isVideo)
+                        .toList(),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton.filledTonal(
+                          tooltip: 'Cámara',
+                          onPressed: () =>
+                              _captureAndUploadVideoEvidence(context, ctrl),
+                          icon: const Icon(Icons.videocam_outlined),
+                        ),
+                        const SizedBox(width: 6),
+                        IconButton.filledTonal(
+                          tooltip: 'Galería',
+                          onPressed: () =>
+                              _pickAndUploadVideoEvidence(context, ctrl),
+                          icon: const Icon(Icons.video_library_outlined),
+                        ),
+                      ],
                     ),
+                    onPreview: (f) => _previewEvidence(context, f),
                   ),
                 ],
               ),
             ),
+    );
+  }
+}
+
+class _VideoPreviewDialog extends StatefulWidget {
+  final String url;
+
+  const _VideoPreviewDialog({required this.url});
+
+  @override
+  State<_VideoPreviewDialog> createState() => _VideoPreviewDialogState();
+}
+
+class _VideoPreviewDialogState extends State<_VideoPreviewDialog> {
+  late final VideoPlayerController _controller;
+  ChewieController? _chewie;
+  late final Future<void> _init;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    _init = _controller.initialize().then((_) {
+      if (!mounted) return;
+
+      final cs = Theme.of(context).colorScheme;
+      _chewie = ChewieController(
+        videoPlayerController: _controller,
+        autoPlay: true,
+        looping: false,
+        allowFullScreen: true,
+        allowMuting: true,
+        showControls: true,
+        materialProgressColors: ChewieProgressColors(
+          playedColor: cs.primary,
+          handleColor: cs.primary,
+          bufferedColor: cs.primary.withValues(alpha: 0.25),
+          backgroundColor: cs.onSurface.withValues(alpha: 0.20),
+        ),
+        errorBuilder: (context, errorMessage) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'No se pudo reproducir el video\n$errorMessage',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          );
+        },
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _chewie?.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Dialog(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Container(
+                color: cs.surface,
+                child: FutureBuilder<void>(
+                  future: _init,
+                  builder: (context, snap) {
+                    if (snap.connectionState != ConnectionState.done) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    if (snap.hasError ||
+                        !_controller.value.isInitialized ||
+                        _chewie == null) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(
+                            'No se pudo reproducir el video',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ),
+                      );
+                    }
+
+                    final aspect = _controller.value.aspectRatio;
+                    return Center(
+                      child: AspectRatio(
+                        aspectRatio: aspect > 0 ? aspect : 16 / 9,
+                        child: Chewie(controller: _chewie!),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton(
+                tooltip: 'Cerrar',
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

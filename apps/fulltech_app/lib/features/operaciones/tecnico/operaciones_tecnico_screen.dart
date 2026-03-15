@@ -7,7 +7,8 @@ import '../../../core/routing/routes.dart';
 import '../data/operations_repository.dart';
 import '../operations_models.dart';
 import '../presentation/operations_permissions.dart';
-import '../presentation/status_chip.dart';
+
+import 'widgets/service_card_widget.dart';
 
 enum TechOpsTab { hoy, pendientes, enProceso, finalizados }
 
@@ -98,6 +99,20 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
   List<ServiceModel> _filter(List<ServiceModel> all, TechOpsTab tab) {
     final now = DateTime.now();
 
+    bool isAllowedPhase(ServiceModel service) {
+      final phase = service.currentPhase.trim().toLowerCase();
+      if (phase.isEmpty) return true;
+      return phase != 'reserva' && phase != 'reserved';
+    }
+
+    bool isAllowedServiceType(ServiceModel service) {
+      final type = techAllowedServiceTypeFrom(service);
+      return type == TechAllowedServiceType.installation ||
+          type == TechAllowedServiceType.maintenance ||
+          type == TechAllowedServiceType.warranty ||
+          type == TechAllowedServiceType.survey;
+    }
+
     bool isFinalizado(ServiceStatus status) {
       return status == ServiceStatus.completed ||
           status == ServiceStatus.closed ||
@@ -117,6 +132,11 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
 
     final filtered = all
         .where((service) {
+          // BUSINESS RULE: technicians must NOT see reservations.
+          if (!isAllowedPhase(service)) return false;
+          // Only show these types: Installation, Maintenance, Warranty, Survey.
+          if (!isAllowedServiceType(service)) return false;
+
           final status = parseStatus(service.status);
           switch (tab) {
             case TechOpsTab.hoy:
@@ -206,15 +226,48 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
                     separatorBuilder: (_, __) => const SizedBox(height: 10),
                     itemBuilder: (context, index) {
                       final s = services[index];
+
+                      String fmtDate(DateTime? dt) {
+                        if (dt == null) return '—';
+                        final v = dt.toLocal();
+                        final d = v.day.toString().padLeft(2, '0');
+                        final m = v.month.toString().padLeft(2, '0');
+                        final y = v.year.toString();
+                        return '$d/$m/$y';
+                      }
+
+                      final type = techAllowedServiceTypeFrom(s);
+                      final status = techStatusBadgeFrom(parseStatus(s.status));
+                      final scheduled = s.scheduledStart ?? s.scheduledEnd;
+                      final assignedNames = s.assignments
+                          .map((a) => a.userName.trim())
+                          .where((n) => n.isNotEmpty)
+                          .toList();
+
                       final perms = OperationsPermissions(
                         user: user,
                         service: s,
                       );
+                      final canManage =
+                          user != null &&
+                          (perms.isAdminLike || perms.canOperate);
 
-                      return _TechServiceCard(
+                      return ServiceCardWidget(
                         service: s,
-                        canOperate: perms.canOperate,
-                        onOpen: () {
+                        type: type,
+                        status: status,
+                        scheduledDateLabel: fmtDate(scheduled),
+                        orderIdLabel: s.id.trim().isEmpty ? '—' : s.id.trim(),
+                        assignedTechnicianLabel: assignedNames.isEmpty
+                            ? '—'
+                            : assignedNames.join(', '),
+                        canManage: canManage,
+                        onViewOrder: () {
+                          final id = s.id.trim();
+                          if (id.isEmpty) return;
+                          context.go(Routes.operacionesTecnicoOrder(id));
+                        },
+                        onManageService: () {
                           final id = s.id.trim();
                           if (id.isEmpty) return;
                           context.go(Routes.operacionesTecnicoDetail(id));
@@ -224,150 +277,6 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
                   ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _TechServiceCard extends StatelessWidget {
-  final ServiceModel service;
-  final bool canOperate;
-  final VoidCallback onOpen;
-
-  const _TechServiceCard({
-    required this.service,
-    required this.canOperate,
-    required this.onOpen,
-  });
-
-  String _scheduledText() {
-    final start = service.scheduledStart;
-    if (start == null) return '';
-    final local = start.toLocal();
-    final h = local.hour.toString().padLeft(2, '0');
-    final m = local.minute.toString().padLeft(2, '0');
-    return '${local.day}/${local.month} $h:$m';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-
-    final customer = service.customerName.trim().isEmpty
-        ? 'Cliente'
-        : service.customerName.trim();
-    final subtitle = service.title.trim().isEmpty
-        ? service.description.trim()
-        : service.title.trim();
-
-    final scheduled = _scheduledText();
-
-    return Card(
-      elevation: 1,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.55)),
-      ),
-      child: InkWell(
-        onTap: onOpen,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      customer,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  StatusChip(
-                    status: service.orderState.isEmpty
-                        ? service.status
-                        : service.orderState,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                subtitle,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurface.withValues(alpha: 0.80),
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: scheme.onSurface.withValues(alpha: 0.06),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color: scheme.outlineVariant.withValues(alpha: 0.55),
-                      ),
-                    ),
-                    child: Text(
-                      'Fase: ${phaseLabel(service.currentPhase)}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        color: scheme.onSurface.withValues(alpha: 0.78),
-                      ),
-                    ),
-                  ),
-                  if (!canOperate) ...[
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: scheme.error.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: scheme.error.withValues(alpha: 0.35),
-                        ),
-                      ),
-                      child: Text(
-                        'No asignado a ti',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w900,
-                          color: scheme.error,
-                        ),
-                      ),
-                    ),
-                  ],
-                  const Spacer(),
-                  if (scheduled.isNotEmpty)
-                    Text(
-                      scheduled,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: scheme.onSurface.withValues(alpha: 0.70),
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

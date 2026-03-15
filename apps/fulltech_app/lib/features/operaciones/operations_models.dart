@@ -142,6 +142,7 @@ class ServiceFileModel {
   final String id;
   final String fileUrl;
   final String fileType;
+  final String? mimeType;
   final String? caption;
   final DateTime? createdAt;
 
@@ -149,6 +150,7 @@ class ServiceFileModel {
     required this.id,
     required this.fileUrl,
     required this.fileType,
+    this.mimeType,
     this.caption,
     this.createdAt,
   });
@@ -158,6 +160,7 @@ class ServiceFileModel {
       id: (json['id'] ?? '').toString(),
       fileUrl: (json['fileUrl'] ?? '').toString(),
       fileType: (json['fileType'] ?? '').toString(),
+      mimeType: json['mimeType']?.toString(),
       caption: json['caption']?.toString(),
       createdAt: json['createdAt'] == null
           ? null

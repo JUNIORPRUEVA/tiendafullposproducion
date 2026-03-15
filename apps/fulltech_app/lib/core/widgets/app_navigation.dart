@@ -209,7 +209,8 @@ String resolveNavigationTitle(
   if (path == Routes.operacionesReglas) return 'Reglas operativas';
   if (path == Routes.operacionesTecnico) return 'Mis servicios';
   if (path.startsWith('${Routes.operacionesTecnico}/')) {
-    return 'Servicio (Técnico)';
+    if (path.endsWith('/orden')) return 'Orden de servicio';
+    return 'Gestionar servicio';
   }
   if (path.startsWith('/clientes/') && path.endsWith('/editar')) {
     return 'Editar cliente';
