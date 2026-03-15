@@ -369,6 +369,7 @@ class ServiceModel {
   final double? depositAmount;
   final double? finalCost;
   final List<String> tags;
+  final DateTime? createdAt;
   final DateTime? scheduledStart;
   final DateTime? scheduledEnd;
   final DateTime? completedAt;
@@ -413,6 +414,7 @@ class ServiceModel {
     this.quotedAmount,
     this.depositAmount,
     this.finalCost,
+    this.createdAt,
     this.scheduledStart,
     this.scheduledEnd,
     this.completedAt,
@@ -435,6 +437,7 @@ class ServiceModel {
     double? depositAmount,
     double? finalCost,
     List<String>? tags,
+    DateTime? createdAt,
     DateTime? scheduledStart,
     DateTime? scheduledEnd,
     DateTime? completedAt,
@@ -468,6 +471,7 @@ class ServiceModel {
       depositAmount: depositAmount ?? this.depositAmount,
       finalCost: finalCost ?? this.finalCost,
       tags: tags ?? this.tags,
+      createdAt: createdAt ?? this.createdAt,
       scheduledStart: scheduledStart ?? this.scheduledStart,
       scheduledEnd: scheduledEnd ?? this.scheduledEnd,
       completedAt: completedAt ?? this.completedAt,
@@ -557,6 +561,9 @@ class ServiceModel {
       depositAmount: parseMoney(json['depositAmount']),
       finalCost: parseFinalCost(json['orderExtras']),
       tags: parseStringList(json['tags']),
+      createdAt: json['createdAt'] == null
+          ? null
+          : DateTime.tryParse(json['createdAt'].toString()),
       scheduledStart: json['scheduledStart'] == null
           ? null
           : DateTime.tryParse(json['scheduledStart'].toString()),

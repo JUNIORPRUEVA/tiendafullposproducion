@@ -25,6 +25,7 @@ import '../../core/utils/geo_utils.dart';
 import '../../core/utils/external_launcher.dart';
 import '../../core/utils/safe_url_launcher.dart';
 import '../../core/utils/string_utils.dart';
+import '../../core/utils/video_preview_controller.dart';
 import '../../core/widgets/app_navigation.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../modules/cotizaciones/data/cotizaciones_repository.dart';
@@ -59,6 +60,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
   static const Duration _deepLinkTimeout = Duration(seconds: 12);
 
   final _searchCtrl = TextEditingController();
+  final _panelKey = GlobalKey<_PanelOptionsState>();
   String? _lastAppliedDeepLinkKey;
 
   Future<void> _openQuickCreateFromAppBar() async {
@@ -443,35 +445,59 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
   PreferredSizeWidget _buildDesktopAppBar({
     required BuildContext context,
     required AuthState authState,
+    required TextEditingController searchCtrl,
+    required VoidCallback onOpenFilters,
+    required VoidCallback onRefresh,
   }) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final today = DateFormat('EEEE, d MMMM yyyy', 'es').format(DateTime.now());
 
     return AppBar(
-      toolbarHeight: 78,
+      toolbarHeight: 72,
       elevation: 0,
       backgroundColor: scheme.surface,
       foregroundColor: scheme.onSurface,
       titleSpacing: 18,
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
+      title: Row(
         children: [
-          Text(
-            'Centro de Operaciones',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w900,
-              letterSpacing: -0.4,
+          Expanded(
+            child: SizedBox(
+              height: 44,
+              child: TextField(
+                controller: searchCtrl,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  isDense: true,
+                  prefixIcon: const Icon(Icons.search),
+                  hintText: 'Buscar…',
+                  filled: true,
+                  fillColor: scheme.surfaceContainerHighest,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide.none,
+                  ),
+                  suffixIcon: searchCtrl.text.trim().isNotEmpty
+                      ? IconButton(
+                          tooltip: 'Limpiar búsqueda',
+                          onPressed: () => searchCtrl.clear(),
+                          icon: const Icon(Icons.close_rounded),
+                        )
+                      : null,
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: 2),
-          Text(
-            today,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
-            ),
+          const SizedBox(width: 10),
+          IconButton.filledTonal(
+            tooltip: 'Filtros',
+            onPressed: onOpenFilters,
+            icon: const Icon(Icons.tune_rounded),
+          ),
+          const SizedBox(width: 8),
+          IconButton.filledTonal(
+            tooltip: 'Actualizar tablero',
+            onPressed: onRefresh,
+            icon: const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
@@ -570,7 +596,15 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: authState.user),
       appBar: isDesktop
-          ? _buildDesktopAppBar(context: context, authState: authState)
+          ? _buildDesktopAppBar(
+              context: context,
+              authState: authState,
+              searchCtrl: _searchCtrl,
+              onOpenFilters: () {
+                unawaited(_panelKey.currentState?._openFilters());
+              },
+              onRefresh: notifier.refresh,
+            )
           : _buildMobileAppBar(
               authState: authState,
               gradientTop: gradientTop,
@@ -621,6 +655,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
       child: _PanelOptions(
+        key: _panelKey,
         currentUser: currentUser,
         state: state,
         searchCtrl: _searchCtrl,
@@ -637,8 +672,6 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
         onChangeStatus: _changeStatusWithConfirm,
         onChangeOrderState: (serviceId, orderState) =>
             notifier.changeOrderStateOptimistic(serviceId, orderState),
-        onChangeAdminPhase: (serviceId, adminPhase) =>
-            notifier.changeAdminPhaseOptimistic(serviceId, adminPhase),
         onChangePhase: (service, phase, scheduledAt, note) =>
             notifier.changePhaseOptimistic(
               service.id,
@@ -669,9 +702,6 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
               onChangeOrderState: (orderState) => ref
                   .read(operationsControllerProvider.notifier)
                   .changeOrderStateOptimistic(service.id, orderState),
-              onChangeAdminPhase: (adminPhase) => ref
-                  .read(operationsControllerProvider.notifier)
-                  .changeAdminPhaseOptimistic(service.id, adminPhase),
               onSchedule: (start, end) =>
                   _scheduleService(service.id, start, end),
               onCreateWarranty: () => _createWarranty(service.id),
@@ -1135,9 +1165,6 @@ class _OperacionesAgendaScreenState
               onChangeOrderState: (orderState) => ref
                   .read(operationsControllerProvider.notifier)
                   .changeOrderStateOptimistic(service.id, orderState),
-              onChangeAdminPhase: (adminPhase) => ref
-                  .read(operationsControllerProvider.notifier)
-                  .changeAdminPhaseOptimistic(service.id, adminPhase),
               onSchedule: (start, end) =>
                   _scheduleService(service.id, start, end),
               onCreateWarranty: () => _createWarranty(service.id),
@@ -2051,8 +2078,6 @@ class _PanelOptions extends StatefulWidget {
   final Future<void> Function(ServiceModel service) onChangeStatus;
   final Future<void> Function(String serviceId, String orderState)
   onChangeOrderState;
-  final Future<void> Function(String serviceId, String adminPhase)
-  onChangeAdminPhase;
   final Future<void> Function(
     ServiceModel service,
     String phase,
@@ -2062,6 +2087,7 @@ class _PanelOptions extends StatefulWidget {
   onChangePhase;
 
   const _PanelOptions({
+    super.key,
     required this.currentUser,
     required this.state,
     required this.searchCtrl,
@@ -2072,7 +2098,6 @@ class _PanelOptions extends StatefulWidget {
     required this.onOpenService,
     required this.onChangeStatus,
     required this.onChangeOrderState,
-    required this.onChangeAdminPhase,
     required this.onChangePhase,
   });
 
@@ -3045,9 +3070,24 @@ class _PanelOptionsState extends State<_PanelOptions> {
         )
         .toList(growable: false);
 
-    final visibleOrders = filteredOrders
-        .where(matchesQuery)
-        .toList(growable: false);
+    DateTime? sortStamp(ServiceModel s) {
+      return s.createdAt ?? s.scheduledStart ?? s.completedAt;
+    }
+
+    final visibleOrders =
+        filteredOrders.where(matchesQuery).toList(growable: true)..sort((a, b) {
+          final ad = sortStamp(a);
+          final bd = sortStamp(b);
+          if (ad == null && bd == null) {
+            // Stable-ish fallback.
+            return b.id.compareTo(a.id);
+          }
+          if (ad == null) return 1;
+          if (bd == null) return -1;
+          final cmp = bd.compareTo(ad);
+          if (cmp != 0) return cmp;
+          return b.id.compareTo(a.id);
+        });
 
     bool isPendingService(ServiceModel s) {
       final adminSt = effectiveAdminStatus(s);
@@ -3354,13 +3394,89 @@ class _PanelOptionsState extends State<_PanelOptions> {
         })
         .toList(growable: false);
 
-    final hasQuery = widget.searchCtrl.text.trim().isNotEmpty;
-    final hasExtraFilters =
-        _filters.status != OperationsStatusFilter.all ||
-        _filters.priority != OperationsPriorityFilter.all ||
-        (_filters.technicianId ?? '').trim().isNotEmpty ||
-        (_filters.createdByUserId ?? '').trim().isNotEmpty ||
-        _filters.datePreset != OperationsDatePreset.today;
+    Widget controlOperativoCompact() {
+      Widget kpi({
+        required String label,
+        required String value,
+        required Color tint,
+      }) {
+        return Expanded(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: tint.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: tint.withValues(alpha: 0.14)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.7,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          value,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(Icons.circle, size: 10, color: tint),
+                ],
+              ),
+            ),
+          ),
+        );
+      }
+
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            children: [
+              kpi(
+                label: 'Visibles',
+                value: '${visibleOrders.length}',
+                tint: theme.colorScheme.secondary,
+              ),
+              const SizedBox(width: 10),
+              kpi(
+                label: 'Atrasadas',
+                value: '$atrasadas',
+                tint: atrasadas > 0
+                    ? theme.colorScheme.error
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3382,53 +3498,9 @@ class _PanelOptionsState extends State<_PanelOptions> {
             ),
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             child: Column(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: widget.searchCtrl,
-                        textInputAction: TextInputAction.search,
-                        decoration: InputDecoration(
-                          prefixIcon: const Icon(Icons.search),
-                          hintText:
-                              'Buscar servicios, clientes, técnicos o teléfonos…',
-                          filled: true,
-                          fillColor: theme.colorScheme.surface,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(18),
-                            borderSide: BorderSide.none,
-                          ),
-                          suffixIcon: hasQuery
-                              ? IconButton(
-                                  tooltip: 'Limpiar búsqueda',
-                                  onPressed: () {
-                                    widget.searchCtrl.clear();
-                                    _onQueryChange();
-                                  },
-                                  icon: const Icon(Icons.close_rounded),
-                                )
-                              : null,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    FilledButton.tonalIcon(
-                      onPressed: _openFilters,
-                      icon: const Icon(Icons.tune_rounded),
-                      label: const Text('Filtros'),
-                    ),
-                    const SizedBox(width: 10),
-                    IconButton.filledTonal(
-                      tooltip: 'Actualizar tablero',
-                      onPressed: widget.onRefresh,
-                      icon: const Icon(Icons.refresh_rounded),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
                 Row(
                   children: [
                     Expanded(
@@ -3462,16 +3534,8 @@ class _PanelOptionsState extends State<_PanelOptions> {
                         caption: 'Servicios cerrados',
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _OperationsDesktopMetricCard(
-                        label: 'Visibles',
-                        value: visibleOrders.length,
-                        icon: Icons.dashboard_customize_outlined,
-                        tint: theme.colorScheme.secondary,
-                        caption: _rangeLabel(range),
-                      ),
-                    ),
+                    const SizedBox(width: 12),
+                    SizedBox(width: 260, child: controlOperativoCompact()),
                   ],
                 ),
               ],
@@ -3483,147 +3547,41 @@ class _PanelOptionsState extends State<_PanelOptions> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SizedBox(
-                width: 320,
-                child: ListView(
+              Expanded(
+                child: _OperationsDesktopColumn(
+                  title: 'Pendientes',
+                  count: pendingOrders.length,
+                  tint: theme.colorScheme.error,
+                  emptyLabel: 'No hay servicios pendientes.',
                   children: [
-                    InfoCard(
-                      title: 'Control operativo',
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _OperationsDesktopInfoRow(
-                            label: 'Rango activo',
-                            value: _rangeLabel(range),
-                          ),
-                          const SizedBox(height: 10),
-                          _OperationsDesktopInfoRow(
-                            label: 'Servicios visibles',
-                            value: '${visibleOrders.length}',
-                          ),
-                          const SizedBox(height: 10),
-                          _OperationsDesktopInfoRow(
-                            label: 'Pendientes tardíos',
-                            value: '$atrasadas',
-                            emphasize: atrasadas > 0,
-                          ),
-                          const SizedBox(height: 14),
-                          FilledButton.icon(
-                            onPressed: _openFilters,
-                            icon: const Icon(Icons.filter_alt_outlined),
-                            label: const Text('Abrir filtros'),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (hasQuery || hasExtraFilters)
-                      InfoCard(
-                        title: 'Contexto activo',
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _OperationsDesktopBadge(label: _rangeLabel(range)),
-                            if (hasQuery)
-                              _OperationsDesktopBadge(
-                                label:
-                                    'Busqueda: ${widget.searchCtrl.text.trim()}',
-                              ),
-                            if (_filters.status != OperationsStatusFilter.all)
-                              _OperationsDesktopBadge(
-                                label:
-                                    'Estado: ${_statusFilterLabel(_filters.status)}',
-                              ),
-                            if (_filters.priority !=
-                                OperationsPriorityFilter.all)
-                              _OperationsDesktopBadge(
-                                label:
-                                    'Prioridad: ${_priorityFilterLabel(_filters.priority)}',
-                              ),
-                            if ((_filters.technicianId ?? '').trim().isNotEmpty)
-                              const _OperationsDesktopBadge(
-                                label: 'Tecnico filtrado',
-                              ),
-                            if ((_filters.createdByUserId ?? '')
-                                .trim()
-                                .isNotEmpty)
-                              const _OperationsDesktopBadge(
-                                label: 'Usuario filtrado',
-                              ),
-                          ],
-                        ),
-                      ),
-                    if (hasQuery || hasExtraFilters) const SizedBox(height: 12),
-                    InfoCard(
-                      title: 'Lectura rapida',
-                      child: Column(
-                        children: [
-                          _OperationsDesktopLegendRow(
-                            icon: Icons.error_outline,
-                            label: 'Pendientes por confirmar o ejecutar',
-                            tint: theme.colorScheme.error,
-                          ),
-                          const SizedBox(height: 10),
-                          _OperationsDesktopLegendRow(
-                            icon: Icons.play_circle_outline,
-                            label: 'Servicios tecnicos activos',
-                            tint: theme.colorScheme.tertiary,
-                          ),
-                          const SizedBox(height: 10),
-                          _OperationsDesktopLegendRow(
-                            icon: Icons.check_circle_outline,
-                            label: 'Completados o cerrados',
-                            tint: theme.colorScheme.primary,
-                          ),
-                        ],
-                      ),
-                    ),
+                    for (final service in pendingOrders)
+                      _buildServiceAgendaTile(service),
                   ],
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
               Expanded(
-                child: Row(
+                child: _OperationsDesktopColumn(
+                  title: 'En proceso',
+                  count: inProgressOrders.length,
+                  tint: theme.colorScheme.tertiary,
+                  emptyLabel: 'No hay servicios en proceso.',
                   children: [
-                    Expanded(
-                      child: _OperationsDesktopColumn(
-                        title: 'Pendientes',
-                        count: pendingOrders.length,
-                        tint: theme.colorScheme.error,
-                        emptyLabel: 'No hay servicios pendientes.',
-                        children: [
-                          for (final service in pendingOrders)
-                            _buildServiceAgendaTile(service),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _OperationsDesktopColumn(
-                        title: 'En proceso',
-                        count: inProgressOrders.length,
-                        tint: theme.colorScheme.tertiary,
-                        emptyLabel: 'No hay servicios en proceso.',
-                        children: [
-                          for (final service in inProgressOrders)
-                            _buildServiceAgendaTile(service),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _OperationsDesktopColumn(
-                        title: 'Completadas',
-                        count: completedOrders.length,
-                        tint: theme.colorScheme.primary,
-                        emptyLabel: 'No hay servicios completados.',
-                        children: [
-                          for (final service in completedOrders)
-                            _buildServiceAgendaTile(service),
-                        ],
-                      ),
-                    ),
+                    for (final service in inProgressOrders)
+                      _buildServiceAgendaTile(service),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _OperationsDesktopColumn(
+                  title: 'Completadas',
+                  count: completedOrders.length,
+                  tint: theme.colorScheme.primary,
+                  emptyLabel: 'No hay servicios completados.',
+                  children: [
+                    for (final service in completedOrders)
+                      _buildServiceAgendaTile(service),
                   ],
                 ),
               ),
@@ -3634,6 +3592,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
     );
   }
 
+  // ignore: unused_element
   String _statusFilterLabel(OperationsStatusFilter value) {
     switch (value) {
       case OperationsStatusFilter.all:
@@ -3649,6 +3608,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
     }
   }
 
+  // ignore: unused_element
   String _priorityFilterLabel(OperationsPriorityFilter value) {
     switch (value) {
       case OperationsPriorityFilter.all:
@@ -3748,25 +3708,25 @@ class _OperationsDesktopMetricCard extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(10),
         child: Row(
           children: [
             Container(
-              width: 42,
-              height: 42,
+              width: 36,
+              height: 36,
               decoration: BoxDecoration(
                 color: tint.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(icon, color: tint),
+              child: Icon(icon, color: tint, size: 20),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -3903,10 +3863,12 @@ class _OperationsDesktopColumn extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _OperationsDesktopInfoRow extends StatelessWidget {
   const _OperationsDesktopInfoRow({
     required this.label,
     required this.value,
+    // ignore: unused_element_parameter
     this.emphasize = false,
   });
 
@@ -3940,6 +3902,7 @@ class _OperationsDesktopInfoRow extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _OperationsDesktopLegendRow extends StatelessWidget {
   const _OperationsDesktopLegendRow({
     required this.icon,
@@ -3980,6 +3943,7 @@ class _OperationsDesktopLegendRow extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _OperationsDesktopBadge extends StatelessWidget {
   const _OperationsDesktopBadge({required this.label});
 
@@ -4023,7 +3987,6 @@ class _ServiceDetailPanel extends ConsumerStatefulWidget {
   final ServiceModel service;
   final Future<void> Function(String status) onChangeStatus;
   final Future<void> Function(String orderState) onChangeOrderState;
-  final Future<void> Function(String adminPhase) onChangeAdminPhase;
   final Future<void> Function(DateTime start, DateTime end) onSchedule;
   final Future<void> Function() onCreateWarranty;
   final Future<void> Function(List<Map<String, String>> assignments) onAssign;
@@ -4035,7 +3998,6 @@ class _ServiceDetailPanel extends ConsumerStatefulWidget {
     required this.service,
     required this.onChangeStatus,
     required this.onChangeOrderState,
-    required this.onChangeAdminPhase,
     required this.onSchedule,
     required this.onCreateWarranty,
     required this.onAssign,
@@ -4290,36 +4252,6 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     }
   }
 
-  String _orderStateLabel(String raw) {
-    switch (raw.trim().toLowerCase()) {
-      case 'pendiente':
-      case 'pending':
-        return 'Pendiente';
-      case 'confirmada':
-      case 'confirmed':
-        return 'Confirmada';
-      case 'asignada':
-      case 'assigned':
-        return 'Asignada';
-      case 'en_proceso':
-      case 'in_progress':
-        return 'En progreso';
-      case 'finalizada':
-      case 'finalized':
-        return 'Finalizada';
-      case 'cancelada':
-      case 'cancelled':
-        return 'Cancelada';
-      case 'reagendada':
-      case 'rescheduled':
-        return 'Reagendada';
-      case 'cerrada':
-        return 'Cerrada';
-      default:
-        return raw;
-    }
-  }
-
   String _orderTypeLabel(String raw) {
     switch (raw.trim().toLowerCase()) {
       case 'reserva':
@@ -4338,22 +4270,13 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     }
   }
 
-  String _effectiveAdminPhase(ServiceModel s) {
-    final raw = (s.adminPhase ?? '').trim().toLowerCase();
-    if (raw.isNotEmpty) return raw;
-    final type = s.orderType.trim().toLowerCase();
-    return type == 'reserva' ? 'reserva' : 'programacion';
+  String _effectiveOrderState(ServiceModel s) {
+    final raw = s.orderState.trim().toLowerCase();
+    return raw.isEmpty ? 'pendiente' : raw;
   }
 
-  String _effectiveAdminStatus(ServiceModel s) {
-    final raw = (s.adminStatus ?? '').trim().toLowerCase();
-    if (raw.isNotEmpty) return raw;
-    final fallback = s.orderState.trim().isNotEmpty ? s.orderState : s.status;
-    return fallback.trim().toLowerCase();
-  }
-
-  Future<void> _pickAndChangeAdminStatus(ServiceModel service) async {
-    final current = _effectiveAdminStatus(service);
+  Future<void> _pickAndChangeOrderState(ServiceModel service) async {
+    final current = _effectiveOrderState(service);
     final picked = await StatusPickerSheet.show(context, current: current);
     if (!mounted || picked == null) return;
     final next = picked.trim().toLowerCase();
@@ -4362,39 +4285,10 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     try {
       await widget.onChangeOrderState(next);
       if (!mounted) return;
-      setState(() => _service = _service.copyWith(adminStatus: next));
+      setState(() => _service = _service.copyWith(orderState: next));
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Estado: ${StatusPickerSheet.label(next)}')),
       );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e is ApiException ? e.message : '$e')),
-      );
-    }
-  }
-
-  Future<void> _pickAndChangeAdminPhase(ServiceModel service) async {
-    final current = _effectiveAdminPhase(service);
-    final allowed = ServiceActionsSheet.allowedNextAdminPhases(current);
-    if (allowed.isEmpty) return;
-
-    final picked = await ServiceActionsSheet.pickAdminPhase(
-      context,
-      current: current,
-      allowed: allowed,
-    );
-    if (!mounted || picked == null) return;
-    final next = picked.trim().toLowerCase();
-    if (next.isEmpty || next == current) return;
-
-    try {
-      await widget.onChangeAdminPhase(next);
-      if (!mounted) return;
-      setState(() => _service = _service.copyWith(adminPhase: next));
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Fase: ${adminPhaseLabel(next)}')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -4433,7 +4327,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     DropdownButtonFormField<String>(
-                      value: status,
+                      initialValue: status,
                       decoration: const InputDecoration(
                         border: OutlineInputBorder(),
                         labelText: 'Estado de pago',
@@ -4478,7 +4372,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                       ),
                       const SizedBox(height: 8),
                       DropdownButtonFormField<String>(
-                        value: method,
+                        initialValue: method,
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
                           labelText: 'Método de pago',
@@ -4550,22 +4444,6 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     ).showSnackBar(const SnackBar(content: Text('Estado de pago actualizado')));
   }
 
-  String? _suggestOrderStateForStatus(String status) {
-    switch (status.trim().toLowerCase()) {
-      case 'scheduled':
-        return 'confirmada';
-      case 'in_progress':
-        return 'en_proceso';
-      case 'completed':
-      case 'closed':
-        return 'finalizada';
-      case 'cancelled':
-        return 'cancelada';
-      default:
-        return null;
-    }
-  }
-
   Future<void> _setStatusWithConfirm(
     String targetStatus, {
     bool closePanel = true,
@@ -4612,104 +4490,6 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
       // Mantiene el comportamiento anterior cuando se cambia desde Acciones.
       Navigator.pop(context);
     }
-  }
-
-  Future<void> _pickStageFlow({
-    required bool canOperate,
-    required List<String> allowedTargets,
-  }) async {
-    final service = _service;
-
-    if (!canOperate) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('No autorizado')));
-      return;
-    }
-
-    if (allowedTargets.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No hay etapas disponibles')),
-      );
-      return;
-    }
-
-    final picked = await showModalBottomSheet<String?>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        return SafeArea(
-          child: ListView(
-            shrinkWrap: true,
-            children: allowedTargets
-                .map(
-                  (s) => ListTile(
-                    title: Row(
-                      children: [
-                        Expanded(child: Text(_statusLabel(s))),
-                        if (s == service.status)
-                          const Icon(Icons.check_rounded, size: 18),
-                      ],
-                    ),
-                    onTap: () => Navigator.pop(context, s),
-                  ),
-                )
-                .toList(growable: false),
-          ),
-        );
-      },
-    );
-
-    if (!mounted || picked == null) return;
-    final target = picked.trim().toLowerCase();
-    if (target.isEmpty || target == service.status.trim().toLowerCase()) return;
-
-    await _setStatusWithConfirm(target, closePanel: false);
-
-    final suggestion = _suggestOrderStateForStatus(target);
-    final currentAdminStatus =
-        ((service.adminStatus ?? '').trim().isNotEmpty
-                ? service.adminStatus
-                : (service.orderState.trim().isNotEmpty
-                      ? service.orderState
-                      : service.status))
-            .toString()
-            .trim()
-            .toLowerCase();
-    if (!mounted || suggestion == null || suggestion == currentAdminStatus) {
-      return;
-    }
-
-    final applySuggested = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Sugerencia'),
-          content: Text(
-            'Esta etapa normalmente usa el estado de orden "${_orderStateLabel(suggestion)}". ¿Deseas aplicarlo también?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('No'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Aplicar'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (!mounted || applySuggested != true) return;
-
-    await widget.onChangeOrderState(suggestion);
-    if (!mounted) return;
-
-    setState(() {
-      _service = _service.copyWith(adminStatus: suggestion);
-    });
   }
 
   Future<void> _pickScheduleFlow(ServiceModel service) async {
@@ -4901,14 +4681,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         ? customerName
         : '$customerName · $customerPhone';
 
-    final statusChipValue = service.orderState.trim().isNotEmpty
-        ? service.orderState.trim()
-        : service.status.trim();
-
-    final adminStatusValue = _effectiveAdminStatus(service);
-    final statusChipEffective = (service.adminStatus ?? '').trim().isNotEmpty
-        ? adminStatusValue
-        : statusChipValue;
+    final statusChipValue = _effectiveOrderState(service);
 
     final location = buildServiceLocationInfo(addressOrText: addressText);
 
@@ -5199,7 +4972,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         ServiceHeader(
           title: headerTitle,
           subtitle: headerSubtitle,
-          status: statusChipEffective,
+          status: statusChipValue,
           onActions: openActions,
         ),
         if (descText.isNotEmpty) ...[
@@ -5229,7 +5002,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                     SizedBox(
                       width: 92,
                       child: Text(
-                        'Estado (admin)',
+                        'Estado',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontWeight: FontWeight.w800,
                           color: Theme.of(
@@ -5241,7 +5014,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        StatusPickerSheet.label(adminStatusValue),
+                        StatusPickerSheet.label(_effectiveOrderState(service)),
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
@@ -5250,108 +5023,21 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                     const SizedBox(width: 8),
                     OutlinedButton(
                       onPressed: canOperate
-                          ? () => _pickAndChangeAdminStatus(service)
+                          ? () => _pickAndChangeOrderState(service)
                           : null,
                       child: const Text('Cambiar'),
                     ),
                   ],
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 92,
-                      child: Text(
-                        'Fase (admin)',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.75),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        adminPhaseLabel(_effectiveAdminPhase(service)),
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    OutlinedButton(
-                      onPressed:
-                          canOperate &&
-                              ServiceActionsSheet.allowedNextAdminPhases(
-                                _effectiveAdminPhase(service),
-                              ).isNotEmpty
-                          ? () => _pickAndChangeAdminPhase(service)
-                          : null,
-                      child: const Text('Cambiar'),
-                    ),
-                  ],
-                ),
-              ),
-
               _kv(context, 'Prioridad', 'P${service.priority}'),
-              _kv(context, 'Fase técnica', phaseLabel(service.currentPhase)),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 92,
-                      child: Text(
-                        'Estado técnico',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.75),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        _statusLabel(service.status),
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    OutlinedButton(
-                      onPressed: canOperate
-                          ? () => _pickStageFlow(
-                              canOperate: canOperate,
-                              allowedTargets: allowedStatusTargets,
-                            )
-                          : null,
-                      child: const Text('Cambiar'),
-                    ),
-                  ],
-                ),
-              ),
+              _kv(context, 'Fase', phaseLabel(service.currentPhase)),
               _kv(
                 context,
                 'Creado por',
                 service.createdByName.trim().isEmpty
                     ? '—'
                     : service.createdByName.trim(),
-              ),
-              _kv(
-                context,
-                'Estado (legacy)',
-                service.orderState.trim().isEmpty
-                    ? '—'
-                    : _orderStateLabel(service.orderState),
               ),
               if (service.scheduledStart != null)
                 _kv(
@@ -7138,6 +6824,9 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   int _gpsResolveSeq = 0;
   List<PlatformFile> _referenceImages = const [];
   PlatformFile? _referenceVideo;
+  VideoPlayerController? _referenceVideoPreviewCtrl;
+  Future<void>? _referenceVideoPreviewInit;
+  Object? _referenceVideoPreviewError;
   bool _saving = false;
 
   bool get _isAgendaReserva {
@@ -7199,7 +6888,68 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     _surveyResultCtrl.dispose();
     _materialsUsedCtrl.dispose();
     _finalCostCtrl.dispose();
+    _referenceVideoPreviewCtrl?.dispose();
     super.dispose();
+  }
+
+  void _clearReferenceVideoPreview() {
+    final ctrl = _referenceVideoPreviewCtrl;
+    _referenceVideoPreviewCtrl = null;
+    _referenceVideoPreviewInit = null;
+    _referenceVideoPreviewError = null;
+    ctrl?.dispose();
+  }
+
+  Future<void> _prepareReferenceVideoPreview({
+    StateSetter? setSheetState,
+  }) async {
+    _clearReferenceVideoPreview();
+    if (!mounted) return;
+    if (kIsWeb) {
+      try {
+        setSheetState?.call(() {});
+      } catch (_) {}
+      return;
+    }
+
+    final f = _referenceVideo;
+    final path = (f?.path ?? '').trim();
+    if (path.isEmpty) {
+      try {
+        setSheetState?.call(() {});
+      } catch (_) {}
+      return;
+    }
+
+    final ctrl = createVideoPreviewControllerFromPath(path);
+    if (ctrl == null) {
+      try {
+        setSheetState?.call(() {});
+      } catch (_) {}
+      return;
+    }
+    ctrl.setLooping(false);
+
+    final init = ctrl.initialize();
+    setState(() {
+      _referenceVideoPreviewCtrl = ctrl;
+      _referenceVideoPreviewInit = init;
+      _referenceVideoPreviewError = null;
+    });
+
+    try {
+      await init;
+      if (!mounted) return;
+      try {
+        setSheetState?.call(() {});
+      } catch (_) {}
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _referenceVideoPreviewError = e);
+      try {
+        setSheetState?.call(() {});
+      } catch (_) {}
+    }
   }
 
   void _applyDefaultsForKind(String? kind, {required bool kindChanged}) {
@@ -7410,11 +7160,56 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   }
 
   Future<void> _pickReferenceImages() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      allowMultiple: true,
-      withData: true,
-    );
+    await _pickReferenceImagesForSheet();
+  }
+
+  Future<void> _pickReferenceImagesForSheet({
+    StateSetter? setSheetState,
+  }) async {
+    final lockParentWindow =
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.linux ||
+            defaultTargetPlatform == TargetPlatform.macOS);
+
+    FocusManager.instance.primaryFocus?.unfocus();
+
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: true,
+        withReadStream: !kIsWeb,
+        withData: kIsWeb,
+        lockParentWindow: lockParentWindow,
+      );
+    } catch (_) {
+      // Fallback: some platforms/devices can fail with the built-in filters.
+      try {
+        result = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowMultiple: true,
+          allowedExtensions: const [
+            'jpg',
+            'jpeg',
+            'png',
+            'webp',
+            'heic',
+            'heif',
+          ],
+          withReadStream: !kIsWeb,
+          withData: kIsWeb,
+          lockParentWindow: lockParentWindow,
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text('No se pudo abrir el selector: $e')),
+        );
+        return;
+      }
+    }
+
     if (result == null || result.files.isEmpty) return;
 
     final next = <PlatformFile>[];
@@ -7424,6 +7219,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     }
     if (next.isEmpty) return;
 
+    if (!mounted) return;
     setState(() {
       final combined = [..._referenceImages, ...next];
       final seen = <String>{};
@@ -7431,25 +7227,208 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           .where((f) => seen.add((f.path ?? f.name).trim()))
           .toList(growable: false);
     });
+
+    try {
+      setSheetState?.call(() {});
+    } catch (_) {
+      // Sheet was likely closed while awaiting the picker.
+    }
   }
 
   Future<void> _pickReferenceVideo() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.video,
-      withReadStream: !kIsWeb,
-      withData: kIsWeb,
-    );
-    if (result == null || result.files.isEmpty) return;
-    setState(() => _referenceVideo = result.files.first);
+    await _pickReferenceVideoForSheet();
   }
 
-  void _removeReferenceImageAt(int index) {
+  Future<void> _pickReferenceVideoForSheet({StateSetter? setSheetState}) async {
+    final lockParentWindow =
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.linux ||
+            defaultTargetPlatform == TargetPlatform.macOS);
+
+    FocusManager.instance.primaryFocus?.unfocus();
+
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: FileType.video,
+        withReadStream: !kIsWeb,
+        withData: kIsWeb,
+        lockParentWindow: lockParentWindow,
+      );
+    } catch (_) {
+      try {
+        result = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: const [
+            'mp4',
+            'mov',
+            'm4v',
+            'avi',
+            'mkv',
+            'webm',
+            '3gp',
+          ],
+          withReadStream: !kIsWeb,
+          withData: kIsWeb,
+          lockParentWindow: lockParentWindow,
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text('No se pudo abrir el selector: $e')),
+        );
+        return;
+      }
+    }
+
+    if (result == null || result.files.isEmpty) return;
+    if (!mounted) return;
+    setState(() => _referenceVideo = result!.files.first);
+
+    unawaited(_prepareReferenceVideoPreview(setSheetState: setSheetState));
+
+    try {
+      setSheetState?.call(() {});
+    } catch (_) {
+      // Sheet was likely closed while awaiting the picker.
+    }
+  }
+
+  void _removeReferenceImageAt(int index, {StateSetter? setSheetState}) {
     if (index < 0 || index >= _referenceImages.length) return;
     setState(() {
       final next = [..._referenceImages];
       next.removeAt(index);
       _referenceImages = next;
     });
+
+    try {
+      setSheetState?.call(() {});
+    } catch (_) {
+      // Sheet was likely closed.
+    }
+  }
+
+  Widget _buildReferenceVideoPreview() {
+    final ctrl = _referenceVideoPreviewCtrl;
+    final init = _referenceVideoPreviewInit;
+    if (_referenceVideo == null) return const SizedBox.shrink();
+
+    if (kIsWeb) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Text(
+          'Vista previa no disponible en web (por ahora).',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      );
+    }
+
+    if (_referenceVideoPreviewError != null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Text(
+          'No se pudo cargar la vista previa del video.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      );
+    }
+
+    if (ctrl == null || init == null) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 10),
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: FutureBuilder<void>(
+            future: init,
+            builder: (context, snap) {
+              final initialized =
+                  snap.connectionState == ConnectionState.done &&
+                  ctrl.value.isInitialized;
+              if (!initialized) {
+                return const SizedBox(
+                  height: 180,
+                  child: Center(
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                );
+              }
+
+              final aspect = ctrl.value.aspectRatio == 0
+                  ? (16 / 9)
+                  : ctrl.value.aspectRatio;
+
+              return AspectRatio(
+                aspectRatio: aspect,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    VideoPlayer(ctrl),
+                    Positioned.fill(
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () {
+                            setState(() {
+                              if (ctrl.value.isPlaying) {
+                                ctrl.pause();
+                              } else {
+                                ctrl.play();
+                              }
+                            });
+                          },
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.surface.withValues(alpha: 0.85),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.outline.withValues(alpha: 0.25),
+                                ),
+                              ),
+                              child: Icon(
+                                ctrl.value.isPlaying
+                                    ? Icons.pause_rounded
+                                    : Icons.play_arrow_rounded,
+                                size: 28,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: VideoProgressIndicator(
+                        ctrl,
+                        allowScrubbing: true,
+                        padding: const EdgeInsets.all(8),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _pasteGpsFromClipboard() async {
@@ -8214,12 +8193,15 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                             ),
                             IconButton(
                               tooltip: 'Quitar video',
-                              onPressed: () =>
-                                  setState(() => _referenceVideo = null),
+                              onPressed: () {
+                                setState(() => _referenceVideo = null);
+                                _clearReferenceVideoPreview();
+                              },
                               icon: const Icon(Icons.delete_outline),
                             ),
                           ],
                         ),
+                        _buildReferenceVideoPreview(),
                       ],
                       const SizedBox(height: 10),
                       Wrap(
@@ -8245,10 +8227,13 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                                 (_referenceImages.isEmpty &&
                                     _referenceVideo == null)
                                 ? null
-                                : () => setState(() {
-                                    _referenceImages = const [];
-                                    _referenceVideo = null;
-                                  }),
+                                : () {
+                                    setState(() {
+                                      _referenceImages = const [];
+                                      _referenceVideo = null;
+                                    });
+                                    _clearReferenceVideoPreview();
+                                  },
                             icon: const Icon(Icons.delete_sweep_outlined),
                             label: const Text('Quitar todo'),
                           ),
@@ -8397,7 +8382,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                 ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: _paymentStatus,
+                initialValue: _paymentStatus,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
                   labelText: 'Estado de pago',
@@ -8440,7 +8425,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    value: _paymentMethod,
+                    initialValue: _paymentMethod,
                     decoration: const InputDecoration(
                       border: OutlineInputBorder(),
                       labelText: 'Método de pago',
@@ -8495,7 +8480,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: _paymentMethod,
+                          initialValue: _paymentMethod,
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
                             labelText: 'Método de pago',

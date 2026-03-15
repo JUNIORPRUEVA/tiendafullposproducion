@@ -1122,9 +1122,10 @@ export class OperationsService {
 
           const customerPrefill = [
             `Hola ${customerName},`,
-            `le escribo para confirmar su reserva: ${serviceTitle}.`,
+            `le escribo para confirmar su cita de ${serviceTitle}.`,
             `Fecha/hora: ${whenText}.`,
-            'Por favor avísenos cualquier detalle en la app.',
+            '¿Le queda bien ese horario?',
+            'Gracias.',
           ].join(' ');
 
           const waLink = customerDigits

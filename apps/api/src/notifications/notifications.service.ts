@@ -85,9 +85,10 @@ export class NotificationsService {
 
     const prefill = [
       `Hola ${params.customerName},`,
-      `le escribo para confirmar su reserva: ${params.serviceTitle}.`,
+      `le escribo para confirmar su cita de ${params.serviceTitle}.`,
       `Fecha/hora: ${whenText}.`,
-      'Por favor avísenos cualquier detalle en la app.',
+      '¿Le queda bien ese horario?',
+      'Gracias.',
     ].join(' ');
 
     const waLink = customerDigits
