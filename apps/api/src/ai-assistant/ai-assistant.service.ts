@@ -2431,6 +2431,10 @@ export class AiAssistantService {
       ),
     ];
 
+    if (!this.canAccessContractData(user.role, dto.context?.route)) {
+      return base;
+    }
+
     const contractSelect = {
       id: true,
       nombreCompleto: true,
@@ -2447,136 +2451,25 @@ export class AiAssistantService {
       workContractWorkLocation: true,
       workContractSalary: true,
       workContractPaymentFrequency: true,
-      limit: 5,
-    });
-      where: { id: user.id },
-    const highlightedRecords: Array<Prisma.UserGetPayload<{ select: typeof contractSelect }>> = [];
+    };
 
-    const targetRecord = await this.prisma.user.findFirst({
+    const targetRecord = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: contractSelect,
+    });
     if (!targetRecord) return base;
 
-    if (highlightedRecords.length === 0) return base;
-
-        `app-data:contract:${targetRecord.id}`,
-
     base.push(
+      this.createAppKnowledgeRecord(
+        `app-data:contract:${targetRecord.id}`,
+        'nomina',
+        'dato-autorizado',
         'Contrato laboral (alcance personal)',
         this.formatContractKnowledge(targetRecord),
       ),
     );
 
     return base;
-  }
-
-  private buildRuleOnlyFallback(
-    message: string,
-    knowledge: KnowledgeRecord[],
-    currentUserName?: string | null,
-  ): AiAssistantChatResponse {
-    const normalizedMessage = message.trim().toLowerCase();
-    const hasMeaningfulQuestion = this.tokenize(normalizedMessage).length > 0;
-    const matched = hasMeaningfulQuestion ? this.rankRulesForPrompt(message, knowledge).slice(0, 2) : [];
-    const visibleKnowledge = knowledge.filter((item) => this.isUserVisibleKnowledge(item));
-    const visibleMatched = matched.filter((item) => this.isUserVisibleKnowledge(item));
-    const top = visibleMatched[0] ?? visibleKnowledge[0] ?? matched[0] ?? knowledge[0];
-
-    if (!top) {
-      return {
-        source: 'rules-only',
-        content: this.personalizeContent(AiAssistantService.notEnoughDataMessage, currentUserName),
-        citations: [],
-      };
-    }
-
-    const selected = visibleMatched.length ? visibleMatched : [top];
-    const citations = this.toUserVisibleCitations(selected);
-
-    const selfMatches = visibleKnowledge.filter(
-      (k) => k.id.startsWith('app-data:self:') || k.id.startsWith('app-data:contract:'),
-    );
-    if (selfMatches.length > 0 && this.isSelfInfoRequest(message, { module: 'profile' })) {
-      const profileMatch = selfMatches.find((item) => item.id.startsWith('app-data:self:'));
-      const contractMatch = selfMatches.find((item) => item.id.startsWith('app-data:contract:'));
-      const parts = [
-        profileMatch?.content?.trim() ?? '',
-        contractMatch ? `Resumen de tu contrato actual:\n${contractMatch.content.trim()}` : '',
-      ].filter((item) => item.length > 0);
-
-      return {
-        source: 'rules-only',
-        content: this.personalizeContent(parts.join('\n\n'), currentUserName),
-        citations: this.toUserVisibleCitations(selfMatches),
-        denied: false,
-      };
-    }
-
-    const clientMatches = selected.filter((k) => k.id.startsWith('app-data:client-match:'));
-    if (clientMatches.length > 0) {
-      const intro = clientMatches.length == 1
-        ? 'Si, encontre una coincidencia con ese cliente:'
-        : `Si, encontre ${clientMatches.length} coincidencias con ese nombre:`;
-      const blocks = clientMatches
-        .map((k) => k.content.trim())
-        .filter((x) => x.length > 0)
-        .join('\n\n');
-
-      return {
-        source: 'rules-only',
-        content: this.personalizeContent(`${intro}\n\n${blocks}`, currentUserName),
-        citations: this.toUserVisibleCitations(clientMatches),
-        denied: false,
-      };
-    }
-
-    const productMatches = selected.filter((k) => k.id.startsWith('app-data:product-match:'));
-    if (productMatches.length > 0) {
-      const intro = productMatches.length == 1
-        ? 'Si, encontre este producto relacionado con tu consulta:'
-        : `Si, encontre ${productMatches.length} productos relacionados con tu consulta:`;
-      const blocks = productMatches
-        .map((k) => k.content.trim())
-        .filter((x) => x.length > 0)
-        .join('\n\n');
-
-      return {
-        source: 'rules-only',
-        content: this.personalizeContent(`${intro}\n\n${blocks}`, currentUserName),
-        citations: this.toUserVisibleCitations(productMatches),
-        denied: false,
-      };
-    }
-
-    const contractMatches = selected.filter(
-      (k) => k.id.startsWith('app-data:contract:') || k.id.startsWith('app-data:contract-match:'),
-    );
-    if (contractMatches.length > 0) {
-      const intro = contractMatches.length === 1
-        ? 'Si, encontre la informacion del contrato laboral relacionada con tu consulta:'
-        : `Si, encontre ${contractMatches.length} contratos laborales relacionados con tu consulta:`;
-      const blocks = contractMatches
-        .map((k) => k.content.trim())
-        .filter((x) => x.length > 0)
-        .join('\n\n');
-
-      return {
-        source: 'rules-only',
-        content: this.personalizeContent(
-          `${intro}\n\nResumen del contrato:\n${blocks}\n\nSi necesitas que te explique una clausula, forma de pago, fecha de inicio, puesto o cualquier detalle del contrato, dime exactamente cual parte quieres revisar.`,
-          currentUserName,
-          'politica-app',
-        citations: this.toUserVisibleCitations(contractMatches),
-        denied: false,
-          'Nota para ADMIN',
-          'Para consultar contratos de otros empleados, usa los módulos administrativos correspondientes. El asistente no debe exponer contratos de terceros a roles no autorizados.',
-        return 'modulo';
-      case CompanyManualEntryKind.POLICY:
-        return 'politicas';
-      case CompanyManualEntryKind.GENERAL_RULE:
-      case CompanyManualEntryKind.ROLE_RULE:
-      case CompanyManualEntryKind.RESPONSIBILITY:
-      default:
-        return 'general';
-    }
   }
 
   private inferSeverity(kind: CompanyManualEntryKind, title: string, content: string): 'info' | 'warning' | 'critical' {
