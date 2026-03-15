@@ -58,9 +58,8 @@ export class NotificationsService {
     const status = (service.status ?? '').toString();
     if (['CANCELLED', 'CLOSED', 'COMPLETED'].includes(status)) return false;
 
-    const orderType = (service.orderType ?? '').toString();
     const phase = (service.currentPhase ?? '').toString();
-    const isReserva = orderType === 'RESERVA' || phase === 'RESERVA';
+    const isReserva = phase === 'RESERVA';
     if (!isReserva) return false;
 
     if (!service.scheduledStart) return false;
@@ -74,10 +73,15 @@ export class NotificationsService {
     serviceDetail: string | null;
     customerName: string;
     customerPhoneRaw: string | null;
+    sequence?: number | null;
   }) {
     const whenText = this.formatLocalYmdHm(params.scheduledStart);
     const customerPhone = (params.customerPhoneRaw ?? '').toString().trim();
     const customerDigits = this.evolution.normalizeWhatsAppNumber(customerPhone);
+
+    const seq = typeof params.sequence === 'number' && Number.isFinite(params.sequence) && params.sequence > 0
+      ? Math.floor(params.sequence)
+      : null;
 
     const prefill = [
       `Hola ${params.customerName},`,
@@ -91,7 +95,7 @@ export class NotificationsService {
       : '';
 
     const messageLines = [
-      '*Recordatorio de reserva*',
+      seq ? `*Recordatorio de reserva (#${seq})*` : '*Recordatorio de reserva*',
       `Servicio: ${params.serviceTitle}`,
       params.serviceDetail ? `Detalle: ${params.serviceDetail}` : null,
       `Cliente: ${params.customerName}`,
@@ -383,6 +387,7 @@ export class NotificationsService {
           const payload = (row.payload ?? null) as any;
           const kind = payload?.kind ? String(payload.kind) : '';
           const serviceId = payload?.serviceId ? String(payload.serviceId) : '';
+          const cadence = payload?.cadence ? String(payload.cadence) : '';
 
           if (kind === 'reservation_reminder' && serviceId) {
             const service = await this.prisma.service.findUnique({
@@ -411,34 +416,37 @@ export class NotificationsService {
               continue;
             }
 
-            const t = new Date();
-            const hh = t.getHours();
-            const mm = t.getMinutes();
-            const ss = t.getSeconds();
+            // Business-hours restriction is for hourly follow-ups.
+            if (cadence === 'hourly_business_hours') {
+              const t = new Date();
+              const hh = t.getHours();
+              const mm = t.getMinutes();
+              const ss = t.getSeconds();
 
-            const isAfter18 = hh > 18 || (hh === 18 && (mm > 0 || ss > 0));
-            const isBefore9 = hh < 9;
-            if (isBefore9 || isAfter18) {
-              const next = new Date(t);
-              if (isBefore9) {
-                next.setHours(9, 0, 0, 0);
-              } else {
-                next.setDate(next.getDate() + 1);
-                next.setHours(9, 0, 0, 0);
+              const isAfter18 = hh > 18 || (hh === 18 && (mm > 0 || ss > 0));
+              const isBefore9 = hh < 9;
+              if (isBefore9 || isAfter18) {
+                const next = new Date(t);
+                if (isBefore9) {
+                  next.setHours(9, 0, 0, 0);
+                } else {
+                  next.setDate(next.getDate() + 1);
+                  next.setHours(9, 0, 0, 0);
+                }
+
+                await this.prisma.notificationOutbox.update({
+                  where: { id: row.id },
+                  data: {
+                    status: 'PENDING',
+                    nextAttemptAt: next,
+                    lockedAt: null,
+                    lockedBy: null,
+                    lastError: null,
+                    lastStatusCode: null,
+                  },
+                });
+                continue;
               }
-
-              await this.prisma.notificationOutbox.update({
-                where: { id: row.id },
-                data: {
-                  status: 'PENDING',
-                  nextAttemptAt: next,
-                  lockedAt: null,
-                  lockedBy: null,
-                  lastError: null,
-                  lastStatusCode: null,
-                },
-              });
-              continue;
             }
           }
         } catch {
@@ -497,6 +505,12 @@ export class NotificationsService {
               if (creator && !creator.blocked && fleetNumber && service.scheduledStart) {
                 const nextAttemptAt = this.computeNextBusinessReminderAt(new Date());
 
+                const prevSeqRaw = payload?.sequence;
+                const prevSeq = typeof prevSeqRaw === 'number' && Number.isFinite(prevSeqRaw) && prevSeqRaw > 0
+                  ? Math.floor(prevSeqRaw)
+                  : 1;
+                const nextSeq = prevSeq + 1;
+
                 const customerName = (service.customer?.nombre ?? 'Cliente').toString().trim() || 'Cliente';
                 const customerPhoneRaw = (service.customer?.telefono ?? '').toString().trim() || null;
                 const serviceTitle = (service.title ?? '').toString().trim() || 'Reserva';
@@ -509,6 +523,7 @@ export class NotificationsService {
                   serviceDetail,
                   customerName,
                   customerPhoneRaw,
+                  sequence: nextSeq,
                 });
 
                 const minuteKey = nextAttemptAt.toISOString().slice(0, 16);
@@ -522,6 +537,7 @@ export class NotificationsService {
                     kind: 'reservation_reminder',
                     serviceId: service.id,
                     cadence: 'hourly_business_hours',
+                    sequence: nextSeq,
                     scheduledStart: service.scheduledStart.toISOString(),
                     scheduledEnd: service.scheduledEnd ? service.scheduledEnd.toISOString() : null,
                     customerName,

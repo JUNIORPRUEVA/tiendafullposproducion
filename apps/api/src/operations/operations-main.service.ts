@@ -1064,7 +1064,7 @@ export class OperationsService {
     // Best-effort reminder: when a reservation reaches its scheduled datetime,
     // notify the creator's fleet number via WhatsApp with customer details and a wa.me link.
     try {
-      const isReservation = service.orderType === OrderType.RESERVA || service.currentPhase === ServicePhaseType.RESERVA;
+      const isReservation = service.currentPhase === ServicePhaseType.RESERVA;
       const isActiveStatus =
         updated.status !== ServiceStatus.CANCELLED &&
         updated.status !== ServiceStatus.CLOSED &&
@@ -1153,6 +1153,7 @@ export class OperationsService {
               payload: {
                 kind: 'reservation_reminder',
                 serviceId: updated.id,
+                sequence: 1,
                 scheduledStart: start.toISOString(),
                 scheduledEnd: end.toISOString(),
                 customerName,
