@@ -834,14 +834,23 @@ class _AccountingModuleCard extends StatefulWidget {
 class _AccountingModuleCardState extends State<_AccountingModuleCard> {
   bool _hovered = false;
 
+  void _setHovered(bool value) {
+    if (_hovered == value) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_hovered == value) return;
+      setState(() => _hovered = value);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final data = widget.data;
 
     return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onEnter: (_) => _setHovered(true),
+      onExit: (_) => _setHovered(false),
       cursor: SystemMouseCursors.click,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),

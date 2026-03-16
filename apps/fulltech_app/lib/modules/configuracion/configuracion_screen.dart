@@ -1057,14 +1057,23 @@ class _SettingsCard extends StatefulWidget {
 class _SettingsCardState extends State<_SettingsCard> {
   bool _hovered = false;
 
+  void _setHovered(bool value) {
+    if (_hovered == value) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_hovered == value) return;
+      setState(() => _hovered = value);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
 
     return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onEnter: (_) => _setHovered(true),
+      onExit: (_) => _setHovered(false),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOut,

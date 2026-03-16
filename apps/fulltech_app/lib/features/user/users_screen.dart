@@ -2311,6 +2311,15 @@ class _UserRowCard extends StatefulWidget {
 class _UserRowCardState extends State<_UserRowCard> {
   bool _hovered = false;
 
+  void _setHovered(bool value) {
+    if (_hovered == value) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_hovered == value) return;
+      setState(() => _hovered = value);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -2321,8 +2330,8 @@ class _UserRowCardState extends State<_UserRowCard> {
         : theme.colorScheme.surface;
 
     return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onEnter: (_) => _setHovered(true),
+      onExit: (_) => _setHovered(false),
       child: Material(
         color: surfaceColor,
         borderRadius: BorderRadius.circular(22),

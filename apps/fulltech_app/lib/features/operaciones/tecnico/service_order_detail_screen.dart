@@ -320,7 +320,10 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                 onPressed: () {
                   final id = service.id.trim();
                   if (id.isEmpty) return;
-                  context.go(Routes.operacionesTecnicoDetail(id));
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!context.mounted) return;
+                    context.push(Routes.operacionesTecnicoDetail(id));
+                  });
                 },
                 icon: const Icon(Icons.build_outlined),
               ),
@@ -343,7 +346,10 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                         onPressed: () {
                           final id = service.id.trim();
                           if (id.isEmpty) return;
-                          context.go(Routes.operacionesTecnicoDetail(id));
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (!context.mounted) return;
+                            context.push(Routes.operacionesTecnicoDetail(id));
+                          });
                         },
                         icon: const Icon(Icons.build_outlined),
                         label: const Text('Gestionar'),

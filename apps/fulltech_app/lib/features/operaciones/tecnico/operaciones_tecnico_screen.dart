@@ -240,20 +240,16 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
                             canManage: canManage,
                             onOpenDetails: () {
                               if (id.isEmpty) return;
-                              Future.microtask(() {
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
                                 if (!context.mounted) return;
-                                context.push(
-                                  Routes.operacionesTecnicoOrder(id),
-                                );
+                                context.push(Routes.operacionesTecnicoOrder(id));
                               });
                             },
                             onManageService: () {
                               if (id.isEmpty) return;
-                              Future.microtask(() {
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
                                 if (!context.mounted) return;
-                                context.push(
-                                  Routes.operacionesTecnicoDetail(id),
-                                );
+                                context.push(Routes.operacionesTecnicoDetail(id));
                               });
                             },
                             onOpenLocation: onOpenLocation,

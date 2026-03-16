@@ -766,7 +766,8 @@ class _DesktopSidebarItem extends StatefulWidget {
 }
 
 class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
-  bool _hovered = false;
+  // Avoid manual hover state with setState on desktop.
+  // MouseRegion hover callbacks can trigger MouseTracker asserts on Windows.
 
   @override
   Widget build(BuildContext context) {
@@ -783,10 +784,10 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
     final iconColor = selected ? onBase : onBase.withValues(alpha: 0.88);
 
     final hoverBg = selected
-        ? _desktopSidebarHoverColor(theme)
-        : onBase.withValues(alpha: 0.08);
+      ? _desktopSidebarHoverColor(theme)
+      : onBase.withValues(alpha: 0.08);
 
-    final effectiveBg = _hovered ? hoverBg : background;
+    final effectiveBg = background;
 
     final height = widget.height;
     final computedIconSize = (height * 0.44).clamp(12.0, 22.0);
@@ -863,23 +864,11 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
       message: widget.collapsed ? widget.item.title : '',
       child: Material(
         color: Colors.transparent,
-        child: MouseRegion(
-          onEnter: (_) => setState(() => _hovered = true),
-          onExit: (_) => setState(() => _hovered = false),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            curve: Curves.easeOut,
-            transform: Matrix4.translationValues(
-              0,
-              _hovered && !selected ? -0.5 : 0,
-              0,
-            ),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(18),
-              onTap: widget.onTap,
-              child: Center(child: child),
-            ),
-          ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: widget.onTap,
+          hoverColor: hoverBg,
+          child: Center(child: child),
         ),
       ),
     );

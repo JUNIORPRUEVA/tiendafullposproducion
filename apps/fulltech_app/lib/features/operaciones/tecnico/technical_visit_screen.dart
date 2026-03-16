@@ -26,6 +26,7 @@ class _TechnicalVisitScreenState extends ConsumerState<TechnicalVisitScreen> {
   final _productQtyCtrl = TextEditingController(text: '1');
 
   bool _syncedText = false;
+  bool _syncScheduled = false;
 
   @override
   void dispose() {
@@ -76,10 +77,18 @@ class _TechnicalVisitScreenState extends ConsumerState<TechnicalVisitScreen> {
       technicalVisitControllerProvider(widget.serviceId).notifier,
     );
 
-    if (!_syncedText && !state.loading) {
-      _reportCtrl.text = state.reportDescription;
-      _notesCtrl.text = state.installationNotes;
-      _syncedText = true;
+    if (!_syncedText && !state.loading && !_syncScheduled) {
+      _syncScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (_syncedText) return;
+        _reportCtrl.text = state.reportDescription;
+        _notesCtrl.text = state.installationNotes;
+        setState(() {
+          _syncedText = true;
+          _syncScheduled = false;
+        });
+      });
     }
 
     return Scaffold(
