@@ -318,6 +318,8 @@ model User {
   serviceClosingsApproved ServiceClosing[] @relation("ServiceClosingApprovedBy")
   serviceClosingsRejected ServiceClosing[] @relation("ServiceClosingRejectedBy")
 
+  technicalVisits TechnicalVisit[] @relation("TechnicalVisitTechnician")
+
   workEmployeeConfig WorkEmployeeConfig?
 
   @@map("users")
@@ -807,6 +809,7 @@ model Service {
   executionChanges ServiceExecutionChange[]
 
   closing ServiceClosing?
+  technicalVisit TechnicalVisit? @relation("ServiceTechnicalVisit")
 
   salidasTecnicas SalidaTecnica[]
 
@@ -877,6 +880,29 @@ model ServiceClosing {
   @@index([signatureStatus])
   @@index([approvedAt])
   @@index([signedAt])
+}
+
+model TechnicalVisit {
+  id                 String   @id @default(uuid()) @db.Uuid
+  orderId            String   @unique @db.Uuid @map("order_id")
+  technicianId       String   @db.Uuid @map("technician_id")
+
+  reportDescription  String   @db.Text @map("report_description")
+  installationNotes  String   @db.Text @map("installation_notes")
+
+  estimatedProducts  Json     @default(dbgenerated("'[]'::jsonb")) @map("estimated_products")
+  photos             Json     @default(dbgenerated("'[]'::jsonb"))
+  videos             Json     @default(dbgenerated("'[]'::jsonb"))
+
+  visitDate          DateTime @default(now()) @map("visit_date")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  order              Service  @relation("ServiceTechnicalVisit", fields: [orderId], references: [id], onDelete: Cascade)
+  technician         User     @relation("TechnicalVisitTechnician", fields: [technicianId], references: [id], onDelete: Restrict)
+
+  @@index([technicianId])
+  @@map("technical_visits")
 }
 
 model Vehiculo {

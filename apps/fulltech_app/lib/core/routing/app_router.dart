@@ -11,7 +11,7 @@ import '../../features/ponche/ponche_screen.dart';
 import '../../features/operaciones/operaciones_screen.dart';
 import '../../features/operaciones/tecnico/operaciones_tecnico_screen.dart';
 import '../../features/operaciones/tecnico/service_order_detail_screen.dart';
-import '../../features/operaciones/tecnico/technical_service_execution_screen.dart';
+import '../../features/operaciones/tecnico/technical_service_phase_router_screen.dart';
 import '../../features/salidas_tecnicas/tecnico_salidas_screen.dart';
 import '../../features/operaciones/operaciones_mapa_clientes_screen.dart';
 import '../../features/operaciones/operaciones_reglas_screen.dart';
@@ -126,7 +126,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: Routes.operacionesTecnicoDetalle,
             builder: (context, state) {
               final id = state.pathParameters['id'] ?? '';
-              return TechnicalServiceExecutionScreen(serviceId: id);
+              return TechnicalServicePhaseRouterScreen(serviceId: id);
             },
           ),
           GoRoute(

@@ -2480,6 +2480,8 @@ export class OperationsService {
       files: {
         orderBy: { createdAt: 'desc' as const },
       },
+
+      technicalVisit: true,
     };
   }
 

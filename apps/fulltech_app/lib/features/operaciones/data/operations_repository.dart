@@ -13,6 +13,7 @@ import '../../../core/debug/trace_log.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../modules/clientes/cliente_model.dart';
 import '../operations_models.dart';
+import '../tecnico/technical_visit_models.dart';
 
 final operationsRepositoryProvider = Provider<OperationsRepository>((ref) {
   return OperationsRepository(ref.watch(dioProvider));
@@ -1302,6 +1303,79 @@ class OperationsRepository {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo crear el cliente'),
         e.response?.statusCode,
+      );
+    }
+  }
+
+  // Levantamiento Técnico (Technical Visit Report)
+  Future<TechnicalVisitModel?> getTechnicalVisitByOrder(String orderId) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.technicalVisitByOrder(orderId),
+        options: Options(responseType: ResponseType.plain),
+      );
+      final raw = _decodeJsonMap(res.data);
+      return TechnicalVisitModel.fromJson(raw);
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return null;
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo cargar el levantamiento'),
+        code,
+      );
+    } on FormatException {
+      throw ApiException(
+        'Respuesta inválida del servidor al cargar el levantamiento',
+      );
+    }
+  }
+
+  Future<TechnicalVisitModel> createTechnicalVisit({
+    required Map<String, dynamic> payload,
+  }) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.technicalVisits,
+        data: payload,
+        options: Options(responseType: ResponseType.plain),
+      );
+      final raw = _decodeJsonMap(res.data);
+      return TechnicalVisitModel.fromJson(raw);
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo crear el levantamiento'),
+        e.response?.statusCode,
+      );
+    } on FormatException {
+      throw ApiException(
+        'Respuesta inválida del servidor al crear el levantamiento',
+      );
+    }
+  }
+
+  Future<TechnicalVisitModel> updateTechnicalVisit({
+    required String id,
+    required Map<String, dynamic> payload,
+  }) async {
+    try {
+      final res = await _dio.patch(
+        ApiRoutes.technicalVisitDetail(id),
+        data: payload,
+        options: Options(responseType: ResponseType.plain),
+      );
+      final raw = _decodeJsonMap(res.data);
+      return TechnicalVisitModel.fromJson(raw);
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(
+          e.response?.data,
+          'No se pudo actualizar el levantamiento',
+        ),
+        e.response?.statusCode,
+      );
+    } on FormatException {
+      throw ApiException(
+        'Respuesta inválida del servidor al actualizar el levantamiento',
       );
     }
   }

@@ -78,8 +78,8 @@ class ApiRoutes {
   static String serviceStatus(String id) => '/services/$id/status';
   static String serviceOrderState(String id) => '/services/$id/order-state';
   static String servicePhase(String id) => '/services/$id/phase';
-    static String serviceAdminPhase(String id) => '/services/$id/admin-phase';
-    static String serviceAdminStatus(String id) => '/services/$id/admin-status';
+  static String serviceAdminPhase(String id) => '/services/$id/admin-phase';
+  static String serviceAdminStatus(String id) => '/services/$id/admin-status';
   static String servicePhases(String id) => '/services/$id/phases';
   static String serviceSchedule(String id) => '/services/$id/schedule';
   static String serviceAssign(String id) => '/services/$id/assign';
@@ -93,6 +93,13 @@ class ApiRoutes {
       '/services/$id/execution-report/changes/$changeId';
   static String serviceWarranty(String id) => '/services/$id/warranty';
   static String customerServices(String id) => '/customers/$id/services';
+
+  // Levantamiento Técnico (Technical Visit Report)
+  static const technicalVisits = '/technical-visits';
+  static String technicalVisitByOrder(String orderId) =>
+      '/technical-visits/order/$orderId';
+  static String technicalVisitDetail(String id) => '/technical-visits/$id';
+
   static const operationsDashboard = '/dashboard/operations';
   static const tecnicoVehiculos = '/tecnico/vehiculos';
   static const tecnicoSalidaAbierta = '/tecnico/salidas-tecnicas/abierta';
