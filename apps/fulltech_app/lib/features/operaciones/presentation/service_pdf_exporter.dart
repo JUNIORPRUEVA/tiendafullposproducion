@@ -41,6 +41,152 @@ class ServicePdfExporter {
     );
   }
 
+  static Future<Uint8List> buildServiceDetailPdfBytes(ServiceModel service) {
+    return _buildPdfBytes(service);
+  }
+
+  static Future<Uint8List> buildWarrantyLetterBytes(ServiceModel service) async {
+    final now = DateTime.now();
+    final df = DateFormat('dd/MM/yyyy', 'es');
+
+    final customer = service.customerName.trim().isEmpty
+        ? 'Cliente'
+        : service.customerName.trim();
+    final phone = service.customerPhone.trim();
+    final address = service.customerAddress.trim();
+
+    final techs = service.assignments
+        .map((a) => a.userName.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    final doc = pw.Document();
+
+    doc.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.fromLTRB(36, 40, 36, 44),
+        build: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'FULLTECH',
+                style: pw.TextStyle(
+                  fontSize: 20,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 6),
+              pw.Text(
+                'Carta de Garantía',
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 4),
+              pw.Text(
+                'Fecha: ${df.format(now)}',
+                style: const pw.TextStyle(fontSize: 10),
+              ),
+              pw.SizedBox(height: 14),
+              pw.Container(
+                padding: const pw.EdgeInsets.all(12),
+                decoration: pw.BoxDecoration(
+                  border: pw.Border.all(color: PdfColors.grey300),
+                  borderRadius: pw.BorderRadius.circular(8),
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'Orden: ${service.orderLabel}',
+                      style: pw.TextStyle(
+                        fontSize: 12,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 6),
+                    pw.Text('Cliente: $customer'),
+                    if (phone.isNotEmpty) pw.Text('Teléfono: $phone'),
+                    if (address.isNotEmpty) pw.Text('Dirección: $address'),
+                    if (techs.isNotEmpty)
+                      pw.Text('Técnico(s): ${techs.join(', ')}'),
+                    if (service.serviceType.trim().isNotEmpty)
+                      pw.Text('Servicio: ${service.serviceType.trim()}'),
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 14),
+              pw.Text(
+                'Por medio de la presente se deja constancia de la prestación del servicio indicado y se emite esta carta de garantía conforme a las condiciones establecidas por FULLTECH.',
+                style: const pw.TextStyle(fontSize: 11),
+              ),
+              pw.SizedBox(height: 12),
+              pw.Text(
+                'Observaciones:',
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 6),
+              pw.Container(
+                height: 120,
+                width: double.infinity,
+                decoration: pw.BoxDecoration(
+                  border: pw.Border.all(color: PdfColors.grey300),
+                  borderRadius: pw.BorderRadius.circular(8),
+                ),
+              ),
+              pw.Spacer(),
+              pw.Row(
+                children: [
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Container(
+                          height: 1,
+                          color: PdfColors.grey600,
+                        ),
+                        pw.SizedBox(height: 6),
+                        pw.Text(
+                          'Firma del cliente',
+                          style: const pw.TextStyle(fontSize: 10),
+                        ),
+                      ],
+                    ),
+                  ),
+                  pw.SizedBox(width: 26),
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Container(
+                          height: 1,
+                          color: PdfColors.grey600,
+                        ),
+                        pw.SizedBox(height: 6),
+                        pw.Text(
+                          'Firma y sello',
+                          style: const pw.TextStyle(fontSize: 10),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    return doc.save();
+  }
+
   static String _money(double? v) {
     if (v == null) return '—';
     final safe = v.isNaN ? 0.0 : v;

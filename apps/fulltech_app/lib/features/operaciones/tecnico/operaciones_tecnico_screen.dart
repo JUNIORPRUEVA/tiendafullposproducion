@@ -5,149 +5,13 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/routing/routes.dart';
-import '../data/operations_repository.dart';
 import '../operations_models.dart';
 import '../presentation/operations_permissions.dart';
 import '../presentation/service_location_helpers.dart';
 
 import 'widgets/service_card_widget.dart';
 
-enum TechOpsTab { hoy, pendientes, enProceso, finalizados }
-
-class TechOperationsState {
-  final bool loading;
-  final String? error;
-  final TechOpsTab tab;
-  final List<ServiceModel> services;
-
-  const TechOperationsState({
-    this.loading = false,
-    this.error,
-    this.tab = TechOpsTab.hoy,
-    this.services = const [],
-  });
-
-  TechOperationsState copyWith({
-    bool? loading,
-    String? error,
-    TechOpsTab? tab,
-    List<ServiceModel>? services,
-    bool clearError = false,
-  }) {
-    return TechOperationsState(
-      loading: loading ?? this.loading,
-      error: clearError ? null : (error ?? this.error),
-      tab: tab ?? this.tab,
-      services: services ?? this.services,
-    );
-  }
-}
-
-final techOperationsControllerProvider =
-    StateNotifierProvider<TechOperationsController, TechOperationsState>((ref) {
-      return TechOperationsController(ref);
-    });
-
-class TechOperationsController extends StateNotifier<TechOperationsState> {
-  final Ref ref;
-
-  TechOperationsController(this.ref) : super(const TechOperationsState()) {
-    load();
-  }
-
-  Future<void> load() async {
-    if (state.loading) return;
-    state = state.copyWith(loading: true, clearError: true);
-
-    try {
-      final repo = ref.read(operationsRepositoryProvider);
-      final user = ref.read(authStateProvider).user;
-      final role = (user?.role ?? '').trim().toLowerCase();
-      final userId = (user?.id ?? '').trim();
-
-      final techFilterId = (role == 'tecnico' && userId.isNotEmpty)
-          ? userId
-          : null;
-
-      const statuses = <String>[
-        'survey',
-        'scheduled',
-        'in_progress',
-        'warranty',
-        'pending',
-        'completed',
-        'closed',
-        'cancelled',
-      ];
-
-      Future<List<ServiceModel>> listByStatuses({
-        required String? technicianId,
-        required String? assignedTo,
-      }) async {
-        final all = <ServiceModel>[];
-        for (final status in statuses) {
-          try {
-            final page = await repo.listServices(
-              status: status,
-              technicianId: technicianId,
-              assignedTo: assignedTo,
-              page: 1,
-              pageSize: 200,
-            );
-            all.addAll(page.items);
-          } catch (_) {
-            // Some deployments may reject unknown statuses.
-            // Ignore and continue.
-          }
-        }
-        return all;
-      }
-
-      final techItems = await listByStatuses(
-        technicianId: techFilterId,
-        assignedTo: techFilterId,
-      );
-
-      final shouldFallbackFilters = techFilterId != null && techItems.isEmpty;
-      final fallbackItems = shouldFallbackFilters
-          ? await listByStatuses(technicianId: null, assignedTo: null)
-          : const <ServiceModel>[];
-
-      final shouldFallbackNoStatus = techItems.isEmpty && fallbackItems.isEmpty;
-      final legacyItems = shouldFallbackNoStatus
-          ? (await repo.listServices(
-              technicianId: techFilterId,
-              assignedTo: techFilterId,
-              page: 1,
-              pageSize: 200,
-            ))
-          : null;
-      final legacyFallbackItems = shouldFallbackNoStatus && techFilterId != null
-          ? (await repo.listServices(page: 1, pageSize: 200))
-          : null;
-
-      final merged = <String, ServiceModel>{
-        for (final s in techItems) s.id: s,
-        for (final s in fallbackItems) s.id: s,
-        for (final s in legacyItems?.items ?? const <ServiceModel>[]) s.id: s,
-        for (final s in legacyFallbackItems?.items ?? const <ServiceModel>[])
-          s.id: s,
-      };
-
-      state = state.copyWith(
-        loading: false,
-        services: merged.values.toList(growable: false),
-      );
-    } catch (e) {
-      state = state.copyWith(loading: false, error: e.toString());
-    }
-  }
-
-  void setTab(TechOpsTab tab) {
-    if (state.tab == tab) return;
-    state = state.copyWith(tab: tab);
-  }
-}
+import 'application/tech_operations_controller.dart';
 
 class OperacionesTecnicoScreen extends ConsumerWidget {
   const OperacionesTecnicoScreen({super.key});
@@ -172,14 +36,6 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
 
   List<ServiceModel> _filter(List<ServiceModel> all, TechOpsTab tab) {
     final now = DateTime.now();
-
-    bool isAllowedServiceType(ServiceModel service) {
-      final type = techAllowedServiceTypeFrom(service);
-      return type == TechAllowedServiceType.installation ||
-          type == TechAllowedServiceType.maintenance ||
-          type == TechAllowedServiceType.warranty ||
-          type == TechAllowedServiceType.survey;
-    }
 
     bool isFinalizado(ServiceStatus status) {
       return status == ServiceStatus.completed ||
@@ -228,9 +84,6 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
               !hasAssignments &&
               !hasCompletion;
           if (looksLikeReservation) return false;
-
-          // Only show these types: Installation, Maintenance, Warranty, Survey.
-          if (!isAllowedServiceType(service)) return false;
 
           switch (tab) {
             case TechOpsTab.hoy:
@@ -387,11 +240,21 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
                             canManage: canManage,
                             onOpenDetails: () {
                               if (id.isEmpty) return;
-                              context.go(Routes.operacionesTecnicoOrder(id));
+                              Future.microtask(() {
+                                if (!context.mounted) return;
+                                context.push(
+                                  Routes.operacionesTecnicoOrder(id),
+                                );
+                              });
                             },
                             onManageService: () {
                               if (id.isEmpty) return;
-                              context.go(Routes.operacionesTecnicoDetail(id));
+                              Future.microtask(() {
+                                if (!context.mounted) return;
+                                context.push(
+                                  Routes.operacionesTecnicoDetail(id),
+                                );
+                              });
                             },
                             onOpenLocation: onOpenLocation,
                           ),

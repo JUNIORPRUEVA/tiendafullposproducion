@@ -217,6 +217,16 @@ class OperationsController extends StateNotifier<OperationsState> {
 
   Future<void> refresh() => load();
 
+  void applyRealtimeService(ServiceModel service) {
+    final before = state.services;
+    if (before.isEmpty) return;
+    final index = before.indexWhere((s) => s.id == service.id);
+    if (index < 0) return;
+    final next = [...before];
+    next[index] = service;
+    state = state.copyWith(services: next);
+  }
+
   Future<void> setSearch(String value) async {
     state = state.copyWith(search: value);
     await load();

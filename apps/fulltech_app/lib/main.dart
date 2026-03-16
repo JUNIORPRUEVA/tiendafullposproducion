@@ -13,9 +13,11 @@ import 'core/auth/auth_provider.dart';
 import 'core/debug/app_error_reporter.dart';
 import 'core/debug/app_error_overlay.dart';
 import 'core/realtime/catalog_realtime_service.dart';
+import 'features/operaciones/application/operations_realtime_bootstrap_provider.dart';
 import 'core/startup/app_startup_controller.dart';
 import 'core/ai_assistant/presentation/widgets/global_ai_assistant_entry_point.dart';
 import 'core/widgets/fulltech_global_background.dart';
+import 'features/operaciones/application/operations_prefetch_provider.dart';
 
 Future<void> main() async {
   runZonedGuarded(
@@ -116,6 +118,8 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer(
       builder: (context, ref, _) {
+        ref.watch(operationsPrefetchBootstrapProvider);
+        ref.watch(operationsRealtimeBootstrapProvider);
         final router = ref.watch(routerProvider);
         final authState = ref.watch(authStateProvider);
         ref.listen<AuthState>(authStateProvider, (previous, next) {

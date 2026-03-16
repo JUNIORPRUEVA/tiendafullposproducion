@@ -200,14 +200,7 @@ export class ServiceClosingService {
     return Buffer.from(arr);
   }
 
-  private async uploadPdfAsServiceFile(params: {
-    serviceId: string;
-    uploadedByUserId: string;
-    kind: string;
-    fileName: string;
-    pdfBytes: Buffer;
-    caption?: string | null;
-  }) {
+  private async uploadPdfToR2(params: { serviceId: string; fileName: string; pdfBytes: Buffer }) {
     const safeName = params.fileName.replace(/[^a-zA-Z0-9_.-]+/g, '_');
     const objectKey = `services/${params.serviceId}/docs/${Date.now()}_${safeName}`;
 
@@ -217,24 +210,312 @@ export class ServiceClosingService {
       contentType: 'application/pdf',
     });
 
-    const publicUrl = this.r2.buildPublicUrl(objectKey);
+    return {
+      safeName,
+      objectKey,
+      publicUrl: this.r2.buildPublicUrl(objectKey),
+      size: params.pdfBytes.length,
+    };
+  }
 
-    return this.prisma.serviceFile.create({
+  private createServiceFileRowForUploadedPdf(
+    db: Prisma.TransactionClient | PrismaService,
+    params: {
+      serviceId: string;
+      uploadedByUserId: string;
+      kind: string;
+      caption?: string | null;
+      upload: { safeName: string; objectKey: string; publicUrl: string; size: number };
+    },
+  ) {
+    return db.serviceFile.create({
       data: {
         serviceId: params.serviceId,
         uploadedByUserId: params.uploadedByUserId,
-        fileUrl: publicUrl,
+        fileUrl: params.upload.publicUrl,
         fileType: 'application/pdf',
         caption: (params.caption ?? '').trim() || null,
         storageProvider: 'R2',
-        objectKey,
-        originalFileName: safeName,
+        objectKey: params.upload.objectKey,
+        originalFileName: params.upload.safeName,
         mimeType: 'application/pdf',
         mediaType: 'document',
         kind: params.kind,
-        fileSize: params.pdfBytes.length,
+        fileSize: params.upload.size,
       },
     });
+  }
+
+  private async uploadPdfAsServiceFile(params: {
+    serviceId: string;
+    uploadedByUserId: string;
+    kind: string;
+    fileName: string;
+    pdfBytes: Buffer;
+    caption?: string | null;
+  }) {
+    const upload = await this.uploadPdfToR2({
+      serviceId: params.serviceId,
+      fileName: params.fileName,
+      pdfBytes: params.pdfBytes,
+    });
+    return this.createServiceFileRowForUploadedPdf(this.prisma, {
+      serviceId: params.serviceId,
+      uploadedByUserId: params.uploadedByUserId,
+      kind: params.kind,
+      caption: params.caption,
+      upload,
+    });
+  }
+
+  private async buildDraftDataFromService(serviceId: string) {
+    const service = await this.prisma.service.findFirst({
+      where: { id: serviceId, isDeleted: false },
+      include: {
+        customer: true,
+        technician: { select: { id: true, nombreCompleto: true, telefono: true } },
+      },
+    });
+    if (!service) throw new NotFoundException('Servicio no encontrado');
+
+    const company = await this.resolveCompanyInfo();
+
+    const changes = await this.prisma.serviceExecutionChange.findMany({
+      where: { serviceId: service.id },
+      orderBy: { createdAt: 'asc' },
+      select: { description: true, quantity: true, extraCost: true, note: true },
+    });
+
+    const extras = changes
+      .map((c) => ({
+        description: (c.description ?? '').trim() || 'Extra',
+        qty: c.quantity != null ? safeNumber(c.quantity) : null,
+        amount: safeNumber(c.extraCost),
+        note: (c.note ?? '').trim() || null,
+      }))
+      .filter((x) => x.amount > 0 || x.description);
+
+    const quotedAmount = safeNumber((service as any).quotedAmount);
+    const extrasTotal = extras.reduce((acc, x) => acc + safeNumber(x.amount), 0);
+
+    const orderExtras: any = (service as any).orderExtras as any;
+    const finalCost = safeNumber(orderExtras?.finalCost);
+    const computedTotal = quotedAmount + extrasTotal;
+    const total = finalCost > 0 ? finalCost : computedTotal;
+
+    const serviceDateIso = (service.completedAt ?? service.scheduledStart ?? service.createdAt)?.toISOString?.() ?? null;
+
+    const invoiceData: InvoiceDraftData = {
+      company,
+      invoice: {
+        number: `SVC-${service.id.slice(0, 8).toUpperCase()}`,
+        dateIso: new Date().toISOString(),
+      },
+      client: {
+        name: (service.customer?.nombre ?? '').trim() || 'Cliente',
+        phone: (service.customer?.telefono ?? '').trim() || null,
+        address: (service.addressSnapshot ?? service.customer?.direccion ?? '').trim() || null,
+      },
+      service: {
+        id: service.id,
+        title: (service.title ?? '').trim() || 'Servicio',
+        typeLabel: this.toServiceTypeLabel(service.serviceType),
+        technicianName: (service.technician?.nombreCompleto ?? '').trim() || null,
+        serviceDateIso,
+      },
+      initialQuoteAmount: quotedAmount,
+      extras,
+      notes: typeof orderExtras?.materialsUsed === 'string' ? orderExtras.materialsUsed : null,
+      totals: {
+        extrasTotal,
+        total,
+      },
+      approvalRecord: null,
+      signature: null,
+    };
+
+    const warrantyData: WarrantyDraftData = {
+      company: { name: company.name },
+      certificate: {
+        number: `GAR-${service.id.slice(0, 8).toUpperCase()}`,
+        dateIso: new Date().toISOString(),
+      },
+      clientName: (service.customer?.nombre ?? '').trim() || 'Cliente',
+      serviceTypeLabel: this.toServiceTypeLabel(service.serviceType),
+      equipmentInstalledText: typeof orderExtras?.materialsUsed === 'string' ? orderExtras.materialsUsed : null,
+      installationDateIso: serviceDateIso,
+      warrantyDurationMonths: 12,
+      technicianName: (service.technician?.nombreCompleto ?? '').trim() || null,
+      serviceDateIso,
+      approvalRecord: null,
+      signature: null,
+    };
+
+    return { service, invoiceData, warrantyData };
+  }
+
+  async ensureDraftOnPhaseEntry(params: { serviceId: string; triggeredByUserId: string }) {
+    let existing: any;
+    try {
+      existing = await this.prisma.serviceClosing.findUnique({ where: { serviceId: params.serviceId } });
+    } catch (e) {
+      if (this.isSchemaMismatch(e)) {
+        throw new ServiceUnavailableException('Cierre de servicio no disponible: falta aplicar migraciones.');
+      }
+      throw e;
+    }
+
+    if (existing?.invoiceDraftFileId && existing?.warrantyDraftFileId) return existing;
+
+    const { invoiceData, warrantyData, service } = await this.buildDraftDataFromService(params.serviceId);
+    const invoicePdf = await buildInvoicePdf(invoiceData);
+    const warrantyPdf = await buildWarrantyPdf(warrantyData);
+
+    const [invUpload, warUpload] = await Promise.all([
+      this.uploadPdfToR2({
+        serviceId: params.serviceId,
+        fileName: `factura_${params.serviceId}.pdf`,
+        pdfBytes: invoicePdf,
+      }),
+      this.uploadPdfToR2({
+        serviceId: params.serviceId,
+        fileName: `garantia_${params.serviceId}.pdf`,
+        pdfBytes: warrantyPdf,
+      }),
+    ]);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const closing = existing
+        ? await tx.serviceClosing.update({
+            where: { serviceId: params.serviceId },
+            data: {
+              invoiceData: invoiceData as unknown as Prisma.InputJsonValue,
+              warrantyData: warrantyData as unknown as Prisma.InputJsonValue,
+            },
+          })
+        : await tx.serviceClosing.create({
+            data: {
+              serviceId: params.serviceId,
+              invoiceData: invoiceData as unknown as Prisma.InputJsonValue,
+              warrantyData: warrantyData as unknown as Prisma.InputJsonValue,
+              approvalStatus: ServiceClosingApprovalStatus.PENDING,
+              signatureStatus: ServiceClosingSignatureStatus.PENDING,
+            },
+          });
+
+      const inv = await this.createServiceFileRowForUploadedPdf(tx, {
+        serviceId: params.serviceId,
+        uploadedByUserId: params.triggeredByUserId,
+        kind: 'service_invoice_draft',
+        caption: 'Factura (borrador)',
+        upload: invUpload,
+      });
+
+      const war = await this.createServiceFileRowForUploadedPdf(tx, {
+        serviceId: params.serviceId,
+        uploadedByUserId: params.triggeredByUserId,
+        kind: 'service_warranty_draft',
+        caption: 'Carta de garantía (borrador)',
+        upload: warUpload,
+      });
+
+      const row = await tx.serviceClosing.update({
+        where: { serviceId: params.serviceId },
+        data: {
+          invoiceDraftFileId: inv.id,
+          warrantyDraftFileId: war.id,
+        },
+      });
+
+      await tx.serviceUpdate
+        .create({
+          data: {
+            serviceId: params.serviceId,
+            changedByUserId: params.triggeredByUserId,
+            type: ServiceUpdateType.NOTE,
+            message: 'Factura y garantía generadas (borrador).',
+            oldValue: Prisma.DbNull,
+            newValue: { closingId: closing.id, invoiceDraftFileId: inv.id, warrantyDraftFileId: war.id } as any,
+          },
+        })
+        .catch(() => null);
+
+      return row;
+    });
+
+    // Best-effort: keep client last activity updated on doc generation.
+    try {
+      if (service?.customerId) {
+        await this.prisma.client.update({
+          where: { id: service.customerId },
+          data: { lastActivityAt: new Date() },
+        });
+      }
+    } catch {
+      // ignore
+    }
+
+    return updated;
+  }
+
+  async refreshDraftIfPending(params: { serviceId: string; triggeredByUserId: string }) {
+    let closing: any;
+    try {
+      closing = await this.prisma.serviceClosing.findUnique({ where: { serviceId: params.serviceId } });
+    } catch (e) {
+      if (this.isSchemaMismatch(e)) return null;
+      throw e;
+    }
+
+    if (!closing) return null;
+    if (closing.approvalStatus !== ServiceClosingApprovalStatus.PENDING) return closing;
+
+    const { invoiceData, warrantyData } = await this.buildDraftDataFromService(params.serviceId);
+    const invoicePdf = await buildInvoicePdf(invoiceData);
+    const warrantyPdf = await buildWarrantyPdf(warrantyData);
+
+    const [invUpload, warUpload] = await Promise.all([
+      this.uploadPdfToR2({
+        serviceId: params.serviceId,
+        fileName: `factura_${params.serviceId}.pdf`,
+        pdfBytes: invoicePdf,
+      }),
+      this.uploadPdfToR2({
+        serviceId: params.serviceId,
+        fileName: `garantia_${params.serviceId}.pdf`,
+        pdfBytes: warrantyPdf,
+      }),
+    ]);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const inv = await this.createServiceFileRowForUploadedPdf(tx, {
+        serviceId: params.serviceId,
+        uploadedByUserId: params.triggeredByUserId,
+        kind: 'service_invoice_draft',
+        caption: 'Factura (borrador - actualizado)',
+        upload: invUpload,
+      });
+
+      const war = await this.createServiceFileRowForUploadedPdf(tx, {
+        serviceId: params.serviceId,
+        uploadedByUserId: params.triggeredByUserId,
+        kind: 'service_warranty_draft',
+        caption: 'Carta de garantía (borrador - actualizado)',
+        upload: warUpload,
+      });
+
+      return tx.serviceClosing.update({
+        where: { serviceId: params.serviceId },
+        data: {
+          invoiceData: invoiceData as unknown as Prisma.InputJsonValue,
+          warrantyData: warrantyData as unknown as Prisma.InputJsonValue,
+          invoiceDraftFileId: inv.id,
+          warrantyDraftFileId: war.id,
+        },
+      });
+    });
+
+    return updated;
   }
 
   async tryStartOnServiceFinalized(params: { serviceId: string; triggeredByUserId: string }) {
@@ -354,23 +635,34 @@ export class ServiceClosingService {
     const invoicePdf = await buildInvoicePdf(invoiceData);
     const warrantyPdf = await buildWarrantyPdf(warrantyData);
 
+    const [invUpload, warUpload] = await Promise.all([
+      this.uploadPdfToR2({
+        serviceId: service.id,
+        fileName: `factura_${service.id}.pdf`,
+        pdfBytes: invoicePdf,
+      }),
+      this.uploadPdfToR2({
+        serviceId: service.id,
+        fileName: `garantia_${service.id}.pdf`,
+        pdfBytes: warrantyPdf,
+      }),
+    ]);
+
     const [invFile, warFile] = await this.prisma.$transaction(async (tx) => {
-      const inv = await this.uploadPdfAsServiceFile({
+      const inv = await this.createServiceFileRowForUploadedPdf(tx, {
         serviceId: service.id,
         uploadedByUserId: params.triggeredByUserId,
         kind: 'service_invoice_draft',
-        fileName: `factura_${service.id}.pdf`,
         caption: 'Factura (borrador)',
-        pdfBytes: invoicePdf,
+        upload: invUpload,
       });
 
-      const war = await this.uploadPdfAsServiceFile({
+      const war = await this.createServiceFileRowForUploadedPdf(tx, {
         serviceId: service.id,
         uploadedByUserId: params.triggeredByUserId,
         kind: 'service_warranty_draft',
-        fileName: `garantia_${service.id}.pdf`,
         caption: 'Carta de garantía (borrador)',
-        pdfBytes: warrantyPdf,
+        upload: warUpload,
       });
 
       const updated = await tx.serviceClosing.update({
@@ -510,28 +802,39 @@ export class ServiceClosingService {
       signature: null,
     });
 
+    const [invUpload, warUpload] = await Promise.all([
+      this.uploadPdfToR2({
+        serviceId,
+        fileName: `factura_aprobada_${serviceId}.pdf`,
+        pdfBytes: invoicePdf,
+      }),
+      this.uploadPdfToR2({
+        serviceId,
+        fileName: `garantia_aprobada_${serviceId}.pdf`,
+        pdfBytes: warrantyPdf,
+      }),
+    ]);
+
     const service = await this.prisma.service.findUnique({
       where: { id: serviceId },
       select: { technicianId: true, title: true },
     });
 
     const [inv, war, updated] = await this.prisma.$transaction(async (tx) => {
-      const invFile = await this.uploadPdfAsServiceFile({
+      const invFile = await this.createServiceFileRowForUploadedPdf(tx, {
         serviceId,
         uploadedByUserId: user.id,
         kind: 'service_invoice_approved',
-        fileName: `factura_aprobada_${serviceId}.pdf`,
         caption: 'Factura (aprobada)',
-        pdfBytes: invoicePdf,
+        upload: invUpload,
       });
 
-      const warFile = await this.uploadPdfAsServiceFile({
+      const warFile = await this.createServiceFileRowForUploadedPdf(tx, {
         serviceId,
         uploadedByUserId: user.id,
         kind: 'service_warranty_approved',
-        fileName: `garantia_aprobada_${serviceId}.pdf`,
         caption: 'Carta de garantía (aprobada)',
-        pdfBytes: warrantyPdf,
+        upload: warUpload,
       });
 
       const row = await tx.serviceClosing.update({
@@ -693,23 +996,34 @@ export class ServiceClosingService {
       signature: shouldEmbedSig && sigBytes ? { pngBytes: sigBytes, signedAtIso: sigRef?.signedAtIso ?? null } : null,
     });
 
+    const [invUpload, warUpload] = await Promise.all([
+      this.uploadPdfToR2({
+        serviceId,
+        fileName: `factura_final_${serviceId}.pdf`,
+        pdfBytes: invoicePdf,
+      }),
+      this.uploadPdfToR2({
+        serviceId,
+        fileName: `garantia_final_${serviceId}.pdf`,
+        pdfBytes: warrantyPdf,
+      }),
+    ]);
+
     const [inv, war, updated] = await this.prisma.$transaction(async (tx) => {
-      const invFile = await this.uploadPdfAsServiceFile({
+      const invFile = await this.createServiceFileRowForUploadedPdf(tx, {
         serviceId,
         uploadedByUserId: user.id,
         kind: 'service_invoice_final',
-        fileName: `factura_final_${serviceId}.pdf`,
         caption: 'Factura (final)',
-        pdfBytes: invoicePdf,
+        upload: invUpload,
       });
 
-      const warFile = await this.uploadPdfAsServiceFile({
+      const warFile = await this.createServiceFileRowForUploadedPdf(tx, {
         serviceId,
         uploadedByUserId: user.id,
         kind: 'service_warranty_final',
-        fileName: `garantia_final_${serviceId}.pdf`,
         caption: 'Carta de garantía (final)',
-        pdfBytes: warrantyPdf,
+        upload: warUpload,
       });
 
       const row = await tx.serviceClosing.update({

@@ -13,6 +13,8 @@ import '../data/operations_repository.dart';
 import '../operations_models.dart';
 import '../presentation/operations_permissions.dart';
 import 'technical_evidence_upload.dart';
+import 'application/tech_operations_controller.dart';
+import '../application/operations_controller.dart';
 
 class TechnicalExecutionState {
   final bool loading;
@@ -111,6 +113,12 @@ class TechnicalExecutionController
   }
 
   String _cacheKey(String userId) => 'ops_exec|$userId|${serviceId.trim()}';
+
+  void _syncServiceLists(ServiceModel service) {
+    // Immediate in-memory updates (no network) for current device.
+    ref.read(operationsControllerProvider.notifier).applyRealtimeService(service);
+    ref.read(techOperationsControllerProvider.notifier).applyRealtimeService(service);
+  }
 
   Future<void> load() async {
     if (state.loading) return;
@@ -333,53 +341,59 @@ class TechnicalExecutionController
     _debouncedSave();
   }
 
-  void markArrivedNow() {
-    unawaited(_markArrivedNow());
+  void markArrivedNow({bool captureGps = true}) {
+    unawaited(_markArrivedNow(captureGps: captureGps));
   }
 
-  Future<void> _markArrivedNow() async {
+  Future<void> setArrivedAtNow({bool captureGps = false}) {
+    return _markArrivedNow(captureGps: captureGps);
+  }
+
+  Future<void> _markArrivedNow({required bool captureGps}) async {
     if (_readOnly) return;
     state = state.copyWith(arrivedAt: DateTime.now());
 
-    try {
-      final serviceEnabled = await geo.Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        throw Exception('Servicios de ubicación desactivados');
+    if (captureGps) {
+      try {
+        final serviceEnabled = await geo.Geolocator.isLocationServiceEnabled();
+        if (!serviceEnabled) {
+          throw Exception('Servicios de ubicación desactivados');
+        }
+
+        var permission = await geo.Geolocator.checkPermission();
+        if (permission == geo.LocationPermission.denied) {
+          permission = await geo.Geolocator.requestPermission();
+        }
+        if (permission == geo.LocationPermission.denied) {
+          throw Exception('Permiso de ubicación denegado');
+        }
+        if (permission == geo.LocationPermission.deniedForever) {
+          throw Exception('Permiso de ubicación denegado permanentemente');
+        }
+
+        final pos = await geo.Geolocator.getCurrentPosition(
+          desiredAccuracy: geo.LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 12),
+        );
+
+        if (!mounted) return;
+
+        final next = <String, dynamic>{...state.phaseSpecificData};
+        next['arrivalGps'] = {
+          'lat': pos.latitude,
+          'lng': pos.longitude,
+          'accuracy': pos.accuracy,
+          'altitude': pos.altitude,
+          'heading': pos.heading,
+          'speed': pos.speed,
+          'capturedAt': DateTime.now().toIso8601String(),
+        };
+
+        state = state.copyWith(phaseSpecificData: next);
+      } catch (e) {
+        // Do not block arrival timestamp.
+        state = state.copyWith(error: 'GPS: $e');
       }
-
-      var permission = await geo.Geolocator.checkPermission();
-      if (permission == geo.LocationPermission.denied) {
-        permission = await geo.Geolocator.requestPermission();
-      }
-      if (permission == geo.LocationPermission.denied) {
-        throw Exception('Permiso de ubicación denegado');
-      }
-      if (permission == geo.LocationPermission.deniedForever) {
-        throw Exception('Permiso de ubicación denegado permanentemente');
-      }
-
-      final pos = await geo.Geolocator.getCurrentPosition(
-        desiredAccuracy: geo.LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 12),
-      );
-
-      if (!mounted) return;
-
-      final next = <String, dynamic>{...state.phaseSpecificData};
-      next['arrivalGps'] = {
-        'lat': pos.latitude,
-        'lng': pos.longitude,
-        'accuracy': pos.accuracy,
-        'altitude': pos.altitude,
-        'heading': pos.heading,
-        'speed': pos.speed,
-        'capturedAt': DateTime.now().toIso8601String(),
-      };
-
-      state = state.copyWith(phaseSpecificData: next);
-    } catch (e) {
-      // Do not block arrival timestamp.
-      state = state.copyWith(error: 'GPS: $e');
     }
 
     unawaited(_persistDraft());
@@ -387,17 +401,25 @@ class TechnicalExecutionController
   }
 
   void markStartedNow() {
+    unawaited(setStartedAtNow());
+  }
+
+  Future<void> setStartedAtNow() async {
     if (_readOnly) return;
     state = state.copyWith(startedAt: DateTime.now());
-    unawaited(_persistDraft());
-    unawaited(saveNow());
+    await _persistDraft();
+    await saveNow();
   }
 
   void markFinishedNow() {
+    unawaited(setFinishedAtNow());
+  }
+
+  Future<void> setFinishedAtNow() async {
     if (_readOnly) return;
     state = state.copyWith(finishedAt: DateTime.now());
-    unawaited(_persistDraft());
-    unawaited(saveNow());
+    await _persistDraft();
+    await saveNow();
   }
 
   void _debouncedSave() {
@@ -443,6 +465,7 @@ class TechnicalExecutionController
 
   Future<void> changeOrderState({
     required String orderState,
+    String? techStatus,
     String? message,
   }) async {
     if (_readOnly) return;
@@ -454,6 +477,8 @@ class TechnicalExecutionController
     final next = orderState.trim().toLowerCase();
     if (next.isEmpty) return;
 
+    final tech = techStatus?.trim().toLowerCase();
+
     state = state.copyWith(saving: true, clearError: true);
     try {
       final repo = ref.read(operationsRepositoryProvider);
@@ -464,10 +489,13 @@ class TechnicalExecutionController
       );
 
       final techId = (ref.read(authStateProvider).user?.id ?? '').trim();
-      final logMsg = [
-        'state=$next',
+
+      final stateForHistory = (tech == null || tech.isEmpty) ? next : tech;
+      final logMsg = <String>[
+        'state=$stateForHistory',
+        if (stateForHistory != next) 'orderState=$next',
         if (techId.isNotEmpty) 'technicianId=$techId',
-      ].join(' | ');
+      ].join('|');
 
       try {
         await repo.addUpdate(
@@ -479,8 +507,142 @@ class TechnicalExecutionController
         // Best-effort; do not block status update.
       }
 
-      final refreshed = await repo.getService(serviceId);
+      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
+      final refreshed = cacheScope.isEmpty
+          ? await repo.getService(serviceId)
+          : await repo.getServiceAndCache(
+              cacheScope: cacheScope,
+              id: serviceId,
+              silent: true,
+            );
       state = state.copyWith(saving: false, service: refreshed);
+
+      _syncServiceLists(refreshed);
+
+      // Keep the technician list hot and in sync.
+      unawaited(
+        ref
+            .read(techOperationsControllerProvider.notifier)
+            .refresh(silent: true),
+      );
+
+      // Reconcile other filters/dashboard soon.
+      unawaited(ref.read(operationsControllerProvider.notifier).refresh());
+    } on ApiException catch (e) {
+      state = state.copyWith(saving: false, error: e.message);
+    } catch (e) {
+      state = state.copyWith(saving: false, error: e.toString());
+    }
+  }
+
+  Future<void> setTechProgress(String progressKey) async {
+    if (_readOnly) return;
+    final key = progressKey.trim().toLowerCase();
+    if (key.isEmpty) return;
+
+    String mapToOrderState(String k) {
+      switch (k) {
+        case 'tecnico_en_camino':
+          return 'en_camino';
+        case 'tecnico_en_el_lugar':
+        case 'instalacion_iniciada':
+          return 'en_proceso';
+        case 'instalacion_finalizada':
+          return 'finalizada';
+        default:
+          return 'en_proceso';
+      }
+    }
+
+    final now = DateTime.now();
+    final nextPhase = <String, dynamic>{...state.phaseSpecificData};
+    nextPhase['techProgress'] = key;
+    nextPhase['techProgressAt'] = now.toIso8601String();
+
+    final history = <Map<String, dynamic>>[];
+    final rawHistory = nextPhase['techProgressHistory'];
+    if (rawHistory is List) {
+      for (final item in rawHistory) {
+        if (item is Map) {
+          history.add(item.cast<String, dynamic>());
+        }
+      }
+    }
+
+    final lastState = history.isNotEmpty
+        ? (history.last['state'] ?? '').toString().trim().toLowerCase()
+        : '';
+    if (lastState != key) {
+      history.add({'state': key, 'at': now.toIso8601String()});
+      nextPhase['techProgressHistory'] = history;
+    }
+
+    DateTime? arrivedAt = state.arrivedAt;
+    DateTime? startedAt = state.startedAt;
+    DateTime? finishedAt = state.finishedAt;
+
+    if (key == 'tecnico_en_camino') {
+      nextPhase['onTheWayAt'] =
+          (nextPhase['onTheWayAt'] ?? now.toIso8601String());
+    }
+    if (key == 'tecnico_en_el_lugar' && arrivedAt == null) {
+      arrivedAt = now;
+    }
+    if (key == 'instalacion_iniciada' && startedAt == null) {
+      startedAt = now;
+    }
+    if (key == 'instalacion_finalizada' && finishedAt == null) {
+      finishedAt = now;
+    }
+
+    state = state.copyWith(
+      phaseSpecificData: nextPhase,
+      arrivedAt: arrivedAt,
+      startedAt: startedAt,
+      finishedAt: finishedAt,
+    );
+    await _persistDraft();
+
+    // Persist execution report + history. These are separate server endpoints.
+    await saveNow();
+    await changeOrderState(
+      orderState: mapToOrderState(key),
+      techStatus: key,
+      message: 'Estado técnico actualizado',
+    );
+  }
+
+  Future<void> addInfoUpdate({required String kind, required String text}) async {
+    if (_readOnly) return;
+    if (state.saving) return;
+
+    final k = kind.trim().toLowerCase();
+    final t = text.trim();
+    if (k.isEmpty || t.isEmpty) return;
+
+    final service = state.service;
+    if (service == null) return;
+
+    state = state.copyWith(saving: true, clearError: true);
+    try {
+      final repo = ref.read(operationsRepositoryProvider);
+      await repo.addUpdate(
+        serviceId: serviceId,
+        type: 'tech_info',
+        message: 'kind=$k|text=$t',
+      );
+      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
+      final refreshed = cacheScope.isEmpty
+          ? await repo.getService(serviceId)
+          : await repo.getServiceAndCache(
+              cacheScope: cacheScope,
+              id: serviceId,
+              silent: true,
+            );
+      state = state.copyWith(saving: false, service: refreshed);
+      _syncServiceLists(refreshed);
+      unawaited(ref.read(operationsControllerProvider.notifier).refresh());
+      unawaited(ref.read(techOperationsControllerProvider.notifier).refresh(silent: true));
     } on ApiException catch (e) {
       state = state.copyWith(saving: false, error: e.message);
     } catch (e) {
@@ -516,7 +678,11 @@ class TechnicalExecutionController
           )
           .toList(growable: false);
 
-      state = state.copyWith(service: service.copyWith(steps: updatedSteps));
+      final updatedService = service.copyWith(steps: updatedSteps);
+      state = state.copyWith(service: updatedService);
+      _syncServiceLists(updatedService);
+      unawaited(ref.read(operationsControllerProvider.notifier).refresh());
+      unawaited(ref.read(techOperationsControllerProvider.notifier).refresh(silent: true));
     } catch (e) {
       state = state.copyWith(error: e.toString());
     }
@@ -605,11 +771,21 @@ class TechnicalExecutionController
       if (!mounted) return;
 
       final repo = ref.read(operationsRepositoryProvider);
-      final refreshed = await repo.getService(serviceId);
+      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
+      final refreshed = cacheScope.isEmpty
+          ? await repo.getService(serviceId)
+          : await repo.getServiceAndCache(
+              cacheScope: cacheScope,
+              id: serviceId,
+              silent: true,
+            );
 
       if (!mounted) return;
       _removePending(id);
       state = state.copyWith(service: refreshed);
+      _syncServiceLists(refreshed);
+      unawaited(ref.read(operationsControllerProvider.notifier).refresh());
+      unawaited(ref.read(techOperationsControllerProvider.notifier).refresh(silent: true));
     } catch (e) {
       if (!mounted) return;
       _removePending(id);
@@ -722,11 +898,21 @@ class TechnicalExecutionController
       if (!mounted) return;
 
       final repo = ref.read(operationsRepositoryProvider);
-      final refreshed = await repo.getService(serviceId);
+      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
+      final refreshed = cacheScope.isEmpty
+          ? await repo.getService(serviceId)
+          : await repo.getServiceAndCache(
+              cacheScope: cacheScope,
+              id: serviceId,
+              silent: true,
+            );
 
       if (!mounted) return;
       _removePending(id);
       state = state.copyWith(service: refreshed);
+      _syncServiceLists(refreshed);
+      unawaited(ref.read(operationsControllerProvider.notifier).refresh());
+      unawaited(ref.read(techOperationsControllerProvider.notifier).refresh(silent: true));
     } catch (e) {
       if (!mounted) return;
       _removePending(id);
@@ -823,11 +1009,21 @@ class TechnicalExecutionController
       unawaited(_persistDraft());
 
       final repo = ref.read(operationsRepositoryProvider);
-      final refreshed = await repo.getService(serviceId);
+      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
+      final refreshed = cacheScope.isEmpty
+          ? await repo.getService(serviceId)
+          : await repo.getServiceAndCache(
+              cacheScope: cacheScope,
+              id: serviceId,
+              silent: true,
+            );
 
       if (!mounted) return;
       _removePending(id);
       state = state.copyWith(service: refreshed);
+      _syncServiceLists(refreshed);
+      unawaited(ref.read(operationsControllerProvider.notifier).refresh());
+      unawaited(ref.read(techOperationsControllerProvider.notifier).refresh(silent: true));
       unawaited(saveNow());
     } catch (e) {
       if (!mounted) return;
@@ -864,6 +1060,27 @@ class TechnicalExecutionController
       );
 
       state = state.copyWith(changes: [...state.changes, created]);
+
+      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
+      if (cacheScope.isNotEmpty) {
+        unawaited(() async {
+          try {
+            final refreshed = await repo.getServiceAndCache(
+              cacheScope: cacheScope,
+              id: serviceId,
+              silent: true,
+            );
+            if (!mounted) return;
+            state = state.copyWith(service: refreshed);
+            _syncServiceLists(refreshed);
+          } catch (_) {
+            // ignore
+          }
+        }());
+      }
+
+      unawaited(ref.read(operationsControllerProvider.notifier).refresh());
+      unawaited(ref.read(techOperationsControllerProvider.notifier).refresh(silent: true));
     } catch (e) {
       state = state.copyWith(error: e.toString());
     }
@@ -889,6 +1106,27 @@ class TechnicalExecutionController
       state = state.copyWith(
         changes: state.changes.where((c) => c.id != change.id).toList(),
       );
+
+      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
+      if (cacheScope.isNotEmpty) {
+        unawaited(() async {
+          try {
+            final refreshed = await repo.getServiceAndCache(
+              cacheScope: cacheScope,
+              id: serviceId,
+              silent: true,
+            );
+            if (!mounted) return;
+            state = state.copyWith(service: refreshed);
+            _syncServiceLists(refreshed);
+          } catch (_) {
+            // ignore
+          }
+        }());
+      }
+
+      unawaited(ref.read(operationsControllerProvider.notifier).refresh());
+      unawaited(ref.read(techOperationsControllerProvider.notifier).refresh(silent: true));
     } catch (e) {
       state = state.copyWith(error: e.toString());
     }

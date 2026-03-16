@@ -210,6 +210,19 @@ export async function buildWarrantyPdf(data: WarrantyDraftData): Promise<Buffer>
     );
 
     doc.moveDown(0.9);
+    doc.fontSize(11).text('Condiciones de garantía', { underline: true });
+    doc.fontSize(9).text(
+      [
+        '1) Cobertura (12 meses): cámaras, DVR/NVR, discos duros (HDD) y mano de obra de instalación, a partir de la fecha del servicio/instalación indicada en este documento.',
+        '2) Cobertura (6 meses): motores y otros equipos no incluidos en el punto 1, a partir de la fecha del servicio/instalación indicada en este documento.',
+        '3) Exclusiones: daños por golpes, manipulación indebida, humedad/inundación, descargas eléctricas, variaciones de voltaje, uso fuera de especificación, instalación/modificación por terceros, o falta de mantenimiento recomendado.',
+        '4) Procedimiento: para activar la garantía se requiere validación del caso y, cuando aplique, revisión técnica del equipo/instalación.',
+        '5) Tiempos de respuesta: la atención se coordina según agenda y disponibilidad, priorizando los casos que afecten la operación del cliente.',
+      ].join('\n'),
+      { align: 'justify' },
+    );
+
+    doc.moveDown(0.9);
     doc.fontSize(10).text(`Técnico: ${data.technicianName ?? 'N/D'}`);
     doc.fontSize(10).text(`Fecha del servicio: ${fmtDate(data.serviceDateIso)}`);
 

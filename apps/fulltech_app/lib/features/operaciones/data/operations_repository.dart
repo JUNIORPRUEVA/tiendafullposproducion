@@ -24,6 +24,7 @@ class OperationsRepository {
   static const Duration _servicesCacheTtl = Duration(days: 7);
   static const Duration _dashboardCacheTtl = Duration(days: 7);
   static const Duration _serviceDetailCacheTtl = Duration(days: 7);
+  static const Duration _techServicesCacheTtl = Duration(minutes: 2);
 
   final LocalJsonCache _cache = LocalJsonCache();
 
@@ -107,6 +108,184 @@ class OperationsRepository {
     return ['ops', 'service', _scope(cacheScope), id.trim()].join('|');
   }
 
+  String _techServicesCacheKey({
+    required String cacheScope,
+    required String techKey,
+  }) {
+    return [
+      'ops',
+      'tech_services',
+      _scope(cacheScope),
+      techKey.trim(),
+    ].join('|');
+  }
+
+  Future<List<ServiceModel>?> getCachedTechServices({
+    required String cacheScope,
+    required String techKey,
+  }) async {
+    final key = _techServicesCacheKey(cacheScope: cacheScope, techKey: techKey);
+    final map = await _cache.readMap(key, maxAge: _techServicesCacheTtl);
+    if (map == null) return null;
+    final rawItems = map['items'];
+    if (rawItems is! List) return null;
+
+    final items = <ServiceModel>[];
+    for (final row in rawItems) {
+      if (row is Map) {
+        try {
+          items.add(ServiceModel.fromJson(row.cast<String, dynamic>()));
+        } catch (_) {
+          // ignore invalid rows
+        }
+      }
+    }
+    return items;
+  }
+
+  Future<List<Map<String, dynamic>>> _listServicesItemsRaw({
+    bool silent = false,
+    String? status,
+    String? technicianId,
+    String? assignedTo,
+    int page = 1,
+    int pageSize = 200,
+  }) async {
+    final res = await _dio.get(
+      ApiRoutes.services,
+      options: Options(extra: {'silent': silent}),
+      queryParameters: {
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (technicianId != null && technicianId.isNotEmpty)
+          'technicianId': technicianId,
+        if (assignedTo != null && assignedTo.isNotEmpty)
+          'assignedTo': assignedTo,
+        'page': page,
+        'pageSize': pageSize,
+      },
+    );
+
+    final data = (res.data as Map).cast<String, dynamic>();
+    final items = data['items'];
+    if (items is! List) return const <Map<String, dynamic>>[];
+    return items
+        .whereType<Map>()
+        .map((e) => e.cast<String, dynamic>())
+        .toList(growable: false);
+  }
+
+  Future<List<ServiceModel>> listTechServicesAndCache({
+    required String cacheScope,
+    required String techKey,
+    required String? technicianId,
+    required String? assignedTo,
+    bool silent = false,
+  }) async {
+    final key = _techServicesCacheKey(cacheScope: cacheScope, techKey: techKey);
+
+    Object? lastError;
+    var okRequests = 0;
+
+    const statuses = <String>[
+      'survey',
+      'scheduled',
+      'in_progress',
+      'warranty',
+      'pending',
+      'completed',
+      'closed',
+      'cancelled',
+    ];
+
+    Future<List<Map<String, dynamic>>> safeList({
+      required String? status,
+      required String? technicianId,
+      required String? assignedTo,
+    }) async {
+      try {
+        final items = await _listServicesItemsRaw(
+          silent: silent,
+          status: status,
+          technicianId: technicianId,
+          assignedTo: assignedTo,
+          page: 1,
+          pageSize: 200,
+        );
+        okRequests++;
+        return items;
+      } catch (e) {
+        lastError = e;
+        return const <Map<String, dynamic>>[];
+      }
+    }
+
+    // Fast path: some deployments accept listing without status.
+    var mergedRaw = await safeList(
+      status: null,
+      technicianId: technicianId,
+      assignedTo: assignedTo,
+    );
+
+    // If empty, do the more expensive per-status strategy in parallel.
+    if (mergedRaw.isEmpty) {
+      final batches = await Future.wait(
+        statuses
+            .map(
+              (s) => safeList(
+                status: s,
+                technicianId: technicianId,
+                assignedTo: assignedTo,
+              ),
+            )
+            .toList(growable: false),
+        eagerError: false,
+      );
+      mergedRaw = batches.expand((e) => e).toList(growable: false);
+    }
+
+    // Fallback: if filters yield nothing, try without them.
+    if (mergedRaw.isEmpty &&
+        technicianId != null &&
+        technicianId.trim().isNotEmpty) {
+      final batches = await Future.wait(
+        statuses
+            .map(
+              (s) => safeList(status: s, technicianId: null, assignedTo: null),
+            )
+            .toList(growable: false),
+        eagerError: false,
+      );
+      mergedRaw = batches.expand((e) => e).toList(growable: false);
+      if (mergedRaw.isEmpty) {
+        mergedRaw = await safeList(
+          status: null,
+          technicianId: null,
+          assignedTo: null,
+        );
+      }
+    }
+
+    // If every request failed (auth/network/server), surface the error instead
+    // of returning an empty list that looks like “no services”.
+    if (mergedRaw.isEmpty && okRequests == 0 && lastError != null) {
+      throw lastError!;
+    }
+
+    final byId = <String, Map<String, dynamic>>{};
+    for (final row in mergedRaw) {
+      final id = (row['id'] ?? '').toString().trim();
+      if (id.isEmpty) continue;
+      byId[id] = row;
+    }
+    final deduped = byId.values.toList(growable: false);
+
+    await _cache.writeMap(key, {'items': deduped});
+
+    return deduped
+        .map((row) => ServiceModel.fromJson(row))
+        .toList(growable: false);
+  }
+
   Future<ServicesPageModel?> getCachedServices({
     required String cacheScope,
     String? status,
@@ -163,6 +342,16 @@ class OperationsRepository {
     final map = await _cache.readMap(key, maxAge: _serviceDetailCacheTtl);
     if (map == null) return null;
     return ServiceModel.fromJson(map);
+  }
+
+  Future<void> upsertServiceCacheFromRealtime({
+    required String cacheScope,
+    required Map<String, dynamic> serviceJson,
+  }) async {
+    final id = (serviceJson['id'] ?? '').toString().trim();
+    if (id.isEmpty) return;
+    final key = _serviceCacheKey(cacheScope: cacheScope, id: id);
+    await _cache.writeMap(key, serviceJson);
   }
 
   String _extractMessage(dynamic data, String fallback) {

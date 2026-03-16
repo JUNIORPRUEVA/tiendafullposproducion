@@ -4,9 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { Role, ServiceUpdateType } from '@prisma/client';
 import { R2Service } from './r2.service';
+import { CatalogRealtimeRelayService } from '../products/catalog-realtime-relay.service';
 import {
   assertValidObjectKeyForService,
   buildServiceObjectKey,
@@ -26,6 +28,7 @@ export class StorageService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly r2: R2Service,
+    private readonly realtime: CatalogRealtimeRelayService,
   ) {}
 
   private isAdminLike(role: Role) {
@@ -249,6 +252,23 @@ export class StorageService {
 
       return row;
     });
+
+    // Realtime: notify ops clients to refresh. Keep payload lightweight to avoid
+    // duplicating operations normalization logic in storage.
+    try {
+      this.realtime.emitOps('service.event', {
+        eventId: randomUUID(),
+        happenedAt: new Date().toISOString(),
+        type: 'service.file_uploaded',
+        serviceId: dto.serviceId,
+        service: { id: dto.serviceId },
+        fileId: created.id,
+        kind: dto.kind,
+        actorUserId: user.id,
+      });
+    } catch {
+      // ignore
+    }
 
     return created;
   }

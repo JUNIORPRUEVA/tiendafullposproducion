@@ -57,7 +57,15 @@ export class CatalogRealtimeRelayService implements OnModuleDestroy {
           return next(new Error('No autorizado'));
         }
 
-        jwt.verify(token, this.jwtSecret);
+        const payload = jwt.verify(token, this.jwtSecret) as {
+          sub?: unknown;
+          role?: unknown;
+          tokenType?: unknown;
+        };
+
+        // Persist minimal identity on the socket for room routing.
+        socket.data.userId = payload?.sub?.toString?.() ?? '';
+        socket.data.role = payload?.role?.toString?.() ?? '';
         return next();
       } catch {
         return next(new Error('No autorizado'));
@@ -66,7 +74,28 @@ export class CatalogRealtimeRelayService implements OnModuleDestroy {
 
     this.io.on('connection', (socket) => {
       socket.join('catalog');
+
+      // Operations realtime rooms.
+      socket.join('ops');
+
+      const userId = (socket.data.userId ?? '').toString().trim();
+      if (userId) {
+        socket.join(`ops:user:${userId}`);
+      }
+
+      const role = (socket.data.role ?? '').toString().trim().toLowerCase();
+      if (role) {
+        socket.join(`ops:role:${role}`);
+      }
     });
+  }
+
+  emitTo(room: string, event: string, payload: unknown) {
+    this.io?.to(room).emit(event, payload);
+  }
+
+  emitOps(event: string, payload: unknown) {
+    this.emitTo('ops', event, payload);
   }
 
   start() {

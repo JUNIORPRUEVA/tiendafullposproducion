@@ -36,6 +36,7 @@ import { CreateWarrantyDto } from './dto/create-warranty.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
 import { UpsertExecutionReportDto } from './dto/upsert-execution-report.dto';
 import { CreateExecutionChangeDto } from './dto/create-execution-change.dto';
+import { OperationsRealtimeService } from './operations-realtime.service';
 
 type AuthUser = { id: string; role: Role };
 
@@ -56,7 +57,131 @@ export class OperationsService {
     private readonly notifications: NotificationsService,
     private readonly r2: R2Service,
     private readonly serviceClosing: ServiceClosingService,
+    private readonly realtime: OperationsRealtimeService,
   ) {}
+
+  private async notifyFleetNumbersForService(params: {
+    serviceId: string;
+    createdByUserId: string;
+    messageText: string;
+    payload?: unknown;
+  }) {
+    const serviceId = (params.serviceId ?? '').toString().trim();
+    const createdByUserId = (params.createdByUserId ?? '').toString().trim();
+    const messageText = (params.messageText ?? '').toString().trim();
+    if (!serviceId || !createdByUserId || !messageText) return;
+
+    try {
+      const [creator, staff] = await Promise.all([
+        this.prisma.user.findUnique({
+          where: { id: createdByUserId },
+          select: { id: true, blocked: true, numeroFlota: true, role: true },
+        }),
+        this.prisma.user.findMany({
+          where: {
+            blocked: false,
+            role: { in: [Role.ADMIN, Role.ASISTENTE] },
+          },
+          select: { id: true, blocked: true, numeroFlota: true, role: true },
+        }),
+      ]);
+
+      const recipients = new Map<string, { id: string; numeroFlota: string }>();
+
+      const add = (u: any) => {
+        if (!u || u.blocked) return;
+        const n = (u.numeroFlota ?? '').toString().trim();
+        if (!n) return;
+        const id = (u.id ?? '').toString().trim();
+        if (!id) return;
+        recipients.set(id, { id, numeroFlota: n });
+      };
+
+      add(creator);
+      for (const u of staff ?? []) add(u);
+
+      const payload = (params.payload ?? null) as any;
+      const withService =
+        payload && typeof payload === 'object'
+          ? { ...payload, serviceId }
+          : { kind: 'service_notification', serviceId };
+
+      for (const r of recipients.values()) {
+        void this.notifications
+          .enqueueWhatsAppRawText({
+            toNumber: r.numeroFlota,
+            messageText,
+            payload: withService,
+          })
+          .catch(() => {
+            // ignore
+          });
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  private async notifyAllTechniciansForNewService(params: {
+    serviceId: string;
+    createdByUserId: string;
+    serviceTitle: string;
+    serviceTypeLabel: string;
+    customerName: string;
+    actorUserId?: string;
+  }) {
+    const serviceId = (params.serviceId ?? '').toString().trim();
+    const createdByUserId = (params.createdByUserId ?? '').toString().trim();
+    if (!serviceId || !createdByUserId) return;
+
+    try {
+      const [actor, techs] = await Promise.all([
+        this.prisma.user
+          .findUnique({ where: { id: params.actorUserId ?? createdByUserId }, select: { nombreCompleto: true } })
+          .catch(() => null),
+        this.prisma.user.findMany({
+          where: { blocked: false, role: Role.TECNICO },
+          select: { id: true, blocked: true, numeroFlota: true },
+        }),
+      ]);
+
+      const actorName = (actor?.nombreCompleto ?? '').toString().trim();
+      const title = (params.serviceTitle ?? '').toString().trim() || 'Servicio';
+      const typeLabel = (params.serviceTypeLabel ?? '').toString().trim() || 'Orden';
+      const customerName = (params.customerName ?? '').toString().trim() || 'Cliente';
+
+      const messageText = [
+        '*Nueva orden creada*',
+        `Tipo: ${typeLabel}`,
+        `Servicio: ${title}`,
+        `Cliente: ${customerName}`,
+        actorName ? `Creada por: ${actorName}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      const payload = { kind: 'new_service_created', serviceId, actorUserId: params.actorUserId ?? createdByUserId };
+
+      for (const u of techs ?? []) {
+        if (!u || u.blocked) continue;
+        const n = (u.numeroFlota ?? '').toString().trim();
+        if (!n) continue;
+
+        void this.notifications
+          .enqueueWhatsAppRawText({
+            toNumber: n,
+            messageText,
+            payload,
+            dedupeKey: `new_service_created:${serviceId}:${u.id}`,
+          })
+          .catch(() => {
+            // ignore
+          });
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   private async decorateServiceFilesForView(service: any) {
     const files = Array.isArray(service?.files) ? service.files : [];
@@ -454,7 +579,48 @@ export class OperationsService {
       return finalRow;
     });
 
-    return this.normalizeService(created);
+    const normalized = this.normalizeService(created);
+    try {
+      this.realtime.emitServiceEvent({
+        type: 'service.created',
+        service: normalized,
+        actorUserId: user.id,
+      });
+    } catch {
+      // ignore
+    }
+
+    // Notify all technicians (fleet numbers) that a new order was created.
+    try {
+      const typeLabel = (() => {
+        const t = this.toApiType(created.serviceType);
+        switch (t) {
+          case 'survey':
+            return 'Levantamiento';
+          case 'warranty':
+            return 'Garantía';
+          case 'installation':
+            return 'Instalación';
+          case 'maintenance':
+            return 'Mantenimiento';
+          default:
+            return t || 'Orden';
+        }
+      })();
+
+      await this.notifyAllTechniciansForNewService({
+        serviceId: created.id,
+        createdByUserId: created.createdByUserId,
+        serviceTitle: created.title,
+        serviceTypeLabel: typeLabel,
+        customerName: created.customer?.nombre ?? 'Cliente',
+        actorUserId: user.id,
+      });
+    } catch {
+      // ignore
+    }
+
+    return normalized;
   }
 
   async changePhase(user: AuthUser, id: string, dto: ChangeServicePhaseDto) {
@@ -618,6 +784,10 @@ export class OperationsService {
       }
     }
 
+    if (nextPhase === ServicePhaseType.INSTALACION || nextPhase === ServicePhaseType.MANTENIMIENTO) {
+      await this.serviceClosing.ensureDraftOnPhaseEntry({ serviceId: id, triggeredByUserId: user.id });
+    }
+
     const durationMs =
       service.scheduledStart && service.scheduledEnd
         ? Math.max(15 * 60 * 1000, service.scheduledEnd.getTime() - service.scheduledStart.getTime())
@@ -655,7 +825,17 @@ export class OperationsService {
       return row;
     });
 
-    return this.normalizeService(updated);
+    const normalized = this.normalizeService(updated);
+    try {
+      this.realtime.emitServiceEvent({
+        type: 'service.phase_changed',
+        service: normalized,
+        actorUserId: user.id,
+      });
+    } catch {
+      // ignore
+    }
+    return normalized;
   }
 
   async changeAdminPhase(user: AuthUser, id: string, dto: ChangeServiceAdminPhaseDto) {
@@ -711,7 +891,17 @@ export class OperationsService {
       }
     }
 
-    return this.normalizeService(updated);
+    const normalized = this.normalizeService(updated);
+    try {
+      this.realtime.emitServiceEvent({
+        type: 'service.admin_phase_changed',
+        service: normalized,
+        actorUserId: user.id,
+      });
+    } catch {
+      // ignore
+    }
+    return normalized;
   }
 
   async changeAdminStatus(user: AuthUser, id: string, dto: ChangeServiceAdminStatusDto) {
@@ -755,7 +945,17 @@ export class OperationsService {
       }
     }
 
-    return this.normalizeService(updated);
+    const normalized = this.normalizeService(updated);
+    try {
+      this.realtime.emitServiceEvent({
+        type: 'service.admin_status_changed',
+        service: normalized,
+        actorUserId: user.id,
+      });
+    } catch {
+      // ignore
+    }
+    return normalized;
   }
 
   async listPhases(user: AuthUser, id: string) {
@@ -845,12 +1045,40 @@ export class OperationsService {
       include: this.serviceInclude(),
     });
 
+    // Best-effort: keep invoice/guarantee drafts in sync while pending.
+    try {
+      const touchesClosing =
+        dto.serviceType !== undefined ||
+        dto.title !== undefined ||
+        dto.description !== undefined ||
+        dto.quotedAmount !== undefined ||
+        dto.addressSnapshot !== undefined ||
+        dto.technicianId !== undefined;
+      if (touchesClosing) {
+        void this.serviceClosing.refreshDraftIfPending({ serviceId: id, triggeredByUserId: user.id }).catch(() => {
+          // ignore
+        });
+      }
+    } catch {
+      // ignore
+    }
+
     await this.prisma.client.update({
       where: { id: service.customerId },
       data: { lastActivityAt: updated.updatedAt },
     });
 
-    return this.normalizeService(updated);
+    const normalized = this.normalizeService(updated);
+    try {
+      this.realtime.emitServiceEvent({
+        type: 'service.updated',
+        service: normalized,
+        actorUserId: user.id,
+      });
+    } catch {
+      // ignore
+    }
+    return normalized;
   }
 
   async changeStatus(user: AuthUser, id: string, dto: ChangeServiceStatusDto) {
@@ -911,6 +1139,37 @@ export class OperationsService {
       return row;
     });
 
+    // Notify creator + admins + assistants by fleet number when an installation is finalized.
+    try {
+      const isInstallation =
+        service.serviceType === ServiceType.INSTALLATION ||
+        service.currentPhase === ServicePhaseType.INSTALACION;
+      if (nextStatus === ServiceStatus.COMPLETED && isInstallation) {
+        const customerName = (updated.customer?.nombre ?? 'Cliente').toString().trim() || 'Cliente';
+        const actor = await this.prisma.user
+          .findUnique({ where: { id: user.id }, select: { nombreCompleto: true } })
+          .catch(() => null);
+        const actorName = (actor?.nombreCompleto ?? '').toString().trim();
+
+        const lines = [
+          '*Instalación finalizada*',
+          `Servicio: ${(updated.title ?? '').toString().trim() || 'Servicio'}`,
+          `Cliente: ${customerName}`,
+          actorName ? `Marcado por: ${actorName}` : null,
+          dto.message?.trim() ? `Nota: ${dto.message.trim()}` : null,
+        ].filter(Boolean) as string[];
+
+        await this.notifyFleetNumbersForService({
+          serviceId: updated.id,
+          createdByUserId: updated.createdByUserId,
+          messageText: lines.join('\n'),
+          payload: { kind: 'installation_finalized', actorUserId: user.id },
+        });
+      }
+    } catch {
+      // ignore
+    }
+
     // Start automated service closing workflow when marking as completed.
     try {
       if (nextStatus === ServiceStatus.COMPLETED) {
@@ -966,7 +1225,17 @@ export class OperationsService {
       // ignore
     }
 
-    return this.normalizeService(updated);
+    const normalized = this.normalizeService(updated);
+    try {
+      this.realtime.emitServiceEvent({
+        type: 'service.status_changed',
+        service: normalized,
+        actorUserId: user.id,
+      });
+    } catch {
+      // ignore
+    }
+    return normalized;
   }
 
   async changeOrderState(user: AuthUser, id: string, dto: ChangeServiceOrderStateDto) {
@@ -984,6 +1253,36 @@ export class OperationsService {
       data: { orderState: nextOrderState },
       include: this.serviceInclude(),
     });
+
+    // Notify creator + admins + assistants by fleet number when an installation is finalized.
+    try {
+      const isInstallation =
+        service.serviceType === ServiceType.INSTALLATION ||
+        service.currentPhase === ServicePhaseType.INSTALACION;
+      if (nextOrderState === OrderState.FINALIZED && isInstallation) {
+        const customerName = (updated.customer?.nombre ?? 'Cliente').toString().trim() || 'Cliente';
+        const actor = await this.prisma.user
+          .findUnique({ where: { id: user.id }, select: { nombreCompleto: true } })
+          .catch(() => null);
+        const actorName = (actor?.nombreCompleto ?? '').toString().trim();
+
+        const lines = [
+          '*Instalación finalizada*',
+          `Servicio: ${(updated.title ?? '').toString().trim() || 'Servicio'}`,
+          `Cliente: ${customerName}`,
+          actorName ? `Marcado por: ${actorName}` : null,
+        ].filter(Boolean) as string[];
+
+        await this.notifyFleetNumbersForService({
+          serviceId: updated.id,
+          createdByUserId: updated.createdByUserId,
+          messageText: lines.join('\n'),
+          payload: { kind: 'installation_finalized', actorUserId: user.id },
+        });
+      }
+    } catch {
+      // ignore
+    }
 
     // Also trigger closing workflow when order is marked FINALIZED.
     try {
@@ -1003,7 +1302,17 @@ export class OperationsService {
       data: { lastActivityAt: updated.updatedAt },
     });
 
-    return this.normalizeService(updated);
+    const normalized = this.normalizeService(updated);
+    try {
+      this.realtime.emitServiceEvent({
+        type: 'service.updated',
+        service: normalized,
+        actorUserId: user.id,
+      });
+    } catch {
+      // ignore
+    }
+    return normalized;
   }
 
   async schedule(user: AuthUser, id: string, dto: ScheduleServiceDto) {
@@ -1191,8 +1500,19 @@ export class OperationsService {
       // ignore
     }
 
+    const normalized = this.normalizeService(updated);
+    try {
+      this.realtime.emitServiceEvent({
+        type: 'service.scheduled',
+        service: normalized,
+        actorUserId: user.id,
+      });
+    } catch {
+      // ignore
+    }
+
     return {
-      ...this.normalizeService(updated),
+      ...normalized,
       conflicts: conflicts.map((c) => ({
         id: c.id,
         type: this.toApiType(c.serviceType),
@@ -1308,13 +1628,23 @@ export class OperationsService {
       // ignore
     }
 
-    return this.normalizeService(updated);
+    const normalized = this.normalizeService(updated);
+    try {
+      this.realtime.emitServiceEvent({
+        type: 'service.assigned',
+        service: normalized,
+        actorUserId: user.id,
+      });
+    } catch {
+      // ignore
+    }
+    return normalized;
   }
 
   async addUpdate(user: AuthUser, id: string, dto: ServiceUpdateDto) {
     const service = await this.prisma.service.findFirst({
       where: { id, isDeleted: false },
-      include: { assignments: true },
+      include: { assignments: true, customer: { select: { nombre: true } } },
     });
     if (!service) throw new NotFoundException('Servicio no encontrado');
 
@@ -1354,7 +1684,44 @@ export class OperationsService {
         data: { lastActivityAt: new Date() },
       });
 
-      return this.findOne(user, id);
+      // Notify creator + admins + assistants by fleet number on step updates.
+      try {
+        const actor = await this.prisma.user
+          .findUnique({ where: { id: user.id }, select: { nombreCompleto: true } })
+          .catch(() => null);
+        const actorName = (actor?.nombreCompleto ?? '').toString().trim();
+
+        const customerName = (service.customer?.nombre ?? 'Cliente').toString().trim() || 'Cliente';
+        const lines = [
+          '*Novedad registrada*',
+          'Tipo: Paso',
+          `Servicio: ${(service.title ?? '').toString().trim() || 'Servicio'}`,
+          `Cliente: ${customerName}`,
+          actorName ? `Por: ${actorName}` : null,
+          `Detalle: ${message}`,
+        ].filter(Boolean) as string[];
+
+        await this.notifyFleetNumbersForService({
+          serviceId: id,
+          createdByUserId: service.createdByUserId,
+          messageText: lines.join('\n'),
+          payload: { kind: 'service_step_update', actorUserId: user.id },
+        });
+      } catch {
+        // ignore
+      }
+
+      const normalized = await this.findOne(user, id);
+      try {
+        this.realtime.emitServiceEvent({
+          type: 'service.step_updated',
+          service: normalized,
+          actorUserId: user.id,
+        });
+      } catch {
+        // ignore
+      }
+      return normalized;
     }
 
     const type = this.parseUpdateType(dto.type);
@@ -1373,6 +1740,64 @@ export class OperationsService {
       where: { id: service.customerId },
       data: { lastActivityAt: new Date() },
     });
+
+    // Notify creator + admins + assistants by fleet number on novedades/notas/evidencias.
+    try {
+      const actor = await this.prisma.user
+        .findUnique({ where: { id: user.id }, select: { nombreCompleto: true } })
+        .catch(() => null);
+      const actorName = (actor?.nombreCompleto ?? '').toString().trim();
+
+      const customerName = (service.customer?.nombre ?? 'Cliente').toString().trim() || 'Cliente';
+      const typeLabel = (() => {
+        switch (type) {
+          case ServiceUpdateType.NOTE:
+            return 'Nota';
+          case ServiceUpdateType.PAYMENT_UPDATE:
+            return 'Pago/extra';
+          case ServiceUpdateType.FILE_UPLOAD:
+            return 'Evidencia';
+          case ServiceUpdateType.STEP_UPDATE:
+            return 'Paso';
+          case ServiceUpdateType.SCHEDULE_CHANGE:
+            return 'Agenda';
+          case ServiceUpdateType.ASSIGNMENT_CHANGE:
+            return 'Asignación';
+          default:
+            return 'Actualización';
+        }
+      })();
+
+      const lines = [
+        '*Novedad registrada*',
+        `Tipo: ${typeLabel}`,
+        `Servicio: ${(service.title ?? '').toString().trim() || 'Servicio'}`,
+        `Cliente: ${customerName}`,
+        actorName ? `Por: ${actorName}` : null,
+        (message ?? '').toString().trim() ? `Detalle: ${(message ?? '').toString().trim()}` : null,
+      ].filter(Boolean) as string[];
+
+      await this.notifyFleetNumbersForService({
+        serviceId: id,
+        createdByUserId: service.createdByUserId,
+        messageText: lines.join('\n'),
+        payload: { kind: 'service_update', updateType: type, actorUserId: user.id },
+      });
+    } catch {
+      // ignore
+    }
+
+    // Emit best-effort realtime snapshot so all clients update instantly.
+    try {
+      const normalized = await this.findOne(user, id);
+      this.realtime.emitServiceEvent({
+        type: 'service.updated',
+        service: normalized,
+        actorUserId: user.id,
+      });
+    } catch {
+      // ignore
+    }
 
     return { ok: true };
   }
@@ -1419,7 +1844,7 @@ export class OperationsService {
   async upsertExecutionReport(user: AuthUser, serviceId: string, dto: UpsertExecutionReportDto) {
     const service = await this.prisma.service.findFirst({
       where: { id: serviceId, isDeleted: false },
-      include: { assignments: true },
+      include: { assignments: true, customer: { select: { nombre: true } } },
     });
     if (!service) throw new NotFoundException('Servicio no encontrado');
 
@@ -1447,6 +1872,20 @@ export class OperationsService {
     const arrivedAt = dto.arrivedAt ? new Date(dto.arrivedAt) : undefined;
     const startedAt = dto.startedAt ? new Date(dto.startedAt) : undefined;
     const finishedAt = dto.finishedAt ? new Date(dto.finishedAt) : undefined;
+
+    // Best-effort: detect note changes to notify (avoid noisy re-sends).
+    const prevNotes = await this.prisma.serviceExecutionReport
+      .findUnique({
+        where: {
+          serviceId_technicianId: {
+            serviceId,
+            technicianId: targetTechnicianId,
+          },
+        },
+        select: { notes: true },
+      })
+      .then((r) => (r?.notes ?? null))
+      .catch(() => null);
 
     try {
       const updated = await this.prisma.serviceExecutionReport.upsert({
@@ -1489,6 +1928,48 @@ export class OperationsService {
         orderBy: { createdAt: 'asc' },
       });
 
+      // Notify creator + admins + assistants when technician updates report notes.
+      try {
+        const newNotes = dto.notes != null ? dto.notes.trim() : '';
+        const oldNotes = (prevNotes ?? '').toString().trim();
+        if (newNotes && newNotes !== oldNotes) {
+          const actor = await this.prisma.user
+            .findUnique({ where: { id: user.id }, select: { nombreCompleto: true } })
+            .catch(() => null);
+          const actorName = (actor?.nombreCompleto ?? '').toString().trim();
+
+          const customerName = (service.customer?.nombre ?? 'Cliente').toString().trim() || 'Cliente';
+          const lines = [
+            '*Nota del técnico*',
+            `Servicio: ${(service.title ?? '').toString().trim() || 'Servicio'}`,
+            `Cliente: ${customerName}`,
+            actorName ? `Por: ${actorName}` : null,
+            `Detalle: ${newNotes}`,
+          ].filter(Boolean) as string[];
+
+          await this.notifyFleetNumbersForService({
+            serviceId,
+            createdByUserId: service.createdByUserId,
+            messageText: lines.join('\n'),
+            payload: { kind: 'execution_report_note', actorUserId: user.id },
+          });
+        }
+      } catch {
+        // ignore
+      }
+
+      // Emit best-effort realtime to prompt lists/detail refresh across devices.
+      try {
+        const normalized = await this.findOne(user, serviceId);
+        this.realtime.emitServiceEvent({
+          type: 'service.execution_report_updated',
+          service: normalized,
+          actorUserId: user.id,
+        });
+      } catch {
+        // ignore
+      }
+
       return { report: updated, changes };
     } catch (error) {
       if (this.isSchemaMismatch(error)) {
@@ -1503,7 +1984,7 @@ export class OperationsService {
   async addExecutionChange(user: AuthUser, serviceId: string, dto: CreateExecutionChangeDto) {
     const service = await this.prisma.service.findFirst({
       where: { id: serviceId, isDeleted: false },
-      include: { assignments: true },
+      include: { assignments: true, customer: { select: { nombre: true } } },
     });
     if (!service) throw new NotFoundException('Servicio no encontrado');
 
@@ -1539,7 +2020,7 @@ export class OperationsService {
         update: {},
       });
 
-      return await this.prisma.serviceExecutionChange.create({
+      const created = await this.prisma.serviceExecutionChange.create({
         data: {
           serviceId,
           executionReportId: report.id,
@@ -1552,6 +2033,57 @@ export class OperationsService {
           note: dto.note?.trim() || null,
         },
       });
+
+      // Best-effort: regenerate pending drafts to reflect extras.
+      try {
+        void this.serviceClosing.refreshDraftIfPending({ serviceId, triggeredByUserId: user.id }).catch(() => {
+          // ignore
+        });
+      } catch {
+        // ignore
+      }
+
+      // Notify creator + admins + assistants by fleet number on execution changes.
+      try {
+        const actor = await this.prisma.user
+          .findUnique({ where: { id: user.id }, select: { nombreCompleto: true } })
+          .catch(() => null);
+        const actorName = (actor?.nombreCompleto ?? '').toString().trim();
+        const customerName = (service.customer?.nombre ?? 'Cliente').toString().trim() || 'Cliente';
+
+        const lines = [
+          '*Novedad del técnico*',
+          `Servicio: ${(service.title ?? '').toString().trim() || 'Servicio'}`,
+          `Cliente: ${customerName}`,
+          actorName ? `Por: ${actorName}` : null,
+          `Tipo: ${dto.type.trim()}`,
+          `Detalle: ${dto.description.trim()}`,
+          dto.note?.trim() ? `Nota: ${dto.note.trim()}` : null,
+        ].filter(Boolean) as string[];
+
+        await this.notifyFleetNumbersForService({
+          serviceId,
+          createdByUserId: service.createdByUserId,
+          messageText: lines.join('\n'),
+          payload: { kind: 'execution_change', actorUserId: user.id },
+        });
+      } catch {
+        // ignore
+      }
+
+      // Emit best-effort realtime snapshot so everyone sees the change.
+      try {
+        const normalized = await this.findOne(user, serviceId);
+        this.realtime.emitServiceEvent({
+          type: 'service.execution_change_added',
+          service: normalized,
+          actorUserId: user.id,
+        });
+      } catch {
+        // ignore
+      }
+
+      return created;
     } catch (error) {
       if (this.isSchemaMismatch(error)) {
         throw new ServiceUnavailableException(
@@ -1584,6 +2116,28 @@ export class OperationsService {
       }
 
       await this.prisma.serviceExecutionChange.delete({ where: { id: changeId } });
+
+      // Best-effort: regenerate pending drafts to reflect extras.
+      try {
+        void this.serviceClosing.refreshDraftIfPending({ serviceId, triggeredByUserId: user.id }).catch(() => {
+          // ignore
+        });
+      } catch {
+        // ignore
+      }
+
+      // Emit best-effort realtime snapshot so everyone sees the change.
+      try {
+        const normalized = await this.findOne(user, serviceId);
+        this.realtime.emitServiceEvent({
+          type: 'service.execution_change_deleted',
+          service: normalized,
+          actorUserId: user.id,
+        });
+      } catch {
+        // ignore
+      }
+
       return { ok: true };
     } catch (error) {
       if (this.isSchemaMismatch(error)) {
@@ -1632,6 +2186,37 @@ export class OperationsService {
 
       return row;
     });
+
+    // Notify creator + admins + assistants by fleet number when evidence is uploaded.
+    try {
+      const hydrated = await this.prisma.service
+        .findFirst({ where: { id, isDeleted: false }, include: { customer: { select: { nombre: true } } } })
+        .catch(() => null);
+      if (hydrated) {
+        const actor = await this.prisma.user
+          .findUnique({ where: { id: user.id }, select: { nombreCompleto: true } })
+          .catch(() => null);
+        const actorName = (actor?.nombreCompleto ?? '').toString().trim();
+        const customerName = (hydrated.customer?.nombre ?? 'Cliente').toString().trim() || 'Cliente';
+
+        const lines = [
+          '*Evidencia subida*',
+          `Servicio: ${(hydrated.title ?? '').toString().trim() || 'Servicio'}`,
+          `Cliente: ${customerName}`,
+          actorName ? `Por: ${actorName}` : null,
+          fileType?.trim() ? `Tipo: ${fileType.trim()}` : null,
+        ].filter(Boolean) as string[];
+
+        await this.notifyFleetNumbersForService({
+          serviceId: id,
+          createdByUserId: hydrated.createdByUserId,
+          messageText: lines.join('\n'),
+          payload: { kind: 'file_upload', actorUserId: user.id },
+        });
+      }
+    } catch {
+      // ignore
+    }
 
     return file;
   }
@@ -1726,7 +2311,23 @@ export class OperationsService {
       return row;
     });
 
-    return this.normalizeService(created);
+    const normalized = this.normalizeService(created);
+
+    // Notify all technicians (fleet numbers) that a new warranty order was created.
+    try {
+      await this.notifyAllTechniciansForNewService({
+        serviceId: created.id,
+        createdByUserId: created.createdByUserId,
+        serviceTitle: created.title,
+        serviceTypeLabel: 'Garantía',
+        customerName: created.customer?.nombre ?? 'Cliente',
+        actorUserId: user.id,
+      });
+    } catch {
+      // ignore
+    }
+
+    return normalized;
   }
 
   async remove(user: AuthUser, id: string) {
