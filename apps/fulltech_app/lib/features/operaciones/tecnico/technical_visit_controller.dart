@@ -189,6 +189,8 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
         photos: photos,
         videos: videos,
       );
+    } on ApiException catch (e) {
+      state = state.copyWith(loading: false, error: e.message);
     } catch (e) {
       state = state.copyWith(loading: false, error: e.toString());
     }

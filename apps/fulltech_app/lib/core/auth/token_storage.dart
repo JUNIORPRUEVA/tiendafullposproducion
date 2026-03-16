@@ -26,8 +26,15 @@ class TokenStorage {
         defaultTargetPlatform == TargetPlatform.macOS;
   }
 
-  static const Duration _prefsTimeout = Duration(seconds: 2);
-  static const Duration _secureTimeout = Duration(seconds: 2);
+  bool get _isDesktop {
+    if (kIsWeb) return false;
+    return defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS;
+  }
+
+  Duration get _prefsTimeout => _isDesktop ? const Duration(seconds: 6) : const Duration(seconds: 2);
+  Duration get _secureTimeout => _isDesktop ? const Duration(seconds: 6) : const Duration(seconds: 2);
 
   bool _prefsBroken = false;
 

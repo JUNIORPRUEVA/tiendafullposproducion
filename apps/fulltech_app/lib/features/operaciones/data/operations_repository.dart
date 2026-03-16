@@ -356,6 +356,17 @@ class OperationsRepository {
   }
 
   String _extractMessage(dynamic data, String fallback) {
+    if (data is String && data.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(data);
+        if (decoded is Map) {
+          return _extractMessage(decoded.cast<String, dynamic>(), data.trim());
+        }
+      } catch (_) {
+        // Not JSON; return as-is.
+      }
+      return data.trim();
+    }
     if (data is Map) {
       final message = data['message'];
       if (message is String && message.trim().isNotEmpty) return message;
@@ -1319,6 +1330,9 @@ class OperationsRepository {
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) return null;
+      if (code == 401) {
+        throw ApiException('No autorizado. Inicia sesión nuevamente.', 401);
+      }
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo cargar el levantamiento'),
         code,
@@ -1342,6 +1356,9 @@ class OperationsRepository {
       final raw = _decodeJsonMap(res.data);
       return TechnicalVisitModel.fromJson(raw);
     } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        throw ApiException('No autorizado. Inicia sesión nuevamente.', 401);
+      }
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo crear el levantamiento'),
         e.response?.statusCode,
@@ -1366,6 +1383,9 @@ class OperationsRepository {
       final raw = _decodeJsonMap(res.data);
       return TechnicalVisitModel.fromJson(raw);
     } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        throw ApiException('No autorizado. Inicia sesión nuevamente.', 401);
+      }
       throw ApiException(
         _extractMessage(
           e.response?.data,

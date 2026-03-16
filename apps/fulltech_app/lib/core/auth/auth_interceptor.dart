@@ -30,9 +30,10 @@ class AuthInterceptor extends Interceptor {
     );
 
     try {
-      final token = await tokenStorage.getAccessToken().timeout(
-        const Duration(seconds: 2),
-      );
+      // TokenStorage already applies its own timeouts (secure/prefs).
+      // Avoid a second outer timeout that can cause requests to go out
+      // without Authorization on slower devices (notably Windows).
+      final token = await tokenStorage.getAccessToken();
       if (token != null && token.isNotEmpty) {
         options.headers['Authorization'] = 'Bearer $token';
       }
@@ -72,9 +73,7 @@ class AuthInterceptor extends Interceptor {
         () async {
           String? refreshToken;
           try {
-            refreshToken = await tokenStorage.getRefreshToken().timeout(
-              const Duration(seconds: 2),
-            );
+            refreshToken = await tokenStorage.getRefreshToken();
           } on TimeoutException catch (e, st) {
             TraceLog.log(
               'AuthInterceptor',
