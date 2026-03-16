@@ -116,8 +116,12 @@ class TechnicalExecutionController
 
   void _syncServiceLists(ServiceModel service) {
     // Immediate in-memory updates (no network) for current device.
-    ref.read(operationsControllerProvider.notifier).applyRealtimeService(service);
-    ref.read(techOperationsControllerProvider.notifier).applyRealtimeService(service);
+    ref
+        .read(operationsControllerProvider.notifier)
+        .applyRealtimeService(service);
+    ref
+        .read(techOperationsControllerProvider.notifier)
+        .applyRealtimeService(service);
   }
 
   Future<void> load() async {
@@ -612,7 +616,48 @@ class TechnicalExecutionController
     );
   }
 
-  Future<void> addInfoUpdate({required String kind, required String text}) async {
+  Future<void> setInvoicePaid(bool paid) async {
+    if (_readOnly) return;
+    if (state.saving) return;
+
+    final service = state.service;
+    if (service == null) return;
+
+    state = state.copyWith(saving: true, clearError: true);
+    try {
+      final repo = ref.read(operationsRepositoryProvider);
+      final msg = paid ? '[PAGO] estado=pagado' : '[PAGO] estado=pendiente';
+      await repo.addUpdate(serviceId: serviceId, type: 'note', message: msg);
+
+      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
+      final refreshed = cacheScope.isEmpty
+          ? await repo.getService(serviceId)
+          : await repo.getServiceAndCache(
+              cacheScope: cacheScope,
+              id: serviceId,
+              silent: true,
+            );
+      state = state.copyWith(saving: false, service: refreshed);
+
+      _syncServiceLists(refreshed);
+
+      unawaited(
+        ref.read(techOperationsControllerProvider.notifier).refresh(
+              silent: true,
+            ),
+      );
+      unawaited(ref.read(operationsControllerProvider.notifier).refresh());
+    } on ApiException catch (e) {
+      state = state.copyWith(saving: false, error: e.message);
+    } catch (e) {
+      state = state.copyWith(saving: false, error: e.toString());
+    }
+  }
+
+  Future<void> addInfoUpdate({
+    required String kind,
+    required String text,
+  }) async {
     if (_readOnly) return;
     if (state.saving) return;
 
@@ -623,7 +668,24 @@ class TechnicalExecutionController
     final service = state.service;
     if (service == null) return;
 
-    state = state.copyWith(saving: true, clearError: true);
+    final now = DateTime.now();
+    final userName = (ref.read(authStateProvider).user?.nombreCompleto ?? '')
+        .trim();
+    final optimisticId = 'local_${now.microsecondsSinceEpoch}';
+    final optimistic = ServiceUpdateModel(
+      id: optimisticId,
+      type: 'tech_info',
+      message: 'kind=$k|text=$t',
+      changedBy: userName.isEmpty ? 'Técnico' : userName,
+      createdAt: now,
+    );
+
+    // Optimistic UI update so the info shows immediately in the screen.
+    state = state.copyWith(
+      saving: true,
+      clearError: true,
+      service: service.copyWith(updates: [...service.updates, optimistic]),
+    );
     try {
       final repo = ref.read(operationsRepositoryProvider);
       await repo.addUpdate(
@@ -642,11 +704,37 @@ class TechnicalExecutionController
       state = state.copyWith(saving: false, service: refreshed);
       _syncServiceLists(refreshed);
       unawaited(ref.read(operationsControllerProvider.notifier).refresh());
-      unawaited(ref.read(techOperationsControllerProvider.notifier).refresh(silent: true));
+      unawaited(
+        ref
+            .read(techOperationsControllerProvider.notifier)
+            .refresh(silent: true),
+      );
     } on ApiException catch (e) {
-      state = state.copyWith(saving: false, error: e.message);
+      final cur = state.service;
+      if (cur != null) {
+        state = state.copyWith(
+          saving: false,
+          error: e.message,
+          service: cur.copyWith(
+            updates: cur.updates.where((u) => u.id != optimisticId).toList(),
+          ),
+        );
+      } else {
+        state = state.copyWith(saving: false, error: e.message);
+      }
     } catch (e) {
-      state = state.copyWith(saving: false, error: e.toString());
+      final cur = state.service;
+      if (cur != null) {
+        state = state.copyWith(
+          saving: false,
+          error: e.toString(),
+          service: cur.copyWith(
+            updates: cur.updates.where((u) => u.id != optimisticId).toList(),
+          ),
+        );
+      } else {
+        state = state.copyWith(saving: false, error: e.toString());
+      }
     }
   }
 
@@ -682,7 +770,11 @@ class TechnicalExecutionController
       state = state.copyWith(service: updatedService);
       _syncServiceLists(updatedService);
       unawaited(ref.read(operationsControllerProvider.notifier).refresh());
-      unawaited(ref.read(techOperationsControllerProvider.notifier).refresh(silent: true));
+      unawaited(
+        ref
+            .read(techOperationsControllerProvider.notifier)
+            .refresh(silent: true),
+      );
     } catch (e) {
       state = state.copyWith(error: e.toString());
     }
@@ -785,7 +877,11 @@ class TechnicalExecutionController
       state = state.copyWith(service: refreshed);
       _syncServiceLists(refreshed);
       unawaited(ref.read(operationsControllerProvider.notifier).refresh());
-      unawaited(ref.read(techOperationsControllerProvider.notifier).refresh(silent: true));
+      unawaited(
+        ref
+            .read(techOperationsControllerProvider.notifier)
+            .refresh(silent: true),
+      );
     } catch (e) {
       if (!mounted) return;
       _removePending(id);
@@ -912,7 +1008,11 @@ class TechnicalExecutionController
       state = state.copyWith(service: refreshed);
       _syncServiceLists(refreshed);
       unawaited(ref.read(operationsControllerProvider.notifier).refresh());
-      unawaited(ref.read(techOperationsControllerProvider.notifier).refresh(silent: true));
+      unawaited(
+        ref
+            .read(techOperationsControllerProvider.notifier)
+            .refresh(silent: true),
+      );
     } catch (e) {
       if (!mounted) return;
       _removePending(id);
@@ -1023,7 +1123,11 @@ class TechnicalExecutionController
       state = state.copyWith(service: refreshed);
       _syncServiceLists(refreshed);
       unawaited(ref.read(operationsControllerProvider.notifier).refresh());
-      unawaited(ref.read(techOperationsControllerProvider.notifier).refresh(silent: true));
+      unawaited(
+        ref
+            .read(techOperationsControllerProvider.notifier)
+            .refresh(silent: true),
+      );
       unawaited(saveNow());
     } catch (e) {
       if (!mounted) return;
@@ -1080,7 +1184,11 @@ class TechnicalExecutionController
       }
 
       unawaited(ref.read(operationsControllerProvider.notifier).refresh());
-      unawaited(ref.read(techOperationsControllerProvider.notifier).refresh(silent: true));
+      unawaited(
+        ref
+            .read(techOperationsControllerProvider.notifier)
+            .refresh(silent: true),
+      );
     } catch (e) {
       state = state.copyWith(error: e.toString());
     }
@@ -1126,7 +1234,11 @@ class TechnicalExecutionController
       }
 
       unawaited(ref.read(operationsControllerProvider.notifier).refresh());
-      unawaited(ref.read(techOperationsControllerProvider.notifier).refresh(silent: true));
+      unawaited(
+        ref
+            .read(techOperationsControllerProvider.notifier)
+            .refresh(silent: true),
+      );
     } catch (e) {
       state = state.copyWith(error: e.toString());
     }

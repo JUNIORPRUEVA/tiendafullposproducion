@@ -5,7 +5,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../core/errors/api_exception.dart';
+import '../../../core/auth/auth_provider.dart';
 import '../../../core/routing/routes.dart';
+import '../../../core/widgets/app_drawer.dart';
 import '../data/operations_repository.dart';
 import '../operations_models.dart';
 import '../presentation/service_location_helpers.dart';
@@ -90,12 +92,7 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
       );
     }
     if (safeDeposit >= safeTotal) {
-      return (
-        total: total,
-        deposit: deposit,
-        balance: 0.0,
-        status: 'Pagado',
-      );
+      return (total: total, deposit: deposit, balance: 0.0, status: 'Pagado');
     }
 
     return (
@@ -237,15 +234,20 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(authStateProvider).user;
     final asyncService = ref.watch(_serviceDetailProvider(serviceId));
 
     return asyncService.when(
       loading: () {
-        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        return Scaffold(
+          drawer: buildAdaptiveDrawer(context, currentUser: user),
+          body: const Center(child: CircularProgressIndicator()),
+        );
       },
       error: (e, _) {
         final msg = e is ApiException ? e.message : e.toString();
         return Scaffold(
+          drawer: buildAdaptiveDrawer(context, currentUser: user),
           appBar: AppBar(
             title: const Text('Orden de servicio'),
             leading: IconButton(
@@ -286,8 +288,8 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
         final canOpenQuote = phone.isNotEmpty;
 
         final addressLabel = snapshot.address == '—'
-          ? (location.label.trim().isEmpty ? '—' : location.label)
-          : snapshot.address;
+            ? (location.label.trim().isEmpty ? '—' : location.label)
+            : snapshot.address;
 
         final historyAsync = ref.watch(_serviceHistoryProvider(service));
 
@@ -302,6 +304,7 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
             .toList(growable: false);
 
         return Scaffold(
+          drawer: buildAdaptiveDrawer(context, currentUser: user),
           appBar: AppBar(
             title: const Text('Orden de servicio'),
             leading: IconButton(
@@ -474,15 +477,9 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                   title: 'Información de cotización',
                   child: Column(
                     children: [
-                      _KvRow(
-                        label: 'Total a pagar',
-                        value: _money(pay.total),
-                      ),
+                      _KvRow(label: 'Total a pagar', value: _money(pay.total)),
                       const SizedBox(height: 10),
-                      _KvRow(
-                        label: 'Estado del pago',
-                        value: pay.status,
-                      ),
+                      _KvRow(label: 'Estado del pago', value: pay.status),
                       const SizedBox(height: 10),
                       _KvRow(
                         label: 'Saldo pendiente',

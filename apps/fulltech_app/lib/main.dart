@@ -111,50 +111,60 @@ void _initializeDesktopSqlite() {
   }
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends ConsumerStatefulWidget {
   const MyApp({super.key});
 
   @override
+  ConsumerState<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends ConsumerState<MyApp> {
+  bool _initialRealtimeBootstrapped = false;
+
+  @override
   Widget build(BuildContext context) {
-    return Consumer(
-      builder: (context, ref, _) {
-        ref.watch(operationsPrefetchBootstrapProvider);
-        ref.watch(operationsRealtimeBootstrapProvider);
-        final router = ref.watch(routerProvider);
-        final authState = ref.watch(authStateProvider);
-        ref.listen<AuthState>(authStateProvider, (previous, next) {
-          if (next.isAuthenticated) {
-            unawaited(ref.read(catalogRealtimeServiceProvider).connect(next));
-          } else if (previous?.isAuthenticated == true &&
-              !next.isAuthenticated) {
-            ref.read(catalogRealtimeServiceProvider).disconnect();
-          }
-        });
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!context.mounted) return;
-          if (authState.isAuthenticated) {
-            unawaited(
-              ref.read(catalogRealtimeServiceProvider).connect(authState),
-            );
-          } else {
-            ref.read(catalogRealtimeServiceProvider).disconnect();
-          }
-        });
-        return MaterialApp.router(
-          title: 'FullTech',
-          debugShowCheckedModeBanner: false,
-          theme: AppTheme.light,
-          routerConfig: router,
-          builder: (context, child) {
-            return Stack(
-              children: [
-                const FulltechGlobalBackground(),
-                if (child != null) GlobalAiAssistantEntryPoint(child: child),
-                const AppLoadingOverlay(),
-                const AppErrorOverlay(),
-              ],
-            );
-          },
+    ref.watch(operationsPrefetchBootstrapProvider);
+    ref.watch(operationsRealtimeBootstrapProvider);
+    final router = ref.watch(routerProvider);
+    final authState = ref.watch(authStateProvider);
+
+    ref.listen<AuthState>(authStateProvider, (previous, next) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (next.isAuthenticated) {
+          unawaited(ref.read(catalogRealtimeServiceProvider).connect(next));
+        } else if (previous?.isAuthenticated == true &&
+            !next.isAuthenticated) {
+          ref.read(catalogRealtimeServiceProvider).disconnect();
+        }
+      });
+    });
+
+    if (!_initialRealtimeBootstrapped) {
+      _initialRealtimeBootstrapped = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (authState.isAuthenticated) {
+          unawaited(ref.read(catalogRealtimeServiceProvider).connect(authState));
+        } else {
+          ref.read(catalogRealtimeServiceProvider).disconnect();
+        }
+      });
+    }
+
+    return MaterialApp.router(
+      title: 'FullTech',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light,
+      routerConfig: router,
+      builder: (context, child) {
+        return Stack(
+          children: [
+            const FulltechGlobalBackground(),
+            if (child != null) GlobalAiAssistantEntryPoint(child: child),
+            const AppLoadingOverlay(),
+            const AppErrorOverlay(),
+          ],
         );
       },
     );

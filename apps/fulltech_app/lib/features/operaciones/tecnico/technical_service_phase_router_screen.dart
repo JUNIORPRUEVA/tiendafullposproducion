@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_provider.dart';
+import '../../../core/widgets/app_drawer.dart';
 import '../data/operations_repository.dart';
 import '../operations_models.dart';
 import 'technical_service_execution_screen.dart';
@@ -28,12 +30,16 @@ class TechnicalServicePhaseRouterScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(authStateProvider).user;
     final asyncService = ref.watch(_serviceForPhaseProvider(serviceId));
 
     return asyncService.when(
-      loading: () =>
-          const Scaffold(body: Center(child: CircularProgressIndicator())),
+      loading: () => Scaffold(
+        drawer: buildAdaptiveDrawer(context, currentUser: user),
+        body: const Center(child: CircularProgressIndicator()),
+      ),
       error: (e, _) => Scaffold(
+        drawer: buildAdaptiveDrawer(context, currentUser: user),
         appBar: AppBar(title: const Text('Servicio')),
         body: Center(
           child: Padding(

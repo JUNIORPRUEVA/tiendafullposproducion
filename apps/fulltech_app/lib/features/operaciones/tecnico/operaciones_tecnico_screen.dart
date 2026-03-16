@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/routing/routes.dart';
+import '../../../core/widgets/app_drawer.dart';
 import '../operations_models.dart';
 import '../presentation/operations_permissions.dart';
 import '../presentation/service_location_helpers.dart';
@@ -127,6 +128,7 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
     final services = _filter(st.services, st.tab);
 
     return Scaffold(
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
       appBar: AppBar(
         title: const Text('Mis servicios'),
         actions: [
@@ -242,14 +244,18 @@ class OperacionesTecnicoScreen extends ConsumerWidget {
                               if (id.isEmpty) return;
                               WidgetsBinding.instance.addPostFrameCallback((_) {
                                 if (!context.mounted) return;
-                                context.push(Routes.operacionesTecnicoOrder(id));
+                                context.push(
+                                  Routes.operacionesTecnicoOrder(id),
+                                );
                               });
                             },
                             onManageService: () {
                               if (id.isEmpty) return;
                               WidgetsBinding.instance.addPostFrameCallback((_) {
                                 if (!context.mounted) return;
-                                context.push(Routes.operacionesTecnicoDetail(id));
+                                context.push(
+                                  Routes.operacionesTecnicoDetail(id),
+                                );
                               });
                             },
                             onOpenLocation: onOpenLocation,

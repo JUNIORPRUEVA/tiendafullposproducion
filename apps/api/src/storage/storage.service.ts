@@ -215,7 +215,9 @@ export class StorageService {
           serviceId: dto.serviceId,
           uploadedByUserId: user.id,
           fileUrl: publicUrl,
-          fileType: mimeType, // legacy
+          // Flutter usa `fileType` como tipo lógico/kind. Guardamos el kind aquí
+          // y dejamos el mimeType real en el campo `mimeType`.
+          fileType: dto.kind,
           caption: captionOrNull,
           storageProvider: 'R2',
           objectKey: dto.objectKey,

@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,6 +14,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/auth/auth_repository.dart';
+import '../../core/company/company_settings_model.dart';
+import '../../core/company/company_settings_repository.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/models/user_model.dart';
 import '../../core/models/punch_model.dart';
@@ -44,7 +46,10 @@ import 'presentation/operations_permissions.dart';
 import 'presentation/service_actions_sheet.dart';
 import 'presentation/service_header.dart';
 import 'presentation/service_location_helpers.dart';
+import 'presentation/service_documents_editor_screen.dart';
+import 'presentation/service_pdf_exporter.dart';
 import 'presentation/status_picker_sheet.dart';
+import 'tecnico/widgets/service_report_pdf_screen.dart';
 import '../../modules/clientes/cliente_model.dart';
 
 bool _isDesktopPlatform() {
@@ -52,6 +57,20 @@ bool _isDesktopPlatform() {
   return defaultTargetPlatform == TargetPlatform.windows ||
       defaultTargetPlatform == TargetPlatform.linux ||
       defaultTargetPlatform == TargetPlatform.macOS;
+}
+
+class _SignatureBundle {
+  final Uint8List? bytes;
+  final String? fileId;
+  final String? fileUrl;
+  final DateTime? signedAt;
+
+  const _SignatureBundle({
+    this.bytes,
+    this.fileId,
+    this.fileUrl,
+    this.signedAt,
+  });
 }
 
 bool _useRightSidePanel(BuildContext context) {
@@ -4527,6 +4546,191 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     }
   }
 
+  ServiceFileModel? _findClosingFile(ServiceModel service, String? fileId) {
+    final id = (fileId ?? '').trim();
+    if (id.isEmpty) return null;
+    try {
+      return service.files.firstWhere((f) => f.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  ServiceFileModel? _findLatestFileByType(ServiceModel service, String type) {
+    final t = type.trim().toLowerCase();
+    final candidates = service.files
+        .where((f) => f.fileType.trim().toLowerCase() == t)
+        .toList(growable: false);
+    if (candidates.isEmpty) return null;
+
+    candidates.sort((a, b) {
+      final ad = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bd = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bd.compareTo(ad);
+    });
+
+    return candidates.first;
+  }
+
+  Future<Uint8List> _downloadBytes(String url) async {
+    final dio = ref.read(dioProvider);
+    final res = await dio.get<List<int>>(
+      url,
+      options: Options(responseType: ResponseType.bytes),
+    );
+    final data = res.data;
+    if (data == null) return Uint8List(0);
+    return Uint8List.fromList(data);
+  }
+
+  Future<void> _openPdfBytesPreview({
+    required String fileName,
+    required Future<Uint8List> Function() loadBytes,
+  }) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ServiceReportPdfScreen(
+          fileName: fileName,
+          loadBytes: loadBytes,
+          currentUser: ref.read(authStateProvider).user,
+        ),
+      ),
+    );
+  }
+
+  Future<CotizacionModel?> _loadLatestQuote(String phone) async {
+    final repo = ref.read(cotizacionesRepositoryProvider);
+    final items = await repo.list(customerPhone: phone, take: 40);
+    if (items.isEmpty) return null;
+    final sorted = [...items];
+    sorted.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return sorted.first;
+  }
+
+  Future<_SignatureBundle> _loadSignatureBundle(ServiceModel service) async {
+    final latest = _findLatestFileByType(service, 'client_signature');
+    if (latest == null) return const _SignatureBundle();
+    final url = latest.fileUrl.trim();
+    if (url.isEmpty) return const _SignatureBundle();
+
+    try {
+      final bytes = await _downloadBytes(url);
+      return _SignatureBundle(
+        bytes: bytes,
+        fileId: latest.id.trim().isEmpty ? null : latest.id.trim(),
+        fileUrl: url,
+        signedAt: latest.createdAt,
+      );
+    } catch (_) {
+      return _SignatureBundle(
+        bytes: null,
+        fileId: latest.id.trim().isEmpty ? null : latest.id.trim(),
+        fileUrl: url,
+        signedAt: latest.createdAt,
+      );
+    }
+  }
+
+  Future<void> _onInvoicePressed(ServiceModel service) async {
+    final custom = _findLatestFileByType(service, 'service_invoice_custom');
+    if (custom != null && custom.fileUrl.trim().isNotEmpty) {
+      await _openPdfBytesPreview(
+        fileName: 'Factura-${service.orderLabel}.pdf',
+        loadBytes: () => _downloadBytes(custom.fileUrl.trim()),
+      );
+      return;
+    }
+
+    final invoiceFile = _findClosingFile(service, service.closing?.invoiceFinalFileId);
+    if (invoiceFile != null && invoiceFile.fileUrl.trim().isNotEmpty) {
+      await _openPdfBytesPreview(
+        fileName: 'Factura-${service.orderLabel}.pdf',
+        loadBytes: () => _downloadBytes(invoiceFile.fileUrl.trim()),
+      );
+      return;
+    }
+
+    CotizacionModel? quote;
+    try {
+      final phone = service.customerPhone.trim();
+      quote = phone.isEmpty ? null : await _loadLatestQuote(phone);
+    } catch (_) {
+      quote = null;
+    }
+
+    CompanySettings? company;
+    try {
+      company = await ref.read(companySettingsProvider.future);
+    } catch (_) {
+      company = null;
+    }
+
+    final sig = await _loadSignatureBundle(service);
+
+    await _openPdfBytesPreview(
+      fileName: 'Factura-${service.orderLabel}.pdf',
+      loadBytes: () => ServicePdfExporter.buildInvoicePdfBytes(
+        service,
+        cotizacion: quote,
+        company: company,
+        clientSignaturePngBytes: sig.bytes,
+        clientSignatureFileId: sig.fileId,
+        clientSignatureFileUrl: sig.fileUrl,
+        clientSignedAt: sig.signedAt,
+      ),
+    );
+  }
+
+  Future<void> _onWarrantyPressed(ServiceModel service) async {
+    final custom = _findLatestFileByType(service, 'service_warranty_custom');
+    if (custom != null && custom.fileUrl.trim().isNotEmpty) {
+      await _openPdfBytesPreview(
+        fileName: 'Carta-Garantia-${service.orderLabel}.pdf',
+        loadBytes: () => _downloadBytes(custom.fileUrl.trim()),
+      );
+      return;
+    }
+
+    final warrantyFile = _findClosingFile(service, service.closing?.warrantyFinalFileId);
+    if (warrantyFile != null && warrantyFile.fileUrl.trim().isNotEmpty) {
+      await _openPdfBytesPreview(
+        fileName: 'Carta-Garantia-${service.orderLabel}.pdf',
+        loadBytes: () => _downloadBytes(warrantyFile.fileUrl.trim()),
+      );
+      return;
+    }
+
+    CotizacionModel? quote;
+    try {
+      final phone = service.customerPhone.trim();
+      quote = phone.isEmpty ? null : await _loadLatestQuote(phone);
+    } catch (_) {
+      quote = null;
+    }
+
+    CompanySettings? company;
+    try {
+      company = await ref.read(companySettingsProvider.future);
+    } catch (_) {
+      company = null;
+    }
+
+    final sig = await _loadSignatureBundle(service);
+
+    await _openPdfBytesPreview(
+      fileName: 'Carta-Garantia-${service.orderLabel}.pdf',
+      loadBytes: () => ServicePdfExporter.buildWarrantyLetterBytes(
+        service,
+        cotizacion: quote,
+        company: company,
+        clientSignaturePngBytes: sig.bytes,
+        clientSignatureFileId: sig.fileId,
+        clientSignatureFileUrl: sig.fileUrl,
+        clientSignedAt: sig.signedAt,
+      ),
+    );
+  }
+
   String _statusLabel(String raw) {
     switch (raw) {
       case 'reserved':
@@ -5653,6 +5857,70 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                   _kv(context, 'Garantía', warrantyStatus()),
                   _kv(context, 'Aprobación', approvalStatus()),
                   _kv(context, 'Firma cliente', signatureStatus()),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            FilledButton.tonalIcon(
+                              onPressed: () => _onInvoicePressed(service),
+                              icon: const Icon(Icons.receipt_long_outlined),
+                              label: const Text('Factura'),
+                            ),
+                            if (canEdit) ...[
+                              const SizedBox(height: 8),
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  await Navigator.of(context).push<bool>(
+                                    MaterialPageRoute(
+                                      builder: (_) => ServiceDocumentsEditorScreen(
+                                        service: service,
+                                        type: ServiceDocumentType.invoice,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.edit_outlined),
+                                label: const Text('Editar'),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            FilledButton.tonalIcon(
+                              onPressed: () => _onWarrantyPressed(service),
+                              icon: const Icon(Icons.verified_outlined),
+                              label: const Text('Garantía'),
+                            ),
+                            if (canEdit) ...[
+                              const SizedBox(height: 8),
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  await Navigator.of(context).push<bool>(
+                                    MaterialPageRoute(
+                                      builder: (_) => ServiceDocumentsEditorScreen(
+                                        service: service,
+                                        type: ServiceDocumentType.warranty,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.edit_outlined),
+                                label: const Text('Editar'),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               );
             },

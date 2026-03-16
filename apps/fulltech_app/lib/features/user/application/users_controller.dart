@@ -80,7 +80,14 @@ class UsersController extends StateNotifier<AsyncValue<List<UserModel>>> {
   Future<String> uploadDocument({
     required List<int> bytes,
     required String fileName,
+    String? kind,
+    String? userId,
   }) {
-    return repo.uploadUserDocument(bytes: bytes, fileName: fileName);
+    return repo.uploadUserDocument(
+      bytes: bytes,
+      fileName: fileName,
+      kind: kind,
+      userId: userId,
+    );
   }
 }

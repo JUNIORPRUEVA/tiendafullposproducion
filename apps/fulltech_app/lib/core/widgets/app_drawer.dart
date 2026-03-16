@@ -170,6 +170,11 @@ Widget? buildAdaptiveDrawer(
   BuildContext context, {
   required UserModel? currentUser,
 }) {
+  // Never show drawer inside dialogs/bottom-sheet routes.
+  final route = ModalRoute.of(context);
+  if (route is PopupRoute) return null;
+  if (route is PageRoute && route.fullscreenDialog) return null;
+
   final width = MediaQuery.sizeOf(context).width;
   if (width >= kDesktopShellBreakpoint) return null;
   return AppDrawer(currentUser: currentUser);

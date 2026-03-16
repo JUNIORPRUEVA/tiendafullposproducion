@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/auth/auth_provider.dart';
+import '../../../core/widgets/app_drawer.dart';
 import 'technical_visit_controller.dart';
 import 'technical_visit_models.dart';
 
@@ -72,6 +74,8 @@ class _TechnicalVisitScreenState extends ConsumerState<TechnicalVisitScreen> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
+    final user = ref.watch(authStateProvider).user;
+
     final state = ref.watch(technicalVisitControllerProvider(widget.serviceId));
     final ctrl = ref.read(
       technicalVisitControllerProvider(widget.serviceId).notifier,
@@ -84,14 +88,13 @@ class _TechnicalVisitScreenState extends ConsumerState<TechnicalVisitScreen> {
         if (_syncedText) return;
         _reportCtrl.text = state.reportDescription;
         _notesCtrl.text = state.installationNotes;
-        setState(() {
-          _syncedText = true;
-          _syncScheduled = false;
-        });
+        _syncedText = true;
+        _syncScheduled = false;
       });
     }
 
     return Scaffold(
+      drawer: buildAdaptiveDrawer(context, currentUser: user),
       appBar: AppBar(
         title: const Text('Levantamiento Técnico'),
         actions: [

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Req, UnauthorizedException, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Req, UnauthorizedException, UploadedFile, UseGuards, UseInterceptors, ForbiddenException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../auth/roles.decorator';
@@ -11,48 +11,28 @@ import { SelfUpdateUserDto } from './dto/self-update-user.dto';
 import { SignWorkContractDto } from './dto/sign-work-contract.dto';
 import { AiEditWorkContractDto } from './dto/ai-edit-work-contract.dto';
 import { Request } from 'express';
-import { ConfigService } from '@nestjs/config';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname, join } from 'node:path';
-import * as fs from 'node:fs';
+import { memoryStorage } from 'multer';
+import { extname } from 'node:path';
 import type { Express } from 'express';
+import { randomUUID } from 'crypto';
+import { R2Service } from '../storage/r2.service';
+import { sanitizeFileName } from '../storage/helpers/storage_helpers';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller('users')
 export class UsersController {
-  private readonly uploadDir: string;
-  private readonly publicBaseUrl: string;
-
-  constructor(private readonly users: UsersService, config: ConfigService) {
-    const dir = config.get<string>('UPLOAD_DIR') ?? join(process.cwd(), 'uploads');
-    this.uploadDir = dir.trim();
-    const base = config.get<string>('PUBLIC_BASE_URL') ?? config.get<string>('API_BASE_URL') ?? '';
-    this.publicBaseUrl = base.trim().replace(/\/$/, '');
-    fs.mkdirSync(this.uploadDir, { recursive: true });
-  }
+  constructor(
+    private readonly users: UsersService,
+    private readonly r2: R2Service,
+  ) {}
 
   @Post('upload')
   // Any authenticated user can upload a profile/document image.
   @Roles(Role.ADMIN, Role.ASISTENTE, Role.MARKETING, Role.VENDEDOR, Role.TECNICO)
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: (_req: Express.Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
-          const fromEnv = (process.env.UPLOAD_DIR ?? '').trim();
-          const volumeDir = '/uploads';
-          const volumeExists = fs.existsSync(volumeDir);
-          const dir = fromEnv.length > 0
-            ? ((fromEnv == './uploads' || fromEnv == 'uploads') && volumeExists ? volumeDir : fromEnv)
-            : (volumeExists ? volumeDir : join(process.cwd(), 'uploads'));
-          fs.mkdirSync(dir, { recursive: true });
-          cb(null, dir);
-        },
-        filename: (_req: Express.Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
-          const unique = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
-          cb(null, `${unique}${extname(file.originalname)}`);
-        }
-      }),
+      storage: memoryStorage(),
       fileFilter: (_req: Express.Request, file: Express.Multer.File, cb: (error: Error | null, acceptFile: boolean) => void) => {
         const mimetype = (file.mimetype ?? '').toLowerCase().trim();
         const isImageMime = /^image\/(png|jpe?g|webp)$/.test(mimetype);
@@ -69,15 +49,49 @@ export class UsersController {
       limits: { fileSize: 10 * 1024 * 1024 }
     })
   )
-  upload(@Req() req: Request, @UploadedFile() file?: Express.Multer.File) {
+  async upload(@Req() req: Request, @UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('No se subió ningún archivo');
-    const relativePath = `/uploads/${file.filename}`;
-    const proto = (req.get('x-forwarded-proto') ?? req.protocol ?? 'http').split(',')[0].trim();
-    const host = (req.get('x-forwarded-host') ?? req.get('host') ?? '').split(',')[0].trim();
-    const requestBase = host ? `${proto}://${host}` : '';
-    const baseUrl = this.publicBaseUrl || requestBase;
-    const url = baseUrl ? `${baseUrl}${relativePath}` : relativePath;
-    return { filename: file.filename, path: relativePath, url };
+
+    const auth = req.user as { id?: string; role?: Role } | undefined;
+    const uploaderId = (auth?.id ?? '').trim();
+    const uploaderRole = auth?.role;
+    if (!uploaderId) throw new UnauthorizedException('Usuario no autenticado');
+
+    // Optional multipart fields to keep docs organized as an expediente.
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const requestedUserId = (body['userId'] ?? '').toString().trim();
+    const targetUserId = requestedUserId || uploaderId;
+
+    if (requestedUserId && requestedUserId !== uploaderId) {
+      const isAdminLike = uploaderRole === Role.ADMIN || uploaderRole === Role.ASISTENTE;
+      if (!isAdminLike) throw new ForbiddenException('No autorizado para subir documentos de otro usuario');
+    }
+
+    const allowedKinds = new Set(['profile', 'cedula', 'licencia', 'personal', 'expediente', 'document']);
+    const rawKind = (body['kind'] ?? '').toString().trim().toLowerCase();
+    const kind = rawKind && allowedKinds.has(rawKind) ? rawKind : 'document';
+
+    const original = sanitizeFileName(file.originalname ?? 'archivo');
+    const ext = extname(original || '').toLowerCase();
+    const safeExt = ext && /\.(png|jpe?g|webp)$/.test(ext) ? ext : '.jpg';
+
+    const mime = (file.mimetype ?? '').toLowerCase().trim();
+    const contentType = /^image\/(png|jpe?g|webp)$/.test(mime)
+      ? mime
+      : (safeExt === '.png' ? 'image/png' : (safeExt === '.webp' ? 'image/webp' : 'image/jpeg'));
+
+    const objectKey = `users/${targetUserId}/${kind}/${randomUUID()}-${original.replace(/\.[^/.]+$/, '')}${safeExt}`
+      .replace(/\s+/g, '_')
+      .replace(/[^a-zA-Z0-9/_\-.]/g, '');
+
+    await this.r2.putObject({
+      objectKey,
+      body: file.buffer,
+      contentType,
+    });
+
+    const url = this.r2.buildPublicUrl(objectKey);
+    return { url, objectKey, kind, userId: targetUserId, fileName: original };
   }
 
   @Post()

@@ -233,7 +233,7 @@ export class ServiceClosingService {
         serviceId: params.serviceId,
         uploadedByUserId: params.uploadedByUserId,
         fileUrl: params.upload.publicUrl,
-        fileType: 'application/pdf',
+        fileType: params.kind,
         caption: (params.caption ?? '').trim() || null,
         storageProvider: 'R2',
         objectKey: params.upload.objectKey,

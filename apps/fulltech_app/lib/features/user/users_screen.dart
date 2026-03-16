@@ -672,8 +672,10 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
 
   Future<String?> _pickAndUploadImage(
     BuildContext context,
-    WidgetRef ref,
-  ) async {
+    WidgetRef ref, {
+    required String kind,
+    String? userId,
+  }) async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
@@ -698,7 +700,12 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
     try {
       return await ref
           .read(usersControllerProvider.notifier)
-          .uploadDocument(bytes: bytes, fileName: file.name);
+          .uploadDocument(
+            bytes: bytes,
+            fileName: file.name,
+            kind: kind,
+            userId: userId,
+          );
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -868,6 +875,8 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                                   .uploadDocument(
                                     bytes: bytes,
                                     fileName: file.name,
+                                    kind: 'cedula',
+                                    userId: user?.id,
                                   );
                               setModalState(() => fotoCedulaUrl = uploadedUrl);
 
@@ -1215,6 +1224,8 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                     final uploaded = await _pickAndUploadImage(
                       scaffoldContext,
                       ref,
+                      kind: 'cedula',
+                      userId: user?.id,
                     );
                     if (uploaded != null) {
                       setModalState(() => fotoCedulaUrl = uploaded);
@@ -1230,6 +1241,8 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                     final uploaded = await _pickAndUploadImage(
                       scaffoldContext,
                       ref,
+                      kind: 'licencia',
+                      userId: user?.id,
                     );
                     if (uploaded != null) {
                       setModalState(() => fotoLicenciaUrl = uploaded);
@@ -1245,6 +1258,8 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                     final uploaded = await _pickAndUploadImage(
                       scaffoldContext,
                       ref,
+                      kind: 'personal',
+                      userId: user?.id,
                     );
                     if (uploaded != null) {
                       setModalState(() => fotoPersonalUrl = uploaded);

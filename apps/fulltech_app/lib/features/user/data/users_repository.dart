@@ -94,11 +94,11 @@ class UsersRepository {
     required String version,
     required String signatureUrl,
   }) async {
-    final payload = {
-      'version': version,
-      'signatureUrl': signatureUrl,
-    };
-    final res = await _dio.post(ApiRoutes.usersMeWorkContractSign, data: payload);
+    final payload = {'version': version, 'signatureUrl': signatureUrl};
+    final res = await _dio.post(
+      ApiRoutes.usersMeWorkContractSign,
+      data: payload,
+    );
     return UserModel.fromJson(res.data as Map<String, dynamic>);
   }
 
@@ -122,6 +122,8 @@ class UsersRepository {
   Future<String> uploadUserDocument({
     required List<int> bytes,
     required String fileName,
+    String? kind,
+    String? userId,
   }) async {
     final lower = fileName.toLowerCase();
     final mediaType = lower.endsWith('.png')
@@ -136,6 +138,8 @@ class UsersRepository {
         filename: fileName,
         contentType: mediaType,
       ),
+      if (kind != null && kind.trim().isNotEmpty) 'kind': kind.trim(),
+      if (userId != null && userId.trim().isNotEmpty) 'userId': userId.trim(),
     });
 
     final res = await _dio.post(ApiRoutes.usersUpload, data: formData);

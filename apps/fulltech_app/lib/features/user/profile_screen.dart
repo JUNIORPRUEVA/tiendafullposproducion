@@ -460,6 +460,7 @@ class ProfileScreen extends ConsumerWidget {
       final uploadedUrl = await repo.uploadUserDocument(
         bytes: bytes,
         fileName: picked.name,
+        kind: 'profile',
       );
       final updated = await repo.updateMe(fotoPersonalUrl: uploadedUrl);
       ref.read(authStateProvider.notifier).setUser(updated);

@@ -78,8 +78,16 @@ class StatusPickerSheet {
     }
   }
 
-  static Future<String?> show(BuildContext context, {required String current}) {
+  static Future<String?> show(
+    BuildContext context, {
+    required String current,
+    Set<String>? allowedStates,
+  }) {
     final normalized = current.trim().toLowerCase();
+    final allowed = allowedStates
+        ?.map((s) => s.trim().toLowerCase())
+        .where((s) => s.isNotEmpty)
+        .toSet();
 
     return showModalBottomSheet<String>(
       context: context,
@@ -120,10 +128,13 @@ class StatusPickerSheet {
                       ListTile(
                         leading: Icon(icon(state)),
                         title: Text(label(state)),
+                        enabled: allowed == null || allowed.contains(state),
                         trailing: state == normalized
                             ? const Icon(Icons.check_rounded)
                             : null,
-                        onTap: () => Navigator.pop(context, state),
+                        onTap: (allowed == null || allowed.contains(state))
+                            ? () => Navigator.pop(context, state)
+                            : null,
                       ),
                   ],
                 ),

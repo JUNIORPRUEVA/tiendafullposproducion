@@ -3,17 +3,21 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
+import '../../../../core/models/user_model.dart';
 import '../../../../core/utils/pdf_file_actions.dart';
+import '../../../../core/widgets/app_drawer.dart';
 
 class ServiceReportPdfScreen extends StatefulWidget {
   const ServiceReportPdfScreen({
     super.key,
     required this.fileName,
     required this.loadBytes,
+    this.currentUser,
   });
 
   final String fileName;
   final Future<Uint8List> Function() loadBytes;
+  final UserModel? currentUser;
 
   @override
   State<ServiceReportPdfScreen> createState() => _ServiceReportPdfScreenState();
@@ -39,9 +43,7 @@ class _ServiceReportPdfScreenState extends State<ServiceReportPdfScreen> {
       if (!mounted) return;
 
       if (ok) {
-        messenger?.showSnackBar(
-          const SnackBar(content: Text('PDF guardado')),
-        );
+        messenger?.showSnackBar(const SnackBar(content: Text('PDF guardado')));
       }
     } catch (e) {
       messenger?.showSnackBar(
@@ -66,6 +68,7 @@ class _ServiceReportPdfScreenState extends State<ServiceReportPdfScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      drawer: buildAdaptiveDrawer(context, currentUser: widget.currentUser),
       appBar: AppBar(
         title: const Text('Reporte (PDF)'),
         actions: [

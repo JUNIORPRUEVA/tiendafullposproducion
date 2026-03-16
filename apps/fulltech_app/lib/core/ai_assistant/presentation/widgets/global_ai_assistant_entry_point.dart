@@ -19,9 +19,13 @@ class GlobalAiAssistantEntryPoint extends ConsumerWidget {
     final auth = ref.watch(authStateProvider);
     if (!auth.isAuthenticated) return child;
 
+    final location = _safeLocation(context);
+    if (_shouldHideEntryPoint(location)) return child;
+
     final isDesktop = MediaQuery.sizeOf(context).width >= 900;
-    final desktopOpen =
-        isDesktop ? ref.watch(desktopAiAssistantPanelOpenProvider) : false;
+    final desktopOpen = isDesktop
+        ? ref.watch(desktopAiAssistantPanelOpenProvider)
+        : false;
 
     return Stack(
       children: [
@@ -37,9 +41,7 @@ class GlobalAiAssistantEntryPoint extends ConsumerWidget {
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTapDown: (_) => _closeDesktopPanel(ref),
-                  child: Container(
-                    color: Colors.black.withValues(alpha: 0.12),
-                  ),
+                  child: Container(color: Colors.black.withValues(alpha: 0.12)),
                 ),
               ),
             ),
@@ -70,17 +72,26 @@ class GlobalAiAssistantEntryPoint extends ConsumerWidget {
         ],
         if (!isDesktop)
           Positioned(
-            right: 18,
-            bottom: 18,
+            right: 16,
+            bottom: 16,
             child: Builder(
               builder: (innerContext) {
                 final assistantContext = _buildAssistantContext(innerContext);
 
-                return AiAssistantDockButton(
-                  onPressed: () => _openAssistant(
-                    innerContext,
-                    ref,
-                    assistantContext,
+                final viewInsets = MediaQuery.viewInsetsOf(innerContext);
+                final viewPadding = MediaQuery.viewPaddingOf(innerContext);
+                final extraBottom = viewInsets.bottom > 0
+                    ? viewInsets.bottom
+                    : viewPadding.bottom;
+
+                return AnimatedPadding(
+                  duration: const Duration(milliseconds: 140),
+                  curve: Curves.easeOut,
+                  padding: EdgeInsets.only(bottom: extraBottom),
+                  child: AiAssistantDockButton(
+                    compact: true,
+                    onPressed: () =>
+                        _openAssistant(innerContext, ref, assistantContext),
                   ),
                 );
               },
@@ -88,6 +99,15 @@ class GlobalAiAssistantEntryPoint extends ConsumerWidget {
           ),
       ],
     );
+  }
+
+  bool _shouldHideEntryPoint(String location) {
+    final normalized = location.trim();
+    final uri = Uri.tryParse(normalized) ?? Uri(path: normalized);
+    final path = uri.path.trim().toLowerCase();
+
+    if (path.startsWith('/operaciones')) return true;
+    return false;
   }
 
   AiChatContext _buildAssistantContext(BuildContext context) {
@@ -98,6 +118,12 @@ class GlobalAiAssistantEntryPoint extends ConsumerWidget {
   String _safeLocation(BuildContext context) {
     try {
       return GoRouterState.of(context).uri.toString();
+    } catch (_) {
+      // Not always available from a global wrapper.
+    }
+
+    try {
+      return GoRouter.of(context).routeInformationProvider.value.uri.toString();
     } catch (_) {
       return '';
     }
