@@ -341,7 +341,7 @@ class OperationsController extends StateNotifier<OperationsState> {
   Future<ServiceModel> createReservation({
     required String customerId,
     required String serviceType,
-    required String categoryId,
+    String? categoryId,
     required int priority,
     required String title,
     required String description,

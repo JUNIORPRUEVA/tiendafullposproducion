@@ -19,6 +19,7 @@ import '../application/operations_controller.dart';
 
 class TechnicalExecutionState {
   final bool loading;
+  final bool refreshing;
   final bool savingReport;
   final bool savingUpdate;
   final String? error;
@@ -37,6 +38,7 @@ class TechnicalExecutionState {
 
   const TechnicalExecutionState({
     this.loading = false,
+    this.refreshing = false,
     this.savingReport = false,
     this.savingUpdate = false,
     this.error,
@@ -65,6 +67,7 @@ class TechnicalExecutionState {
 
   TechnicalExecutionState copyWith({
     bool? loading,
+    bool? refreshing,
     bool? savingReport,
     bool? savingUpdate,
     String? error,
@@ -83,6 +86,7 @@ class TechnicalExecutionState {
   }) {
     return TechnicalExecutionState(
       loading: loading ?? this.loading,
+      refreshing: refreshing ?? this.refreshing,
       savingReport: savingReport ?? this.savingReport,
       savingUpdate: savingUpdate ?? this.savingUpdate,
       error: clearError ? null : (error ?? this.error),
@@ -166,51 +170,32 @@ class TechnicalExecutionController
 
   Future<void> load() async {
     if (state.loading) return;
-    state = state.copyWith(loading: true, clearError: true);
+    state = state.copyWith(loading: true, refreshing: false, clearError: true);
 
     final auth = ref.read(authStateProvider);
     final user = auth.user;
     final userId = (user?.id ?? '').trim();
+    final cacheScope = userId;
 
     try {
       final repo = ref.read(operationsRepositoryProvider);
 
-      final service = await repo.getService(serviceId);
-
-      ServiceExecutionBundleModel bundle = const ServiceExecutionBundleModel(
-        report: null,
-        changes: [],
-      );
-      ServiceChecklistBundleModel checklistBundle =
-          const ServiceChecklistBundleModel(
-            serviceId: '',
-            currentPhase: '',
-            orderState: '',
-            categoryCode: '',
-            categoryLabel: '',
-            templates: [],
-          );
-      String? reportError;
-      try {
-        bundle = await repo.getExecutionReport(serviceId: serviceId);
-      } on ApiException catch (e) {
-        reportError = e.message;
-      } catch (e) {
-        reportError = e.toString();
-      }
-
-      try {
-        checklistBundle = await repo.getServiceChecklists(serviceId: serviceId);
-      } catch (_) {
-        checklistBundle = const ServiceChecklistBundleModel(
-          serviceId: '',
-          currentPhase: '',
-          orderState: '',
-          categoryCode: '',
-          categoryLabel: '',
-          templates: [],
-        );
-      }
+      final cachedService = cacheScope.isEmpty
+          ? null
+          : await repo.getCachedService(cacheScope: cacheScope, id: serviceId);
+      final cachedBundle = cacheScope.isEmpty
+          ? null
+          : await repo.getCachedExecutionReport(
+              cacheScope: cacheScope,
+              serviceId: serviceId,
+              technicianId: userId,
+            );
+      final cachedChecklist = cacheScope.isEmpty
+          ? null
+          : await repo.getCachedServiceChecklists(
+              cacheScope: cacheScope,
+              serviceId: serviceId,
+            );
 
       final draft = userId.isEmpty
           ? null
@@ -226,32 +211,101 @@ class TechnicalExecutionController
         return const <String, dynamic>{};
       }
 
-      final arrivedAt = draft?['arrivedAt'] != null
+        final cachedReport = cachedBundle?.report;
+        final arrivedAt = draft?['arrivedAt'] != null
           ? parseDate(draft!['arrivedAt'])
-          : bundle.report?.arrivedAt;
-      final startedAt = draft?['startedAt'] != null
+          : cachedReport?.arrivedAt;
+        final startedAt = draft?['startedAt'] != null
           ? parseDate(draft!['startedAt'])
-          : bundle.report?.startedAt;
-      final finishedAt = draft?['finishedAt'] != null
+          : cachedReport?.startedAt;
+        final finishedAt = draft?['finishedAt'] != null
           ? parseDate(draft!['finishedAt'])
-          : bundle.report?.finishedAt;
-      final notes = (draft?['notes'] ?? bundle.report?.notes ?? '').toString();
+          : cachedReport?.finishedAt;
+        final notes = (draft?['notes'] ?? cachedReport?.notes ?? '').toString();
       final clientApproved =
           (draft?['clientApproved'] ??
-              bundle.report?.clientApproved ??
+            cachedReport?.clientApproved ??
               false) ==
           true;
 
       final phaseSpecificData = draft?['phaseSpecificData'] != null
           ? parseMap(draft!['phaseSpecificData'])
-          : (bundle.report?.phaseSpecificData ?? const <String, dynamic>{});
+          : (cachedReport?.phaseSpecificData ?? const <String, dynamic>{});
 
       final checklistData = draft?['checklistData'] != null
           ? parseMap(draft!['checklistData'])
-          : (bundle.report?.checklistData ?? const <String, dynamic>{});
+          : (cachedReport?.checklistData ?? const <String, dynamic>{});
+
+        final hasCached =
+          cachedService != null || cachedBundle != null || cachedChecklist != null;
+
+        if (hasCached) {
+        state = state.copyWith(
+          loading: false,
+          refreshing: true,
+          service: cachedService,
+          changes: cachedBundle?.changes ?? state.changes,
+          arrivedAt: arrivedAt,
+          startedAt: startedAt,
+          finishedAt: finishedAt,
+          notes: notes,
+          clientApproved: clientApproved,
+          checklistData: checklistData,
+          phaseSpecificData: phaseSpecificData,
+          dynamicChecklists:
+            cachedChecklist?.templates ?? state.dynamicChecklists,
+        );
+        }
+
+        final service = cacheScope.isEmpty
+          ? await repo.getService(serviceId)
+          : await repo.getServiceAndCache(
+            cacheScope: cacheScope,
+            id: serviceId,
+            silent: hasCached,
+          );
+
+        ServiceExecutionBundleModel bundle = cachedBundle ??
+          const ServiceExecutionBundleModel(report: null, changes: []);
+        ServiceChecklistBundleModel checklistBundle = cachedChecklist ??
+          const ServiceChecklistBundleModel(
+          serviceId: '',
+          currentPhase: '',
+          orderState: '',
+          categoryCode: '',
+          categoryLabel: '',
+          templates: [],
+          );
+        String? reportError;
+        try {
+        bundle = cacheScope.isEmpty
+          ? await repo.getExecutionReport(
+            serviceId: serviceId,
+            technicianId: userId,
+            )
+          : await repo.getExecutionReportAndCache(
+            cacheScope: cacheScope,
+            serviceId: serviceId,
+            technicianId: userId,
+            );
+        } on ApiException catch (e) {
+        reportError = e.message;
+        } catch (e) {
+        reportError = e.toString();
+        }
+
+        try {
+        checklistBundle = cacheScope.isEmpty
+          ? await repo.getServiceChecklists(serviceId: serviceId)
+          : await repo.getServiceChecklistsAndCache(
+            cacheScope: cacheScope,
+            serviceId: serviceId,
+            );
+        } catch (_) {}
 
       state = state.copyWith(
         loading: false,
+        refreshing: false,
         error: reportError,
         service: service,
         changes: bundle.changes,
@@ -265,7 +319,11 @@ class TechnicalExecutionController
         dynamicChecklists: checklistBundle.templates,
       );
     } catch (e) {
-      state = state.copyWith(loading: false, error: e.toString());
+      state = state.copyWith(
+        loading: false,
+        refreshing: false,
+        error: e.toString(),
+      );
     }
   }
 
@@ -398,7 +456,11 @@ class TechnicalExecutionController
 
     try {
       final repo = ref.read(operationsRepositoryProvider);
-      await repo.checkServiceChecklistItem(itemId: itemId, isChecked: value);
+      await repo.checkServiceChecklistItemOrQueue(
+        scope: (ref.read(authStateProvider).user?.id ?? '').trim(),
+        itemId: itemId,
+        isChecked: value,
+      );
     } on ApiException catch (e) {
       state = state.copyWith(error: e.message);
       await load();
@@ -551,6 +613,7 @@ class TechnicalExecutionController
 
     final service = state.service;
     if (service == null) return;
+    final userId = (ref.read(authStateProvider).user?.id ?? '').trim();
     final technicianId = _resolveTechnicianId(service);
     if (technicianId.isEmpty) {
       state = state.copyWith(
@@ -564,7 +627,8 @@ class TechnicalExecutionController
 
     try {
       final repo = ref.read(operationsRepositoryProvider);
-      final bundle = await repo.upsertExecutionReport(
+      final queued = await repo.upsertExecutionReportOrQueue(
+        scope: userId,
         serviceId: serviceId,
         technicianId: technicianId,
         phase: service.currentPhase,
@@ -579,7 +643,12 @@ class TechnicalExecutionController
         clientApproved: state.clientApproved,
       );
 
-      state = state.copyWith(savingReport: false, changes: bundle.changes);
+      state = state.copyWith(
+        savingReport: false,
+        error: queued
+            ? 'Reporte guardado localmente. Se sincronizará en segundo plano.'
+            : null,
+      );
       await _clearDraft();
     } on ApiException catch (e) {
       state = state.copyWith(savingReport: false, error: e.message);

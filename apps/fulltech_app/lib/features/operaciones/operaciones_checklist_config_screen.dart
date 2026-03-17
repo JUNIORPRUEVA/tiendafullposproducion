@@ -498,15 +498,20 @@ class _OperacionesChecklistConfigScreenState
       data: (items) => items,
       orElse: () => const <ServiceChecklistCategoryModel>[],
     );
+    final safeCategories = categories.isNotEmpty ? categories : defaultCategories;
     final phases = phasesValue.maybeWhen(
       data: (items) => items,
       orElse: () => const <ServiceChecklistPhaseModel>[],
     );
-    _syncSelection(categories: categories, phases: phases);
+    // ignore: avoid_print
+    print('Categorias cargadas: ${categories.length}');
+    // ignore: avoid_print
+    print('Usando fallback: ${categories.isEmpty}');
+    _syncSelection(categories: safeCategories, phases: phases);
 
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final selectedCategory = categories.cast<ServiceChecklistCategoryModel?>().firstWhere(
+    final selectedCategory = safeCategories.cast<ServiceChecklistCategoryModel?>().firstWhere(
           (item) => item?.id == _selectedCategoryId,
           orElse: () => null,
         );
@@ -531,6 +536,12 @@ class _OperacionesChecklistConfigScreenState
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: canCreateChecklist && !_saving
+            ? _openCreateChecklistDialog
+            : null,
+        child: const Icon(Icons.add),
+      ),
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -550,13 +561,13 @@ class _OperacionesChecklistConfigScreenState
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
                   children: [
                     _AdminHeroCard(
-                      categoriesCount: categories.length,
+                      categoriesCount: safeCategories.length,
                       phasesCount: phases.length,
                       templatesCount: _templates.length,
                     ),
                     const SizedBox(height: 16),
                     _FilterCard(
-                      categories: categories,
+                      categories: safeCategories,
                       phases: phases,
                       selectedCategoryId: _selectedCategoryId,
                       selectedPhaseId: _selectedPhaseId,

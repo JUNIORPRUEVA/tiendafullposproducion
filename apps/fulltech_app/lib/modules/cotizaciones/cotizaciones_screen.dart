@@ -1537,13 +1537,28 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     final wasEditing = (_editingId ?? '').trim().isNotEmpty;
     final cotizacion = _buildDraftCotizacion();
     try {
-      if ((_editingId ?? '').trim().isEmpty) {
-        await ref.read(cotizacionesRepositoryProvider).create(cotizacion);
-      } else {
-        await ref
-            .read(cotizacionesRepositoryProvider)
-            .update(_editingId!, cotizacion);
-      }
+      final queued = (_editingId ?? '').trim().isEmpty
+          ? await ref.read(cotizacionesRepositoryProvider).createOrQueue(cotizacion)
+          : await ref
+              .read(cotizacionesRepositoryProvider)
+              .updateOrQueue(_editingId!, cotizacion);
+
+      if (!mounted) return;
+
+      _commitEditorChange(_resetEditorState);
+      _schedulePersistEditorDraft(immediate: true);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            queued
+                ? 'Cotización guardada localmente. Se sincronizará en segundo plano.'
+                : wasEditing
+                ? 'Cotización actualizada en nube'
+                : 'Cotización guardada en nube',
+          ),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1551,21 +1566,6 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       );
       return;
     }
-
-    if (!mounted) return;
-
-    _commitEditorChange(_resetEditorState);
-    _schedulePersistEditorDraft(immediate: true);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          wasEditing
-              ? 'Cotización actualizada en nube'
-              : 'Cotización guardada en nube',
-        ),
-      ),
-    );
 
     final qp = GoRouterState.of(context).uri.queryParameters;
     final popOnSave = (qp['popOnSave'] ?? '').trim() == '1';

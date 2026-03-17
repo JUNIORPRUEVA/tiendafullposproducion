@@ -15,6 +15,7 @@ import 'technical_visit_models.dart';
 
 class TechnicalVisitState {
   final bool loading;
+  final bool refreshing;
   final bool saving;
   final String? error;
 
@@ -30,6 +31,7 @@ class TechnicalVisitState {
 
   const TechnicalVisitState({
     this.loading = false,
+    this.refreshing = false,
     this.saving = false,
     this.error,
     this.service,
@@ -44,6 +46,7 @@ class TechnicalVisitState {
 
   TechnicalVisitState copyWith({
     bool? loading,
+    bool? refreshing,
     bool? saving,
     String? error,
     bool clearError = false,
@@ -58,6 +61,7 @@ class TechnicalVisitState {
   }) {
     return TechnicalVisitState(
       loading: loading ?? this.loading,
+      refreshing: refreshing ?? this.refreshing,
       saving: saving ?? this.saving,
       error: clearError ? null : (error ?? this.error),
       service: service ?? this.service,
@@ -118,16 +122,23 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
 
   Future<void> load() async {
     if (state.loading) return;
-    state = state.copyWith(loading: true, clearError: true);
+    state = state.copyWith(loading: true, refreshing: false, clearError: true);
 
     final auth = ref.read(authStateProvider);
     final userId = (auth.user?.id ?? '').trim();
+    final cacheScope = userId;
 
     try {
       final repo = ref.read(operationsRepositoryProvider);
-
-      final service = await repo.getService(serviceId);
-      final visit = await repo.getTechnicalVisitByOrder(serviceId);
+      final cachedService = cacheScope.isEmpty
+          ? null
+          : await repo.getCachedService(cacheScope: cacheScope, id: serviceId);
+      final cachedVisit = cacheScope.isEmpty
+          ? null
+          : await repo.getCachedTechnicalVisitByOrder(
+              cacheScope: cacheScope,
+              orderId: serviceId,
+            );
 
       Map<String, dynamic>? draft;
       if (userId.isNotEmpty) {
@@ -157,30 +168,61 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
       final report =
           (draft?['report_description'] ??
                   draft?['reportDescription'] ??
-                  visit?.reportDescription ??
+                  cachedVisit?.reportDescription ??
                   '')
               .toString();
       final notes =
           (draft?['installation_notes'] ??
                   draft?['installationNotes'] ??
-                  visit?.installationNotes ??
+                  cachedVisit?.installationNotes ??
                   '')
               .toString();
 
       final products = draft != null && draft.containsKey('estimated_products')
           ? readProducts(draft['estimated_products'])
-          : (visit?.estimatedProducts ?? const <EstimatedProductItemModel>[]);
+          : (cachedVisit?.estimatedProducts ?? const <EstimatedProductItemModel>[]);
 
       final photos = draft != null && draft.containsKey('photos')
           ? readUrls(draft['photos'])
-          : (visit?.photos ?? const <String>[]);
+          : (cachedVisit?.photos ?? const <String>[]);
 
       final videos = draft != null && draft.containsKey('videos')
           ? readUrls(draft['videos'])
-          : (visit?.videos ?? const <String>[]);
+          : (cachedVisit?.videos ?? const <String>[]);
+
+      final hasCached = cachedService != null || cachedVisit != null;
+
+      if (hasCached) {
+        state = state.copyWith(
+          loading: false,
+          refreshing: true,
+          service: cachedService,
+          visit: cachedVisit,
+          reportDescription: report,
+          installationNotes: notes,
+          estimatedProducts: products,
+          photos: photos,
+          videos: videos,
+        );
+      }
+
+      final service = cacheScope.isEmpty
+          ? await repo.getService(serviceId)
+          : await repo.getServiceAndCache(
+              cacheScope: cacheScope,
+              id: serviceId,
+              silent: hasCached,
+            );
+      final visit = cacheScope.isEmpty
+          ? await repo.getTechnicalVisitByOrder(serviceId)
+          : await repo.getTechnicalVisitByOrderAndCache(
+              cacheScope: cacheScope,
+              orderId: serviceId,
+            );
 
       state = state.copyWith(
         loading: false,
+        refreshing: false,
         service: service,
         visit: visit,
         reportDescription: report,
@@ -190,9 +232,17 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
         videos: videos,
       );
     } on ApiException catch (e) {
-      state = state.copyWith(loading: false, error: e.message);
+      state = state.copyWith(
+        loading: false,
+        refreshing: false,
+        error: e.message,
+      );
     } catch (e) {
-      state = state.copyWith(loading: false, error: e.toString());
+      state = state.copyWith(
+        loading: false,
+        refreshing: false,
+        error: e.toString(),
+      );
     }
   }
 
@@ -467,22 +517,20 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
         'visit_date': DateTime.now().toUtc().toIso8601String(),
       };
 
-      TechnicalVisitModel saved;
-      if (visit == null || visit.id.trim().isEmpty) {
-        final payload = {
-          'order_id': serviceId,
-          'technician_id': userId,
-          ...basePayload,
-        };
-        saved = await repo.createTechnicalVisit(payload: payload);
-      } else {
-        saved = await repo.updateTechnicalVisit(
-          id: visit.id,
-          payload: basePayload,
-        );
-      }
+      final queued = await repo.saveTechnicalVisitOrQueue(
+        scope: userId,
+        serviceId: serviceId,
+        technicianId: userId,
+        visitId: visit?.id,
+        payload: basePayload,
+      );
 
-      state = state.copyWith(saving: false, visit: saved);
+      state = state.copyWith(
+        saving: false,
+        error: queued
+            ? 'Levantamiento guardado localmente. Se sincronizará en segundo plano.'
+            : null,
+      );
       await _persistDraft();
     } on ApiException catch (e) {
       state = state.copyWith(saving: false, error: e.message);

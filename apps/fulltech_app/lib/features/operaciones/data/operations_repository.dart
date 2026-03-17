@@ -98,6 +98,134 @@ class OperationsRepository {
     return code == null || code >= 500;
   }
 
+  Map<String, dynamic> _executionReportToMap(
+    ServiceExecutionReportModel report,
+  ) {
+    return {
+      'id': report.id,
+      'serviceId': report.serviceId,
+      'technicianId': report.technicianId,
+      'phase': report.phase,
+      'arrivedAt': report.arrivedAt?.toIso8601String(),
+      'startedAt': report.startedAt?.toIso8601String(),
+      'finishedAt': report.finishedAt?.toIso8601String(),
+      'notes': report.notes,
+      'checklistData': report.checklistData,
+      'phaseSpecificData': report.phaseSpecificData,
+      'clientApproved': report.clientApproved,
+      'updatedAt': report.updatedAt?.toIso8601String(),
+    };
+  }
+
+  Map<String, dynamic> _executionChangeToMap(
+    ServiceExecutionChangeModel change,
+  ) {
+    return {
+      'id': change.id,
+      'serviceId': change.serviceId,
+      'executionReportId': change.executionReportId,
+      'createdByUserId': change.createdByUserId,
+      'type': change.type,
+      'description': change.description,
+      'quantity': change.quantity,
+      'extraCost': change.extraCost,
+      'clientApproved': change.clientApproved,
+      'note': change.note,
+      'createdAt': change.createdAt?.toIso8601String(),
+    };
+  }
+
+  Map<String, dynamic> _executionBundleToMap(
+    ServiceExecutionBundleModel bundle,
+  ) {
+    return {
+      'report': bundle.report == null ? null : _executionReportToMap(bundle.report!),
+      'changes': bundle.changes
+          .map((change) => _executionChangeToMap(change))
+          .toList(growable: false),
+    };
+  }
+
+  Map<String, dynamic> _checklistCategoryToMap(
+    ServiceChecklistCategoryModel category,
+  ) {
+    return {'id': category.id, 'name': category.name, 'code': category.code};
+  }
+
+  Map<String, dynamic> _checklistPhaseToMap(ServiceChecklistPhaseModel phase) {
+    return {
+      'id': phase.id,
+      'name': phase.name,
+      'code': phase.code,
+      'orderIndex': phase.orderIndex,
+    };
+  }
+
+  Map<String, dynamic> _checklistItemToMap(ServiceChecklistItemModel item) {
+    return {
+      'id': item.id,
+      'checklistItemId': item.checklistItemId,
+      'label': item.label,
+      'isRequired': item.isRequired,
+      'orderIndex': item.orderIndex,
+      'isChecked': item.isChecked,
+      'checkedAt': item.checkedAt?.toIso8601String(),
+      'checkedByUserId': item.checkedByUserId,
+      'checkedByName': item.checkedByName,
+    };
+  }
+
+  Map<String, dynamic> _checklistTemplateToMap(
+    ServiceChecklistTemplateModel template,
+  ) {
+    return {
+      'id': template.id,
+      'templateId': template.templateId,
+      'type': serviceChecklistSectionTypeCode(template.type),
+      'title': template.title,
+      'category': _checklistCategoryToMap(template.category),
+      'phase': _checklistPhaseToMap(template.phase),
+      'items': template.items
+          .map((item) => _checklistItemToMap(item))
+          .toList(growable: false),
+    };
+  }
+
+  Map<String, dynamic> _checklistBundleToMap(
+    ServiceChecklistBundleModel bundle,
+  ) {
+    return {
+      'serviceId': bundle.serviceId,
+      'currentPhase': bundle.currentPhase,
+      'orderState': bundle.orderState,
+      'category': {
+        'code': bundle.categoryCode,
+        'label': bundle.categoryLabel,
+      },
+      'templates': bundle.templates
+          .map((template) => _checklistTemplateToMap(template))
+          .toList(growable: false),
+    };
+  }
+
+  Map<String, dynamic> _technicalVisitToMap(TechnicalVisitModel visit) {
+    return {
+      'id': visit.id,
+      'orderId': visit.orderId,
+      'technicianId': visit.technicianId,
+      'reportDescription': visit.reportDescription,
+      'installationNotes': visit.installationNotes,
+      'estimatedProducts': visit.estimatedProducts
+          .map((item) => item.toJson())
+          .toList(growable: false),
+      'photos': visit.photos,
+      'videos': visit.videos,
+      'visitDate': visit.visitDate?.toIso8601String(),
+      'createdAt': visit.createdAt?.toIso8601String(),
+      'updatedAt': visit.updatedAt?.toIso8601String(),
+    };
+  }
+
   Map<String, dynamic> _decodeJsonMap(dynamic data) {
     if (data is Map) return data.cast<String, dynamic>();
     if (data is String) {
@@ -883,7 +1011,7 @@ class OperationsRepository {
         serviceId: serviceId,
         technicianId: technicianId,
       ),
-      bundle.toJson(),
+      _executionBundleToMap(bundle),
     );
     return bundle;
   }
@@ -895,7 +1023,7 @@ class OperationsRepository {
     final bundle = await getServiceChecklists(serviceId: serviceId);
     await _cache.writeMap(
       _serviceChecklistCacheKey(cacheScope: cacheScope, serviceId: serviceId),
-      bundle.toJson(),
+      _checklistBundleToMap(bundle),
     );
 
     final categoryKey = bundle.categoryCode.trim();
@@ -909,7 +1037,7 @@ class OperationsRepository {
         ),
         {
           'items': bundle.templates
-              .map((template) => template.toJson())
+              .map((template) => _checklistTemplateToMap(template))
               .toList(growable: false),
         },
       );
@@ -930,7 +1058,7 @@ class OperationsRepository {
     }
     await _cache.writeMap(
       _technicalVisitCacheKey(cacheScope: cacheScope, orderId: orderId),
-      visit.toJson(),
+      _technicalVisitToMap(visit),
     );
     return visit;
   }
@@ -979,7 +1107,7 @@ class OperationsRepository {
   Future<ServiceModel> createService({
     required String customerId,
     required String serviceType,
-    required String categoryId,
+    String? categoryId,
     required int priority,
     required String title,
     required String description,
@@ -1004,7 +1132,8 @@ class OperationsRepository {
         data: {
           'customerId': customerId,
           'serviceType': serviceType,
-          'categoryId': categoryId,
+          if (categoryId != null && categoryId.trim().isNotEmpty)
+            'categoryId': categoryId.trim(),
           if (category != null && category.trim().isNotEmpty)
             'category': category.trim(),
           'priority': priority,
@@ -1451,7 +1580,7 @@ class OperationsRepository {
             ),
             {
               'items': remote
-                  .map((template) => template.toJson())
+                  .map((template) => _checklistTemplateToMap(template))
                   .toList(growable: false),
             },
           );
@@ -1472,7 +1601,7 @@ class OperationsRepository {
       ),
       {
         'items': remote
-            .map((template) => template.toJson())
+          .map((template) => _checklistTemplateToMap(template))
             .toList(growable: false),
       },
     );

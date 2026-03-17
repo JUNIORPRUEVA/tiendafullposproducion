@@ -7578,7 +7578,7 @@ class _AgendaTab extends StatelessWidget {
 class _CreateServiceDraft {
   final String customerId;
   final String serviceType;
-  final String categoryId;
+  final String? categoryId;
   final String categoryCode;
   final int priority;
   final DateTime? reservationAt;
@@ -7884,13 +7884,22 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     return items.first.id;
   }
 
+  String? _categoryIdForSubmit(ServiceChecklistCategoryModel category) {
+    final id = category.id.trim();
+    final uuid = RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+    );
+    return uuid.hasMatch(id) ? id : null;
+  }
+
   ServiceChecklistCategoryModel? get _selectedCategory {
     final selectedId = _categoryId.trim();
     final categories = ref.read(categoriesProvider).maybeWhen(
       data: (items) => items,
       orElse: () => const <ServiceChecklistCategoryModel>[],
     );
-    for (final item in categories) {
+    final safeCategories = categories.isNotEmpty ? categories : defaultCategories;
+    for (final item in safeCategories) {
       if (item.id == selectedId) return item;
     }
     return null;
@@ -8390,16 +8399,19 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           data: (items) => items,
           orElse: () => const <ServiceChecklistCategoryModel>[],
         );
-        final hasSelectedCategory = categories.any(
+        final safeCategories = categories.isNotEmpty ? categories : defaultCategories;
+        // ignore: avoid_print
+        print('Usando fallback: ${categories.isEmpty}');
+        final hasSelectedCategory = safeCategories.any(
           (item) => item.id == _categoryId,
         );
         final selectedCategory = hasSelectedCategory
-            ? categories.firstWhere((item) => item.id == _categoryId)
+            ? safeCategories.firstWhere((item) => item.id == _categoryId)
             : null;
-        if (categories.isNotEmpty && !hasSelectedCategory) {
+        if (safeCategories.isNotEmpty && !hasSelectedCategory) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
-            setState(() => _categoryId = _defaultCategoryId(categories));
+            setState(() => _categoryId = _defaultCategoryId(safeCategories));
           });
         }
 
@@ -8568,13 +8580,13 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
             labelText: 'Categoría',
             helperText: categoriesValue.when(
               data: (_) => categories.isEmpty
-                  ? 'No hay categorías disponibles.'
+                  ? 'Usando categorías base.'
                   : selectedCategory?.code,
-              loading: () => 'Cargando categorías...',
-              error: (_, __) => 'No se pudieron cargar las categorías.',
+              loading: () => 'Usando categorías base mientras carga...',
+              error: (_, __) => 'Usando categorías base.',
             ),
           ),
-          items: categories
+          items: safeCategories
               .map(
                 (item) => DropdownMenuItem(
                   value: item.id,
@@ -8586,11 +8598,9 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
             if (_categoryId.trim().isEmpty) return 'Requerido';
             return null;
           },
-          onChanged: categoriesValue.isLoading
-              ? null
-              : (value) {
-                  if (value != null) setState(() => _categoryId = value);
-                },
+          onChanged: (value) {
+            if (value != null) setState(() => _categoryId = value);
+          },
         );
 
         final orderStateField = DropdownButtonFormField<String>(
@@ -10058,7 +10068,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
         _CreateServiceDraft(
           customerId: _customerId!,
           serviceType: _serviceType,
-          categoryId: selectedCategory.id,
+          categoryId: _categoryIdForSubmit(selectedCategory),
           categoryCode: selectedCategory.code,
           priority: _priority,
           reservationAt: reservationAt,

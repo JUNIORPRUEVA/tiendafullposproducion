@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/routing/routes.dart';
 import '../../../core/widgets/app_drawer.dart';
-import '../data/operations_repository.dart';
+import '../application/operations_controller.dart';
 import '../operations_models.dart';
 import '../presentation/operations_back_button.dart';
 import 'technical_service_execution_screen.dart';
@@ -14,8 +14,7 @@ final _serviceForPhaseProvider = FutureProvider.family<ServiceModel, String>((
   ref,
   serviceId,
 ) async {
-  final repo = ref.read(operationsRepositoryProvider);
-  return repo.getService(serviceId);
+  return ref.read(operationsControllerProvider.notifier).getOne(serviceId);
 });
 
 bool _isLevantamientoPhase(String raw) {

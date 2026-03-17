@@ -25,6 +25,7 @@ class CotizacionesHistorialScreen extends ConsumerStatefulWidget {
 class _CotizacionesHistorialScreenState
     extends ConsumerState<CotizacionesHistorialScreen> {
   bool _loading = true;
+  bool _refreshing = false;
   String? _error;
   List<CotizacionModel> _items = const [];
   bool _autoOpened = false;
@@ -41,16 +42,27 @@ class _CotizacionesHistorialScreenState
   Future<void> _load() async {
     setState(() {
       _loading = true;
+      _refreshing = false;
       _error = null;
     });
+    final repo = ref.read(cotizacionesRepositoryProvider);
     try {
-      final rows = await ref
-          .read(cotizacionesRepositoryProvider)
-          .list(customerPhone: widget.customerPhone);
+      final cached = await repo.getCachedList(customerPhone: widget.customerPhone);
+      if (!mounted) return;
+      if (cached.isNotEmpty) {
+        setState(() {
+          _items = cached;
+          _loading = false;
+          _refreshing = true;
+        });
+      }
+
+      final rows = await repo.listAndCache(customerPhone: widget.customerPhone);
       if (!mounted) return;
       setState(() {
         _items = rows;
         _loading = false;
+        _refreshing = false;
       });
 
       await _maybeAutoOpenQuote();
@@ -59,6 +71,7 @@ class _CotizacionesHistorialScreenState
       setState(() {
         _error = '$e';
         _loading = false;
+        _refreshing = false;
       });
     }
   }
@@ -79,7 +92,8 @@ class _CotizacionesHistorialScreenState
         }
       }
 
-      found ??= await ref.read(cotizacionesRepositoryProvider).getById(id);
+      found ??= await ref.read(cotizacionesRepositoryProvider).getCachedById(id);
+      found ??= await ref.read(cotizacionesRepositoryProvider).getByIdAndCache(id);
       if (!mounted) return;
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -113,7 +127,7 @@ class _CotizacionesHistorialScreenState
     );
     if (ok != true) return;
 
-    await ref.read(cotizacionesRepositoryProvider).deleteById(item.id);
+    await ref.read(cotizacionesRepositoryProvider).deleteOrQueue(item.id);
     await _load();
   }
 
@@ -235,10 +249,13 @@ class _CotizacionesHistorialScreenState
             )
           : ListView.separated(
               padding: const EdgeInsets.all(12),
-              itemCount: _items.length,
+              itemCount: _items.length + (_refreshing ? 1 : 0),
               separatorBuilder: (context, index) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
-                final item = _items[index];
+                if (_refreshing && index == 0) {
+                  return const LinearProgressIndicator();
+                }
+                final item = _items[_refreshing ? index - 1 : index];
                 return Card(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),

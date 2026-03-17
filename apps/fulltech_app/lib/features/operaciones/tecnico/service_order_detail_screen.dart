@@ -8,6 +8,7 @@ import '../../../core/errors/api_exception.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/routing/routes.dart';
 import '../../../core/widgets/app_drawer.dart';
+import '../application/operations_controller.dart';
 import '../data/operations_repository.dart';
 import '../operations_models.dart';
 import '../presentation/service_location_helpers.dart';
@@ -17,8 +18,7 @@ final _serviceDetailProvider = FutureProvider.family<ServiceModel, String>((
   ref,
   serviceId,
 ) async {
-  final repo = ref.read(operationsRepositoryProvider);
-  return repo.getService(serviceId);
+  return ref.read(operationsControllerProvider.notifier).getOne(serviceId);
 });
 
 final _serviceHistoryProvider =
