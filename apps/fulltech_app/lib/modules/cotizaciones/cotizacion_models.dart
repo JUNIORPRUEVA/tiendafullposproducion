@@ -15,6 +15,8 @@ class CotizacionItem {
     required this.qty,
   });
 
+  bool get isExternal => !_isUuid(productId);
+
   double get total => unitPrice * qty;
 
   CotizacionItem copyWith({

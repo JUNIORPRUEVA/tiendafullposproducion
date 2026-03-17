@@ -36,6 +36,8 @@ class _OperacionesChecklistConfigScreenState
   String? _selectedPhaseId;
   String? _loadedCategoryId;
   String? _loadedPhaseId;
+  String? _loadedCategoryCode;
+  String? _loadedPhaseCode;
 
   bool get _canManage {
     final role = ref.read(authStateProvider).user?.appRole ?? AppRole.unknown;
@@ -49,11 +51,36 @@ class _OperacionesChecklistConfigScreenState
     super.initState();
   }
 
+  bool _isPersistableId(String? value) {
+    if (value == null) return false;
+    return RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+    ).hasMatch(value);
+  }
+
   String? _defaultCategoryId(List<ServiceChecklistCategoryModel> categories) {
     for (final item in categories) {
       if (item.code.trim().toLowerCase() == 'cameras') return item.id;
     }
     return categories.isEmpty ? null : categories.first.id;
+  }
+
+  ServiceChecklistCategoryModel? _findSelectedCategory(
+    List<ServiceChecklistCategoryModel> categories,
+  ) {
+    for (final item in categories) {
+      if (item.id == _selectedCategoryId) return item;
+    }
+    return null;
+  }
+
+  ServiceChecklistPhaseModel? _findSelectedPhase(
+    List<ServiceChecklistPhaseModel> phases,
+  ) {
+    for (final item in phases) {
+      if (item.id == _selectedPhaseId) return item;
+    }
+    return null;
   }
 
   void _syncSelection({
@@ -102,17 +129,36 @@ class _OperacionesChecklistConfigScreenState
   Future<void> _reloadTemplates({
     String? categoryId,
     String? phaseId,
+    String? categoryCode,
+    String? phaseCode,
     bool forceClear = false,
   }) async {
     final effectiveCategoryId = categoryId ?? _selectedCategoryId;
     final effectivePhaseId = phaseId ?? _selectedPhaseId;
+    final categories = ref.read(categoriesProvider).maybeWhen(
+      data: (items) => items,
+      orElse: () => defaultCategories,
+    );
+    final phases = ref.read(servicePhasesProvider).maybeWhen(
+      data: (items) => items,
+      orElse: () => defaultPhases,
+    );
+    final selectedCategory = _findSelectedCategory(categories);
+    final selectedPhase = _findSelectedPhase(phases);
+    final effectiveCategoryCode =
+        categoryCode ?? selectedCategory?.code ?? _loadedCategoryCode;
+    final effectivePhaseCode =
+        phaseCode ?? selectedPhase?.code ?? _loadedPhaseCode;
 
-    if (effectiveCategoryId == null || effectivePhaseId == null) {
+    if ((effectiveCategoryId == null && (effectiveCategoryCode ?? '').isEmpty) ||
+        (effectivePhaseId == null && (effectivePhaseCode ?? '').isEmpty)) {
       setState(() {
         _templates = const [];
         _loading = false;
         _loadedCategoryId = null;
         _loadedPhaseId = null;
+        _loadedCategoryCode = null;
+        _loadedPhaseCode = null;
       });
       return;
     }
@@ -125,8 +171,10 @@ class _OperacionesChecklistConfigScreenState
 
     try {
       final templates = await ref.read(operationsRepositoryProvider).listChecklistTemplates(
-        categoryId: effectiveCategoryId,
-        phaseId: effectivePhaseId,
+        categoryId: _isPersistableId(effectiveCategoryId) ? effectiveCategoryId : null,
+        phaseId: _isPersistableId(effectivePhaseId) ? effectivePhaseId : null,
+        categoryCode: effectiveCategoryCode,
+        phaseCode: effectivePhaseCode,
       );
       if (!mounted) return;
       setState(() {
@@ -134,6 +182,8 @@ class _OperacionesChecklistConfigScreenState
         _loading = false;
         _loadedCategoryId = effectiveCategoryId;
         _loadedPhaseId = effectivePhaseId;
+        _loadedCategoryCode = effectiveCategoryCode;
+        _loadedPhaseCode = effectivePhaseCode;
       });
     } catch (e) {
       if (!mounted) return;
@@ -159,17 +209,29 @@ class _OperacionesChecklistConfigScreenState
   }
 
   Future<void> _createChecklist(ServiceChecklistSectionType type, List<_CreateItemPayload> items) async {
+    final categories = ref.read(categoriesProvider).maybeWhen(
+      data: (loaded) => loaded,
+      orElse: () => defaultCategories,
+    );
+    final phases = ref.read(servicePhasesProvider).maybeWhen(
+      data: (loaded) => loaded,
+      orElse: () => defaultPhases,
+    );
+    final selectedCategory = _findSelectedCategory(categories);
+    final selectedPhase = _findSelectedPhase(phases);
     final categoryId = _selectedCategoryId;
     final phaseId = _selectedPhaseId;
-    if (categoryId == null || phaseId == null) {
+    if (selectedCategory == null || selectedPhase == null) {
       _showMessage('Primero selecciona una categoría y una fase');
       return;
     }
 
     await _withSaving(() async {
       await ref.read(operationsRepositoryProvider).createChecklistTemplate(
-            categoryId: categoryId,
-            phaseId: phaseId,
+            categoryId: _isPersistableId(categoryId) ? categoryId : null,
+            phaseId: _isPersistableId(phaseId) ? phaseId : null,
+            categoryCode: selectedCategory.code,
+            phaseCode: selectedPhase.code,
             type: type,
             title: serviceChecklistSectionTypeLabel(type),
           );
@@ -194,14 +256,31 @@ class _OperacionesChecklistConfigScreenState
   ) async {
     final categoryId = _selectedCategoryId;
     final phaseId = _selectedPhaseId;
-    if (categoryId == null || phaseId == null) return null;
+    final categories = ref.read(categoriesProvider).maybeWhen(
+      data: (loaded) => loaded,
+      orElse: () => defaultCategories,
+    );
+    final phases = ref.read(servicePhasesProvider).maybeWhen(
+      data: (loaded) => loaded,
+      orElse: () => defaultPhases,
+    );
+    final selectedCategory = _findSelectedCategory(categories);
+    final selectedPhase = _findSelectedPhase(phases);
+    if ((categoryId == null && selectedCategory == null) ||
+        (phaseId == null && selectedPhase == null)) {
+      return null;
+    }
 
     final templates = await ref.read(operationsRepositoryProvider).listChecklistTemplates(
-      categoryId: categoryId,
-      phaseId: phaseId,
+      categoryId: _isPersistableId(categoryId) ? categoryId : null,
+      phaseId: _isPersistableId(phaseId) ? phaseId : null,
+      categoryCode: selectedCategory?.code,
+      phaseCode: selectedPhase?.code,
     );
     for (final template in templates) {
-      if (template.type == type) return template;
+      if (template.type == type) {
+        return template;
+      }
     }
     return null;
   }
@@ -503,11 +582,16 @@ class _OperacionesChecklistConfigScreenState
       data: (items) => items,
       orElse: () => const <ServiceChecklistPhaseModel>[],
     );
+    final safePhases = phases.isNotEmpty ? phases : defaultPhases;
     // ignore: avoid_print
     print('Categorias cargadas: ${categories.length}');
     // ignore: avoid_print
     print('Usando fallback: ${categories.isEmpty}');
-    _syncSelection(categories: safeCategories, phases: phases);
+    // ignore: avoid_print
+    print('Fases cargadas: ${phases.length}');
+    // ignore: avoid_print
+    print('Usando fallback fases: ${phases.isEmpty}');
+    _syncSelection(categories: safeCategories, phases: safePhases);
 
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
@@ -515,14 +599,14 @@ class _OperacionesChecklistConfigScreenState
           (item) => item?.id == _selectedCategoryId,
           orElse: () => null,
         );
-    final selectedPhase = phases.cast<ServiceChecklistPhaseModel?>().firstWhere(
+    final selectedPhase = safePhases.cast<ServiceChecklistPhaseModel?>().firstWhere(
           (item) => item?.id == _selectedPhaseId,
           orElse: () => null,
         );
     final metadataLoading = categoriesValue.isLoading || phasesValue.isLoading;
     final metadataError = categoriesValue.whenOrNull(error: (error, _) => error) ??
         phasesValue.whenOrNull(error: (error, _) => error);
-    final canCreateChecklist = selectedCategory != null && selectedPhase != null;
+    final hasSelection = selectedCategory != null && selectedPhase != null;
 
     return Scaffold(
       appBar: AppBar(
@@ -537,7 +621,7 @@ class _OperacionesChecklistConfigScreenState
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: canCreateChecklist && !_saving
+        onPressed: hasSelection && !_saving
             ? _openCreateChecklistDialog
             : null,
         child: const Icon(Icons.add),
@@ -568,7 +652,7 @@ class _OperacionesChecklistConfigScreenState
                     const SizedBox(height: 16),
                     _FilterCard(
                       categories: safeCategories,
-                      phases: phases,
+                      phases: safePhases,
                       selectedCategoryId: _selectedCategoryId,
                       selectedPhaseId: _selectedPhaseId,
                       onCategoryChanged: (value) async {
@@ -590,7 +674,7 @@ class _OperacionesChecklistConfigScreenState
                       ),
                     if (_error != null)
                       _ErrorCard(message: _error!, onRetry: _refreshMetadataAndTemplates),
-                    if (canCreateChecklist)
+                    if (hasSelection)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 16),
                         child: Align(
@@ -607,7 +691,7 @@ class _OperacionesChecklistConfigScreenState
                         padding: EdgeInsets.symmetric(vertical: 32),
                         child: Center(child: CircularProgressIndicator()),
                       ),
-                    if (!metadataLoading && !_loading && _error == null && selectedCategory != null && selectedPhase != null)
+                    if (!metadataLoading && !_loading && _error == null && hasSelection)
                       ..._sectionTypes.map(
                         (type) => Padding(
                           padding: const EdgeInsets.only(bottom: 14),
@@ -622,7 +706,7 @@ class _OperacionesChecklistConfigScreenState
                           ),
                         ),
                       ),
-                    if (!metadataLoading && !_loading && _error == null && (selectedCategory == null || selectedPhase == null))
+                    if (!metadataLoading && !_loading && _error == null && !hasSelection)
                       const _EmptyChecklistCard(
                         categoryLabel: null,
                         onCreateChecklist: null,

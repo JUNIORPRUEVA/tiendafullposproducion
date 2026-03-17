@@ -114,8 +114,10 @@ export class OperationsController {
   listChecklistTemplates(
     @Query('categoryId') categoryId?: string,
     @Query('phaseId') phaseId?: string,
+    @Query('categoryCode') categoryCode?: string,
+    @Query('phaseCode') phaseCode?: string,
   ) {
-    return this.checklists.listTemplates({ categoryId, phaseId });
+    return this.checklists.listTemplates({ categoryId, phaseId, categoryCode, phaseCode });
   }
 
   @Post('checklist/template')

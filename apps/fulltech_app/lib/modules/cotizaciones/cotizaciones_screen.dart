@@ -924,6 +924,92 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     });
   }
 
+  Future<void> _openExternalItemDialog() async {
+    final nameCtrl = TextEditingController();
+    final qtyCtrl = TextEditingController(text: '1');
+    final priceCtrl = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Agregar producto fuera de inventario'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Nombre producto o servicio',
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: qtyCtrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(labelText: 'Cantidad'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: priceCtrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(labelText: 'Precio unitario'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Agregar'),
+          ),
+        ],
+      ),
+    );
+
+    final name = nameCtrl.text.trim();
+    final qty = double.tryParse(qtyCtrl.text.trim()) ?? 0;
+    final unitPrice = double.tryParse(priceCtrl.text.trim()) ?? -1;
+
+    nameCtrl.dispose();
+    qtyCtrl.dispose();
+    priceCtrl.dispose();
+
+    if (ok != true) return;
+
+    if (name.isEmpty || qty <= 0 || unitPrice < 0) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Completa datos válidos: nombre, cantidad mayor que 0 y precio no negativo',
+          ),
+        ),
+      );
+      return;
+    }
+
+    _commitEditorChange(() {
+      _items.add(
+        CotizacionItem(
+          productId: '',
+          nombre: name,
+          imageUrl: null,
+          unitPrice: unitPrice,
+          qty: qty,
+        ),
+      );
+    });
+  }
+
   void _setQty(int index, double qty) {
     if (qty <= 0) {
       _commitEditorChange(() => _items.removeAt(index));
@@ -1538,10 +1624,12 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     final cotizacion = _buildDraftCotizacion();
     try {
       final queued = (_editingId ?? '').trim().isEmpty
-          ? await ref.read(cotizacionesRepositoryProvider).createOrQueue(cotizacion)
+          ? await ref
+                .read(cotizacionesRepositoryProvider)
+                .createOrQueue(cotizacion)
           : await ref
-              .read(cotizacionesRepositoryProvider)
-              .updateOrQueue(_editingId!, cotizacion);
+                .read(cotizacionesRepositoryProvider)
+                .updateOrQueue(_editingId!, cotizacion);
 
       if (!mounted) return;
 
@@ -1616,6 +1704,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
             ),
             const SizedBox(width: 4),
             IconButton(
+              tooltip: 'Agregar fuera de inventario',
+              onPressed: _openExternalItemDialog,
+              icon: const Icon(Icons.add_box_outlined),
+            ),
+            IconButton(
               tooltip: 'Cliente',
               onPressed: _openClientDialog,
               icon: const Icon(Icons.person_outline),
@@ -1680,39 +1773,85 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
   Widget _buildProductStrip() {
     if (_loadingProducts) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 14),
-        child: CircularProgressIndicator(),
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: _openExternalItemDialog,
+                icon: const Icon(Icons.add_box_outlined),
+                label: const Text('Agregar fuera de inventario'),
+              ),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 14),
+            child: CircularProgressIndicator(),
+          ),
+        ],
       );
     }
     if (_error != null) {
-      return Padding(
-        padding: const EdgeInsets.all(12),
-        child: Text(
-          _error!,
-          style: TextStyle(color: Theme.of(context).colorScheme.error),
-        ),
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: _openExternalItemDialog,
+                icon: const Icon(Icons.add_box_outlined),
+                label: const Text('Agregar fuera de inventario'),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              _error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+        ],
       );
     }
 
-    return SizedBox(
-      height: 116,
-      child: _visibleProducts.isEmpty
-          ? const Center(child: Text('No hay productos con este filtro'))
-          : ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              itemCount: _visibleProducts.length,
-              separatorBuilder: (context, index) => const SizedBox(width: 8),
-              itemBuilder: (context, index) {
-                final product = _visibleProducts[index];
-                return _ProductThumbCard(
-                  product: product,
-                  onTap: () => _addProduct(product),
-                  money: _money,
-                );
-              },
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _openExternalItemDialog,
+              icon: const Icon(Icons.add_box_outlined),
+              label: const Text('Agregar fuera de inventario'),
             ),
+          ),
+        ),
+        SizedBox(
+          height: 116,
+          child: _visibleProducts.isEmpty
+              ? const Center(child: Text('No hay productos con este filtro'))
+              : ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  itemCount: _visibleProducts.length,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(width: 8),
+                  itemBuilder: (context, index) {
+                    final product = _visibleProducts[index];
+                    return _ProductThumbCard(
+                      product: product,
+                      onTap: () => _addProduct(product),
+                      money: _money,
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 
@@ -1738,6 +1877,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                         : 'Editando cotización · ${_items.length} líneas',
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
+                ),
+                IconButton(
+                  tooltip: 'Agregar fuera de inventario',
+                  onPressed: _openExternalItemDialog,
+                  icon: const Icon(Icons.add_box_outlined),
                 ),
                 Text(
                   DateFormat('dd/MM HH:mm').format(DateTime.now()),
@@ -1943,6 +2087,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                     onOpenHistory: _openHistory,
                     onCreateTicket: _createNewDesktopTicket,
                     onSwitchTicket: _switchDesktopTicket,
+                    onAddExternalItem: _openExternalItemDialog,
                     onToggleItbis: (value) =>
                         _commitEditorChange(() => _includeItbis = value),
                     onClear: _items.isEmpty
@@ -2305,6 +2450,7 @@ class _DesktopQuotePanel extends StatelessWidget {
     required this.onOpenHistory,
     required this.onCreateTicket,
     required this.onSwitchTicket,
+    required this.onAddExternalItem,
     required this.onToggleItbis,
     required this.onClear,
     required this.onFinalize,
@@ -2333,6 +2479,7 @@ class _DesktopQuotePanel extends StatelessWidget {
   final VoidCallback onOpenHistory;
   final VoidCallback onCreateTicket;
   final ValueChanged<String> onSwitchTicket;
+  final VoidCallback onAddExternalItem;
   final ValueChanged<bool> onToggleItbis;
   final VoidCallback? onClear;
   final VoidCallback onFinalize;
@@ -2434,6 +2581,11 @@ class _DesktopQuotePanel extends StatelessWidget {
                   tooltip: 'Cliente',
                   onPressed: onPickClient,
                   icon: const Icon(Icons.person_outline),
+                ),
+                IconButton(
+                  tooltip: 'Agregar fuera de inventario',
+                  onPressed: onAddExternalItem,
+                  icon: const Icon(Icons.add_box_outlined),
                 ),
                 IconButton(
                   tooltip: note.trim().isEmpty ? 'Agregar nota' : 'Editar nota',
@@ -2901,14 +3053,31 @@ class _DesktopTicketItemState extends State<_DesktopTicketItem> {
               const SizedBox(width: 8),
               Expanded(
                 flex: 5,
-                child: Text(
-                  item.nombre,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      item.nombre,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
+                    if (item.isExternal)
+                      Text(
+                        'Fuera de inventario',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 10,
+                        ),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(width: 8),
@@ -3157,11 +3326,31 @@ class _TicketCompactItemState extends State<_TicketCompactItem> {
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              item.nombre,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  item.nombre,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                  ),
+                ),
+                if (item.isExternal)
+                  Text(
+                    'Fuera de inventario',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+              ],
             ),
           ),
           const SizedBox(width: 6),

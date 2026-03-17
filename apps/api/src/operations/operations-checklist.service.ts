@@ -255,6 +255,48 @@ export class OperationsChecklistService {
     }
   }
 
+  private async resolveCategoryId(dto: CreateServiceChecklistTemplateDto) {
+    const categoryId = (dto.categoryId ?? '').trim();
+    if (categoryId) {
+      await this.findCategoryOrFail(categoryId);
+      return categoryId;
+    }
+
+    const categoryCode = this.normalizeCode((dto.categoryCode ?? '').toString());
+    if (!categoryCode) {
+      throw new BadRequestException('La categoría del checklist es requerida');
+    }
+
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`SELECT id FROM service_categories WHERE code = ${categoryCode} LIMIT 1`,
+    );
+    if (rows.length === 0) {
+      throw new NotFoundException('Categoría de checklist no encontrada');
+    }
+    return rows[0].id;
+  }
+
+  private async resolvePhaseId(dto: CreateServiceChecklistTemplateDto) {
+    const phaseId = (dto.phaseId ?? '').trim();
+    if (phaseId) {
+      await this.findPhaseOrFail(phaseId);
+      return phaseId;
+    }
+
+    const phaseCode = this.normalizeCode((dto.phaseCode ?? '').toString());
+    if (!phaseCode) {
+      throw new BadRequestException('La fase del checklist es requerida');
+    }
+
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`SELECT id FROM service_phases WHERE code = ${phaseCode} LIMIT 1`,
+    );
+    if (rows.length === 0) {
+      throw new NotFoundException('Fase de checklist no encontrada');
+    }
+    return rows[0].id;
+  }
+
   async listCategories() {
     await this.syncOperationsMetadata();
     return this.prisma.$queryRaw<LookupRow[]>(Prisma.sql`
@@ -287,9 +329,9 @@ export class OperationsChecklistService {
   async createTemplate(user: AuthUser, dto: CreateServiceChecklistTemplateDto) {
     this.assertAdmin(user);
     await this.syncOperationsMetadata();
-    await Promise.all([
-      this.findCategoryOrFail(dto.categoryId),
-      this.findPhaseOrFail(dto.phaseId),
+    const [categoryId, phaseId] = await Promise.all([
+      this.resolveCategoryId(dto),
+      this.resolvePhaseId(dto),
     ]);
 
     const type = this.normalizeTemplateType(dto.type);
@@ -310,8 +352,8 @@ export class OperationsChecklistService {
       INSERT INTO checklist_templates (id, category_id, phase_id, type, title, created_at, updated_at)
       VALUES (
         gen_random_uuid(),
-        ${dto.categoryId}::uuid,
-        ${dto.phaseId}::uuid,
+        ${categoryId}::uuid,
+        ${phaseId}::uuid,
         ${this.toTemplateTypeDbValue(type)}::"ChecklistTemplateType",
         ${title},
         now(),
@@ -377,19 +419,32 @@ export class OperationsChecklistService {
     return rows[0];
   }
 
-  async listTemplates(filters?: { categoryId?: string; phaseId?: string }) {
+  async listTemplates(filters?: {
+    categoryId?: string;
+    phaseId?: string;
+    categoryCode?: string;
+    phaseCode?: string;
+  }) {
     await this.syncOperationsMetadata();
     const where: Prisma.Sql[] = [];
     const categoryId = filters?.categoryId?.trim() ?? '';
     const phaseId = filters?.phaseId?.trim() ?? '';
+    const categoryCode = this.normalizeCode(filters?.categoryCode ?? '');
+    const phaseCode = this.normalizeCode(filters?.phaseCode ?? '');
 
     if (categoryId.length > 0) {
       where.push(
         Prisma.sql`ct.category_id = ${categoryId}::uuid`,
       );
     }
+    if (categoryCode.length > 0) {
+      where.push(Prisma.sql`sc.code = ${categoryCode}`);
+    }
     if (phaseId.length > 0) {
       where.push(Prisma.sql`ct.phase_id = ${phaseId}::uuid`);
+    }
+    if (phaseCode.length > 0) {
+      where.push(Prisma.sql`sp.code = ${phaseCode}`);
     }
 
     const predicate = where.length === 0

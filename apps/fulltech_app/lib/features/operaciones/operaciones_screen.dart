@@ -7715,6 +7715,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   Future<void>? _referenceVideoPreviewInit;
   Object? _referenceVideoPreviewError;
   bool _saving = false;
+  bool _readyToRenderForm = false;
 
   bool get _isAgendaReserva {
     final k = (widget.agendaKind ?? '').trim().toLowerCase();
@@ -7738,7 +7739,11 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     _priority = 1;
     _orderState = 'pendiente';
     _applyDefaultsForKind(widget.agendaKind, kindChanged: true);
-    Future.microtask(_loadTechnicians);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _readyToRenderForm = true);
+      unawaited(_loadTechnicians());
+    });
   }
 
   @override
@@ -7867,7 +7872,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     try {
       final items = await ref
           .read(operationsRepositoryProvider)
-          .listTechnicians();
+          .getTechnicians();
       if (!mounted) return;
       setState(() => _technicians = items);
     } catch (_) {
@@ -8413,6 +8418,12 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
             if (!mounted) return;
             setState(() => _categoryId = _defaultCategoryId(safeCategories));
           });
+        }
+
+        if (!_readyToRenderForm) {
+          return _CreateReservationWarmup(
+            usingFallbackCategories: categories.isEmpty,
+          );
         }
 
         final isCompact = constraints.maxWidth < 430;
@@ -10127,6 +10138,116 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   }
 
   // _createQuickClient() eliminado: ahora se maneja desde el diálogo de Cliente.
+}
+
+class _CreateReservationWarmup extends StatelessWidget {
+  final bool usingFallbackCategories;
+
+  const _CreateReservationWarmup({required this.usingFallbackCategories});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    Widget line({double height = 18, double? width}) {
+      return Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          color: cs.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(12),
+        ),
+      );
+    }
+
+    Widget block({double height = 56}) {
+      return Container(
+        height: height,
+        decoration: BoxDecoration(
+          color: cs.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.45)),
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: cs.surface,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.55)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Abriendo formulario...',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2.2),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                usingFallbackCategories
+                    ? 'Cargando categorías y técnicos en segundo plano para abrir el formulario de inmediato.'
+                    : 'Preparando campos y catálogos en segundo plano para que puedas empezar enseguida.',
+                style: theme.textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 12),
+              const LinearProgressIndicator(minHeight: 3),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: cs.surface,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.55)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              line(width: 120),
+              const SizedBox(height: 10),
+              line(width: 220),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  SizedBox(width: 180, child: block()),
+                  SizedBox(width: 180, child: block()),
+                  SizedBox(width: 180, child: block()),
+                ],
+              ),
+              const SizedBox(height: 14),
+              block(height: 110),
+              const SizedBox(height: 10),
+              block(height: 110),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _PunchOnlySheet extends ConsumerWidget {

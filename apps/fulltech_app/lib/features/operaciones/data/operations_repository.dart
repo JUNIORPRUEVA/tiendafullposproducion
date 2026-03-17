@@ -1523,6 +1523,8 @@ class OperationsRepository {
   Future<List<ServiceChecklistTemplateModel>> listChecklistTemplates({
     String? categoryId,
     String? phaseId,
+    String? categoryCode,
+    String? phaseCode,
   }) async {
     try {
       final res = await _dio.get(
@@ -1533,6 +1535,10 @@ class OperationsRepository {
             'categoryId': categoryId.trim(),
           if (phaseId != null && phaseId.trim().isNotEmpty)
             'phaseId': phaseId.trim(),
+          if (categoryCode != null && categoryCode.trim().isNotEmpty)
+            'categoryCode': categoryCode.trim(),
+          if (phaseCode != null && phaseCode.trim().isNotEmpty)
+            'phaseCode': phaseCode.trim(),
         },
       );
       final raw = _decodeJsonList(res.data);
@@ -1609,8 +1615,10 @@ class OperationsRepository {
   }
 
   Future<void> createChecklistTemplate({
-    required String categoryId,
-    required String phaseId,
+    String? categoryId,
+    String? phaseId,
+    String? categoryCode,
+    String? phaseCode,
     required ServiceChecklistSectionType type,
     String? title,
   }) async {
@@ -1618,8 +1626,14 @@ class OperationsRepository {
       await _dio.post(
         ApiRoutes.checklistTemplate,
         data: {
-          'categoryId': categoryId.trim(),
-          'phaseId': phaseId.trim(),
+          if (categoryId != null && categoryId.trim().isNotEmpty)
+            'categoryId': categoryId.trim(),
+          if (phaseId != null && phaseId.trim().isNotEmpty)
+            'phaseId': phaseId.trim(),
+          if (categoryCode != null && categoryCode.trim().isNotEmpty)
+            'categoryCode': categoryCode.trim(),
+          if (phaseCode != null && phaseCode.trim().isNotEmpty)
+            'phaseCode': phaseCode.trim(),
           'type': serviceChecklistSectionTypeCode(type),
           if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
         },
