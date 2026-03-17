@@ -1,14 +1,14 @@
 import 'dart:async';
-import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:signature/signature.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
@@ -16,18 +16,24 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../core/auth/auth_repository.dart';
 import '../../../core/company/company_settings_model.dart';
 import '../../../core/company/company_settings_repository.dart';
+import '../../../core/errors/api_exception.dart';
 import '../../../core/routing/routes.dart';
+import '../../../core/utils/local_file_bytes.dart';
 import '../../../core/widgets/app_drawer.dart';
 import '../../../modules/cotizaciones/cotizacion_models.dart';
 import '../../../modules/cotizaciones/data/cotizaciones_repository.dart';
 import '../operations_models.dart';
+import '../presentation/operations_back_button.dart';
 import '../presentation/operations_permissions.dart';
 import '../presentation/status_picker_sheet.dart';
 import '../presentation/service_location_helpers.dart';
 import '../presentation/service_pdf_exporter.dart';
 import '../presentation/service_documents_editor_screen.dart';
 import 'technical_service_execution_controller.dart';
+import 'widgets/dynamic_checklist_experience.dart';
+import 'widgets/service_closure_card.dart';
 import 'widgets/service_report_pdf_screen.dart';
+import 'widgets/signature_screen.dart';
 import 'widgets/technical_execution_cards.dart';
 
 class TechnicalServiceExecutionScreen extends ConsumerStatefulWidget {
@@ -43,12 +49,6 @@ class TechnicalServiceExecutionScreen extends ConsumerStatefulWidget {
 class _TechnicalServiceExecutionScreenState
     extends ConsumerState<TechnicalServiceExecutionScreen> {
   final ImagePicker _picker = ImagePicker();
-  late final SignatureController _signatureCtrl;
-
-  Timer? _signatureAutoSaveDebounce;
-  bool _signatureAutoSaveInFlight = false;
-  bool _signatureDirtyWhileUploading = false;
-  int? _signatureLastUploadFingerprint;
 
   bool _isInvoicePaid(ServiceModel service) {
     Map<String, String> parseKv(String raw) {
@@ -79,95 +79,76 @@ class _TechnicalServiceExecutionScreenState
     return false;
   }
 
-  static const _checklistItems = <({String key, String label})>[
-    (key: 'cableado_revisado', label: 'Cableado revisado'),
-    (key: 'equipo_encendido', label: 'Equipo encendido'),
-    (key: 'prueba_realizada', label: 'Prueba realizada'),
-    (key: 'cliente_instruido', label: 'Cliente instruido'),
-  ];
+  List<ServiceChecklistTemplateModel> _visibleDynamicChecklists(
+    TechnicalExecutionState state,
+    String currentState,
+  ) {
+    final templates = state.dynamicChecklists;
+    if (templates.isEmpty) return const [];
 
-  @override
-  void initState() {
-    super.initState();
-    _signatureCtrl = SignatureController(
-      penStrokeWidth: 3,
-      exportBackgroundColor: Colors.white,
-    );
-    _signatureCtrl.addListener(_onSignatureChanged);
-  }
-
-  @override
-  void dispose() {
-    _signatureAutoSaveDebounce?.cancel();
-    _signatureCtrl.removeListener(_onSignatureChanged);
-    _signatureCtrl.dispose();
-    super.dispose();
-  }
-
-  void _onSignatureChanged() {
-    if (!mounted) return;
-
-    final st = ref.read(technicalExecutionControllerProvider(widget.serviceId));
-    final service = st.service;
-    if (service == null) return;
-
-    final user = ref.read(authStateProvider).user;
-    final readOnly = _isReadOnly(service: service, user: user);
-    if (readOnly) return;
-
-    final ctrl = ref.read(
-      technicalExecutionControllerProvider(widget.serviceId).notifier,
-    );
-    _scheduleSignatureAutoSave(ctrl);
-  }
-
-  int _fingerprintBytes(Uint8List bytes) {
-    if (bytes.isEmpty) return 0;
-    final a = bytes.first;
-    final b = bytes[bytes.length ~/ 2];
-    final c = bytes.last;
-    return Object.hash(bytes.length, a, b, c);
-  }
-
-  void _scheduleSignatureAutoSave(TechnicalExecutionController ctrl) {
-    if (!mounted) return;
-    _signatureAutoSaveDebounce?.cancel();
-    _signatureAutoSaveDebounce = Timer(const Duration(milliseconds: 900), () {
-      unawaited(_runSignatureAutoSave(ctrl));
-    });
-  }
-
-  Future<void> _runSignatureAutoSave(TechnicalExecutionController ctrl) async {
-    if (!mounted) return;
-    if (_signatureAutoSaveInFlight) {
-      _signatureDirtyWhileUploading = true;
-      return;
+    Set<String> phaseCodes;
+    switch (currentState.trim().toLowerCase()) {
+      case 'pendiente':
+      case 'en camino':
+        phaseCodes = {'herramientas', 'productos'};
+        break;
+      case 'en proceso':
+        phaseCodes = {'instalacion'};
+        break;
+      case 'finalizada':
+      case 'cancelada':
+        phaseCodes = {'finalizacion'};
+        break;
+      default:
+        phaseCodes = templates.map((template) => template.phase.code).toSet();
+        break;
     }
 
-    final bytes = await _signatureCtrl.toPngBytes();
-    if (!mounted) return;
-    if (bytes == null || bytes.isEmpty) return;
+    final filtered = templates
+        .where((template) => phaseCodes.contains(template.phase.code))
+        .toList(growable: false);
+    return filtered.isEmpty ? templates : filtered;
+  }
 
-    final fingerprint = _fingerprintBytes(bytes);
-    if (_signatureLastUploadFingerprint == fingerprint) return;
+  bool _isChecklistComplete(List<ServiceChecklistTemplateModel> templates) {
+    final requiredItems = templates
+        .expand((template) => template.items)
+        .where((item) => item.isRequired)
+        .toList(growable: false);
+    if (requiredItems.isEmpty) return false;
+    return requiredItems.every((item) => item.isChecked);
+  }
 
-    _signatureAutoSaveInFlight = true;
-    try {
-      await ctrl.uploadClientSignaturePng(pngBytes: bytes);
-      if (!mounted) return;
-      _signatureLastUploadFingerprint = fingerprint;
-    } catch (e) {
-      if (!mounted) return;
-      _showSnackBarPostFrame(
-        SnackBar(content: Text('No se pudo guardar la firma: $e')),
-      );
-    } finally {
-      _signatureAutoSaveInFlight = false;
-      if (_signatureDirtyWhileUploading) {
-        _signatureDirtyWhileUploading = false;
-        _scheduleSignatureAutoSave(ctrl);
-      }
-    }
+  Future<void> _openChecklistSheet({
+    required TechnicalExecutionController ctrl,
+    required List<ServiceChecklistTemplateModel> templates,
+    required bool readOnly,
+    required bool busy,
+    required String currentState,
+  }) async {
+    await DynamicChecklistSheet.show(
+      context,
+      templates: templates,
+      onChanged: readOnly
+          ? null
+          : (itemId, checked) => ctrl.setDynamicChecklistItem(itemId, checked),
+      onChecklistCompleted: (readOnly || currentState == 'finalizada')
+          ? null
+          : () async {
+              Navigator.of(context).pop();
+              await _showStatusSelector(
+                context: context,
+                ctrl: ctrl,
+                currentState: currentState,
+                readOnly: readOnly,
+                busy: busy,
+                visibleChecklists: templates,
+                forcedNextState: 'finalizada',
+              );
+            },
+      readOnly: readOnly,
+      busy: busy,
+    );
   }
 
   String _fmtDate(DateTime? dt) {
@@ -358,16 +339,122 @@ class _TechnicalServiceExecutionScreenState
     });
   }
 
-  Widget _kvRow(String k, String v) {
-    return Row(
+  String? _infoOrNull(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty || value == '—' || value.toLowerCase() == 'null') {
+      return null;
+    }
+    return value;
+  }
+
+  String _humanizeValue(String raw) {
+    final normalized = raw.trim().replaceAll('_', ' ').replaceAll('-', ' ');
+    if (normalized.isEmpty) return '';
+    final words = normalized
+        .split(RegExp(r'\s+'))
+        .where((word) => word.trim().isNotEmpty)
+        .map((word) {
+          final lower = word.toLowerCase();
+          return '${lower[0].toUpperCase()}${lower.substring(1)}';
+        })
+        .toList(growable: false);
+    return words.join(' ');
+  }
+
+  Widget _clientInlineDivider() {
+    return Container(
+      width: 1,
+      height: 16,
+      margin: const EdgeInsets.symmetric(horizontal: 10),
+      color: Colors.black.withValues(alpha: 0.10),
+    );
+  }
+
+  Widget _clientTopLineText(
+    String text, {
+    required TextStyle? style,
+    int flex = 1,
+  }) {
+    return Flexible(
+      flex: flex,
+      child: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      ),
+    );
+  }
+
+  Widget _buildClientInfoCard(ServiceModel service, ThemeData theme) {
+    final cs = theme.colorScheme;
+    final name = _infoOrNull(service.customerName);
+    final phone = _infoOrNull(service.customerPhone);
+    final phase = _infoOrNull(phaseLabel(service.currentPhase));
+    final order = _infoOrNull(service.orderLabel);
+    final address = _infoOrNull(service.customerAddress);
+
+    final rawServiceType = _infoOrNull(service.serviceType);
+    final serviceType = rawServiceType == null
+        ? null
+        : _humanizeValue(rawServiceType);
+    final secondaryParts = [
+      if (order != null) order,
+      if (serviceType != null && serviceType.isNotEmpty) serviceType,
+      if (address != null) address,
+    ];
+
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          width: 92,
-          child: Text(k, style: const TextStyle(fontWeight: FontWeight.w900)),
+        Row(
+          children: [
+            if (name != null)
+              _clientTopLineText(
+                name,
+                flex: 4,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  color: cs.onSurface,
+                  letterSpacing: -0.2,
+                ),
+              ),
+            if (name != null && phone != null) _clientInlineDivider(),
+            if (phone != null)
+              _clientTopLineText(
+                phone,
+                flex: 4,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            if ((name != null || phone != null) && phase != null)
+              _clientInlineDivider(),
+            if (phase != null)
+              _clientTopLineText(
+                phase,
+                flex: 3,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: cs.primary,
+                ),
+              ),
+          ],
         ),
-        const SizedBox(width: 10),
-        Expanded(child: Text(v.trim().isEmpty ? '—' : v.trim())),
+        if (secondaryParts.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            secondaryParts.join('  •  '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: cs.onSurfaceVariant,
+              height: 1.2,
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -381,6 +468,105 @@ class _TechnicalServiceExecutionScreenState
     return status == ServiceStatus.closed ||
         status == ServiceStatus.cancelled ||
         status == ServiceStatus.completed;
+  }
+
+  String _firstName(String raw) {
+    final parts = raw
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.trim().isNotEmpty)
+        .toList(growable: false);
+    if (parts.isEmpty) return 'Cliente';
+    return parts.first.trim();
+  }
+
+  String _effectiveState(ServiceModel service) {
+    final admin = (service.adminStatus ?? '').toString().trim().toLowerCase();
+    if (admin.isNotEmpty) return admin;
+    final order = service.orderState.toString().trim().toLowerCase();
+    if (order.isNotEmpty) return order;
+    return service.status.toString().trim().toLowerCase();
+  }
+
+  String? _mapOrderStateToTechProgress(String orderState) {
+    switch (orderState) {
+      case 'en_camino':
+        return 'tecnico_en_camino';
+      case 'en_proceso':
+        return 'instalacion_iniciada';
+      case 'finalizada':
+        return 'instalacion_finalizada';
+      default:
+        return null;
+    }
+  }
+
+  Future<void> _showStatusSelector({
+    required BuildContext context,
+    required TechnicalExecutionController ctrl,
+    required String currentState,
+    required bool readOnly,
+    required bool busy,
+    List<ServiceChecklistTemplateModel> visibleChecklists = const [],
+    String? forcedNextState,
+  }) async {
+    if (readOnly) return;
+
+    final picked = forcedNextState ??
+        await StatusSelectorModal.show(
+          context,
+          current: currentState,
+          allowedStates: const {
+            'pendiente',
+            'en_camino',
+            'en_proceso',
+            'finalizada',
+            'cancelada',
+          },
+        );
+    if (!context.mounted || picked == null) return;
+
+    final next = picked.trim().toLowerCase();
+    if (next.isEmpty || next == currentState) return;
+
+    if (next == 'finalizada' &&
+        visibleChecklists.isNotEmpty &&
+        !_isChecklistComplete(visibleChecklists)) {
+      _showSnackBarPostFrame(
+        const SnackBar(
+          content: Text(
+            'Completa el checklist obligatorio antes de finalizar el servicio.',
+          ),
+        ),
+      );
+      unawaited(
+        _openChecklistSheet(
+          ctrl: ctrl,
+          templates: visibleChecklists,
+          readOnly: readOnly,
+          busy: busy,
+          currentState: currentState,
+        ),
+      );
+      return;
+    }
+
+    final nextProgress = _mapOrderStateToTechProgress(next);
+    if (nextProgress != null) {
+      await ctrl.setTechProgress(nextProgress);
+    } else {
+      await ctrl.changeOrderState(
+        orderState: next,
+        message: 'Estado actualizado por técnico',
+      );
+    }
+    if (!context.mounted) return;
+    unawaited(HapticFeedback.selectionClick());
+    _showSnackBarPostFrame(
+      SnackBar(
+        content: Text('Estado actualizado: ${StatusPickerSheet.label(next)}'),
+      ),
+    );
   }
 
   Future<void> _openOrderDetails(ServiceModel service) async {
@@ -604,10 +790,12 @@ class _TechnicalServiceExecutionScreenState
       _ => 'Nota',
     };
 
-    final text = await _askMultilineText(
-      title: 'Agregar $label',
-      hintText: 'Escribe los detalles…',
-    );
+    final text = selected == 'producto'
+        ? await _askProductDetails()
+        : await _askMultilineText(
+            title: 'Agregar $label',
+            hintText: 'Escribe los detalles…',
+          );
     if (text == null || text.trim().isEmpty) return;
 
     await _saveInfoUpdateWithFeedback(
@@ -666,6 +854,89 @@ class _TechnicalServiceExecutionScreenState
       },
     );
     controller.dispose();
+    return res;
+  }
+
+  Future<String?> _askProductDetails() async {
+    final nameController = TextEditingController();
+    final quantityController = TextEditingController();
+
+    final res = await showDialog<String?>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setStateDialog) {
+            String? quantityError;
+
+            final rawQuantity = quantityController.text.trim();
+            if (rawQuantity.isNotEmpty) {
+              final parsed = int.tryParse(rawQuantity);
+              if (parsed == null || parsed <= 0) {
+                quantityError = 'Ingresa una cantidad válida';
+              }
+            }
+
+            return AlertDialog(
+              title: const Text('Agregar Producto'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      labelText: 'Nombre del producto',
+                      hintText: 'Ej. Fuente 12V 5A',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: quantityController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Cantidad',
+                      hintText: 'Ej. 2',
+                      errorText: quantityError,
+                    ),
+                    onChanged: (_) => setStateDialog(() {}),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final productName = nameController.text.trim();
+                    final quantityText = quantityController.text.trim();
+                    final quantity = int.tryParse(quantityText);
+
+                    if (productName.isEmpty) {
+                      return;
+                    }
+                    if (quantity == null || quantity <= 0) {
+                      setStateDialog(() {});
+                      return;
+                    }
+
+                    Navigator.pop(
+                      dialogContext,
+                      'Cantidad: $quantity\nProducto: $productName',
+                    );
+                  },
+                  child: const Text('Agregar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    nameController.dispose();
+    quantityController.dispose();
     return res;
   }
 
@@ -830,9 +1101,24 @@ class _TechnicalServiceExecutionScreenState
   }
 
   Future<Uint8List> _downloadBytes(String url) async {
+    final raw = url.trim();
+    final uri = Uri.tryParse(raw);
+    final scheme = (uri?.scheme ?? '').toLowerCase();
+    final isWindowsPath = RegExp(r'^[a-zA-Z]:[\\/]').hasMatch(raw);
+
+    if (scheme == 'file' || isWindowsPath) {
+      final path = scheme == 'file' ? uri!.toFilePath() : raw;
+      final bytes = await readLocalFileBytes(path);
+      return Uint8List.fromList(bytes);
+    }
+
+    if (scheme != 'http' && scheme != 'https') {
+      throw ApiException('Archivo no disponible para descarga');
+    }
+
     final dio = ref.read(dioProvider);
     final res = await dio.get<List<int>>(
-      url,
+      raw,
       options: Options(responseType: ResponseType.bytes),
     );
     final data = res.data;
@@ -843,6 +1129,7 @@ class _TechnicalServiceExecutionScreenState
   ServiceFileModel? _findClosingFile(ServiceModel service, String? fileId) {
     final id = (fileId ?? '').trim();
     if (id.isEmpty) return null;
+
     try {
       return service.files.firstWhere((f) => f.id == id);
     } catch (_) {
@@ -864,6 +1151,31 @@ class _TechnicalServiceExecutionScreenState
     });
 
     return candidates.first;
+  }
+
+  bool _hasDownloadableUrl(ServiceFileModel? file) {
+    if (file == null) return false;
+    final uri = Uri.tryParse(file.fileUrl.trim());
+    final scheme = (uri?.scheme ?? '').toLowerCase();
+    return scheme == 'http' || scheme == 'https';
+  }
+
+  Future<bool> _tryOpenStoredPdf({
+    required String fileName,
+    required ServiceFileModel? file,
+  }) async {
+    if (!_hasDownloadableUrl(file)) return false;
+
+    try {
+      final bytes = await _downloadBytes(file!.fileUrl.trim());
+      await _openPdfBytesPreview(
+        fileName: fileName,
+        loadBytes: () async => bytes,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _openPdfBytesPreview({
@@ -893,11 +1205,10 @@ class _TechnicalServiceExecutionScreenState
 
   Future<void> _onInvoicePressed(ServiceModel service) async {
     final custom = _findLatestFileByType(service, 'service_invoice_custom');
-    if (custom != null && custom.fileUrl.trim().isNotEmpty) {
-      await _openPdfBytesPreview(
-        fileName: 'Factura-${service.orderLabel}.pdf',
-        loadBytes: () => _downloadBytes(custom.fileUrl.trim()),
-      );
+    if (await _tryOpenStoredPdf(
+      fileName: 'Factura-${service.orderLabel}.pdf',
+      file: custom,
+    )) {
       return;
     }
 
@@ -905,11 +1216,10 @@ class _TechnicalServiceExecutionScreenState
       service,
       service.closing?.invoiceFinalFileId,
     );
-    if (invoiceFile != null && invoiceFile.fileUrl.trim().isNotEmpty) {
-      await _openPdfBytesPreview(
-        fileName: 'Factura-${service.orderLabel}.pdf',
-        loadBytes: () => _downloadBytes(invoiceFile.fileUrl.trim()),
-      );
+    if (await _tryOpenStoredPdf(
+      fileName: 'Factura-${service.orderLabel}.pdf',
+      file: invoiceFile,
+    )) {
       return;
     }
 
@@ -963,11 +1273,10 @@ class _TechnicalServiceExecutionScreenState
 
   Future<void> _onWarrantyPressed(ServiceModel service) async {
     final custom = _findLatestFileByType(service, 'service_warranty_custom');
-    if (custom != null && custom.fileUrl.trim().isNotEmpty) {
-      await _openPdfBytesPreview(
-        fileName: 'Carta-Garantia-${service.orderLabel}.pdf',
-        loadBytes: () => _downloadBytes(custom.fileUrl.trim()),
-      );
+    if (await _tryOpenStoredPdf(
+      fileName: 'Carta-Garantia-${service.orderLabel}.pdf',
+      file: custom,
+    )) {
       return;
     }
 
@@ -975,11 +1284,10 @@ class _TechnicalServiceExecutionScreenState
       service,
       service.closing?.warrantyFinalFileId,
     );
-    if (warrantyFile != null && warrantyFile.fileUrl.trim().isNotEmpty) {
-      await _openPdfBytesPreview(
-        fileName: 'Carta-Garantia-${service.orderLabel}.pdf',
-        loadBytes: () => _downloadBytes(warrantyFile.fileUrl.trim()),
-      );
+    if (await _tryOpenStoredPdf(
+      fileName: 'Carta-Garantia-${service.orderLabel}.pdf',
+      file: warrantyFile,
+    )) {
       return;
     }
 
@@ -1028,6 +1336,58 @@ class _TechnicalServiceExecutionScreenState
         clientSignatureFileUrl: signatureFileUrl,
         clientSignedAt: signedAt,
       ),
+    );
+  }
+
+  Future<void> _openDocumentEditor({
+    required ServiceModel service,
+    required ServiceDocumentType type,
+  }) async {
+    final ok = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) =>
+            ServiceDocumentsEditorScreen(service: service, type: type),
+      ),
+    );
+    if (!mounted || ok != true) return;
+    unawaited(
+      ref
+          .read(technicalExecutionControllerProvider(widget.serviceId).notifier)
+          .load(),
+    );
+  }
+
+  Future<void> _openSignatureScreen(TechnicalExecutionController ctrl) async {
+    final saved = await Navigator.of(context).push<bool>(
+      PageRouteBuilder<bool>(
+        transitionDuration: const Duration(milliseconds: 260),
+        reverseTransitionDuration: const Duration(milliseconds: 220),
+        pageBuilder: (context, animation, secondaryAnimation) {
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+          return FadeTransition(
+            opacity: curved,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.04),
+                end: Offset.zero,
+              ).animate(curved),
+              child: SignatureScreen(
+                onSave: (pngBytes) =>
+                    ctrl.uploadClientSignaturePng(pngBytes: pngBytes),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    if (!mounted || saved != true) return;
+    _showSnackBarPostFrame(
+      const SnackBar(content: Text('Firma guardada correctamente')),
     );
   }
 
@@ -1096,6 +1456,12 @@ class _TechnicalServiceExecutionScreenState
     if (st.loading) {
       return Scaffold(
         drawer: buildAdaptiveDrawer(context, currentUser: user),
+        appBar: AppBar(
+          leading: const OperationsBackButton(
+            fallbackRoute: Routes.operacionesTecnico,
+          ),
+          title: const Text('Gestión Técnica'),
+        ),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
@@ -1104,7 +1470,12 @@ class _TechnicalServiceExecutionScreenState
     if (service == null) {
       return Scaffold(
         drawer: buildAdaptiveDrawer(context, currentUser: user),
-        appBar: AppBar(title: const Text('Gestión Técnica')),
+        appBar: AppBar(
+          leading: const OperationsBackButton(
+            fallbackRoute: Routes.operacionesTecnico,
+          ),
+          title: const Text('Gestión Técnica'),
+        ),
         body: Center(
           child: Text(
             st.error?.trim().isNotEmpty == true
@@ -1119,6 +1490,10 @@ class _TechnicalServiceExecutionScreenState
     final readOnly = _isReadOnly(service: service, user: user);
     final perms = OperationsPermissions(user: user, service: service);
     final canEditDocs = perms.canCritical;
+    final signatureMeta = _readClientSignatureMeta(
+      service,
+      st.phaseSpecificData,
+    );
 
     final techInfoUpdates = service.updates
         .where((u) {
@@ -1152,36 +1527,37 @@ class _TechnicalServiceExecutionScreenState
         .where((p) => p.caption.trim().toLowerCase() != 'firma del cliente')
         .toList(growable: false);
 
-    String effectiveState(ServiceModel s) {
-      final admin = (s.adminStatus ?? '').toString().trim().toLowerCase();
-      if (admin.isNotEmpty) return admin;
-      final order = s.orderState.toString().trim().toLowerCase();
-      if (order.isNotEmpty) return order;
-      return s.status.toString().trim().toLowerCase();
-    }
-
-    String? mapOrderStateToTechProgress(String orderState) {
-      switch (orderState) {
-        case 'en_camino':
-          return 'tecnico_en_camino';
-        case 'en_proceso':
-          return 'instalacion_iniciada';
-        case 'finalizada':
-          return 'instalacion_finalizada';
-        default:
-          return null;
-      }
-    }
-
-    final currentState = effectiveState(service);
-    const allowedStates = {'en_camino', 'en_proceso', 'finalizada'};
+    final currentState = _effectiveState(service);
+    final firstName = _firstName(service.customerName);
+    final statusOption = _serviceStatusOptionFor(currentState);
+    final visibleChecklists = _visibleDynamicChecklists(st, currentState);
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: user),
-      appBar: AppBar(title: const Text('Gestión Técnica')),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(84),
+        child: TechnicalServiceHeader(
+          clientName: firstName,
+          statusLabel: statusOption.label,
+          statusColor: statusOption.color,
+        ),
+      ),
       floatingActionButton: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          FloatingActionButton.extended(
+            heroTag: 'ops-tech-checklist',
+            onPressed: () => _openChecklistSheet(
+              ctrl: ctrl,
+              templates: visibleChecklists,
+              readOnly: readOnly,
+              busy: st.busy,
+              currentState: currentState,
+            ),
+            icon: const Icon(Icons.checklist_rtl_outlined),
+            label: const Text('Checklist'),
+          ),
+          const SizedBox(height: 12),
           FloatingActionButton.extended(
             heroTag: 'ops-tech-add-info',
             onPressed: readOnly ? null : () => _showAddInfoDialog(ctrl),
@@ -1198,536 +1574,869 @@ class _TechnicalServiceExecutionScreenState
         ],
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            children: [
-              if ((st.error ?? '').trim().isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: cs.errorContainer,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      st.error!.trim(),
-                      style: TextStyle(
-                        color: cs.onErrorContainer,
-                        fontWeight: FontWeight.w700,
+        child: Stack(
+          children: [
+            SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+              child: Column(
+                children: [
+                  if ((st.error ?? '').trim().isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: cs.errorContainer,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          st.error!.trim(),
+                          style: TextStyle(
+                            color: cs.onErrorContainer,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                     ),
+                  if (st.busy)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 12),
+                      child: LinearProgressIndicator(minHeight: 3),
+                    ),
+
+                  TechnicalSectionCard(
+                    icon: Icons.person_outline,
+                    title: 'CLIENTE',
+                    child: _buildClientInfoCard(service, theme),
                   ),
-                ),
-              if (st.busy)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 12),
-                  child: LinearProgressIndicator(minHeight: 3),
-                ),
+                  const SizedBox(height: 12),
 
-              TechnicalSectionCard(
-                icon: Icons.person_outline,
-                title: 'CLIENTE',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _kvRow('Cliente', service.customerName),
-                    const SizedBox(height: 8),
-                    _kvRow('Teléfono', service.customerPhone),
-                    const SizedBox(height: 8),
-                    _kvRow('Dirección', service.customerAddress),
-                    const SizedBox(height: 8),
-                    _kvRow('Orden', service.orderLabel),
-                    const SizedBox(height: 8),
-                    _kvRow('Servicio', service.serviceType),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              TechnicalSectionCard(
-                icon: Icons.flash_on_outlined,
-                title: 'ACCIONES',
-                child: Column(
-                  children: [
-                    Row(
+                  TechnicalSectionCard(
+                    icon: Icons.flash_on_outlined,
+                    title: 'ACCIONES',
+                    child: Column(
                       children: [
-                        Expanded(
-                          child: FilledButton.tonalIcon(
-                            onPressed: () => _callClient(service),
-                            icon: const Icon(Icons.call_outlined),
-                            label: const Text('Llamar'),
-                          ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton.tonalIcon(
+                                onPressed: () => _callClient(service),
+                                icon: const Icon(Icons.call_outlined),
+                                label: const Text('Llamar'),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: FilledButton.tonalIcon(
+                                onPressed: () => _openLocation(service),
+                                icon: const Icon(Icons.near_me_outlined),
+                                label: const Text('Ubicación'),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: FilledButton.tonalIcon(
-                            onPressed: () => _openLocation(service),
-                            icon: const Icon(Icons.near_me_outlined),
-                            label: const Text('Ubicación'),
-                          ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton.tonalIcon(
+                                onPressed: () => _openOrderDetails(service),
+                                icon: const Icon(Icons.receipt_long_outlined),
+                                label: const Text('Orden'),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: FilledButton.tonalIcon(
+                                onPressed: () => _showCotizacionDialog(service),
+                                icon: const Icon(Icons.request_quote_outlined),
+                                label: const Text('Cotización'),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton.tonalIcon(
-                            onPressed: () => _openOrderDetails(service),
-                            icon: const Icon(Icons.receipt_long_outlined),
-                            label: const Text('Orden'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: FilledButton.tonalIcon(
-                            onPressed: () => _showCotizacionDialog(service),
-                            icon: const Icon(Icons.request_quote_outlined),
-                            label: const Text('Cotización'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
+                  ),
+                  const SizedBox(height: 12),
 
-              TechnicalSectionCard(
-                icon: Icons.note_alt_outlined,
-                title: 'INFORMACIÓN',
-                child: sortedTechInfo.isEmpty
-                    ? Builder(
-                        builder: (context) {
-                          final cs = Theme.of(context).colorScheme;
-                          return Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: cs.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              'Sin novedades / productos / notas aún.',
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(
-                                    color: cs.onSurfaceVariant,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                            ),
-                          );
-                        },
-                      )
-                    : Column(
-                        children: [
-                          for (final u in sortedTechInfo.take(40))
-                            Builder(
-                              builder: (context) {
-                                final parsed =
-                                    _parseTechInfoMessage(u.message) ??
-                                    (kind: 'info', text: u.message.trim());
-                                final label = _kindLabel(parsed.kind);
-                                final icon = _kindIcon(parsed.kind);
-                                final theme = Theme.of(context);
-                                final cs = theme.colorScheme;
-
-                                return Padding(
-                                  padding: EdgeInsets.only(
-                                    bottom: u == sortedTechInfo.take(40).last
-                                        ? 0
-                                        : 10,
-                                  ),
-                                  child: Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: cs.surfaceContainerHighest,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: cs.outlineVariant.withValues(
-                                          alpha: 0.60,
-                                        ),
+                  TechnicalSectionCard(
+                    icon: Icons.note_alt_outlined,
+                    title: 'INFORMACIÓN',
+                    child: sortedTechInfo.isEmpty
+                        ? Builder(
+                            builder: (context) {
+                              final cs = Theme.of(context).colorScheme;
+                              return Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: cs.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  'Sin novedades / productos / notas aún.',
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(
+                                        color: cs.onSurfaceVariant,
+                                        fontWeight: FontWeight.w700,
                                       ),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
+                                ),
+                              );
+                            },
+                          )
+                        : Column(
+                            children: [
+                              for (final u in sortedTechInfo.take(40))
+                                Builder(
+                                  builder: (context) {
+                                    final parsed =
+                                        _parseTechInfoMessage(u.message) ??
+                                        (kind: 'info', text: u.message.trim());
+                                    final label = _kindLabel(parsed.kind);
+                                    final icon = _kindIcon(parsed.kind);
+                                    final theme = Theme.of(context);
+                                    final cs = theme.colorScheme;
+
+                                    return Padding(
+                                      padding: EdgeInsets.only(
+                                        bottom:
+                                            u == sortedTechInfo.take(40).last
+                                            ? 0
+                                            : 10,
+                                      ),
+                                      child: Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: cs.surfaceContainerHighest,
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          border: Border.all(
+                                            color: cs.outlineVariant.withValues(
+                                              alpha: 0.60,
+                                            ),
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
-                                            Icon(
-                                              icon,
-                                              size: 18,
-                                              color: cs.onSurfaceVariant,
+                                            Row(
+                                              children: [
+                                                Icon(
+                                                  icon,
+                                                  size: 18,
+                                                  color: cs.onSurfaceVariant,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Expanded(
+                                                  child: Text(
+                                                    label,
+                                                    style: theme
+                                                        .textTheme
+                                                        .titleSmall
+                                                        ?.copyWith(
+                                                          fontWeight:
+                                                              FontWeight.w900,
+                                                        ),
+                                                  ),
+                                                ),
+                                                Text(
+                                                  _fmtDateTime(u.createdAt),
+                                                  style: theme
+                                                      .textTheme
+                                                      .labelSmall
+                                                      ?.copyWith(
+                                                        color:
+                                                            cs.onSurfaceVariant,
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                      ),
+                                                ),
+                                              ],
                                             ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: Text(
-                                                label,
-                                                style: theme
-                                                    .textTheme
-                                                    .titleSmall
-                                                    ?.copyWith(
-                                                      fontWeight:
-                                                          FontWeight.w900,
-                                                    ),
-                                              ),
-                                            ),
+                                            const SizedBox(height: 8),
                                             Text(
-                                              _fmtDateTime(u.createdAt),
+                                              parsed.text,
+                                              style: theme.textTheme.bodyMedium
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              'Por: ${u.changedBy.trim().isEmpty ? 'Sistema' : u.changedBy.trim()}',
                                               style: theme.textTheme.labelSmall
                                                   ?.copyWith(
                                                     color: cs.onSurfaceVariant,
-                                                    fontWeight: FontWeight.w800,
                                                   ),
                                             ),
                                           ],
                                         ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          parsed.text,
-                                          style: theme.textTheme.bodyMedium
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Por: ${u.changedBy.trim().isEmpty ? 'Sistema' : u.changedBy.trim()}',
-                                          style: theme.textTheme.labelSmall
-                                              ?.copyWith(
-                                                color: cs.onSurfaceVariant,
-                                              ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                        ],
-                      ),
-              ),
-              const SizedBox(height: 12),
-
-              EvidenceGalleryCard(
-                title: 'CONTENIDO',
-                emptyLabel: 'Sin fotos/video aún',
-                uploadLabel: 'Subir',
-                icon: Icons.photo_library_outlined,
-                files: sortedEvidenceFiles,
-                pending: pendingEvidence,
-                onUpload: readOnly ? null : () => _showContentDialog(ctrl),
-                onPreview: _previewEvidence,
-              ),
-              const SizedBox(height: 12),
-
-              TechnicalSectionCard(
-                icon: Icons.playlist_add_check_circle_outlined,
-                title: 'ESTADO',
-                child: Builder(
-                  builder: (context) {
-                    final label = currentState.isEmpty
-                        ? '—'
-                        : StatusPickerSheet.label(currentState);
-
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: readOnly
-                          ? null
-                          : () async {
-                              final picked = await StatusPickerSheet.show(
-                                context,
-                                current: currentState,
-                                allowedStates: allowedStates,
-                              );
-                              if (!context.mounted || picked == null) return;
-
-                              final next = picked.trim().toLowerCase();
-                              if (next.isEmpty || next == currentState) return;
-
-                              final nextProgress = mapOrderStateToTechProgress(
-                                next,
-                              );
-                              if (nextProgress != null) {
-                                await ctrl.setTechProgress(nextProgress);
-                              } else {
-                                await ctrl.changeOrderState(
-                                  orderState: next,
-                                  message: 'Estado actualizado por técnico',
-                                );
-                              }
-                              if (!context.mounted) return;
-                              _showSnackBarPostFrame(
-                                SnackBar(
-                                  content: Text(
-                                    'Estado actualizado: ${StatusPickerSheet.label(next)}',
-                                  ),
+                                      ),
+                                    );
+                                  },
                                 ),
-                              );
-                            },
-                      child: IgnorePointer(
-                        child: InputDecorator(
-                          decoration: InputDecoration(
-                            labelText: 'Estado del servicio',
-                            border: const OutlineInputBorder(),
-                            suffixIcon: readOnly
-                                ? null
-                                : const Icon(Icons.expand_more_rounded),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                StatusPickerSheet.icon(currentState),
-                                size: 18,
-                                color: cs.onSurfaceVariant,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(child: Text(label)),
                             ],
                           ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 12),
+                  ),
+                  const SizedBox(height: 12),
 
-              TechnicalSectionCard(
-                icon: Icons.checklist_outlined,
-                title: 'CHECKLIST',
-                child: Column(
-                  children: [
-                    for (final item in _checklistItems)
-                      CheckboxListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        value: ctrl.checklistValue(item.key),
-                        title: Text(item.label),
-                        onChanged: readOnly
-                            ? null
-                            : (v) => ctrl.setChecklistItem(item.key, v == true),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
+                  EvidenceGalleryCard(
+                    title: 'CONTENIDO',
+                    emptyLabel: 'Sin fotos/video aún',
+                    uploadLabel: 'Subir',
+                    icon: Icons.photo_library_outlined,
+                    files: sortedEvidenceFiles,
+                    pending: pendingEvidence,
+                    onUpload: readOnly ? null : () => _showContentDialog(ctrl),
+                    onPreview: _previewEvidence,
+                  ),
+                  const SizedBox(height: 12),
 
-              TechnicalSectionCard(
-                icon: Icons.picture_as_pdf_outlined,
-                title: 'DOCUMENTOS',
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          FilledButton.tonalIcon(
-                            onPressed: () => _onInvoicePressed(service),
-                            icon: const Icon(Icons.receipt_long_outlined),
-                            label: const Text('Factura'),
-                          ),
-                          if (canEditDocs) ...[
-                            const SizedBox(height: 8),
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                final ok = await Navigator.of(context)
-                                    .push<bool>(
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            ServiceDocumentsEditorScreen(
-                                              service: service,
-                                              type: ServiceDocumentType.invoice,
-                                            ),
-                                      ),
-                                    );
-                                if (!mounted) return;
-                                if (ok == true) {
-                                  unawaited(
-                                    ref
-                                        .read(
-                                          technicalExecutionControllerProvider(
-                                            widget.serviceId,
-                                          ).notifier,
-                                        )
-                                        .load(),
-                                  );
-                                }
-                              },
-                              icon: const Icon(Icons.edit_outlined),
-                              label: const Text('Editar'),
-                            ),
-                          ],
-                        ],
-                      ),
+                  DynamicChecklistSummaryCard(
+                    templates: visibleChecklists,
+                    onOpen: () => _openChecklistSheet(
+                      ctrl: ctrl,
+                      templates: visibleChecklists,
+                      readOnly: readOnly,
+                      busy: st.busy,
+                      currentState: currentState,
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          FilledButton.tonalIcon(
-                            onPressed: () => _onWarrantyPressed(service),
-                            icon: const Icon(Icons.verified_outlined),
-                            label: const Text('Garantía'),
-                          ),
-                          if (canEditDocs) ...[
-                            const SizedBox(height: 8),
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                final ok = await Navigator.of(context)
-                                    .push<bool>(
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            ServiceDocumentsEditorScreen(
-                                              service: service,
-                                              type:
-                                                  ServiceDocumentType.warranty,
-                                            ),
-                                      ),
-                                    );
-                                if (!mounted) return;
-                                if (ok == true) {
-                                  unawaited(
-                                    ref
-                                        .read(
-                                          technicalExecutionControllerProvider(
-                                            widget.serviceId,
-                                          ).notifier,
-                                        )
-                                        .load(),
-                                  );
-                                }
-                              },
-                              icon: const Icon(Icons.edit_outlined),
-                              label: const Text('Editar'),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
+                  ),
+                  const SizedBox(height: 12),
 
-              TechnicalSectionCard(
-                icon: Icons.payments_outlined,
-                title: 'PAGO',
-                child: SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Factura pagada'),
-                  value: _isInvoicePaid(service),
-                  onChanged: (readOnly || st.busy)
-                      ? null
-                      : (v) async {
-                          await ctrl.setInvoicePaid(v);
-                          if (!context.mounted) return;
-                          _showSnackBarPostFrame(
-                            SnackBar(
-                              content: Text(
-                                v
-                                    ? 'Factura marcada como pagada'
-                                    : 'Factura marcada como pendiente',
+                  ServiceClosureCard(
+                    clientApproved: st.clientApproved,
+                    onClientApprovedChanged: (readOnly || st.busy)
+                        ? null
+                        : ctrl.toggleClientApproved,
+                    invoicePaid: _isInvoicePaid(service),
+                    onInvoicePaidChanged: (readOnly || st.busy)
+                        ? null
+                        : (v) async {
+                            await ctrl.setInvoicePaid(v);
+                            if (!context.mounted) return;
+                            _showSnackBarPostFrame(
+                              SnackBar(
+                                content: Text(
+                                  v
+                                      ? 'Factura marcada como pagada'
+                                      : 'Factura marcada como pendiente',
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                    onInvoicePressed: () => _onInvoicePressed(service),
+                    onInvoiceEdit: canEditDocs
+                        ? () => _openDocumentEditor(
+                            service: service,
+                            type: ServiceDocumentType.invoice,
+                          )
+                        : null,
+                    onWarrantyPressed: () => _onWarrantyPressed(service),
+                    onWarrantyEdit: canEditDocs
+                        ? () => _openDocumentEditor(
+                            service: service,
+                            type: ServiceDocumentType.warranty,
+                          )
+                        : null,
+                    onSignPressed: (readOnly || st.busy)
+                        ? null
+                        : () => _openSignatureScreen(ctrl),
+                    signatureUrl: signatureMeta.fileUrl,
+                    signatureSignedAt: signatureMeta.signedAt,
+                    busy: st.busy,
+                  ),
+                  const SizedBox(height: 80),
+                ],
+              ),
+            ),
+            Positioned(
+              top: 16,
+              right: 16,
+              child: AnimatedScale(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                scale: st.savingUpdate ? 0.96 : 1,
+                child: FloatingStatusButton(
+                  tooltip: 'Cambiar estado',
+                  busy: st.savingUpdate,
+                  onPressed: readOnly
+                      ? null
+                      : () => _showStatusSelector(
+                          context: context,
+                          ctrl: ctrl,
+                          currentState: currentState,
+                          readOnly: readOnly,
+                          busy: st.busy,
+                          visibleChecklists: visibleChecklists,
+                        ),
                 ),
               ),
-              const SizedBox(height: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
-              TechnicalSectionCard(
-                icon: Icons.draw_outlined,
-                title: 'FIRMA DEL CLIENTE',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+class TechnicalServiceHeader extends StatelessWidget {
+  final String clientName;
+  final String statusLabel;
+  final Color statusColor;
+
+  const TechnicalServiceHeader({
+    super.key,
+    required this.clientName,
+    required this.statusLabel,
+    required this.statusColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF081225), Color(0xFF153B97), Color(0xFF2D7FF9)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.vertical(bottom: Radius.circular(26)),
+          boxShadow: [
+            BoxShadow(
+              color: Color(0x2D0F172A),
+              blurRadius: 28,
+              offset: Offset(0, 12),
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              top: -28,
+              right: -12,
+              child: Container(
+                width: 124,
+                height: 124,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.08),
+                ),
+              ),
+            ),
+            Positioned(
+              left: -36,
+              bottom: -48,
+              child: Container(
+                width: 152,
+                height: 152,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFF60A5FA).withValues(alpha: 0.10),
+                ),
+              ),
+            ),
+            SafeArea(
+              bottom: false,
+              child: SizedBox(
+                height: 84,
+                child: Stack(
+                  alignment: Alignment.center,
                   children: [
-                    Container(
-                      height: 180,
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: cs.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: cs.outlineVariant),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(14),
-                        child: Signature(
-                          controller: _signatureCtrl,
-                          backgroundColor: cs.surfaceContainerHighest,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: readOnly
-                                ? null
-                                : () {
-                                    _signatureAutoSaveDebounce?.cancel();
-                                    _signatureDirtyWhileUploading = false;
-                                    _signatureLastUploadFingerprint = null;
-                                    _signatureCtrl.clear();
-                                  },
-                            icon: const Icon(Icons.delete_outline),
-                            label: const Text('Limpiar'),
+                    Positioned(
+                      left: 12,
+                      top: 10,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.14),
                           ),
                         ),
-                      ],
+                        child: Theme(
+                          data: Theme.of(context).copyWith(
+                            iconTheme: const IconThemeData(color: Colors.white),
+                          ),
+                          child: const OperationsBackButton(
+                            fallbackRoute: Routes.operacionesTecnico,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(72, 10, 24, 10),
+                      child: ClientStatusAppBar(
+                        clientName: clientName,
+                        statusLabel: statusLabel,
+                        statusColor: statusColor,
+                      ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
-              TechnicalSectionCard(
-                icon: Icons.sentiment_satisfied_alt_outlined,
-                title: 'CLIENTE SATISFECHO',
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton.tonalIcon(
-                        onPressed: readOnly
-                            ? null
-                            : () => ctrl.toggleClientApproved(true),
-                        icon: Icon(
-                          st.clientApproved
-                              ? Icons.check_circle
-                              : Icons.check_circle_outline,
-                        ),
-                        label: const Text('SI'),
-                      ),
+class ClientStatusAppBar extends StatelessWidget {
+  final String clientName;
+  final String statusLabel;
+  final Color statusColor;
+
+  const ClientStatusAppBar({
+    super.key,
+    required this.clientName,
+    required this.statusLabel,
+    required this.statusColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    const statusTextColor = Color(0xFFFF6B6B);
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Flexible(
+          child: Text(
+            clientName.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontSize: 17,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.2,
+              color: Colors.white,
+            ),
+          ),
+        ),
+        Container(
+          width: 1.2,
+          height: 18,
+          margin: const EdgeInsets.symmetric(horizontal: 12),
+          color: Colors.white.withValues(alpha: 0.40),
+        ),
+        Flexible(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            child: StatusIndicator(
+              key: ValueKey<String>(statusLabel),
+              label: statusLabel,
+              color: statusTextColor,
+              compact: true,
+              textColor: statusTextColor,
+              dotSize: 7,
+              spacing: 6,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class StatusIndicator extends StatelessWidget {
+  final String label;
+  final Color color;
+  final bool compact;
+  final Color? textColor;
+  final double? dotSize;
+  final double spacing;
+
+  const StatusIndicator({
+    super.key,
+    required this.label,
+    required this.color,
+    this.compact = false,
+    this.textColor,
+    this.dotSize,
+    this.spacing = 8,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final resolvedDotSize = dotSize ?? (compact ? 8.0 : 10.0);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: resolvedDotSize,
+          height: resolvedDotSize,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.35),
+                blurRadius: compact ? 8 : 10,
+                spreadRadius: 0.5,
+              ),
+            ],
+          ),
+        ),
+        SizedBox(width: spacing),
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontSize: compact ? 13.5 : 14,
+            fontWeight: FontWeight.w700,
+            color: textColor ?? theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class FloatingStatusButton extends StatelessWidget {
+  final String tooltip;
+  final bool busy;
+  final VoidCallback? onPressed;
+
+  const FloatingStatusButton({
+    super.key,
+    required this.tooltip,
+    required this.busy,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        label: tooltip,
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 180),
+          opacity: onPressed == null ? 0.55 : 1,
+          child: Material(
+            color: Colors.transparent,
+            child: ClipOval(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: Ink(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: const LinearGradient(
+                      colors: [Color(0xE63B82F6), Color(0xE61D4ED8)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: FilledButton.tonalIcon(
-                        onPressed: readOnly
-                            ? null
-                            : () => ctrl.toggleClientApproved(false),
-                        icon: Icon(
-                          !st.clientApproved
-                              ? Icons.cancel
-                              : Icons.cancel_outlined,
-                        ),
-                        label: const Text('NO'),
-                      ),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.20),
                     ),
-                  ],
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x401D4ED8),
+                        blurRadius: 24,
+                        offset: Offset(0, 12),
+                      ),
+                    ],
+                  ),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: onPressed,
+                    splashColor: Colors.white.withValues(alpha: 0.14),
+                    highlightColor: Colors.white.withValues(alpha: 0.08),
+                    child: Center(
+                      child: busy
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.4,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
+                              ),
+                            )
+                          : const Icon(
+                              Icons.timeline_rounded,
+                              color: Colors.white,
+                              size: 26,
+                            ),
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(height: 80),
-            ],
+            ),
           ),
         ),
       ),
     );
+  }
+}
+
+class StatusSelectorModal extends StatelessWidget {
+  final String current;
+  final Set<String>? allowedStates;
+
+  const StatusSelectorModal({
+    super.key,
+    required this.current,
+    this.allowedStates,
+  });
+
+  static Future<String?> show(
+    BuildContext context, {
+    required String current,
+    Set<String>? allowedStates,
+  }) {
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) =>
+          StatusSelectorModal(current: current, allowedStates: allowedStates),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final normalized = current.trim().toLowerCase();
+    final currentOption = _serviceStatusOptionFor(normalized);
+    final options = _serviceStatusOptions
+        .where(
+          (option) =>
+              allowedStates == null || allowedStates!.contains(option.value),
+        )
+        .toList(growable: false);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x24000000),
+            blurRadius: 24,
+            offset: Offset(0, -6),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'Cambiar estado',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.2,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Actualiza el estado del servicio en un solo toque.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 14),
+            StatusIndicator(
+              label: currentOption.label,
+              color: currentOption.color,
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: options.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  final option = options[index];
+                  final selected = option.value == normalized;
+
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? option.color.withValues(alpha: 0.12)
+                          : theme.colorScheme.surfaceContainerLow,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: selected
+                            ? option.color.withValues(alpha: 0.55)
+                            : theme.colorScheme.outlineVariant.withValues(
+                                alpha: 0.45,
+                              ),
+                      ),
+                    ),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      leading: Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: option.color.withValues(alpha: 0.14),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(option.icon, color: option.color),
+                      ),
+                      title: Text(
+                        option.label,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      subtitle: Text(
+                        selected ? 'Estado actual' : 'Tocar para actualizar',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      trailing: selected
+                          ? Icon(
+                              Icons.check_circle_rounded,
+                              color: option.color,
+                            )
+                          : const Icon(Icons.chevron_right_rounded),
+                      onTap: () {
+                        unawaited(HapticFeedback.selectionClick());
+                        Navigator.pop(context, option.value);
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ServiceStatusOption {
+  final String value;
+  final String label;
+  final IconData icon;
+  final Color color;
+
+  const _ServiceStatusOption({
+    required this.value,
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
+}
+
+const _serviceStatusOptions = <_ServiceStatusOption>[
+  _ServiceStatusOption(
+    value: 'pendiente',
+    label: 'Pendiente',
+    icon: Icons.schedule_rounded,
+    color: Color(0xFF6B7280),
+  ),
+  _ServiceStatusOption(
+    value: 'en_camino',
+    label: 'En camino',
+    icon: Icons.directions_car_outlined,
+    color: Color(0xFFF97316),
+  ),
+  _ServiceStatusOption(
+    value: 'en_proceso',
+    label: 'En proceso',
+    icon: Icons.play_circle_outline_rounded,
+    color: Color(0xFF2563EB),
+  ),
+  _ServiceStatusOption(
+    value: 'finalizada',
+    label: 'Finalizado',
+    icon: Icons.verified_outlined,
+    color: Color(0xFF16A34A),
+  ),
+  _ServiceStatusOption(
+    value: 'cancelada',
+    label: 'Cancelado',
+    icon: Icons.cancel_outlined,
+    color: Color(0xFFDC2626),
+  ),
+];
+
+_ServiceStatusOption _serviceStatusOptionFor(String raw) {
+  final normalized = raw.trim().toLowerCase();
+
+  switch (normalized) {
+    case 'en_camino':
+      return _serviceStatusOptions[1];
+    case 'en_proceso':
+    case 'in_progress':
+      return _serviceStatusOptions[2];
+    case 'finalizada':
+    case 'finalized':
+      return _serviceStatusOptions[3];
+    case 'cancelada':
+    case 'cancelled':
+      return _serviceStatusOptions[4];
+    case 'pendiente':
+    case 'pending':
+    case 'confirmada':
+    case 'confirmed':
+    case 'asignada':
+    case 'assigned':
+    case 'reagendada':
+    case 'rescheduled':
+    case 'cerrada':
+      return _ServiceStatusOption(
+        value: normalized.isEmpty ? 'pendiente' : normalized,
+        label: StatusPickerSheet.label(
+          normalized.isEmpty ? 'pendiente' : normalized,
+        ),
+        icon: StatusPickerSheet.icon(
+          normalized.isEmpty ? 'pendiente' : normalized,
+        ),
+        color: const Color(0xFF6B7280),
+      );
+    default:
+      return _ServiceStatusOption(
+        value: normalized,
+        label: normalized.isEmpty ? 'Sin estado' : StatusPickerSheet.label(raw),
+        icon: StatusPickerSheet.icon(raw),
+        color: const Color(0xFF6B7280),
+      );
   }
 }
 

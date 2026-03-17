@@ -754,6 +754,200 @@ class ServiceExecutionBundleModel {
   }
 }
 
+class ServiceChecklistCategoryModel {
+  final String id;
+  final String name;
+  final String code;
+
+  const ServiceChecklistCategoryModel({
+    required this.id,
+    required this.name,
+    required this.code,
+  });
+
+  factory ServiceChecklistCategoryModel.fromJson(Map<String, dynamic> json) {
+    return ServiceChecklistCategoryModel(
+      id: (json['id'] ?? '').toString(),
+      name: (json['name'] ?? '').toString(),
+      code: (json['code'] ?? '').toString(),
+    );
+  }
+}
+
+class ServiceChecklistPhaseModel {
+  final String id;
+  final String name;
+  final String code;
+  final int orderIndex;
+
+  const ServiceChecklistPhaseModel({
+    required this.id,
+    required this.name,
+    required this.code,
+    required this.orderIndex,
+  });
+
+  factory ServiceChecklistPhaseModel.fromJson(Map<String, dynamic> json) {
+    return ServiceChecklistPhaseModel(
+      id: (json['id'] ?? '').toString(),
+      name: (json['name'] ?? '').toString(),
+      code: (json['code'] ?? '').toString(),
+      orderIndex: (json['orderIndex'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class ServiceChecklistItemModel {
+  final String id;
+  final String checklistItemId;
+  final String label;
+  final bool isRequired;
+  final int orderIndex;
+  final bool isChecked;
+  final DateTime? checkedAt;
+  final String? checkedByUserId;
+  final String? checkedByName;
+
+  const ServiceChecklistItemModel({
+    required this.id,
+    required this.checklistItemId,
+    required this.label,
+    required this.isRequired,
+    required this.orderIndex,
+    required this.isChecked,
+    this.checkedAt,
+    this.checkedByUserId,
+    this.checkedByName,
+  });
+
+  factory ServiceChecklistItemModel.fromJson(Map<String, dynamic> json) {
+    return ServiceChecklistItemModel(
+      id: (json['id'] ?? '').toString(),
+      checklistItemId: (json['checklistItemId'] ?? '').toString(),
+      label: (json['label'] ?? '').toString(),
+      isRequired: json['isRequired'] != false,
+      orderIndex: (json['orderIndex'] as num?)?.toInt() ?? 0,
+      isChecked: json['isChecked'] == true,
+      checkedAt: json['checkedAt'] == null
+          ? null
+          : DateTime.tryParse(json['checkedAt'].toString()),
+      checkedByUserId: json['checkedByUserId']?.toString(),
+      checkedByName: json['checkedByName']?.toString(),
+    );
+  }
+
+  ServiceChecklistItemModel copyWith({bool? isChecked, DateTime? checkedAt}) {
+    return ServiceChecklistItemModel(
+      id: id,
+      checklistItemId: checklistItemId,
+      label: label,
+      isRequired: isRequired,
+      orderIndex: orderIndex,
+      isChecked: isChecked ?? this.isChecked,
+      checkedAt: checkedAt ?? this.checkedAt,
+      checkedByUserId: checkedByUserId,
+      checkedByName: checkedByName,
+    );
+  }
+}
+
+class ServiceChecklistTemplateModel {
+  final String id;
+  final String templateId;
+  final String title;
+  final ServiceChecklistCategoryModel category;
+  final ServiceChecklistPhaseModel phase;
+  final List<ServiceChecklistItemModel> items;
+
+  const ServiceChecklistTemplateModel({
+    required this.id,
+    required this.templateId,
+    required this.title,
+    required this.category,
+    required this.phase,
+    required this.items,
+  });
+
+  factory ServiceChecklistTemplateModel.fromJson(Map<String, dynamic> json) {
+    final rawItems = json['items'];
+    return ServiceChecklistTemplateModel(
+      id: (json['id'] ?? '').toString(),
+      templateId: (json['templateId'] ?? '').toString(),
+      title: (json['title'] ?? '').toString(),
+      category: ServiceChecklistCategoryModel.fromJson(
+        (json['category'] as Map?)?.cast<String, dynamic>() ?? const {},
+      ),
+      phase: ServiceChecklistPhaseModel.fromJson(
+        (json['phase'] as Map?)?.cast<String, dynamic>() ?? const {},
+      ),
+      items: rawItems is List
+          ? rawItems
+                .whereType<Map>()
+                .map(
+                  (item) => ServiceChecklistItemModel.fromJson(
+                    item.cast<String, dynamic>(),
+                  ),
+                )
+                .toList(growable: false)
+          : const [],
+    );
+  }
+
+  ServiceChecklistTemplateModel copyWith({
+    List<ServiceChecklistItemModel>? items,
+  }) {
+    return ServiceChecklistTemplateModel(
+      id: id,
+      templateId: templateId,
+      title: title,
+      category: category,
+      phase: phase,
+      items: items ?? this.items,
+    );
+  }
+}
+
+class ServiceChecklistBundleModel {
+  final String serviceId;
+  final String currentPhase;
+  final String orderState;
+  final String categoryCode;
+  final String categoryLabel;
+  final List<ServiceChecklistTemplateModel> templates;
+
+  const ServiceChecklistBundleModel({
+    required this.serviceId,
+    required this.currentPhase,
+    required this.orderState,
+    required this.categoryCode,
+    required this.categoryLabel,
+    required this.templates,
+  });
+
+  factory ServiceChecklistBundleModel.fromJson(Map<String, dynamic> json) {
+    final category =
+        (json['category'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final rawTemplates = json['templates'];
+    return ServiceChecklistBundleModel(
+      serviceId: (json['serviceId'] ?? '').toString(),
+      currentPhase: (json['currentPhase'] ?? '').toString(),
+      orderState: (json['orderState'] ?? '').toString(),
+      categoryCode: (category['code'] ?? '').toString(),
+      categoryLabel: (category['label'] ?? '').toString(),
+      templates: rawTemplates is List
+          ? rawTemplates
+                .whereType<Map>()
+                .map(
+                  (item) => ServiceChecklistTemplateModel.fromJson(
+                    item.cast<String, dynamic>(),
+                  ),
+                )
+                .toList(growable: false)
+          : const [],
+    );
+  }
+}
+
 class OperationsDashboardModel {
   final int installationsPendingToday;
   final int warrantiesOpen;

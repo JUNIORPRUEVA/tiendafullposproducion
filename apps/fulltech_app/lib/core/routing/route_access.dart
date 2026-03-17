@@ -22,6 +22,7 @@ class RouteAccess {
       case Routes.operacionesAgenda:
       case Routes.operacionesMapaClientes:
       case Routes.operacionesReglas:
+      case Routes.operacionesChecklistConfig:
         return AppPermission.viewOperations;
       case Routes.operacionesTecnico:
       case Routes.operacionesTecnicoDetalle:

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../core/routing/routes.dart';
+import 'presentation/operations_back_button.dart';
+
 class OperacionesReglasScreen extends StatelessWidget {
   const OperacionesReglasScreen({super.key});
 
@@ -9,6 +12,7 @@ class OperacionesReglasScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
+        leading: const OperationsBackButton(fallbackRoute: Routes.operaciones),
         title: const Text(
           'Reglas',
           style: TextStyle(fontWeight: FontWeight.w900),
@@ -20,7 +24,11 @@ class OperacionesReglasScreen extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.rule_folder_outlined, size: 42, color: theme.colorScheme.primary),
+              Icon(
+                Icons.rule_folder_outlined,
+                size: 42,
+                color: theme.colorScheme.primary,
+              ),
               const SizedBox(height: 12),
               const Text(
                 'Pantalla de reglas',

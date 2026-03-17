@@ -14,6 +14,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_repository.dart';
 import '../../core/company/company_settings_model.dart';
 import '../../core/company/company_settings_repository.dart';
@@ -33,6 +34,7 @@ import '../../core/widgets/app_drawer.dart';
 import '../../modules/cotizaciones/data/cotizaciones_repository.dart';
 import '../../modules/cotizaciones/cotizacion_models.dart';
 import '../catalogo/catalogo_screen.dart';
+import 'presentation/operations_back_button.dart';
 import '../ponche/application/punch_controller.dart';
 import '../user/data/users_repository.dart';
 import 'application/operations_controller.dart';
@@ -224,6 +226,13 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
   final _searchCtrl = TextEditingController();
   final _panelKey = GlobalKey<_PanelOptionsState>();
   String? _lastAppliedDeepLinkKey;
+
+  bool _canManageDynamicChecklist(AuthState authState) {
+    final role = authState.user?.appRole;
+    return role == AppRole.admin ||
+        role == AppRole.asistente ||
+        role == AppRole.vendedor;
+  }
 
   Future<void> _openQuickCreateFromAppBar() async {
     const title = 'Crear orden de servicio';
@@ -605,6 +614,12 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
         ),
       ),
       actions: [
+        if (_canManageDynamicChecklist(authState))
+          TextButton.icon(
+            onPressed: () => context.push(Routes.operacionesChecklistConfig),
+            icon: const Icon(Icons.checklist_rtl_outlined),
+            label: const Text('Checklist'),
+          ),
         TextButton.icon(
           onPressed: () => context.go(Routes.operacionesReglas),
           icon: const Icon(Icons.rule_folder_outlined),
@@ -690,6 +705,14 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
         ],
       ),
       actions: [
+        if (_canManageDynamicChecklist(authState)) ...[
+          FilledButton.tonalIcon(
+            onPressed: () => context.push(Routes.operacionesChecklistConfig),
+            icon: const Icon(Icons.checklist_rtl_outlined),
+            label: const Text('Checklist'),
+          ),
+          const SizedBox(width: 8),
+        ],
         FilledButton.tonalIcon(
           onPressed: () => context.go(Routes.operacionesReglas),
           icon: const Icon(Icons.rule_folder_outlined),
@@ -4326,7 +4349,10 @@ class _ReservaScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Nueva reserva')),
+      appBar: AppBar(
+        leading: const OperationsBackButton(fallbackRoute: Routes.operaciones),
+        title: const Text('Nueva reserva'),
+      ),
       body: _CreateReservationTab(onCreate: onCreate),
     );
   }
@@ -4573,6 +4599,12 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
   }
 
   Future<Uint8List> _downloadBytes(String url) async {
+    final uri = Uri.tryParse(url.trim());
+    final scheme = (uri?.scheme ?? '').toLowerCase();
+    if (scheme != 'http' && scheme != 'https') {
+      throw ApiException('Archivo remoto no disponible para descarga');
+    }
+
     final dio = ref.read(dioProvider);
     final res = await dio.get<List<int>>(
       url,
@@ -4631,22 +4663,48 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     }
   }
 
+  bool _hasDownloadableUrl(ServiceFileModel? file) {
+    if (file == null) return false;
+    final uri = Uri.tryParse(file.fileUrl.trim());
+    final scheme = (uri?.scheme ?? '').toLowerCase();
+    return scheme == 'http' || scheme == 'https';
+  }
+
+  Future<bool> _tryOpenStoredPdf({
+    required String fileName,
+    required ServiceFileModel? file,
+  }) async {
+    if (!_hasDownloadableUrl(file)) return false;
+
+    try {
+      final bytes = await _downloadBytes(file!.fileUrl.trim());
+      await _openPdfBytesPreview(
+        fileName: fileName,
+        loadBytes: () async => bytes,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _onInvoicePressed(ServiceModel service) async {
     final custom = _findLatestFileByType(service, 'service_invoice_custom');
-    if (custom != null && custom.fileUrl.trim().isNotEmpty) {
-      await _openPdfBytesPreview(
-        fileName: 'Factura-${service.orderLabel}.pdf',
-        loadBytes: () => _downloadBytes(custom.fileUrl.trim()),
-      );
+    if (await _tryOpenStoredPdf(
+      fileName: 'Factura-${service.orderLabel}.pdf',
+      file: custom,
+    )) {
       return;
     }
 
-    final invoiceFile = _findClosingFile(service, service.closing?.invoiceFinalFileId);
-    if (invoiceFile != null && invoiceFile.fileUrl.trim().isNotEmpty) {
-      await _openPdfBytesPreview(
-        fileName: 'Factura-${service.orderLabel}.pdf',
-        loadBytes: () => _downloadBytes(invoiceFile.fileUrl.trim()),
-      );
+    final invoiceFile = _findClosingFile(
+      service,
+      service.closing?.invoiceFinalFileId,
+    );
+    if (await _tryOpenStoredPdf(
+      fileName: 'Factura-${service.orderLabel}.pdf',
+      file: invoiceFile,
+    )) {
       return;
     }
 
@@ -4683,20 +4741,21 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
 
   Future<void> _onWarrantyPressed(ServiceModel service) async {
     final custom = _findLatestFileByType(service, 'service_warranty_custom');
-    if (custom != null && custom.fileUrl.trim().isNotEmpty) {
-      await _openPdfBytesPreview(
-        fileName: 'Carta-Garantia-${service.orderLabel}.pdf',
-        loadBytes: () => _downloadBytes(custom.fileUrl.trim()),
-      );
+    if (await _tryOpenStoredPdf(
+      fileName: 'Carta-Garantia-${service.orderLabel}.pdf',
+      file: custom,
+    )) {
       return;
     }
 
-    final warrantyFile = _findClosingFile(service, service.closing?.warrantyFinalFileId);
-    if (warrantyFile != null && warrantyFile.fileUrl.trim().isNotEmpty) {
-      await _openPdfBytesPreview(
-        fileName: 'Carta-Garantia-${service.orderLabel}.pdf',
-        loadBytes: () => _downloadBytes(warrantyFile.fileUrl.trim()),
-      );
+    final warrantyFile = _findClosingFile(
+      service,
+      service.closing?.warrantyFinalFileId,
+    );
+    if (await _tryOpenStoredPdf(
+      fileName: 'Carta-Garantia-${service.orderLabel}.pdf',
+      file: warrantyFile,
+    )) {
       return;
     }
 
@@ -5875,10 +5934,11 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                                 onPressed: () async {
                                   await Navigator.of(context).push<bool>(
                                     MaterialPageRoute(
-                                      builder: (_) => ServiceDocumentsEditorScreen(
-                                        service: service,
-                                        type: ServiceDocumentType.invoice,
-                                      ),
+                                      builder: (_) =>
+                                          ServiceDocumentsEditorScreen(
+                                            service: service,
+                                            type: ServiceDocumentType.invoice,
+                                          ),
                                     ),
                                   );
                                 },
@@ -5905,10 +5965,11 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                                 onPressed: () async {
                                   await Navigator.of(context).push<bool>(
                                     MaterialPageRoute(
-                                      builder: (_) => ServiceDocumentsEditorScreen(
-                                        service: service,
-                                        type: ServiceDocumentType.warranty,
-                                      ),
+                                      builder: (_) =>
+                                          ServiceDocumentsEditorScreen(
+                                            service: service,
+                                            type: ServiceDocumentType.warranty,
+                                          ),
                                     ),
                                   );
                                 },
@@ -10560,6 +10621,7 @@ class _AgendaGpsFullMapScreenState extends State<_AgendaGpsFullMapScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: const OperationsBackButton(fallbackRoute: Routes.operaciones),
         title: Text(widget.title),
         actions: [
           IconButton(

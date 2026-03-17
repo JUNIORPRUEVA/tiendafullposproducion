@@ -5,9 +5,11 @@ import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/errors/api_exception.dart';
+import '../../core/routing/routes.dart';
 import '../../core/utils/geo_utils.dart';
 import 'data/operations_repository.dart';
 import 'operations_models.dart';
+import 'presentation/operations_back_button.dart';
 
 class OperacionesMapaClientesScreen extends ConsumerStatefulWidget {
   const OperacionesMapaClientesScreen({super.key});
@@ -116,7 +118,10 @@ class _OperacionesMapaClientesScreenState
     final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mapa clientes')),
+      appBar: AppBar(
+        leading: const OperationsBackButton(fallbackRoute: Routes.operaciones),
+        title: const Text('Mapa clientes'),
+      ),
       body: FutureBuilder<List<_ServicePoint>>(
         future: _future,
         builder: (context, snap) {

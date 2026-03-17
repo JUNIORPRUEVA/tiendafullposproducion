@@ -241,6 +241,19 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
       loading: () {
         return Scaffold(
           drawer: buildAdaptiveDrawer(context, currentUser: user),
+          appBar: AppBar(
+            title: const Text('Orden de servicio'),
+            leading: IconButton(
+              onPressed: () {
+                if (context.canPop()) {
+                  context.pop();
+                  return;
+                }
+                context.go(Routes.operacionesTecnico);
+              },
+              icon: const Icon(Icons.arrow_back),
+            ),
+          ),
           body: const Center(child: CircularProgressIndicator()),
         );
       },

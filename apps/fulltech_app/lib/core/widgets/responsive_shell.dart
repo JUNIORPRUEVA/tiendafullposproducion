@@ -46,6 +46,14 @@ BoxDecoration _desktopSurfaceDecoration(ThemeData theme) {
   );
 }
 
+bool _shouldShowDesktopAiAssistant(String location) {
+  final normalized = location.trim();
+  final uri = Uri.tryParse(normalized) ?? Uri(path: normalized);
+  final path = uri.path.trim().toLowerCase();
+
+  return !path.startsWith(Routes.operaciones);
+}
+
 class ResponsiveShell extends ConsumerStatefulWidget {
   const ResponsiveShell({super.key, required this.child});
 
@@ -142,6 +150,8 @@ class DesktopShellFooter extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final now = DateTime.now();
+    final location = safeCurrentLocation(context);
+    final showAiAssistant = _shouldShowDesktopAiAssistant(location);
 
     final open = ref.watch(desktopAiAssistantPanelOpenProvider);
 
@@ -188,20 +198,22 @@ class DesktopShellFooter extends ConsumerWidget {
                   letterSpacing: 0.3,
                 ),
               ),
-              const SizedBox(width: 14),
-              AiAssistantDockButton(
-                compact: true,
-                isActive: open,
-                onPressed: () {
-                  final location = safeCurrentLocation(context);
-                  final ctx = buildAiChatContextFromLocation(location);
-                  ref
-                      .read(aiAssistantControllerProvider.notifier)
-                      .setContext(ctx);
-                  ref.read(desktopAiAssistantPanelOpenProvider.notifier).state =
-                      !open;
-                },
-              ),
+              if (showAiAssistant) ...[
+                const SizedBox(width: 14),
+                AiAssistantDockButton(
+                  compact: true,
+                  isActive: open,
+                  onPressed: () {
+                    final ctx = buildAiChatContextFromLocation(location);
+                    ref
+                        .read(aiAssistantControllerProvider.notifier)
+                        .setContext(ctx);
+                    ref
+                        .read(desktopAiAssistantPanelOpenProvider.notifier)
+                        .state = !open;
+                  },
+                ),
+              ],
             ],
           ),
         );

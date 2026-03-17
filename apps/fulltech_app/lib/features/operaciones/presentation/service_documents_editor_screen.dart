@@ -10,6 +10,7 @@ import '../../../core/auth/auth_repository.dart';
 import '../../../core/company/company_settings_model.dart';
 import '../../../core/company/company_settings_repository.dart';
 import '../../../core/errors/api_exception.dart';
+import '../../../core/storage/storage_models.dart';
 import '../../../core/storage/storage_repository.dart';
 import '../../../modules/cotizaciones/cotizacion_models.dart';
 import '../../../modules/cotizaciones/data/cotizaciones_repository.dart';
@@ -179,9 +180,7 @@ class _ServiceDocumentsEditorScreenState
   Future<void> _loadClientSignature(ServiceModel service) async {
     // Try the technical execution state first (it may contain `signedAt`).
     try {
-      final st = ref.read(
-        technicalExecutionControllerProvider(service.id),
-      );
+      final st = ref.read(technicalExecutionControllerProvider(service.id));
       final raw = st.phaseSpecificData['clientSignature'];
       if (raw is Map) {
         final map = raw.cast<String, dynamic>();
@@ -211,18 +210,105 @@ class _ServiceDocumentsEditorScreenState
     _signatureFileId = latest.id.trim().isEmpty ? null : latest.id.trim();
     _signatureFileUrl = url;
     _signedAt = latest.createdAt;
-    _signatureBytes = await _downloadBytes(url);
+    try {
+      _signatureBytes = await _downloadBytes(url);
+    } catch (_) {
+      _signatureBytes = null;
+    }
   }
 
   Future<Uint8List> _downloadBytes(String url) async {
     final dio = ref.read(dioProvider);
-    final res = await dio.get<List<int>>(
+    try {
+      final res = await dio.get<List<int>>(
+        url,
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final data = res.data;
+      if (data != null && data.isNotEmpty) {
+        return Uint8List.fromList(data);
+      }
+    } catch (_) {
+      // Retry below using a stream response. Some Windows/desktop flows can
+      // return empty bytes for binary content even when the URL is valid.
+    }
+
+    final streamRes = await dio.get<ResponseBody>(
       url,
-      options: Options(responseType: ResponseType.bytes),
+      options: Options(responseType: ResponseType.stream),
     );
-    final data = res.data;
-    if (data == null) return Uint8List(0);
-    return Uint8List.fromList(data);
+    final body = streamRes.data;
+    if (body == null) return Uint8List(0);
+    final chunks = await body.stream.toList();
+    if (chunks.isEmpty) return Uint8List(0);
+
+    final totalLength = chunks.fold<int>(0, (sum, chunk) => sum + chunk.length);
+    final bytes = Uint8List(totalLength);
+    var offset = 0;
+    for (final chunk in chunks) {
+      bytes.setRange(offset, offset + chunk.length, chunk);
+      offset += chunk.length;
+    }
+    return bytes;
+  }
+
+  ServiceFileModel _serviceFileFromConfirmedUpload(ServiceMediaModel media) {
+    return ServiceFileModel(
+      id: media.id,
+      fileUrl: media.fileUrl,
+      fileType: media.fileType,
+      mimeType: media.mimeType,
+      caption: media.caption,
+      createdAt: media.createdAt ?? DateTime.now(),
+    );
+  }
+
+  ServiceModel _mergeUploadedFileIntoService(
+    ServiceModel service,
+    ServiceMediaModel media,
+  ) {
+    final nextFiles = [
+      ...service.files.where((file) => file.id != media.id),
+      _serviceFileFromConfirmedUpload(media),
+    ];
+    nextFiles.sort((a, b) {
+      final ad = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bd = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bd.compareTo(ad);
+    });
+    return service.copyWith(files: nextFiles);
+  }
+
+  void _applyOptimisticRefresh(ServiceModel service) {
+    ref
+        .read(operationsControllerProvider.notifier)
+        .applyRealtimeService(service);
+    ref
+        .read(techOperationsControllerProvider.notifier)
+        .applyRealtimeService(service);
+  }
+
+  void _refreshServiceInBackground(ServiceModel fallback) {
+    unawaited(() async {
+      try {
+        final refreshed = await ref
+            .read(operationsRepositoryProvider)
+            .getService(widget.service.id);
+        _applyOptimisticRefresh(refreshed);
+      } catch (_) {
+        _applyOptimisticRefresh(fallback);
+      }
+
+      try {
+        await ref
+            .read(
+              technicalExecutionControllerProvider(widget.service.id).notifier,
+            )
+            .load();
+      } catch (_) {
+        // Ignore reload failures: the document has already been confirmed.
+      }
+    }());
   }
 
   CotizacionModel _buildQuoteSnapshot() {
@@ -238,8 +324,9 @@ class _ServiceDocumentsEditorScreenState
       id: 'custom',
       createdAt: DateTime.now(),
       customerId: null,
-      customerName:
-          service.customerName.trim().isEmpty ? 'Cliente' : service.customerName,
+      customerName: service.customerName.trim().isEmpty
+          ? 'Cliente'
+          : service.customerName,
       customerPhone: service.customerPhone.trim().isEmpty
           ? null
           : service.customerPhone.trim(),
@@ -348,7 +435,7 @@ class _ServiceDocumentsEditorScreenState
         contentLength: bytes.length,
       );
 
-      await storage.confirm(
+      final confirmed = await storage.confirm(
         serviceId: widget.service.id,
         objectKey: presign.objectKey,
         publicUrl: presign.publicUrl,
@@ -359,31 +446,17 @@ class _ServiceDocumentsEditorScreenState
         caption: _caption(),
       );
 
-      // Refresh service so Operaciones + Técnico update immediately.
-      final refreshed = await ref
-          .read(operationsRepositoryProvider)
-          .getService(widget.service.id);
-
-      ref.read(operationsControllerProvider.notifier).applyRealtimeService(
-            refreshed,
-          );
-      ref
-          .read(techOperationsControllerProvider.notifier)
-          .applyRealtimeService(refreshed);
-
-      // If a technical execution screen is open, refresh its state too.
-      unawaited(
-        ref
-            .read(
-              technicalExecutionControllerProvider(widget.service.id).notifier,
-            )
-            .load(),
+      final optimistic = _mergeUploadedFileIntoService(
+        widget.service,
+        confirmed,
       );
+      _applyOptimisticRefresh(optimistic);
+      _refreshServiceInBackground(optimistic);
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Documento guardado')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Documento guardado')));
 
       Navigator.pop(context, true);
     } catch (e) {
@@ -401,6 +474,7 @@ class _ServiceDocumentsEditorScreenState
 
     return Scaffold(
       appBar: AppBar(
+        leading: const BackButton(),
         title: Text(title),
         actions: [
           TextButton.icon(
@@ -439,10 +513,9 @@ class _ServiceDocumentsEditorScreenState
                   ],
                   Text(
                     'Items',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w900),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   const SizedBox(height: 10),
                   for (final row in _rows)
@@ -506,15 +579,15 @@ class _EditableItemRow {
     required double qty,
     required double unitPrice,
     required bool showPrice,
-  })  : nameCtrl = TextEditingController(text: name),
-        qtyCtrl = TextEditingController(
-          text: qty == 0 ? '' : qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2),
-        ),
-        priceCtrl = TextEditingController(
-          text: showPrice
-              ? unitPrice.toStringAsFixed(2)
-              : unitPrice.toStringAsFixed(2),
-        );
+  }) : nameCtrl = TextEditingController(text: name),
+       qtyCtrl = TextEditingController(
+         text: qty == 0 ? '' : qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2),
+       ),
+       priceCtrl = TextEditingController(
+         text: showPrice
+             ? unitPrice.toStringAsFixed(2)
+             : unitPrice.toStringAsFixed(2),
+       );
 
   void dispose() {
     nameCtrl.dispose();
@@ -528,8 +601,8 @@ class _EditableItemRow {
 
     final qty = double.tryParse(qtyCtrl.text.trim()) ?? 0.0;
     final unit = showPrice
-      ? (double.tryParse(priceCtrl.text.trim()) ?? 0.0)
-      : 0.0;
+        ? (double.tryParse(priceCtrl.text.trim()) ?? 0.0)
+        : 0.0;
 
     if (qty <= 0) return null;
 
@@ -592,8 +665,9 @@ class _ItemEditorRow extends StatelessWidget {
                 Expanded(
                   child: TextFormField(
                     controller: row.qtyCtrl,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     decoration: const InputDecoration(
                       labelText: 'Cantidad',
                       border: OutlineInputBorder(),
@@ -611,8 +685,9 @@ class _ItemEditorRow extends StatelessWidget {
                   Expanded(
                     child: TextFormField(
                       controller: row.priceCtrl,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
                       decoration: const InputDecoration(
                         labelText: 'Precio unit.',
                         border: OutlineInputBorder(),

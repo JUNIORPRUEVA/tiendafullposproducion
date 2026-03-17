@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/routing/routes.dart';
 import '../../../core/widgets/app_drawer.dart';
 import '../data/operations_repository.dart';
 import '../operations_models.dart';
+import '../presentation/operations_back_button.dart';
 import 'technical_service_execution_screen.dart';
 import 'technical_visit_screen.dart';
 
@@ -36,11 +38,22 @@ class TechnicalServicePhaseRouterScreen extends ConsumerWidget {
     return asyncService.when(
       loading: () => Scaffold(
         drawer: buildAdaptiveDrawer(context, currentUser: user),
+        appBar: AppBar(
+          leading: const OperationsBackButton(
+            fallbackRoute: Routes.operacionesTecnico,
+          ),
+          title: const Text('Servicio'),
+        ),
         body: const Center(child: CircularProgressIndicator()),
       ),
       error: (e, _) => Scaffold(
         drawer: buildAdaptiveDrawer(context, currentUser: user),
-        appBar: AppBar(title: const Text('Servicio')),
+        appBar: AppBar(
+          leading: const OperationsBackButton(
+            fallbackRoute: Routes.operacionesTecnico,
+          ),
+          title: const Text('Servicio'),
+        ),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(16),

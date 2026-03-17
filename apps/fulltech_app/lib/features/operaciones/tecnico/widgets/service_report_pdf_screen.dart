@@ -70,6 +70,7 @@ class _ServiceReportPdfScreenState extends State<ServiceReportPdfScreen> {
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: widget.currentUser),
       appBar: AppBar(
+        leading: const BackButton(),
         title: const Text('Reporte (PDF)'),
         actions: [
           IconButton(

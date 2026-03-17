@@ -306,6 +306,7 @@ model User {
   uploadedServiceFiles ServiceFile[]
   serviceExecutionReports ServiceExecutionReport[]
   serviceExecutionChanges ServiceExecutionChange[]
+  checkedServiceChecklistItems ServiceChecklistItem[] @relation("ServiceChecklistItemCheckedBy")
   cotizaciones Cotizacion[]
   location UserLocation?
 
@@ -417,6 +418,108 @@ model ServiceExecutionChange {
   @@index([executionReportId])
   @@index([createdByUserId])
   @@map("service_execution_changes")
+}
+
+model ServiceCategory {
+  id        String              @id @default(uuid()) @db.Uuid
+  name      String
+  code      String              @unique
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
+
+  templates ChecklistTemplate[]
+
+  @@index([name])
+  @@map("service_categories")
+}
+
+model ServicePhase {
+  id         String              @id @default(uuid()) @db.Uuid
+  name       String
+  code       String              @unique
+  orderIndex Int                 @default(0) @map("order_index")
+  createdAt  DateTime            @default(now()) @map("created_at")
+  updatedAt  DateTime            @updatedAt @map("updated_at")
+
+  templates  ChecklistTemplate[]
+
+  @@index([orderIndex])
+  @@index([name])
+  @@map("service_phases")
+}
+
+model ChecklistTemplate {
+  id         String            @id @default(uuid()) @db.Uuid
+  categoryId String            @db.Uuid @map("category_id")
+  phaseId    String            @db.Uuid @map("phase_id")
+  title      String
+  createdAt  DateTime          @default(now()) @map("created_at")
+  updatedAt  DateTime          @updatedAt @map("updated_at")
+
+  category   ServiceCategory   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  phase      ServicePhase      @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  items      ChecklistItem[]
+  checklists ServiceChecklist[]
+
+  @@unique([categoryId, phaseId, title])
+  @@index([categoryId])
+  @@index([phaseId])
+  @@map("checklist_templates")
+}
+
+model ChecklistItem {
+  id         String                 @id @default(uuid()) @db.Uuid
+  templateId String                 @db.Uuid @map("template_id")
+  label      String
+  isRequired Boolean                @default(true) @map("is_required")
+  orderIndex Int                    @default(0) @map("order_index")
+  createdAt  DateTime               @default(now()) @map("created_at")
+  updatedAt  DateTime               @updatedAt @map("updated_at")
+
+  template   ChecklistTemplate      @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  instances  ServiceChecklistItem[]
+
+  @@index([templateId])
+  @@index([templateId, orderIndex])
+  @@map("checklist_items")
+}
+
+model ServiceChecklist {
+  id             String                 @id @default(uuid()) @db.Uuid
+  serviceOrderId String                 @db.Uuid @map("service_order_id")
+  templateId     String                 @db.Uuid @map("template_id")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+
+  service        Service                @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  template       ChecklistTemplate      @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  items          ServiceChecklistItem[]
+
+  @@unique([serviceOrderId, templateId])
+  @@index([serviceOrderId])
+  @@index([templateId])
+  @@map("service_checklists")
+}
+
+model ServiceChecklistItem {
+  id              String           @id @default(uuid()) @db.Uuid
+  checklistId     String           @db.Uuid @map("checklist_id")
+  checklistItemId String           @db.Uuid @map("checklist_item_id")
+  isChecked       Boolean          @default(false) @map("is_checked")
+  checkedAt       DateTime?        @map("checked_at")
+  checkedByUserId String?          @db.Uuid @map("checked_by")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  checklist       ServiceChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  checklistItem   ChecklistItem    @relation(fields: [checklistItemId], references: [id], onDelete: Cascade)
+  checkedBy       User?            @relation("ServiceChecklistItemCheckedBy", fields: [checkedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([checklistId, checklistItemId])
+  @@index([checklistId])
+  @@index([checklistItemId])
+  @@index([checkedByUserId])
+  @@map("service_checklist_items")
 }
 
 model NotificationOutbox {
@@ -807,6 +910,7 @@ model Service {
   phaseHistory ServicePhaseHistory[]
   executionReports ServiceExecutionReport[]
   executionChanges ServiceExecutionChange[]
+  checklists ServiceChecklist[]
 
   closing ServiceClosing?
   technicalVisit TechnicalVisit? @relation("ServiceTechnicalVisit")

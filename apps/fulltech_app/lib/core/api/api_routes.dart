@@ -87,10 +87,19 @@ class ApiRoutes {
   static String serviceFiles(String id) => '/services/$id/files';
   static String serviceExecutionReport(String id) =>
       '/services/$id/execution-report';
+  static String serviceChecklists(String id) => '/services/$id/checklists';
   static String serviceExecutionChanges(String id) =>
       '/services/$id/execution-report/changes';
   static String serviceExecutionChangeDelete(String id, String changeId) =>
       '/services/$id/execution-report/changes/$changeId';
+  static const checklistCategories = '/checklist/categories';
+  static const checklistPhases = '/checklist/phases';
+  static const checklistTemplates = '/checklist/templates';
+  static const checklistCategory = '/checklist/category';
+  static const checklistPhase = '/checklist/phase';
+  static const checklistTemplate = '/checklist/template';
+  static const checklistItem = '/checklist/item';
+  static String checklistItemCheck(String id) => '/checklist/item/$id/check';
   static String serviceWarranty(String id) => '/services/$id/warranty';
   static String customerServices(String id) => '/customers/$id/services';
 

@@ -4,7 +4,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/routing/routes.dart';
 import '../../../core/widgets/app_drawer.dart';
+import '../presentation/operations_back_button.dart';
 import 'technical_visit_controller.dart';
 import 'technical_visit_models.dart';
 
@@ -96,6 +98,9 @@ class _TechnicalVisitScreenState extends ConsumerState<TechnicalVisitScreen> {
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: user),
       appBar: AppBar(
+        leading: const OperationsBackButton(
+          fallbackRoute: Routes.operacionesTecnico,
+        ),
         title: const Text('Levantamiento Técnico'),
         actions: [
           if (state.saving)

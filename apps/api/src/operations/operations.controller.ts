@@ -40,6 +40,12 @@ import { CreateWarrantyDto } from './dto/create-warranty.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
 import { UpsertExecutionReportDto } from './dto/upsert-execution-report.dto';
 import { CreateExecutionChangeDto } from './dto/create-execution-change.dto';
+import { OperationsChecklistService } from './operations-checklist.service';
+import { CreateServiceChecklistCategoryDto } from './dto/create-service-checklist-category.dto';
+import { CreateServiceChecklistPhaseDto } from './dto/create-service-checklist-phase.dto';
+import { CreateServiceChecklistTemplateDto } from './dto/create-service-checklist-template.dto';
+import { CreateServiceChecklistItemDto } from './dto/create-service-checklist-item.dto';
+import { CheckServiceChecklistItemDto } from './dto/check-service-checklist-item.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller()
@@ -49,6 +55,7 @@ export class OperationsController {
 
   constructor(
     private readonly operations: OperationsService,
+    private readonly checklists: OperationsChecklistService,
     config: ConfigService,
   ) {
     const dir = config.get<string>('UPLOAD_DIR') ?? join(process.cwd(), 'uploads');
@@ -81,9 +88,63 @@ export class OperationsController {
 
   @Post('services')
   @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
-  create(@Req() req: Request, @Body() dto: CreateServiceDto) {
+  async create(@Req() req: Request, @Body() dto: CreateServiceDto) {
     const user = req.user as { id: string; role: Role };
-    return this.operations.create(user, dto);
+    const service = await this.operations.create(user, dto);
+    await this.checklists.ensureServiceChecklists({
+      id: service.id,
+      category: service.category,
+    });
+    return service;
+  }
+
+  @Get('checklist/categories')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  listChecklistCategories() {
+    return this.checklists.listCategories();
+  }
+
+  @Post('checklist/category')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  createChecklistCategory(@Req() req: Request, @Body() dto: CreateServiceChecklistCategoryDto) {
+    const user = req.user as { id: string; role: Role };
+    return this.checklists.createCategory(user, dto);
+  }
+
+  @Get('checklist/phases')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  listChecklistPhases() {
+    return this.checklists.listPhases();
+  }
+
+  @Post('checklist/phase')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  createChecklistPhase(@Req() req: Request, @Body() dto: CreateServiceChecklistPhaseDto) {
+    const user = req.user as { id: string; role: Role };
+    return this.checklists.createPhase(user, dto);
+  }
+
+  @Get('checklist/templates')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  listChecklistTemplates(
+    @Query('categoryId') categoryId?: string,
+    @Query('phaseId') phaseId?: string,
+  ) {
+    return this.checklists.listTemplates({ categoryId, phaseId });
+  }
+
+  @Post('checklist/template')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  createChecklistTemplate(@Req() req: Request, @Body() dto: CreateServiceChecklistTemplateDto) {
+    const user = req.user as { id: string; role: Role };
+    return this.checklists.createTemplate(user, dto);
+  }
+
+  @Post('checklist/item')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  createChecklistItem(@Req() req: Request, @Body() dto: CreateServiceChecklistItemDto) {
+    const user = req.user as { id: string; role: Role };
+    return this.checklists.createItem(user, dto);
   }
 
   @Patch('services/:id')
@@ -177,6 +238,24 @@ export class OperationsController {
   ) {
     const user = req.user as { id: string; role: Role };
     return this.operations.getExecutionReport(user, id, technicianId);
+  }
+
+  @Get('services/:id/checklists')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  getServiceChecklists(@Req() req: Request, @Param('id') id: string) {
+    const user = req.user as { id: string; role: Role };
+    return this.checklists.getServiceChecklists(user, id);
+  }
+
+  @Patch('checklist/item/:id/check')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  checkServiceChecklistItem(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: CheckServiceChecklistItemDto,
+  ) {
+    const user = req.user as { id: string; role: Role };
+    return this.checklists.checkServiceChecklistItem(user, id, dto);
   }
 
   @Put('services/:id/execution-report')

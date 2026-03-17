@@ -40,6 +40,15 @@ class OperationsRepository {
     throw const FormatException('Expected JSON object');
   }
 
+  List<dynamic> _decodeJsonList(dynamic data) {
+    if (data is List) return data;
+    if (data is String) {
+      final decoded = jsonDecode(data);
+      if (decoded is List) return decoded;
+    }
+    throw const FormatException('Expected JSON array');
+  }
+
   List<TechnicianModel>? _techniciansCache;
   DateTime? _techniciansCacheAt;
   static const Duration _techniciansCacheTtl = Duration(minutes: 5);
@@ -1054,6 +1063,228 @@ class OperationsRepository {
     } on FormatException {
       throw ApiException(
         'Respuesta inválida del servidor al cargar el reporte',
+      );
+    }
+  }
+
+  Future<ServiceChecklistBundleModel> getServiceChecklists({
+    required String serviceId,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.serviceChecklists(serviceId),
+        options: Options(responseType: ResponseType.plain),
+      );
+
+      final raw = _decodeJsonMap(res.data);
+      return ServiceChecklistBundleModel.fromJson(raw);
+    } on DioException catch (e) {
+      throw ApiException(
+        _formatDioError(e, 'No se pudo cargar el checklist dinámico'),
+        e.response?.statusCode,
+      );
+    } on FormatException {
+      throw ApiException(
+        'Respuesta inválida del servidor al cargar el checklist dinámico',
+      );
+    }
+  }
+
+  Future<List<ServiceChecklistCategoryModel>> listChecklistCategories() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.checklistCategories,
+        options: Options(responseType: ResponseType.plain),
+      );
+      final raw = _decodeJsonList(res.data);
+      return raw
+          .whereType<Map>()
+          .map(
+            (item) => ServiceChecklistCategoryModel.fromJson(
+              item.cast<String, dynamic>(),
+            ),
+          )
+          .toList(growable: false);
+    } on DioException catch (e) {
+      throw ApiException(
+        _formatDioError(e, 'No se pudieron cargar las categorías de checklist'),
+        e.response?.statusCode,
+      );
+    } on FormatException {
+      throw ApiException(
+        'Respuesta inválida del servidor al cargar categorías de checklist',
+      );
+    }
+  }
+
+  Future<List<ServiceChecklistPhaseModel>> listChecklistPhases() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.checklistPhases,
+        options: Options(responseType: ResponseType.plain),
+      );
+      final raw = _decodeJsonList(res.data);
+      return raw
+          .whereType<Map>()
+          .map(
+            (item) => ServiceChecklistPhaseModel.fromJson(
+              item.cast<String, dynamic>(),
+            ),
+          )
+          .toList(growable: false);
+    } on DioException catch (e) {
+      throw ApiException(
+        _formatDioError(e, 'No se pudieron cargar las fases de checklist'),
+        e.response?.statusCode,
+      );
+    } on FormatException {
+      throw ApiException(
+        'Respuesta inválida del servidor al cargar fases de checklist',
+      );
+    }
+  }
+
+  Future<List<ServiceChecklistTemplateModel>> listChecklistTemplates({
+    String? categoryId,
+    String? phaseId,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.checklistTemplates,
+        options: Options(responseType: ResponseType.plain),
+        queryParameters: {
+          if (categoryId != null && categoryId.trim().isNotEmpty)
+            'categoryId': categoryId.trim(),
+          if (phaseId != null && phaseId.trim().isNotEmpty)
+            'phaseId': phaseId.trim(),
+        },
+      );
+      final raw = _decodeJsonList(res.data);
+      return raw
+          .whereType<Map>()
+          .map(
+            (item) => ServiceChecklistTemplateModel.fromJson(
+              item.cast<String, dynamic>(),
+            ),
+          )
+          .toList(growable: false);
+    } on DioException catch (e) {
+      throw ApiException(
+        _formatDioError(e, 'No se pudieron cargar las plantillas de checklist'),
+        e.response?.statusCode,
+      );
+    } on FormatException {
+      throw ApiException(
+        'Respuesta inválida del servidor al cargar plantillas de checklist',
+      );
+    }
+  }
+
+  Future<ServiceChecklistCategoryModel> createChecklistCategory({
+    required String name,
+    String? code,
+  }) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.checklistCategory,
+        data: {
+          'name': name.trim(),
+          if (code != null && code.trim().isNotEmpty) 'code': code.trim(),
+        },
+        options: Options(responseType: ResponseType.plain),
+      );
+      return ServiceChecklistCategoryModel.fromJson(_decodeJsonMap(res.data));
+    } on DioException catch (e) {
+      throw ApiException(
+        _formatDioError(e, 'No se pudo crear la categoría de checklist'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<ServiceChecklistPhaseModel> createChecklistPhase({
+    required String name,
+    String? code,
+    int orderIndex = 0,
+  }) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.checklistPhase,
+        data: {
+          'name': name.trim(),
+          if (code != null && code.trim().isNotEmpty) 'code': code.trim(),
+          'orderIndex': orderIndex,
+        },
+        options: Options(responseType: ResponseType.plain),
+      );
+      return ServiceChecklistPhaseModel.fromJson(_decodeJsonMap(res.data));
+    } on DioException catch (e) {
+      throw ApiException(
+        _formatDioError(e, 'No se pudo crear la fase de checklist'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<void> createChecklistTemplate({
+    required String categoryId,
+    required String phaseId,
+    required String title,
+  }) async {
+    try {
+      await _dio.post(
+        ApiRoutes.checklistTemplate,
+        data: {
+          'categoryId': categoryId.trim(),
+          'phaseId': phaseId.trim(),
+          'title': title.trim(),
+        },
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _formatDioError(e, 'No se pudo crear el checklist'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<void> createChecklistItem({
+    required String templateId,
+    required String label,
+    bool isRequired = true,
+    int orderIndex = 0,
+  }) async {
+    try {
+      await _dio.post(
+        ApiRoutes.checklistItem,
+        data: {
+          'templateId': templateId.trim(),
+          'label': label.trim(),
+          'isRequired': isRequired,
+          'orderIndex': orderIndex,
+        },
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _formatDioError(e, 'No se pudo agregar el item al checklist'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<void> checkServiceChecklistItem({
+    required String itemId,
+    required bool isChecked,
+  }) async {
+    try {
+      await _dio.patch(
+        ApiRoutes.checklistItemCheck(itemId),
+        data: {'isChecked': isChecked},
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _formatDioError(e, 'No se pudo actualizar el checklist'),
+        e.response?.statusCode,
       );
     }
   }

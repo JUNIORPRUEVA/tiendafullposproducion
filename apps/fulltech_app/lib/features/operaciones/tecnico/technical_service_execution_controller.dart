@@ -33,6 +33,7 @@ class TechnicalExecutionState {
   final bool clientApproved;
   final Map<String, dynamic> checklistData;
   final Map<String, dynamic> phaseSpecificData;
+  final List<ServiceChecklistTemplateModel> dynamicChecklists;
 
   const TechnicalExecutionState({
     this.loading = false,
@@ -49,6 +50,7 @@ class TechnicalExecutionState {
     this.clientApproved = false,
     this.checklistData = const {},
     this.phaseSpecificData = const {},
+    this.dynamicChecklists = const [],
   });
 
   bool get hasService => service != null && service!.id.trim().isNotEmpty;
@@ -77,6 +79,7 @@ class TechnicalExecutionState {
     bool? clientApproved,
     Map<String, dynamic>? checklistData,
     Map<String, dynamic>? phaseSpecificData,
+    List<ServiceChecklistTemplateModel>? dynamicChecklists,
   }) {
     return TechnicalExecutionState(
       loading: loading ?? this.loading,
@@ -93,6 +96,7 @@ class TechnicalExecutionState {
       clientApproved: clientApproved ?? this.clientApproved,
       checklistData: checklistData ?? this.checklistData,
       phaseSpecificData: phaseSpecificData ?? this.phaseSpecificData,
+      dynamicChecklists: dynamicChecklists ?? this.dynamicChecklists,
     );
   }
 }
@@ -137,6 +141,29 @@ class TechnicalExecutionController
         .applyRealtimeService(service);
   }
 
+  String _resolveTechnicianId(ServiceModel service) {
+    final user = ref.read(authStateProvider).user;
+    final currentUserId = (user?.id ?? '').trim();
+    final currentUserRole = (user?.role ?? '').trim().toLowerCase();
+    if (currentUserRole == 'tecnico' && currentUserId.isNotEmpty) {
+      return currentUserId;
+    }
+
+    final directTechnicianId = (service.technicianId ?? '').trim();
+    if (directTechnicianId.isNotEmpty) {
+      return directTechnicianId;
+    }
+
+    for (final assignment in service.assignments) {
+      final assignedUserId = assignment.userId.trim();
+      if (assignedUserId.isNotEmpty) {
+        return assignedUserId;
+      }
+    }
+
+    return '';
+  }
+
   Future<void> load() async {
     if (state.loading) return;
     state = state.copyWith(loading: true, clearError: true);
@@ -154,6 +181,15 @@ class TechnicalExecutionController
         report: null,
         changes: [],
       );
+      ServiceChecklistBundleModel checklistBundle =
+          const ServiceChecklistBundleModel(
+            serviceId: '',
+            currentPhase: '',
+            orderState: '',
+            categoryCode: '',
+            categoryLabel: '',
+            templates: [],
+          );
       String? reportError;
       try {
         bundle = await repo.getExecutionReport(serviceId: serviceId);
@@ -161,6 +197,19 @@ class TechnicalExecutionController
         reportError = e.message;
       } catch (e) {
         reportError = e.toString();
+      }
+
+      try {
+        checklistBundle = await repo.getServiceChecklists(serviceId: serviceId);
+      } catch (_) {
+        checklistBundle = const ServiceChecklistBundleModel(
+          serviceId: '',
+          currentPhase: '',
+          orderState: '',
+          categoryCode: '',
+          categoryLabel: '',
+          templates: [],
+        );
       }
 
       final draft = userId.isEmpty
@@ -213,6 +262,7 @@ class TechnicalExecutionController
         clientApproved: clientApproved,
         checklistData: checklistData,
         phaseSpecificData: phaseSpecificData,
+        dynamicChecklists: checklistBundle.templates,
       );
     } catch (e) {
       state = state.copyWith(loading: false, error: e.toString());
@@ -317,6 +367,45 @@ class TechnicalExecutionController
     state = state.copyWith(checklistData: next);
     unawaited(_persistDraft());
     _debouncedSave();
+  }
+
+  Future<void> setDynamicChecklistItem(String itemId, bool value) async {
+    if (_readOnly) return;
+
+    final templates = state.dynamicChecklists;
+    if (templates.isEmpty) {
+      setChecklistItem(itemId, value);
+      return;
+    }
+
+    final updatedTemplates = templates
+        .map((template) {
+          final items = template.items
+              .map(
+                (item) => item.id == itemId
+                    ? item.copyWith(
+                        isChecked: value,
+                        checkedAt: value ? DateTime.now() : null,
+                      )
+                    : item,
+              )
+              .toList(growable: false);
+          return template.copyWith(items: items);
+        })
+        .toList(growable: false);
+
+    state = state.copyWith(dynamicChecklists: updatedTemplates, clearError: true);
+
+    try {
+      final repo = ref.read(operationsRepositoryProvider);
+      await repo.checkServiceChecklistItem(itemId: itemId, isChecked: value);
+    } on ApiException catch (e) {
+      state = state.copyWith(error: e.message);
+      await load();
+    } catch (e) {
+      state = state.copyWith(error: e.toString());
+      await load();
+    }
   }
 
   bool checklistValue(String key) {
@@ -462,6 +551,14 @@ class TechnicalExecutionController
 
     final service = state.service;
     if (service == null) return;
+    final technicianId = _resolveTechnicianId(service);
+    if (technicianId.isEmpty) {
+      state = state.copyWith(
+        savingReport: false,
+        error: 'Este servicio no tiene técnico asignado para guardar la firma.',
+      );
+      return;
+    }
 
     state = state.copyWith(savingReport: true, clearError: true);
 
@@ -469,6 +566,7 @@ class TechnicalExecutionController
       final repo = ref.read(operationsRepositoryProvider);
       final bundle = await repo.upsertExecutionReport(
         serviceId: serviceId,
+        technicianId: technicianId,
         phase: service.currentPhase,
         arrivedAt: state.arrivedAt,
         startedAt: state.startedAt,
@@ -504,8 +602,6 @@ class TechnicalExecutionController
     final next = orderState.trim().toLowerCase();
     if (next.isEmpty) return;
 
-    final tech = techStatus?.trim().toLowerCase();
-
     state = state.copyWith(savingUpdate: true, clearError: true);
     try {
       final repo = ref.read(operationsRepositoryProvider);
@@ -514,15 +610,6 @@ class TechnicalExecutionController
         orderState: next,
         message: message,
       );
-
-      final techId = (ref.read(authStateProvider).user?.id ?? '').trim();
-
-      final stateForHistory = (tech == null || tech.isEmpty) ? next : tech;
-      final logMsg = <String>[
-        'state=$stateForHistory',
-        if (stateForHistory != next) 'orderState=$next',
-        if (techId.isNotEmpty) 'technicianId=$techId',
-      ].join('|');
 
       // Nota: el backend ya registra `status_change` al cambiar el estado.
       // Evitamos crear updates extra con types no soportados.
@@ -927,7 +1014,7 @@ class TechnicalExecutionController
       if (e is ApiException) {
         state = state.copyWith(error: e.message);
         TraceLog.log('OpsTech', 'uploadEvidence failed', seq: seq, error: e);
-        throw e;
+        rethrow;
       } else {
         state = state.copyWith(error: e.toString());
         TraceLog.log('OpsTech', 'uploadEvidence failed', seq: seq, error: e);
@@ -1069,7 +1156,7 @@ class TechnicalExecutionController
       _markPendingFailed(id);
       if (e is ApiException) {
         state = state.copyWith(error: e.message);
-        throw e;
+        rethrow;
       } else {
         state = state.copyWith(error: e.toString());
         rethrow;
@@ -1187,7 +1274,7 @@ class TechnicalExecutionController
       _markPendingFailed(id);
       if (e is ApiException) {
         state = state.copyWith(error: e.message);
-        throw e;
+        rethrow;
       } else {
         state = state.copyWith(error: e.toString());
         rethrow;

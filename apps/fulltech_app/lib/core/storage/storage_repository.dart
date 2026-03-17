@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -22,7 +23,9 @@ class StorageRepository {
   Future<ServiceMediaModel> getById(String id) async {
     try {
       final res = await _dio.get(ApiRoutes.storageItem(id));
-      return ServiceMediaModel.fromJson((res.data as Map).cast<String, dynamic>());
+      return ServiceMediaModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo cargar el archivo'),
@@ -32,15 +35,42 @@ class StorageRepository {
   }
 
   String _extractMessage(dynamic data, String fallback) {
-    if (data is Map) {
-      final message = data['message'];
-      if (message is String && message.trim().isNotEmpty) return message;
-      if (message is List && message.isNotEmpty) {
-        final first = message.first;
-        if (first is String && first.trim().isNotEmpty) return first;
+    if (data is String) {
+      final raw = data.trim();
+      if (raw.isEmpty) return fallback;
+      try {
+        final decoded = jsonDecode(raw);
+        return _extractMessage(decoded, raw);
+      } catch (_) {
+        return raw;
       }
     }
+    if (data is Map) {
+      final message = data['message'];
+      if (message is String && message.trim().isNotEmpty) {
+        return _extractMessage(message, message.trim());
+      }
+      if (message is List && message.isNotEmpty) {
+        final parts = message
+            .map((item) => _extractMessage(item, '').trim())
+            .where((item) => item.isNotEmpty)
+            .toList(growable: false);
+        if (parts.isNotEmpty) return parts.join('\n');
+      }
+
+      final error = data['error'];
+      if (error is String && error.trim().isNotEmpty) return error.trim();
+    }
     return fallback;
+  }
+
+  bool _shouldRetryConfirm({
+    required int? statusCode,
+    required String message,
+  }) {
+    if (statusCode != 400) return false;
+    final normalized = message.toLowerCase();
+    return normalized.contains('filesize no coincide con el objeto subido');
   }
 
   /// 1) Solicita un URL presignado para subir directo a R2.
@@ -107,16 +137,15 @@ class StorageRepository {
       await direct.put(
         uploadUrl,
         data: bytes != null ? Uint8List.fromList(bytes) : stream,
-        options: Options(
-          headers: headers,
-          responseType: ResponseType.plain,
-        ),
+        options: Options(headers: headers, responseType: ResponseType.plain),
         onSendProgress: onProgress,
         cancelToken: cancelToken,
       );
     } on DioException catch (e) {
       final uri = e.requestOptions.uri;
-      final safeUrl = uri.hasQuery ? uri.replace(query: '').toString() : uri.toString();
+      final safeUrl = uri.hasQuery
+          ? uri.replace(query: '').toString()
+          : uri.toString();
       final hint = kIsWeb
           ? '\nWeb: esto suele ser CORS del bucket, Mixed Content (https->http), o headers prohibidos.'
           : '';
@@ -141,36 +170,58 @@ class StorageRepository {
     int? height,
     int? durationSeconds,
   }) async {
-    try {
-      final res = await _dio.post(
-        ApiRoutes.storageConfirm,
-        data: {
-          'serviceId': serviceId,
-          'objectKey': objectKey,
-          'publicUrl': publicUrl,
-          'fileName': fileName,
-          'mimeType': mimeType,
-          'fileSize': fileSize,
-          'kind': kind,
-          if (caption != null && caption.trim().isNotEmpty)
-            'caption': caption.trim(),
-          if (executionReportId != null && executionReportId.isNotEmpty)
-            'executionReportId': executionReportId,
-          if (width != null) 'width': width,
-          if (height != null) 'height': height,
-          if (durationSeconds != null) 'durationSeconds': durationSeconds,
-        },
-      );
+    final payload = {
+      'serviceId': serviceId,
+      'objectKey': objectKey,
+      'publicUrl': publicUrl,
+      'fileName': fileName,
+      'mimeType': mimeType,
+      'fileSize': fileSize,
+      'kind': kind,
+      if (caption != null && caption.trim().isNotEmpty)
+        'caption': caption.trim(),
+      if (executionReportId != null && executionReportId.isNotEmpty)
+        'executionReportId': executionReportId,
+      if (width != null) 'width': width,
+      if (height != null) 'height': height,
+      if (durationSeconds != null) 'durationSeconds': durationSeconds,
+    };
 
-      return ServiceMediaModel.fromJson(
-        (res.data as Map).cast<String, dynamic>(),
-      );
-    } on DioException catch (e) {
-      throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudo confirmar la subida'),
-        e.response?.statusCode,
-      );
+    const retryDelays = <Duration>[
+      Duration.zero,
+      Duration(milliseconds: 350),
+      Duration(milliseconds: 900),
+    ];
+
+    ApiException? lastError;
+
+    for (final delay in retryDelays) {
+      if (delay > Duration.zero) {
+        await Future.delayed(delay);
+      }
+
+      try {
+        final res = await _dio.post(ApiRoutes.storageConfirm, data: payload);
+
+        return ServiceMediaModel.fromJson(
+          (res.data as Map).cast<String, dynamic>(),
+        );
+      } on DioException catch (e) {
+        final message = _extractMessage(
+          e.response?.data,
+          'No se pudo confirmar la subida',
+        );
+        final statusCode = e.response?.statusCode;
+        final apiError = ApiException(message, statusCode);
+        lastError = apiError;
+
+        if (!_shouldRetryConfirm(statusCode: statusCode, message: message)) {
+          throw apiError;
+        }
+      }
     }
+
+    throw lastError ?? ApiException('No se pudo confirmar la subida');
   }
 
   /// 4) Lista archivos de un servicio (opcionalmente filtra por kind/mediaType).
