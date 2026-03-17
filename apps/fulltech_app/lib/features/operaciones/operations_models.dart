@@ -358,6 +358,8 @@ class ServiceModel {
   final String description;
   final String serviceType;
   final String category;
+  final String? categoryId;
+  final String? categoryName;
   final String status;
   final String currentPhase;
   final String orderType;
@@ -393,6 +395,8 @@ class ServiceModel {
     required this.description,
     required this.serviceType,
     required this.category,
+    this.categoryId,
+    this.categoryName,
     required this.status,
     required this.currentPhase,
     required this.orderType,
@@ -436,6 +440,8 @@ class ServiceModel {
     String? description,
     String? serviceType,
     String? category,
+    String? categoryId,
+    String? categoryName,
     String? status,
     String? currentPhase,
     String? orderType,
@@ -471,6 +477,8 @@ class ServiceModel {
       description: description ?? this.description,
       serviceType: serviceType ?? this.serviceType,
       category: category ?? this.category,
+      categoryId: categoryId ?? this.categoryId,
+      categoryName: categoryName ?? this.categoryName,
       status: status ?? this.status,
       currentPhase: currentPhase ?? this.currentPhase,
       orderType: orderType ?? this.orderType,
@@ -553,6 +561,8 @@ class ServiceModel {
       description: (json['description'] ?? '').toString(),
       serviceType: (json['serviceType'] ?? 'other').toString(),
       category: (json['category'] ?? '').toString(),
+        categoryId: json['categoryId']?.toString(),
+        categoryName: json['categoryName']?.toString(),
       status: (json['status'] ?? 'reserved').toString(),
       currentPhase: (json['currentPhase'] ?? json['phase'] ?? 'reserva')
           .toString(),
@@ -851,9 +861,47 @@ class ServiceChecklistItemModel {
   }
 }
 
+enum ServiceChecklistSectionType { herramientas, productos, instalacion }
+
+ServiceChecklistSectionType serviceChecklistSectionTypeFromRaw(dynamic raw) {
+  final value = (raw ?? '').toString().trim().toLowerCase();
+  switch (value) {
+    case 'herramientas':
+      return ServiceChecklistSectionType.herramientas;
+    case 'productos':
+      return ServiceChecklistSectionType.productos;
+    case 'instalacion':
+    default:
+      return ServiceChecklistSectionType.instalacion;
+  }
+}
+
+String serviceChecklistSectionTypeCode(ServiceChecklistSectionType type) {
+  switch (type) {
+    case ServiceChecklistSectionType.herramientas:
+      return 'herramientas';
+    case ServiceChecklistSectionType.productos:
+      return 'productos';
+    case ServiceChecklistSectionType.instalacion:
+      return 'instalacion';
+  }
+}
+
+String serviceChecklistSectionTypeLabel(ServiceChecklistSectionType type) {
+  switch (type) {
+    case ServiceChecklistSectionType.herramientas:
+      return 'Herramientas';
+    case ServiceChecklistSectionType.productos:
+      return 'Productos';
+    case ServiceChecklistSectionType.instalacion:
+      return 'Instalación';
+  }
+}
+
 class ServiceChecklistTemplateModel {
   final String id;
   final String templateId;
+  final ServiceChecklistSectionType type;
   final String title;
   final ServiceChecklistCategoryModel category;
   final ServiceChecklistPhaseModel phase;
@@ -862,6 +910,7 @@ class ServiceChecklistTemplateModel {
   const ServiceChecklistTemplateModel({
     required this.id,
     required this.templateId,
+    required this.type,
     required this.title,
     required this.category,
     required this.phase,
@@ -873,6 +922,7 @@ class ServiceChecklistTemplateModel {
     return ServiceChecklistTemplateModel(
       id: (json['id'] ?? '').toString(),
       templateId: (json['templateId'] ?? '').toString(),
+      type: serviceChecklistSectionTypeFromRaw(json['type']),
       title: (json['title'] ?? '').toString(),
       category: ServiceChecklistCategoryModel.fromJson(
         (json['category'] as Map?)?.cast<String, dynamic>() ?? const {},
@@ -899,6 +949,7 @@ class ServiceChecklistTemplateModel {
     return ServiceChecklistTemplateModel(
       id: id,
       templateId: templateId,
+      type: type,
       title: title,
       category: category,
       phase: phase,
@@ -928,22 +979,26 @@ class ServiceChecklistBundleModel {
     final category =
         (json['category'] as Map?)?.cast<String, dynamic>() ?? const {};
     final rawTemplates = json['templates'];
+    List<ServiceChecklistTemplateModel> parseTemplates(dynamic raw) {
+      if (raw is! List) return const [];
+      return raw
+          .whereType<Map>()
+          .map(
+            (item) => ServiceChecklistTemplateModel.fromJson(
+              item.cast<String, dynamic>(),
+            ),
+          )
+          .toList(growable: false);
+    }
+
+    final templates = parseTemplates(rawTemplates);
     return ServiceChecklistBundleModel(
       serviceId: (json['serviceId'] ?? '').toString(),
       currentPhase: (json['currentPhase'] ?? '').toString(),
       orderState: (json['orderState'] ?? '').toString(),
       categoryCode: (category['code'] ?? '').toString(),
       categoryLabel: (category['label'] ?? '').toString(),
-      templates: rawTemplates is List
-          ? rawTemplates
-                .whereType<Map>()
-                .map(
-                  (item) => ServiceChecklistTemplateModel.fromJson(
-                    item.cast<String, dynamic>(),
-                  ),
-                )
-                .toList(growable: false)
-          : const [],
+      templates: templates,
     );
   }
 }

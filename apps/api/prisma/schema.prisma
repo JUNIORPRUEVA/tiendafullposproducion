@@ -148,6 +148,12 @@ enum ServicePhaseType {
   GARANTIA
 }
 
+enum ChecklistTemplateType {
+  HERRAMIENTAS
+  PRODUCTOS
+  INSTALACION
+}
+
 // Admin-only conceptual model (does NOT replace ServiceStatus/OrderState/ServicePhaseType).
 // Used to keep panel administrativo consistent without breaking técnico.
 enum AdminOrderPhase {
@@ -306,7 +312,7 @@ model User {
   uploadedServiceFiles ServiceFile[]
   serviceExecutionReports ServiceExecutionReport[]
   serviceExecutionChanges ServiceExecutionChange[]
-  checkedServiceChecklistItems ServiceChecklistItem[] @relation("ServiceChecklistItemCheckedBy")
+  checklistExecutionsChecked ChecklistExecution[] @relation("ChecklistExecutionCheckedBy")
   cotizaciones Cotizacion[]
   location UserLocation?
 
@@ -427,6 +433,7 @@ model ServiceCategory {
   createdAt DateTime            @default(now()) @map("created_at")
   updatedAt DateTime            @updatedAt @map("updated_at")
 
+  services  Service[]
   templates ChecklistTemplate[]
 
   @@index([name])
@@ -452,6 +459,7 @@ model ChecklistTemplate {
   id         String            @id @default(uuid()) @db.Uuid
   categoryId String            @db.Uuid @map("category_id")
   phaseId    String            @db.Uuid @map("phase_id")
+  type       ChecklistTemplateType
   title      String
   createdAt  DateTime          @default(now()) @map("created_at")
   updatedAt  DateTime          @updatedAt @map("updated_at")
@@ -459,11 +467,12 @@ model ChecklistTemplate {
   category   ServiceCategory   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   phase      ServicePhase      @relation(fields: [phaseId], references: [id], onDelete: Cascade)
   items      ChecklistItem[]
-  checklists ServiceChecklist[]
+  executions ChecklistExecution[]
 
-  @@unique([categoryId, phaseId, title])
+  @@unique([categoryId, phaseId, type])
   @@index([categoryId])
   @@index([phaseId])
+  @@index([categoryId, phaseId])
   @@map("checklist_templates")
 }
 
@@ -477,49 +486,35 @@ model ChecklistItem {
   updatedAt  DateTime               @updatedAt @map("updated_at")
 
   template   ChecklistTemplate      @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  instances  ServiceChecklistItem[]
+  executions ChecklistExecution[]
 
   @@index([templateId])
   @@index([templateId, orderIndex])
   @@map("checklist_items")
 }
 
-model ServiceChecklist {
-  id             String                 @id @default(uuid()) @db.Uuid
-  serviceOrderId String                 @db.Uuid @map("service_order_id")
-  templateId     String                 @db.Uuid @map("template_id")
-  createdAt      DateTime               @default(now()) @map("created_at")
-  updatedAt      DateTime               @updatedAt @map("updated_at")
+model ChecklistExecution {
+  id              String            @id @default(uuid()) @db.Uuid
+  serviceOrderId  String            @db.Uuid @map("service_order_id")
+  templateId      String            @db.Uuid @map("template_id")
+  checklistItemId String            @db.Uuid @map("checklist_item_id")
+  isChecked       Boolean           @default(false) @map("is_checked")
+  checkedAt       DateTime?         @map("checked_at")
+  checkedByUserId String?           @db.Uuid @map("checked_by")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
 
-  service        Service                @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
-  template       ChecklistTemplate      @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  items          ServiceChecklistItem[]
+  service         Service           @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  template        ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  checklistItem   ChecklistItem     @relation(fields: [checklistItemId], references: [id], onDelete: Cascade)
+  checkedBy       User?             @relation("ChecklistExecutionCheckedBy", fields: [checkedByUserId], references: [id], onDelete: SetNull)
 
-  @@unique([serviceOrderId, templateId])
+  @@unique([serviceOrderId, checklistItemId])
   @@index([serviceOrderId])
   @@index([templateId])
-  @@map("service_checklists")
-}
-
-model ServiceChecklistItem {
-  id              String           @id @default(uuid()) @db.Uuid
-  checklistId     String           @db.Uuid @map("checklist_id")
-  checklistItemId String           @db.Uuid @map("checklist_item_id")
-  isChecked       Boolean          @default(false) @map("is_checked")
-  checkedAt       DateTime?        @map("checked_at")
-  checkedByUserId String?          @db.Uuid @map("checked_by")
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
-
-  checklist       ServiceChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
-  checklistItem   ChecklistItem    @relation(fields: [checklistItemId], references: [id], onDelete: Cascade)
-  checkedBy       User?            @relation("ServiceChecklistItemCheckedBy", fields: [checkedByUserId], references: [id], onDelete: SetNull)
-
-  @@unique([checklistId, checklistItemId])
-  @@index([checklistId])
   @@index([checklistItemId])
   @@index([checkedByUserId])
-  @@map("service_checklist_items")
+  @@map("checklist_executions")
 }
 
 model NotificationOutbox {
@@ -871,6 +866,7 @@ model Service {
   createdByUserId         String        @db.Uuid
   serviceType             ServiceType
   category                String
+  categoryId              String?       @db.Uuid @map("category_id")
   status                  ServiceStatus @default(RESERVED)
   currentPhase             ServicePhaseType @default(RESERVA)
   orderType               OrderType     @default(RESERVA)
@@ -899,6 +895,7 @@ model Service {
   isDeleted               Boolean       @default(false)
 
   customer Client   @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  categoryRef ServiceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   createdBy User    @relation("ServiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   technician User?  @relation("ServiceTechnician", fields: [technicianId], references: [id], onDelete: SetNull)
   warrantyParent Service?  @relation("WarrantyParent", fields: [warrantyParentServiceId], references: [id], onDelete: SetNull)
@@ -910,7 +907,7 @@ model Service {
   phaseHistory ServicePhaseHistory[]
   executionReports ServiceExecutionReport[]
   executionChanges ServiceExecutionChange[]
-  checklists ServiceChecklist[]
+  checklistExecutions ChecklistExecution[]
 
   closing ServiceClosing?
   technicalVisit TechnicalVisit? @relation("ServiceTechnicalVisit")
@@ -921,6 +918,7 @@ model Service {
   @@index([createdByUserId])
   @@index([serviceType])
   @@index([status])
+  @@index([categoryId])
   @@index([currentPhase])
   @@index([orderType])
   @@index([orderState])

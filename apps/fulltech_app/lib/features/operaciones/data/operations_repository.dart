@@ -735,10 +735,11 @@ class OperationsRepository {
   Future<ServiceModel> createService({
     required String customerId,
     required String serviceType,
-    required String category,
+    required String categoryId,
     required int priority,
     required String title,
     required String description,
+    String? category,
     String? addressSnapshot,
     double? quotedAmount,
     double? depositAmount,
@@ -759,7 +760,9 @@ class OperationsRepository {
         data: {
           'customerId': customerId,
           'serviceType': serviceType,
-          'category': category,
+          'categoryId': categoryId,
+          if (category != null && category.trim().isNotEmpty)
+            'category': category.trim(),
           'priority': priority,
           'title': title,
           'description': description,
@@ -1180,56 +1183,11 @@ class OperationsRepository {
     }
   }
 
-  Future<ServiceChecklistCategoryModel> createChecklistCategory({
-    required String name,
-    String? code,
-  }) async {
-    try {
-      final res = await _dio.post(
-        ApiRoutes.checklistCategory,
-        data: {
-          'name': name.trim(),
-          if (code != null && code.trim().isNotEmpty) 'code': code.trim(),
-        },
-        options: Options(responseType: ResponseType.plain),
-      );
-      return ServiceChecklistCategoryModel.fromJson(_decodeJsonMap(res.data));
-    } on DioException catch (e) {
-      throw ApiException(
-        _formatDioError(e, 'No se pudo crear la categoría de checklist'),
-        e.response?.statusCode,
-      );
-    }
-  }
-
-  Future<ServiceChecklistPhaseModel> createChecklistPhase({
-    required String name,
-    String? code,
-    int orderIndex = 0,
-  }) async {
-    try {
-      final res = await _dio.post(
-        ApiRoutes.checklistPhase,
-        data: {
-          'name': name.trim(),
-          if (code != null && code.trim().isNotEmpty) 'code': code.trim(),
-          'orderIndex': orderIndex,
-        },
-        options: Options(responseType: ResponseType.plain),
-      );
-      return ServiceChecklistPhaseModel.fromJson(_decodeJsonMap(res.data));
-    } on DioException catch (e) {
-      throw ApiException(
-        _formatDioError(e, 'No se pudo crear la fase de checklist'),
-        e.response?.statusCode,
-      );
-    }
-  }
-
   Future<void> createChecklistTemplate({
     required String categoryId,
     required String phaseId,
-    required String title,
+    required ServiceChecklistSectionType type,
+    String? title,
   }) async {
     try {
       await _dio.post(
@@ -1237,7 +1195,8 @@ class OperationsRepository {
         data: {
           'categoryId': categoryId.trim(),
           'phaseId': phaseId.trim(),
-          'title': title.trim(),
+          'type': serviceChecklistSectionTypeCode(type),
+          if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
         },
       );
     } on DioException catch (e) {

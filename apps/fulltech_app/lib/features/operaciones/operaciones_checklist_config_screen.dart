@@ -19,6 +19,12 @@ class OperacionesChecklistConfigScreen extends ConsumerStatefulWidget {
 
 class _OperacionesChecklistConfigScreenState
     extends ConsumerState<OperacionesChecklistConfigScreen> {
+  static const List<ServiceChecklistSectionType> _sectionTypes = [
+    ServiceChecklistSectionType.herramientas,
+    ServiceChecklistSectionType.productos,
+    ServiceChecklistSectionType.instalacion,
+  ];
+
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -140,75 +146,23 @@ class _OperacionesChecklistConfigScreenState
     }
   }
 
-  Future<void> _createCategory() async {
-    final payload = await _showNameCodeDialog(
-      title: 'Nueva categoría',
-      nameLabel: 'Nombre de categoría',
-      nameHint: 'Ej. Cámaras',
-      codeHint: 'Ej. camaras',
-    );
-    if (payload == null) return;
-
-    await _withSaving(() async {
-      final created = await ref.read(operationsRepositoryProvider).createChecklistCategory(
-            name: payload.name,
-            code: payload.code,
-          );
-      await _loadAll(preserveSelection: false);
-      if (!mounted) return;
-      setState(() => _selectedCategoryId = created.id);
-      await _reloadTemplates();
-      _showMessage('Categoría creada');
-    });
-  }
-
-  Future<void> _createPhase() async {
-    final payload = await _showNameCodeDialog(
-      title: 'Nueva fase',
-      nameLabel: 'Nombre de fase',
-      nameHint: 'Ej. Herramientas',
-      codeHint: 'Ej. herramientas',
-      askOrder: true,
-    );
-    if (payload == null) return;
-
-    await _withSaving(() async {
-      final created = await ref.read(operationsRepositoryProvider).createChecklistPhase(
-            name: payload.name,
-            code: payload.code,
-            orderIndex: payload.orderIndex,
-          );
-      await _loadAll(preserveSelection: false);
-      if (!mounted) return;
-      setState(() => _selectedPhaseId = created.id);
-      await _reloadTemplates();
-      _showMessage('Fase creada');
-    });
-  }
-
-  Future<void> _createChecklist() async {
+  Future<void> _createChecklist(ServiceChecklistSectionType type) async {
     final categoryId = _selectedCategoryId;
     final phaseId = _selectedPhaseId;
     if (categoryId == null || phaseId == null) {
-      _showMessage('Primero crea y selecciona una categoría y una fase');
+      _showMessage('Primero selecciona una categoría y una fase');
       return;
     }
-
-    final title = await _showSingleFieldDialog(
-      title: 'Crear checklist',
-      label: 'Nombre del checklist',
-      hint: 'Ej. Preparación del kit',
-    );
-    if (title == null) return;
 
     await _withSaving(() async {
       await ref.read(operationsRepositoryProvider).createChecklistTemplate(
             categoryId: categoryId,
             phaseId: phaseId,
-            title: title,
+            type: type,
+            title: serviceChecklistSectionTypeLabel(type),
           );
       await _reloadTemplates();
-      _showMessage('Checklist creado');
+      _showMessage('${serviceChecklistSectionTypeLabel(type)} lista para editar');
     });
   }
 
@@ -221,138 +175,25 @@ class _OperacionesChecklistConfigScreenState
             templateId: template.id,
             label: payload.label,
             isRequired: payload.isRequired,
-            orderIndex: template.items.length,
+            orderIndex: payload.orderIndex,
           );
       await _reloadTemplates();
       _showMessage('Ítem agregado');
     });
   }
 
-  Future<_NameCodePayload?> _showNameCodeDialog({
-    required String title,
-    required String nameLabel,
-    required String nameHint,
-    required String codeHint,
-    bool askOrder = false,
-  }) async {
-    final nameCtrl = TextEditingController();
-    final codeCtrl = TextEditingController();
-    final orderCtrl = TextEditingController(text: '0');
-
-    final result = await showModalBottomSheet<_NameCodePayload>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return _ChecklistFormSheet(
-          title: title,
-          child: Column(
-            children: [
-              TextField(
-                controller: nameCtrl,
-                textCapitalization: TextCapitalization.words,
-                decoration: InputDecoration(
-                  labelText: nameLabel,
-                  hintText: nameHint,
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: codeCtrl,
-                decoration: InputDecoration(
-                  labelText: 'Código',
-                  hintText: codeHint,
-                ),
-              ),
-              if (askOrder) ...[
-                const SizedBox(height: 12),
-                TextField(
-                  controller: orderCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Orden visual',
-                    hintText: '0',
-                  ),
-                ),
-              ],
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () {
-                    final name = nameCtrl.text.trim();
-                    if (name.isEmpty) return;
-                    Navigator.pop(
-                      context,
-                      _NameCodePayload(
-                        name: name,
-                        code: codeCtrl.text.trim(),
-                        orderIndex: int.tryParse(orderCtrl.text.trim()) ?? 0,
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.save_outlined),
-                  label: const Text('Guardar'),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    nameCtrl.dispose();
-    codeCtrl.dispose();
-    orderCtrl.dispose();
-    return result;
-  }
-
-  Future<String?> _showSingleFieldDialog({
-    required String title,
-    required String label,
-    required String hint,
-  }) async {
-    final ctrl = TextEditingController();
-    final result = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return _ChecklistFormSheet(
-          title: title,
-          child: Column(
-            children: [
-              TextField(
-                controller: ctrl,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: InputDecoration(labelText: label, hintText: hint),
-              ),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () {
-                    final value = ctrl.text.trim();
-                    if (value.isEmpty) return;
-                    Navigator.pop(context, value);
-                  },
-                  icon: const Icon(Icons.add_circle_outline),
-                  label: const Text('Crear checklist'),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-    ctrl.dispose();
-    return result;
+  ServiceChecklistTemplateModel? _templateForType(
+    ServiceChecklistSectionType type,
+  ) {
+    for (final template in _templates) {
+      if (template.type == type) return template;
+    }
+    return null;
   }
 
   Future<_CreateItemPayload?> _showCreateItemDialog(String checklistTitle) async {
     final labelCtrl = TextEditingController();
+    final orderCtrl = TextEditingController(text: '0');
     var isRequired = true;
 
     final result = await showModalBottomSheet<_CreateItemPayload>(
@@ -377,6 +218,15 @@ class _OperacionesChecklistConfigScreenState
                     ),
                   ),
                   const SizedBox(height: 10),
+                  TextField(
+                    controller: orderCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Orden visual',
+                      hintText: '0',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Ítem obligatorio'),
@@ -398,6 +248,7 @@ class _OperacionesChecklistConfigScreenState
                           _CreateItemPayload(
                             label: label,
                             isRequired: isRequired,
+                            orderIndex: int.tryParse(orderCtrl.text.trim()) ?? 0,
                           ),
                         );
                       },
@@ -414,6 +265,7 @@ class _OperacionesChecklistConfigScreenState
     );
 
     labelCtrl.dispose();
+    orderCtrl.dispose();
     return result;
   }
 
@@ -431,6 +283,10 @@ class _OperacionesChecklistConfigScreenState
           (item) => item?.id == _selectedCategoryId,
           orElse: () => null,
         );
+    final selectedPhase = _phases.cast<ServiceChecklistPhaseModel?>().firstWhere(
+          (item) => item?.id == _selectedPhaseId,
+          orElse: () => null,
+        );
 
     return Scaffold(
       appBar: AppBar(
@@ -444,19 +300,6 @@ class _OperacionesChecklistConfigScreenState
           ),
         ],
       ),
-      floatingActionButton: _canManage
-          ? FloatingActionButton.extended(
-              onPressed: _saving ? null : _createChecklist,
-              icon: _saving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.playlist_add_rounded),
-              label: const Text('Crear checklist'),
-            )
-          : null,
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -479,8 +322,6 @@ class _OperacionesChecklistConfigScreenState
                       categoriesCount: _categories.length,
                       phasesCount: _phases.length,
                       templatesCount: _templates.length,
-                      onCreateCategory: _saving ? null : _createCategory,
-                      onCreatePhase: _saving ? null : _createPhase,
                     ),
                     const SizedBox(height: 16),
                     _FilterCard(
@@ -505,20 +346,25 @@ class _OperacionesChecklistConfigScreenState
                         padding: EdgeInsets.symmetric(vertical: 32),
                         child: Center(child: CircularProgressIndicator()),
                       ),
-                    if (!_loading && _error == null && _templates.isEmpty)
-                      _EmptyChecklistCard(
-                        categoryLabel: selectedCategory?.name,
-                        onCreateChecklist: _saving ? null : _createChecklist,
-                      ),
-                    if (!_loading && _templates.isNotEmpty)
-                      ..._templates.map(
-                        (template) => Padding(
+                    if (!_loading && _error == null && selectedCategory != null && selectedPhase != null)
+                      ..._sectionTypes.map(
+                        (type) => Padding(
                           padding: const EdgeInsets.only(bottom: 14),
-                          child: _ChecklistTemplateAdminCard(
-                            template: template,
-                            onAddItem: _saving ? null : () => _createItem(template),
+                          child: _ChecklistSectionAdminCard(
+                            type: type,
+                            categoryLabel: selectedCategory.name,
+                            phaseLabel: selectedPhase.name,
+                            template: _templateForType(type),
+                            busy: _saving,
+                            onCreateSection: () => _createChecklist(type),
+                            onAddItem: (template) => _createItem(template),
                           ),
                         ),
+                      ),
+                    if (!_loading && _error == null && (selectedCategory == null || selectedPhase == null))
+                      const _EmptyChecklistCard(
+                        categoryLabel: null,
+                        onCreateChecklist: null,
                       ),
                   ],
                 ),
@@ -572,15 +418,11 @@ class _AdminHeroCard extends StatelessWidget {
   final int categoriesCount;
   final int phasesCount;
   final int templatesCount;
-  final VoidCallback? onCreateCategory;
-  final VoidCallback? onCreatePhase;
 
   const _AdminHeroCard({
     required this.categoriesCount,
     required this.phasesCount,
     required this.templatesCount,
-    required this.onCreateCategory,
-    required this.onCreatePhase,
   });
 
   @override
@@ -616,7 +458,7 @@ class _AdminHeroCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Administra categorías, fases, plantillas e ítems desde una sola vista. El técnico recibe solo lo que necesita en cada paso.',
+            'Las categorías y fases se leen directamente desde Operaciones. Aquí solo eliges la combinación correcta y configuras Herramientas, Productos e Instalación.',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: Colors.white.withValues(alpha: 0.88),
               fontWeight: FontWeight.w600,
@@ -629,24 +471,7 @@ class _AdminHeroCard extends StatelessWidget {
             children: [
               _StatPill(label: 'Categorías', value: '$categoriesCount'),
               _StatPill(label: 'Fases', value: '$phasesCount'),
-              _StatPill(label: 'Checklists', value: '$templatesCount'),
-            ],
-          ),
-          const SizedBox(height: 18),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              FilledButton.tonalIcon(
-                onPressed: onCreateCategory,
-                icon: const Icon(Icons.category_outlined),
-                label: const Text('Nueva categoría'),
-              ),
-              FilledButton.tonalIcon(
-                onPressed: onCreatePhase,
-                icon: const Icon(Icons.layers_outlined),
-                label: const Text('Nueva fase'),
-              ),
+              _StatPill(label: 'Secciones activas', value: '$templatesCount'),
             ],
           ),
         ],
@@ -700,7 +525,7 @@ class _FilterCard extends StatelessWidget {
   final String? selectedCategoryId;
   final String? selectedPhaseId;
   final ValueChanged<String?> onCategoryChanged;
-  final ValueChanged<String> onPhaseChanged;
+  final ValueChanged<String?> onPhaseChanged;
 
   const _FilterCard({
     required this.categories,
@@ -750,21 +575,60 @@ class _FilterCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: phases
+          DropdownButtonFormField<String>(
+            initialValue: selectedPhaseId,
+            items: phases
                 .map(
-                  (phase) => ChoiceChip(
-                    label: Text(phase.name),
-                    selected: phase.id == selectedPhaseId,
-                    onSelected: (_) => onPhaseChanged(phase.id),
+                  (phase) => DropdownMenuItem<String>(
+                    value: phase.id,
+                    child: Text(phase.name),
                   ),
                 )
                 .toList(growable: false),
+            onChanged: onPhaseChanged,
+            decoration: const InputDecoration(
+              labelText: 'Fase operativa',
+              prefixIcon: Icon(Icons.layers_outlined),
+            ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ChecklistSectionAdminCard extends StatelessWidget {
+  final ServiceChecklistSectionType type;
+  final String categoryLabel;
+  final String phaseLabel;
+  final ServiceChecklistTemplateModel? template;
+  final bool busy;
+  final VoidCallback onCreateSection;
+  final ValueChanged<ServiceChecklistTemplateModel> onAddItem;
+
+  const _ChecklistSectionAdminCard({
+    required this.type,
+    required this.categoryLabel,
+    required this.phaseLabel,
+    required this.template,
+    required this.busy,
+    required this.onCreateSection,
+    required this.onAddItem,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (template == null) {
+      return _EmptyChecklistCard(
+        categoryLabel:
+            '$categoryLabel · $phaseLabel · ${serviceChecklistSectionTypeLabel(type)}',
+        onCreateChecklist: busy ? null : onCreateSection,
+      );
+    }
+
+    return _ChecklistTemplateAdminCard(
+      template: template!,
+      onAddItem: busy ? null : () => onAddItem(template!),
     );
   }
 }
@@ -807,7 +671,7 @@ class _ChecklistTemplateAdminCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      template.title,
+                      serviceChecklistSectionTypeLabel(template.type),
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w900,
                       ),
@@ -819,6 +683,7 @@ class _ChecklistTemplateAdminCard extends StatelessWidget {
                       children: [
                         _MetaChip(label: template.category.name),
                         _MetaChip(label: template.phase.name),
+                        _MetaChip(label: template.title),
                         _MetaChip(label: '${template.items.length} ítems'),
                       ],
                     ),
@@ -959,7 +824,9 @@ class _EmptyChecklistCard extends StatelessWidget {
           Icon(Icons.playlist_remove_outlined, size: 42, color: cs.primary),
           const SizedBox(height: 12),
           Text(
-            'No hay checklists para ${categoryLabel ?? 'esta selección'}.',
+            categoryLabel == null
+                ? 'Selecciona una categoría y una fase para empezar.'
+                : 'No hay sección creada para $categoryLabel.',
             textAlign: TextAlign.center,
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w900,
@@ -967,19 +834,23 @@ class _EmptyChecklistCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Crea un checklist para empezar a controlar herramientas, productos, instalación o cierre.',
+            categoryLabel == null
+                ? 'El checklist siempre se configura usando la metadata existente del módulo de Operaciones.'
+                : 'Crea esta sección para empezar a controlar herramientas, productos o instalación sin duplicar categorías ni fases.',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: cs.onSurfaceVariant,
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: onCreateChecklist,
-            icon: const Icon(Icons.add_circle_outline),
-            label: const Text('Crear checklist'),
-          ),
+          if (onCreateChecklist != null) ...[
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: onCreateChecklist,
+              icon: const Icon(Icons.add_circle_outline),
+              label: const Text('Crear sección'),
+            ),
+          ],
         ],
       ),
     );
@@ -1090,21 +961,14 @@ class _ChecklistFormSheet extends StatelessWidget {
   }
 }
 
-class _NameCodePayload {
-  final String name;
-  final String code;
-  final int orderIndex;
-
-  const _NameCodePayload({
-    required this.name,
-    required this.code,
-    required this.orderIndex,
-  });
-}
-
 class _CreateItemPayload {
   final String label;
   final bool isRequired;
+  final int orderIndex;
 
-  const _CreateItemPayload({required this.label, required this.isRequired});
+  const _CreateItemPayload({
+    required this.label,
+    required this.isRequired,
+    required this.orderIndex,
+  });
 }

@@ -1064,7 +1064,8 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
         .createReservation(
           customerId: draft.customerId,
           serviceType: draft.serviceType,
-          category: draft.category,
+          categoryId: draft.categoryId,
+          category: draft.categoryCode,
           priority: draft.priority,
           title: draft.title,
           description: draft.description,
@@ -1709,7 +1710,8 @@ class _OperacionesAgendaScreenState
           .createReservation(
             customerId: draft.customerId,
             serviceType: draft.serviceType,
-            category: draft.category,
+            categoryId: draft.categoryId,
+            category: draft.categoryCode,
             priority: draft.priority,
             title: draft.title,
             description: draft.description,
@@ -1793,7 +1795,8 @@ class _OperacionesAgendaScreenState
           .createReservation(
             customerId: draft.customerId,
             serviceType: draft.serviceType,
-            category: draft.category,
+            categoryId: draft.categoryId,
+            category: draft.categoryCode,
             priority: draft.priority,
             title: draft.title,
             description: draft.description,
@@ -7577,7 +7580,8 @@ class _AgendaTab extends StatelessWidget {
 class _CreateServiceDraft {
   final String customerId;
   final String serviceType;
-  final String category;
+  final String categoryId;
+  final String categoryCode;
   final int priority;
   final DateTime? reservationAt;
   final String title;
@@ -7600,7 +7604,8 @@ class _CreateServiceDraft {
   _CreateServiceDraft({
     required this.customerId,
     required this.serviceType,
-    required this.category,
+    required this.categoryId,
+    required this.categoryCode,
     required this.priority,
     this.reservationAt,
     required this.title,
@@ -7665,13 +7670,15 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   final _finalCostCtrl = TextEditingController();
 
   late String _serviceType;
-  late String _category;
+  late String _categoryId;
   late int _priority;
   late String _orderState;
   String? _technicianId;
   bool _priorityTouched = false;
   bool _loadingTechnicians = false;
+  bool _loadingCategories = false;
   List<TechnicianModel> _technicians = const [];
+  List<ServiceChecklistCategoryModel> _categories = const [];
   String? _customerId;
   String? _customerName;
   String? _customerPhone;
@@ -7731,11 +7738,14 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   void initState() {
     super.initState();
     _serviceType = widget.initialServiceType;
-    _category = 'cameras';
+    _categoryId = '';
     _priority = 1;
     _orderState = 'pendiente';
     _applyDefaultsForKind(widget.agendaKind, kindChanged: true);
-    Future.microtask(_loadTechnicians);
+    Future.microtask(() async {
+      await _loadTechnicians();
+      await _loadCategories();
+    });
   }
 
   @override
@@ -7871,6 +7881,45 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       // Silencioso: el formulario funciona igual sin dropdown.
     } finally {
       if (mounted) setState(() => _loadingTechnicians = false);
+    }
+  }
+
+  String _defaultCategoryId(List<ServiceChecklistCategoryModel> items) {
+    for (final item in items) {
+      if (item.code.trim().toLowerCase() == 'cameras') return item.id;
+    }
+    return items.first.id;
+  }
+
+  ServiceChecklistCategoryModel? get _selectedCategory {
+    final selectedId = _categoryId.trim();
+    for (final item in _categories) {
+      if (item.id == selectedId) return item;
+    }
+    return null;
+  }
+
+  Future<void> _loadCategories() async {
+    if (_loadingCategories) return;
+    setState(() => _loadingCategories = true);
+    try {
+      final items = await ref
+          .read(operationsRepositoryProvider)
+          .listChecklistCategories();
+      if (!mounted) return;
+      setState(() {
+        _categories = items;
+        if (items.isEmpty) {
+          _categoryId = '';
+        } else if (!items.any((item) => item.id == _categoryId)) {
+          _categoryId = _defaultCategoryId(items);
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _categories = const []);
+    } finally {
+      if (mounted) setState(() => _loadingCategories = false);
     }
   }
 
@@ -8025,6 +8074,11 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   }
 
   String _categoryLabel(String raw) {
+    final lookup = raw.trim();
+    for (final item in _categories) {
+      if (item.id == lookup || item.code == lookup) return item.name;
+    }
+
     switch (raw.trim().toLowerCase()) {
       case 'cameras':
         return 'Cámaras';
@@ -8537,29 +8591,37 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           },
         );
 
+        final selectedCategory = _selectedCategory;
+        final selectedCategoryId = _categories.any((item) => item.id == _categoryId)
+            ? _categoryId
+            : null;
+
         final categoryField = DropdownButtonFormField<String>(
-          initialValue: _category,
+          initialValue: selectedCategoryId,
           isExpanded: true,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
             labelText: 'Categoría',
+            helperText: _loadingCategories
+                ? 'Cargando categorías...'
+                : (_categories.isEmpty
+                      ? 'No hay categorías disponibles todavía.'
+                      : selectedCategory?.code),
           ),
-          items: const [
-            DropdownMenuItem(value: 'cameras', child: Text('Cámaras')),
-            DropdownMenuItem(
-              value: 'gate_motor',
-              child: Text('Motores de puertones'),
-            ),
-            DropdownMenuItem(value: 'alarm', child: Text('Alarma')),
-            DropdownMenuItem(
-              value: 'electric_fence',
-              child: Text('Cerco eléctrico'),
-            ),
-            DropdownMenuItem(value: 'intercom', child: Text('Intercom')),
-            DropdownMenuItem(value: 'pos', child: Text('Punto de ventas')),
-          ],
+          items: _categories
+              .map(
+                (item) => DropdownMenuItem(
+                  value: item.id,
+                  child: Text(item.name),
+                ),
+              )
+              .toList(growable: false),
+          validator: (_) {
+            if (_categoryId.trim().isEmpty) return 'Requerido';
+            return null;
+          },
           onChanged: (value) {
-            if (value != null) setState(() => _category = value);
+            if (value != null) setState(() => _categoryId = value);
           },
         );
 
@@ -9917,7 +9979,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       return;
     }
 
-    if (_category.trim().isEmpty) {
+    final selectedCategory = _selectedCategory;
+    if (selectedCategory == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('La categoría es requerida')),
       );
@@ -10018,7 +10081,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       }
 
       final title =
-          '${_serviceTypeLabel(_serviceType)} · ${_categoryLabel(_category)}';
+          '${_serviceTypeLabel(_serviceType)} · ${selectedCategory.name}';
       final note = _descriptionCtrl.text.trim();
       final description = note.isEmpty ? 'Sin nota' : note;
       final reservationAt = _reservationAt;
@@ -10027,7 +10090,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
         _CreateServiceDraft(
           customerId: _customerId!,
           serviceType: _serviceType,
-          category: _category,
+          categoryId: selectedCategory.id,
+          categoryCode: selectedCategory.code,
           priority: _priority,
           reservationAt: reservationAt,
           title: title,

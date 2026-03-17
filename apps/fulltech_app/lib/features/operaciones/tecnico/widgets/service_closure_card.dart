@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/widgets/local_file_image.dart';
@@ -12,6 +14,7 @@ class ServiceClosureCard extends StatelessWidget {
   final VoidCallback onWarrantyPressed;
   final VoidCallback? onWarrantyEdit;
   final VoidCallback? onSignPressed;
+  final Uint8List? signaturePreviewBytes;
   final String? signatureUrl;
   final DateTime? signatureSignedAt;
   final bool busy;
@@ -27,6 +30,7 @@ class ServiceClosureCard extends StatelessWidget {
     required this.onWarrantyPressed,
     required this.onWarrantyEdit,
     required this.onSignPressed,
+    this.signaturePreviewBytes,
     this.signatureUrl,
     this.signatureSignedAt,
     this.busy = false,
@@ -156,6 +160,7 @@ class ServiceClosureCard extends StatelessWidget {
             const SizedBox(height: 12),
             SignatureButton(
               onPressed: onSignPressed,
+              signaturePreviewBytes: signaturePreviewBytes,
               signatureUrl: signatureUrl,
               signedAt: signatureSignedAt,
             ),
@@ -315,12 +320,14 @@ class DocumentsSection extends StatelessWidget {
 
 class SignatureButton extends StatelessWidget {
   final VoidCallback? onPressed;
+  final Uint8List? signaturePreviewBytes;
   final String? signatureUrl;
   final DateTime? signedAt;
 
   const SignatureButton({
     super.key,
     required this.onPressed,
+    this.signaturePreviewBytes,
     this.signatureUrl,
     this.signedAt,
   });
@@ -358,8 +365,11 @@ class SignatureButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final previewBytes = signaturePreviewBytes;
     final signature = (signatureUrl ?? '').trim();
-    final hasPreview = signature.isNotEmpty;
+    final hasPreview =
+        (previewBytes != null && previewBytes.isNotEmpty) ||
+        signature.isNotEmpty;
 
     return _ClosureSectionShell(
       icon: Icons.draw_outlined,
@@ -406,7 +416,9 @@ class SignatureButton extends StatelessWidget {
                         color: cs.outlineVariant.withValues(alpha: 0.60),
                       ),
                     ),
-                    child: _isLocalPath(signature)
+                    child: previewBytes != null && previewBytes.isNotEmpty
+                        ? Image.memory(previewBytes, fit: BoxFit.contain)
+                        : _isLocalPath(signature)
                         ? localFileImage(
                             path: _normalizeLocalPath(signature),
                             fit: BoxFit.contain,

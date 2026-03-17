@@ -124,6 +124,18 @@ List<AppNavigationSection> buildAppNavigationSections(
       ],
     ),
     AppNavigationSection(
+      title: 'Administración',
+      items: [
+        if (can(AppPermission.viewAdminPanel) &&
+            can(AppPermission.viewOperations))
+          const AppNavigationItem(
+            icon: Icons.fact_check_outlined,
+            title: 'Checklist operativo',
+            route: Routes.operacionesChecklistConfig,
+          ),
+      ],
+    ),
+    AppNavigationSection(
       title: 'Nómina',
       items: [
         if (can(AppPermission.managePayroll))

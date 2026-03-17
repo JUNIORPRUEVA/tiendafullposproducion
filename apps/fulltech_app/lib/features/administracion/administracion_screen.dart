@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/models/user_model.dart';
+import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_drawer.dart';
@@ -303,10 +305,18 @@ class _AdministracionScreenState extends ConsumerState<AdministracionScreen> {
 
   Widget _buildPageScaffold() {
     final page = _buildPage();
-    if (_sectionErrors.isEmpty) return page;
 
-    return Column(
-      children: [
+    final children = <Widget>[
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+        child: _AdminChecklistShortcutCard(
+          onOpen: () => context.push(Routes.operacionesChecklistConfig),
+        ),
+      ),
+    ];
+
+    if (_sectionErrors.isNotEmpty) {
+      children.add(
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
           child: Card(
@@ -336,9 +346,12 @@ class _AdministracionScreenState extends ConsumerState<AdministracionScreen> {
             ),
           ),
         ),
-        Expanded(child: page),
-      ],
-    );
+      );
+    }
+
+    children.add(Expanded(child: page));
+
+    return Column(children: children);
   }
 
   Widget _buildPage() {
@@ -361,6 +374,110 @@ class _AdministracionScreenState extends ConsumerState<AdministracionScreen> {
       default:
         return _AdminOverviewPage(data: _overview!);
     }
+  }
+}
+
+class _AdminChecklistShortcutCard extends StatelessWidget {
+  final VoidCallback onOpen;
+
+  const _AdminChecklistShortcutCard({required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            colorScheme.primary,
+            Color.alphaBlend(
+              colorScheme.secondary.withValues(alpha: 0.34),
+              colorScheme.primary,
+            ),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.primary.withValues(alpha: 0.18),
+            blurRadius: 22,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.fact_check_outlined,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Text(
+                    'Checklist operativo',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Administra categorias, fases, checklists e items desde aqui sin tener que entrar primero al modulo de Operaciones.',
+              style: TextStyle(
+                color: Colors.white,
+                height: 1.4,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 18),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: colorScheme.primary,
+                  ),
+                  onPressed: onOpen,
+                  icon: const Icon(Icons.open_in_new_rounded),
+                  label: const Text('Abrir configuracion'),
+                ),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white70),
+                  ),
+                  onPressed: onOpen,
+                  icon: const Icon(Icons.tune_rounded),
+                  label: const Text('Gestionar checklist'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

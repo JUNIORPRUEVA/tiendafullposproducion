@@ -49,6 +49,7 @@ class TechnicalServiceExecutionScreen extends ConsumerStatefulWidget {
 class _TechnicalServiceExecutionScreenState
     extends ConsumerState<TechnicalServiceExecutionScreen> {
   final ImagePicker _picker = ImagePicker();
+  Uint8List? _signaturePreviewBytes;
 
   bool _isInvoicePaid(ServiceModel service) {
     Map<String, String> parseKv(String raw) {
@@ -79,78 +80,6 @@ class _TechnicalServiceExecutionScreenState
     return false;
   }
 
-  List<ServiceChecklistTemplateModel> _visibleDynamicChecklists(
-    TechnicalExecutionState state,
-    String currentState,
-  ) {
-    final templates = state.dynamicChecklists;
-    if (templates.isEmpty) return const [];
-
-    Set<String> phaseCodes;
-    switch (currentState.trim().toLowerCase()) {
-      case 'pendiente':
-      case 'en camino':
-        phaseCodes = {'herramientas', 'productos'};
-        break;
-      case 'en proceso':
-        phaseCodes = {'instalacion'};
-        break;
-      case 'finalizada':
-      case 'cancelada':
-        phaseCodes = {'finalizacion'};
-        break;
-      default:
-        phaseCodes = templates.map((template) => template.phase.code).toSet();
-        break;
-    }
-
-    final filtered = templates
-        .where((template) => phaseCodes.contains(template.phase.code))
-        .toList(growable: false);
-    return filtered.isEmpty ? templates : filtered;
-  }
-
-  bool _isChecklistComplete(List<ServiceChecklistTemplateModel> templates) {
-    final requiredItems = templates
-        .expand((template) => template.items)
-        .where((item) => item.isRequired)
-        .toList(growable: false);
-    if (requiredItems.isEmpty) return false;
-    return requiredItems.every((item) => item.isChecked);
-  }
-
-  Future<void> _openChecklistSheet({
-    required TechnicalExecutionController ctrl,
-    required List<ServiceChecklistTemplateModel> templates,
-    required bool readOnly,
-    required bool busy,
-    required String currentState,
-  }) async {
-    await DynamicChecklistSheet.show(
-      context,
-      templates: templates,
-      onChanged: readOnly
-          ? null
-          : (itemId, checked) => ctrl.setDynamicChecklistItem(itemId, checked),
-      onChecklistCompleted: (readOnly || currentState == 'finalizada')
-          ? null
-          : () async {
-              Navigator.of(context).pop();
-              await _showStatusSelector(
-                context: context,
-                ctrl: ctrl,
-                currentState: currentState,
-                readOnly: readOnly,
-                busy: busy,
-                visibleChecklists: templates,
-                forcedNextState: 'finalizada',
-              );
-            },
-      readOnly: readOnly,
-      busy: busy,
-    );
-  }
-
   String _fmtDate(DateTime? dt) {
     if (dt == null) return '—';
     final v = dt.toLocal();
@@ -158,17 +87,6 @@ class _TechnicalServiceExecutionScreenState
     final m = v.month.toString().padLeft(2, '0');
     final y = v.year.toString();
     return '$d/$m/$y';
-  }
-
-  String _fmtDateTime(DateTime? dt) {
-    if (dt == null) return '—';
-    final v = dt.toLocal();
-    final d = v.day.toString().padLeft(2, '0');
-    final m = v.month.toString().padLeft(2, '0');
-    final y = v.year.toString();
-    final hh = v.hour.toString().padLeft(2, '0');
-    final mm = v.minute.toString().padLeft(2, '0');
-    return '$d/$m/$y $hh:$mm';
   }
 
   ({String kind, String text})? _parseTechInfoMessage(String raw) {
@@ -208,6 +126,45 @@ class _TechnicalServiceExecutionScreenState
       default:
         return Icons.info_outline;
     }
+  }
+
+  Color _kindAccentColor(ColorScheme cs, String kind) {
+    switch (kind.trim().toLowerCase()) {
+      case 'novedad':
+        return const Color(0xFFE85D2A);
+      case 'producto':
+        return const Color(0xFF2F6FED);
+      case 'nota':
+        return cs.outline;
+      default:
+        return cs.primary;
+    }
+  }
+
+  String _compactRelativeTime(DateTime? dt) {
+    if (dt == null) return 'Ahora';
+    final diff = DateTime.now().difference(dt.toLocal());
+    if (diff.inMinutes < 1) return 'Ahora';
+    if (diff.inMinutes < 60) return 'Hace ${diff.inMinutes}m';
+    if (diff.inHours < 24) return 'Hace ${diff.inHours}h';
+    if (diff.inDays < 7) return 'Hace ${diff.inDays}d';
+    return _fmtDate(dt);
+  }
+
+  bool _isRecentlyAdded(DateTime? dt) {
+    if (dt == null) return false;
+    return DateTime.now().difference(dt.toLocal()).inMinutes < 5;
+  }
+
+  String _compactAuthor(String value) {
+    final text = value.trim();
+    if (text.isEmpty) return 'Sistema';
+    final parts = text
+        .split(RegExp(r'\s+'))
+        .where((part) => part.trim().isNotEmpty)
+        .toList(growable: false);
+    if (parts.length <= 2) return text;
+    return '${parts.first} ${parts[1]}';
   }
 
   Future<void> _previewEvidence(ServiceFileModel file) async {
@@ -339,126 +296,6 @@ class _TechnicalServiceExecutionScreenState
     });
   }
 
-  String? _infoOrNull(String raw) {
-    final value = raw.trim();
-    if (value.isEmpty || value == '—' || value.toLowerCase() == 'null') {
-      return null;
-    }
-    return value;
-  }
-
-  String _humanizeValue(String raw) {
-    final normalized = raw.trim().replaceAll('_', ' ').replaceAll('-', ' ');
-    if (normalized.isEmpty) return '';
-    final words = normalized
-        .split(RegExp(r'\s+'))
-        .where((word) => word.trim().isNotEmpty)
-        .map((word) {
-          final lower = word.toLowerCase();
-          return '${lower[0].toUpperCase()}${lower.substring(1)}';
-        })
-        .toList(growable: false);
-    return words.join(' ');
-  }
-
-  Widget _clientInlineDivider() {
-    return Container(
-      width: 1,
-      height: 16,
-      margin: const EdgeInsets.symmetric(horizontal: 10),
-      color: Colors.black.withValues(alpha: 0.10),
-    );
-  }
-
-  Widget _clientTopLineText(
-    String text, {
-    required TextStyle? style,
-    int flex = 1,
-  }) {
-    return Flexible(
-      flex: flex,
-      child: Text(
-        text,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: style,
-      ),
-    );
-  }
-
-  Widget _buildClientInfoCard(ServiceModel service, ThemeData theme) {
-    final cs = theme.colorScheme;
-    final name = _infoOrNull(service.customerName);
-    final phone = _infoOrNull(service.customerPhone);
-    final phase = _infoOrNull(phaseLabel(service.currentPhase));
-    final order = _infoOrNull(service.orderLabel);
-    final address = _infoOrNull(service.customerAddress);
-
-    final rawServiceType = _infoOrNull(service.serviceType);
-    final serviceType = rawServiceType == null
-        ? null
-        : _humanizeValue(rawServiceType);
-    final secondaryParts = [
-      if (order != null) order,
-      if (serviceType != null && serviceType.isNotEmpty) serviceType,
-      if (address != null) address,
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            if (name != null)
-              _clientTopLineText(
-                name,
-                flex: 4,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w900,
-                  color: cs.onSurface,
-                  letterSpacing: -0.2,
-                ),
-              ),
-            if (name != null && phone != null) _clientInlineDivider(),
-            if (phone != null)
-              _clientTopLineText(
-                phone,
-                flex: 4,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: cs.onSurfaceVariant,
-                ),
-              ),
-            if ((name != null || phone != null) && phase != null)
-              _clientInlineDivider(),
-            if (phase != null)
-              _clientTopLineText(
-                phase,
-                flex: 3,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: cs.primary,
-                ),
-              ),
-          ],
-        ),
-        if (secondaryParts.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Text(
-            secondaryParts.join('  •  '),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: cs.onSurfaceVariant,
-              height: 1.2,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
   bool _isReadOnly({required ServiceModel service, required dynamic user}) {
     final perms = OperationsPermissions(user: user, service: service);
     if (!perms.canOperate) return true;
@@ -501,6 +338,66 @@ class _TechnicalServiceExecutionScreenState
     }
   }
 
+  List<ServiceChecklistTemplateModel> _visibleDynamicChecklists(
+    TechnicalExecutionState state,
+    String currentState,
+  ) {
+    final normalizedState = currentState.trim().toLowerCase();
+    final templates = state.dynamicChecklists;
+    if (templates.isEmpty) return const [];
+
+    final filtered = templates.where((template) {
+      final phaseCode = template.phase.code.trim().toLowerCase();
+      if (phaseCode.isEmpty) return true;
+      return phaseCode == normalizedState ||
+          normalizedState.isEmpty ||
+          normalizedState == 'finalizada';
+    }).toList(growable: false);
+
+    return filtered.isEmpty ? templates : filtered;
+  }
+
+  bool _isChecklistComplete(List<ServiceChecklistTemplateModel> templates) {
+    for (final template in templates) {
+      for (final item in template.items) {
+        if (item.isRequired && !item.isChecked) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  Future<void> _openChecklistSheet({
+    required TechnicalExecutionController ctrl,
+    required List<ServiceChecklistTemplateModel> templates,
+    required bool readOnly,
+    required bool busy,
+    required String currentState,
+  }) {
+    return DynamicChecklistSheet.show(
+      context,
+      templates: templates,
+      onChanged: (readOnly || busy)
+          ? null
+          : (itemId, checked) => ctrl.setDynamicChecklistItem(itemId, checked),
+      onChecklistCompleted:
+          (readOnly || busy || !_isChecklistComplete(templates))
+          ? null
+          : () => _showStatusSelector(
+              context: context,
+              ctrl: ctrl,
+              currentState: currentState,
+              readOnly: readOnly,
+              busy: busy,
+              visibleChecklists: templates,
+              forcedNextState: 'finalizada',
+            ),
+      readOnly: readOnly,
+      busy: busy,
+    );
+  }
+
   Future<void> _showStatusSelector({
     required BuildContext context,
     required TechnicalExecutionController ctrl,
@@ -512,7 +409,8 @@ class _TechnicalServiceExecutionScreenState
   }) async {
     if (readOnly) return;
 
-    final picked = forcedNextState ??
+    final picked =
+        forcedNextState ??
         await StatusSelectorModal.show(
           context,
           current: currentState,
@@ -1376,8 +1274,11 @@ class _TechnicalServiceExecutionScreenState
                 end: Offset.zero,
               ).animate(curved),
               child: SignatureScreen(
-                onSave: (pngBytes) =>
-                    ctrl.uploadClientSignaturePng(pngBytes: pngBytes),
+                onSave: (pngBytes) async {
+                  await ctrl.uploadClientSignaturePng(pngBytes: pngBytes);
+                  if (!mounted) return;
+                  setState(() => _signaturePreviewBytes = pngBytes);
+                },
               ),
             ),
           );
@@ -1540,6 +1441,7 @@ class _TechnicalServiceExecutionScreenState
           clientName: firstName,
           statusLabel: statusOption.label,
           statusColor: statusOption.color,
+          onClientPressed: () => showClientOverlay(context, service),
         ),
       ),
       floatingActionButton: Column(
@@ -1604,13 +1506,6 @@ class _TechnicalServiceExecutionScreenState
                       padding: EdgeInsets.only(bottom: 12),
                       child: LinearProgressIndicator(minHeight: 3),
                     ),
-
-                  TechnicalSectionCard(
-                    icon: Icons.person_outline,
-                    title: 'CLIENTE',
-                    child: _buildClientInfoCard(service, theme),
-                  ),
-                  const SizedBox(height: 12),
 
                   TechnicalSectionCard(
                     icon: Icons.flash_on_outlined,
@@ -1686,101 +1581,38 @@ class _TechnicalServiceExecutionScreenState
                               );
                             },
                           )
-                        : Column(
-                            children: [
-                              for (final u in sortedTechInfo.take(40))
-                                Builder(
-                                  builder: (context) {
-                                    final parsed =
-                                        _parseTechInfoMessage(u.message) ??
-                                        (kind: 'info', text: u.message.trim());
-                                    final label = _kindLabel(parsed.kind);
-                                    final icon = _kindIcon(parsed.kind);
-                                    final theme = Theme.of(context);
-                                    final cs = theme.colorScheme;
+                        : ListView.separated(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: sortedTechInfo.take(40).length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 7),
+                            itemBuilder: (context, index) {
+                              final u = sortedTechInfo
+                                  .take(40)
+                                  .elementAt(index);
+                              final parsed =
+                                  _parseTechInfoMessage(u.message) ??
+                                  (kind: 'info', text: u.message.trim());
+                              final kind = parsed.kind;
+                              final label = _kindLabel(kind);
+                              final accent = _kindAccentColor(cs, kind);
+                              final highlighted =
+                                  _isRecentlyAdded(u.createdAt) ||
+                                  kind.trim().toLowerCase() == 'novedad';
 
-                                    return Padding(
-                                      padding: EdgeInsets.only(
-                                        bottom:
-                                            u == sortedTechInfo.take(40).last
-                                            ? 0
-                                            : 10,
-                                      ),
-                                      child: Container(
-                                        width: double.infinity,
-                                        padding: const EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          color: cs.surfaceContainerHighest,
-                                          borderRadius: BorderRadius.circular(
-                                            12,
-                                          ),
-                                          border: Border.all(
-                                            color: cs.outlineVariant.withValues(
-                                              alpha: 0.60,
-                                            ),
-                                          ),
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Icon(
-                                                  icon,
-                                                  size: 18,
-                                                  color: cs.onSurfaceVariant,
-                                                ),
-                                                const SizedBox(width: 8),
-                                                Expanded(
-                                                  child: Text(
-                                                    label,
-                                                    style: theme
-                                                        .textTheme
-                                                        .titleSmall
-                                                        ?.copyWith(
-                                                          fontWeight:
-                                                              FontWeight.w900,
-                                                        ),
-                                                  ),
-                                                ),
-                                                Text(
-                                                  _fmtDateTime(u.createdAt),
-                                                  style: theme
-                                                      .textTheme
-                                                      .labelSmall
-                                                      ?.copyWith(
-                                                        color:
-                                                            cs.onSurfaceVariant,
-                                                        fontWeight:
-                                                            FontWeight.w800,
-                                                      ),
-                                                ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 8),
-                                            Text(
-                                              parsed.text,
-                                              style: theme.textTheme.bodyMedium
-                                                  ?.copyWith(
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                            ),
-                                            const SizedBox(height: 8),
-                                            Text(
-                                              'Por: ${u.changedBy.trim().isEmpty ? 'Sistema' : u.changedBy.trim()}',
-                                              style: theme.textTheme.labelSmall
-                                                  ?.copyWith(
-                                                    color: cs.onSurfaceVariant,
-                                                  ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                            ],
+                              return _TechInfoActivityCard(
+                                key: ValueKey<String>('tech-info-${u.id}'),
+                                icon: _kindIcon(kind),
+                                title: label,
+                                description: parsed.text,
+                                author: _compactAuthor(u.changedBy),
+                                timestamp: _compactRelativeTime(u.createdAt),
+                                accentColor: accent,
+                                highlighted: highlighted,
+                                animateOnMount: highlighted,
+                              );
+                            },
                           ),
                   ),
                   const SizedBox(height: 12),
@@ -1847,6 +1679,7 @@ class _TechnicalServiceExecutionScreenState
                     onSignPressed: (readOnly || st.busy)
                         ? null
                         : () => _openSignatureScreen(ctrl),
+                    signaturePreviewBytes: _signaturePreviewBytes,
                     signatureUrl: signatureMeta.fileUrl,
                     signatureSignedAt: signatureMeta.signedAt,
                     busy: st.busy,
@@ -1889,12 +1722,14 @@ class TechnicalServiceHeader extends StatelessWidget {
   final String clientName;
   final String statusLabel;
   final Color statusColor;
+  final VoidCallback onClientPressed;
 
   const TechnicalServiceHeader({
     super.key,
     required this.clientName,
     required this.statusLabel,
     required this.statusColor,
+    required this.onClientPressed,
   });
 
   @override
@@ -1971,8 +1806,29 @@ class TechnicalServiceHeader extends StatelessWidget {
                         ),
                       ),
                     ),
+                    Positioned(
+                      right: 12,
+                      top: 10,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.14),
+                          ),
+                        ),
+                        child: IconButton(
+                          tooltip: 'Cliente',
+                          onPressed: onClientPressed,
+                          icon: const Icon(
+                            Icons.person_outline,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(72, 10, 24, 10),
+                      padding: const EdgeInsets.fromLTRB(72, 10, 72, 10),
                       child: ClientStatusAppBar(
                         clientName: clientName,
                         statusLabel: statusLabel,
@@ -2051,6 +1907,300 @@ class ClientStatusAppBar extends StatelessWidget {
   }
 }
 
+Future<void> showClientOverlay(BuildContext context, ServiceModel service) {
+  return showDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    builder: (_) => ClientInfoDialog(service: service),
+  );
+}
+
+class ClientInfoDialog extends StatefulWidget {
+  final ServiceModel service;
+
+  const ClientInfoDialog({super.key, required this.service});
+
+  @override
+  State<ClientInfoDialog> createState() => _ClientInfoDialogState();
+}
+
+class _ClientInfoDialogState extends State<ClientInfoDialog> {
+  double _scale = 0.96;
+  double _opacity = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _scale = 1;
+        _opacity = 1;
+      });
+    });
+  }
+
+  String? _infoOrNull(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty || value == '—' || value.toLowerCase() == 'null') {
+      return null;
+    }
+    return value;
+  }
+
+  String _humanizeValue(String raw) {
+    final cleaned = raw
+        .trim()
+        .replaceAll('_', ' ')
+        .replaceAll('-', ' ')
+        .replaceAll(RegExp(r'\s+'), ' ');
+    if (cleaned.isEmpty) return '—';
+    return cleaned
+        .split(' ')
+        .where((part) => part.trim().isNotEmpty)
+        .map((part) {
+          final lower = part.toLowerCase();
+          return '${lower[0].toUpperCase()}${lower.substring(1)}';
+        })
+        .join(' ');
+  }
+
+  Future<void> _callClient() async {
+    final phone = widget.service.customerPhone.trim();
+    if (phone.isEmpty) return;
+    final uri = Uri.tryParse('tel:$phone');
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _openLocation() async {
+    final info = buildServiceLocationInfo(
+      addressOrText: widget.service.customerAddress,
+    );
+    if (!info.canOpenMaps || info.mapsUri == null) return;
+    await launchUrl(
+      info.mapsUri!,
+      mode: LaunchMode.externalApplication,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final service = widget.service;
+
+    final name = _infoOrNull(service.customerName) ?? 'Cliente';
+    final phone = _infoOrNull(service.customerPhone) ?? 'Sin teléfono';
+    final address = _infoOrNull(service.customerAddress) ?? 'Sin dirección';
+    final order = _infoOrNull(service.orderLabel) ?? 'Sin orden';
+    final serviceType = _infoOrNull(service.serviceType);
+    final serviceLabel = serviceType == null
+        ? 'Sin servicio definido'
+        : _humanizeValue(serviceType);
+    final canCall = service.customerPhone.trim().isNotEmpty;
+    final locationInfo = buildServiceLocationInfo(
+      addressOrText: service.customerAddress,
+    );
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        opacity: _opacity,
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutBack,
+          scale: _scale,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x260F172A),
+                  blurRadius: 28,
+                  offset: Offset(0, 16),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: cs.primaryContainer,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(
+                          Icons.person_outline,
+                          color: cs.onPrimaryContainer,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              name,
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Información del cliente',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: cs.onSurfaceVariant,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Cerrar',
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _ClientInfoTile(
+                    icon: Icons.call_outlined,
+                    label: 'Teléfono',
+                    value: phone,
+                  ),
+                  _ClientInfoDivider(color: cs.outlineVariant),
+                  _ClientInfoTile(
+                    icon: Icons.place_outlined,
+                    label: 'Dirección',
+                    value: address,
+                  ),
+                  _ClientInfoDivider(color: cs.outlineVariant),
+                  _ClientInfoTile(
+                    icon: Icons.receipt_long_outlined,
+                    label: 'Orden',
+                    value: order,
+                  ),
+                  _ClientInfoDivider(color: cs.outlineVariant),
+                  _ClientInfoTile(
+                    icon: Icons.build_outlined,
+                    label: 'Servicio',
+                    value: serviceLabel,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.tonalIcon(
+                          onPressed: canCall ? _callClient : null,
+                          icon: const Icon(Icons.call_outlined),
+                          label: const Text('Llamar'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: locationInfo.canOpenMaps
+                              ? _openLocation
+                              : null,
+                          icon: const Icon(Icons.near_me_outlined),
+                          label: const Text('Ver ubicación'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ClientInfoTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _ClientInfoTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, size: 18, color: cs.primary),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: cs.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: cs.onSurface,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClientInfoDivider extends StatelessWidget {
+  final Color color;
+
+  const _ClientInfoDivider({required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Divider(height: 14, thickness: 0.8, color: color.withValues(alpha: 0.55));
+  }
+}
+
 class StatusIndicator extends StatelessWidget {
   final String label;
   final Color color;
@@ -2102,6 +2252,184 @@ class StatusIndicator extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _TechInfoActivityCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String description;
+  final String author;
+  final String timestamp;
+  final Color accentColor;
+  final bool highlighted;
+  final bool animateOnMount;
+
+  const _TechInfoActivityCard({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.author,
+    required this.timestamp,
+    required this.accentColor,
+    required this.highlighted,
+    required this.animateOnMount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final accent = accentColor;
+    final baseBackground = highlighted
+        ? Color.alphaBlend(accent.withValues(alpha: 0.08), cs.surface)
+        : cs.surface;
+    final titleColor = cs.onSurface;
+    final bodyColor = cs.onSurface.withValues(alpha: 0.84);
+    final metaColor = cs.onSurfaceVariant.withValues(alpha: 0.92);
+    final timeColor = cs.onSurfaceVariant.withValues(alpha: 0.78);
+    final shadowColor = highlighted
+        ? accent.withValues(alpha: 0.14)
+        : Colors.black.withValues(alpha: 0.05);
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: animateOnMount ? 0 : 1, end: 1),
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) {
+        final clamped = value.clamp(0.0, 1.0);
+        return Opacity(
+          opacity: clamped,
+          child: Transform.translate(
+            offset: Offset(0, (1 - clamped) * -10),
+            child: child,
+          ),
+        );
+      },
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 62),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: baseBackground,
+          borderRadius: BorderRadius.circular(12),
+          border: Border(
+            left: BorderSide(
+              color: highlighted
+                  ? accent
+                  : cs.outlineVariant.withValues(alpha: 0.6),
+              width: highlighted ? 3 : 1,
+            ),
+            top: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.45)),
+            right: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.45)),
+            bottom: BorderSide(
+              color: cs.outlineVariant.withValues(alpha: 0.45),
+            ),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: shadowColor,
+              blurRadius: highlighted ? 18 : 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: accent.withValues(alpha: 0.12),
+              ),
+              child: Icon(icon, size: 17, color: accent),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        (theme.textTheme.labelLarge ??
+                                theme.textTheme.titleSmall)
+                            ?.copyWith(
+                              color: titleColor,
+                              fontWeight: FontWeight.w900,
+                              height: 1.0,
+                              letterSpacing: 0.1,
+                            ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    description,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        (theme.textTheme.bodySmall ??
+                                theme.textTheme.bodyMedium)
+                            ?.copyWith(
+                              color: bodyColor,
+                              fontWeight: FontWeight.w700,
+                              height: 1.05,
+                            ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      if (highlighted) ...[
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: accent,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                      ],
+                      Expanded(
+                        child: Text(
+                          author,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: metaColor,
+                            fontWeight: FontWeight.w600,
+                            height: 1.0,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 54, maxWidth: 66),
+              child: Text(
+                timestamp,
+                textAlign: TextAlign.right,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: timeColor,
+                  fontWeight: FontWeight.w700,
+                  height: 1.05,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

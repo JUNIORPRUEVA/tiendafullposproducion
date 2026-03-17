@@ -333,10 +333,11 @@ class OperationsController extends StateNotifier<OperationsState> {
   Future<ServiceModel> createReservation({
     required String customerId,
     required String serviceType,
-    required String category,
+    required String categoryId,
     required int priority,
     required String title,
     required String description,
+    String? category,
     String? addressSnapshot,
     double? quotedAmount,
     double? depositAmount,
@@ -433,6 +434,7 @@ class OperationsController extends StateNotifier<OperationsState> {
     final service = await ref.read(operationsRepositoryProvider).createService(
           customerId: customerId,
           serviceType: serviceType,
+          categoryId: categoryId,
           category: category,
           priority: priority,
           title: title,

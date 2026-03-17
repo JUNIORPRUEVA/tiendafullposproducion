@@ -1,4 +1,6 @@
-import { IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+
+const checklistTemplateTypes = ['herramientas', 'productos', 'instalacion'] as const;
 
 export class CreateServiceChecklistTemplateDto {
   @IsUUID()
@@ -8,7 +10,11 @@ export class CreateServiceChecklistTemplateDto {
   phaseId!: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsIn(checklistTemplateTypes)
+  type!: (typeof checklistTemplateTypes)[number];
+
+  @IsOptional()
+  @IsString()
   @MaxLength(160)
-  title!: string;
+  title?: string;
 }

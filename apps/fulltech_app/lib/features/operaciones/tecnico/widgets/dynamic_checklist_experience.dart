@@ -29,12 +29,21 @@ class DynamicChecklistSummaryCard extends StatelessWidget {
                 .length,
       );
 
-  List<String> get _completedLabels => templates
-      .expand((template) => template.items)
-      .where((item) => item.isChecked)
-      .map((item) => item.label)
-      .take(4)
-      .toList(growable: false);
+  Iterable<ServiceChecklistSectionType> get _sectionTypes => const [
+        ServiceChecklistSectionType.herramientas,
+        ServiceChecklistSectionType.productos,
+        ServiceChecklistSectionType.instalacion,
+      ];
+
+  ({int completed, int total}) _sectionStats(ServiceChecklistSectionType type) {
+    final items = templates
+        .where((template) => template.type == type)
+        .expand((template) => template.items)
+        .where((item) => item.isRequired)
+        .toList(growable: false);
+    final completed = items.where((item) => item.isChecked).length;
+    return (completed: completed, total: items.length);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,7 +53,10 @@ class DynamicChecklistSummaryCard extends StatelessWidget {
     final completed = _requiredCompleted;
     final ratio = total == 0 ? 0.0 : completed / total;
     final percent = (ratio * 100).round();
-    final completedLabels = _completedLabels;
+    final sectionStats = _sectionTypes
+      .map((type) => (type: type, stats: _sectionStats(type)))
+      .where((entry) => entry.stats.total > 0)
+      .toList(growable: false);
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -142,7 +154,7 @@ class DynamicChecklistSummaryCard extends StatelessWidget {
                 child: Text(
                   completed == total && total > 0
                       ? 'Checklist completo. Ya puedes avanzar el estado con seguridad.'
-                      : 'Abre el detalle para completar herramientas, productos y ejecución.',
+                      : 'Abre el detalle para completar herramientas, productos e instalación.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: cs.onSurfaceVariant,
                     fontWeight: FontWeight.w600,
@@ -151,26 +163,32 @@ class DynamicChecklistSummaryCard extends StatelessWidget {
               ),
             ],
           ),
-          if (completedLabels.isNotEmpty) ...[
+          if (sectionStats.isNotEmpty) ...[
             const SizedBox(height: 14),
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: completedLabels
+              children: sectionStats
                   .map(
-                    (label) => Container(
+                    (entry) => Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 10,
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.green.withValues(alpha: 0.10),
+                        color: entry.stats.completed == entry.stats.total
+                            ? Colors.green.withValues(alpha: 0.10)
+                            : cs.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
-                        label,
+                        entry.stats.completed == entry.stats.total
+                            ? '${serviceChecklistSectionTypeLabel(entry.type)} completa'
+                            : '${serviceChecklistSectionTypeLabel(entry.type)} ${entry.stats.completed}/${entry.stats.total}',
                         style: theme.textTheme.labelMedium?.copyWith(
-                          color: Colors.green.shade700,
+                          color: entry.stats.completed == entry.stats.total
+                              ? Colors.green.shade700
+                              : cs.onSurfaceVariant,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -417,14 +435,14 @@ class _TemplateSectionCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      template.title,
+                      serviceChecklistSectionTypeLabel(template.type),
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w900,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      template.phase.name,
+                      template.title,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: cs.onSurfaceVariant,
                         fontWeight: FontWeight.w700,

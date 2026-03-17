@@ -39,6 +39,7 @@ import { CreateExecutionChangeDto } from './dto/create-execution-change.dto';
 import { OperationsRealtimeService } from './operations-realtime.service';
 
 type AuthUser = { id: string; role: Role };
+type ServiceCategoryLookup = { id: string; name: string; code: string };
 
 const defaultSteps = [
   { stepKey: 'survey_done', stepLabel: 'Levantamiento completado' },
@@ -46,6 +47,15 @@ const defaultSteps = [
   { stepKey: 'installed', stepLabel: 'Instalación ejecutada' },
   { stepKey: 'tested', stepLabel: 'Pruebas realizadas' },
   { stepKey: 'customer_trained', stepLabel: 'Cliente instruido' },
+];
+
+const defaultServiceCategories = [
+  { code: 'cameras', name: 'Cámaras' },
+  { code: 'gate_motor', name: 'Motores de puertones' },
+  { code: 'alarm', name: 'Alarma' },
+  { code: 'electric_fence', name: 'Cerco eléctrico' },
+  { code: 'intercom', name: 'Intercom' },
+  { code: 'pos', name: 'Punto de ventas' },
 ];
 
 @Injectable()
@@ -270,6 +280,63 @@ export class OperationsService {
     return hasTechnician ? AdminOrderStatus.ASIGNADA : AdminOrderStatus.PENDIENTE;
   }
 
+  private normalizeCategoryCode(raw: string) {
+    return raw
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+  }
+
+  private async ensureDefaultServiceCategories() {
+    await Promise.all(
+      defaultServiceCategories.map((category) =>
+        this.prisma.serviceCategory.upsert({
+          where: { code: category.code },
+          update: { name: category.name },
+          create: category,
+          select: { id: true },
+        }),
+      ),
+    );
+  }
+
+  private async resolveServiceCategory(params: {
+    categoryId?: string | null;
+    category?: string | null;
+  }): Promise<ServiceCategoryLookup | null> {
+    const categoryId = (params.categoryId ?? '').trim();
+    const categoryLabel = (params.category ?? '').trim();
+
+    await this.ensureDefaultServiceCategories();
+
+    if (categoryId) {
+      const category = await this.prisma.serviceCategory.findUnique({
+        where: { id: categoryId },
+        select: { id: true, name: true, code: true },
+      });
+      if (!category) throw new BadRequestException('Categoría inválida');
+      return category;
+    }
+
+    const normalizedCode = this.normalizeCategoryCode(categoryLabel);
+    if (!normalizedCode) return null;
+
+    const category = await this.prisma.serviceCategory.findFirst({
+      where: {
+        OR: [
+          { code: normalizedCode },
+          { name: { equals: categoryLabel, mode: Prisma.QueryMode.insensitive } },
+        ],
+      },
+      select: { id: true, name: true, code: true },
+    });
+    if (!category) throw new BadRequestException('Categoría inválida');
+    return category;
+  }
+
   private assertAdminPhaseTransition(params: {
     orderType: OrderType;
     current: AdminOrderPhase | null;
@@ -427,6 +494,14 @@ export class OperationsService {
       throw new BadRequestException('Cliente inválido');
     }
 
+    const category = await this.resolveServiceCategory({
+      categoryId: dto.categoryId,
+      category: dto.category,
+    });
+    if (!category) {
+      throw new BadRequestException('La categoría es requerida');
+    }
+
     if (dto.warrantyParentServiceId) {
       const parent = await this.prisma.service.findFirst({
         where: { id: dto.warrantyParentServiceId, isDeleted: false },
@@ -460,7 +535,8 @@ export class OperationsService {
         customer: { connect: { id: dto.customerId } },
         createdBy: { connect: { id: user.id } },
         serviceType: this.parseType(dto.serviceType),
-        category: dto.category.trim(),
+        category: category.code,
+        categoryRef: { connect: { id: category.id } },
         status: ServiceStatus.RESERVED,
         priority,
         title: dto.title.trim(),
@@ -1014,9 +1090,25 @@ export class OperationsService {
       }
     }
 
+    const hasCategoryChange = dto.categoryId !== undefined || dto.category !== undefined;
+    const category = hasCategoryChange
+      ? await this.resolveServiceCategory({
+          categoryId: dto.categoryId,
+          category: dto.category,
+        })
+      : null;
+    if (hasCategoryChange && !category) {
+      throw new BadRequestException('La categoría es requerida');
+    }
+
     const data: Prisma.ServiceUpdateInput = {
       ...(dto.serviceType ? { serviceType: this.parseType(dto.serviceType) } : {}),
-      ...(dto.category ? { category: dto.category.trim() } : {}),
+      ...(category
+        ? {
+            category: category.code,
+            categoryRef: { connect: { id: category.id } },
+          }
+        : {}),
       ...(dto.priority != null ? { priority: dto.priority } : {}),
       ...(dto.title ? { title: dto.title.trim() } : {}),
       ...(dto.description ? { description: dto.description.trim() } : {}),
@@ -2234,6 +2326,11 @@ export class OperationsService {
       throw new BadRequestException('Solo se puede crear garantía desde servicio completado/cerrado');
     }
 
+    const category = await this.resolveServiceCategory({
+      categoryId: parent.categoryId,
+      category: parent.category,
+    });
+
     const created = await this.prisma.$transaction(async (tx) => {
       let row: any;
       for (let attempt = 0; attempt < 5; attempt++) {
@@ -2243,7 +2340,8 @@ export class OperationsService {
               customerId: parent.customerId,
               createdByUserId: user.id,
               serviceType: ServiceType.WARRANTY,
-              category: parent.category,
+              category: category?.code ?? parent.category,
+              ...(category ? { categoryRef: { connect: { id: category.id } } } : {}),
               status: ServiceStatus.WARRANTY,
               priority: 1,
               title: dto.title?.trim() || `Garantía: ${parent.title}`,
@@ -2271,7 +2369,8 @@ export class OperationsService {
             customerId: parent.customerId,
             createdByUserId: user.id,
             serviceType: ServiceType.WARRANTY,
-            category: parent.category,
+            category: category?.code ?? parent.category,
+            ...(category ? { categoryRef: { connect: { id: category.id } } } : {}),
             status: ServiceStatus.WARRANTY,
             priority: 1,
             title: dto.title?.trim() || `Garantía: ${parent.title}`,
@@ -2281,7 +2380,7 @@ export class OperationsService {
             warrantyParentServiceId: parent.id,
             tags: parent.tags,
             steps: { create: defaultSteps },
-          },
+          } as any,
           include: this.serviceInclude(),
         });
       }
@@ -2452,6 +2551,13 @@ export class OperationsService {
 
   private serviceInclude() {
     return {
+      categoryRef: {
+        select: {
+          id: true,
+          name: true,
+          code: true,
+        },
+      },
       customer: {
         select: {
           id: true,
@@ -2535,10 +2641,23 @@ export class OperationsService {
             createdAt: service?.createdAt,
             serviceId: service?.id,
           });
+    const categoryRef = service?.categoryRef ?? null;
+    const categoryCode =
+      typeof categoryRef?.code === 'string' && categoryRef.code.trim()
+        ? categoryRef.code.trim()
+        : (service?.category ?? '').toString().trim();
+    const categoryName =
+      typeof categoryRef?.name === 'string' && categoryRef.name.trim()
+        ? categoryRef.name.trim()
+        : categoryCode;
 
     return {
       ...service,
       orderNumber,
+      categoryId: categoryRef?.id ?? service?.categoryId ?? null,
+      categoryName,
+      categoryRef,
+      category: categoryCode,
       serviceType: this.toApiType(service.serviceType),
       status: this.toApiStatus(service.status),
       currentPhase: service.currentPhase ? this.toApiPhase(service.currentPhase) : 'reserva',

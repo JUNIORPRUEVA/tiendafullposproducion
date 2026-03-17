@@ -33,9 +33,14 @@ export class CreateServiceDto {
   @IsIn(serviceTypes)
   serviceType!: (typeof serviceTypes)[number];
 
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string;
+
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  category!: string;
+  category?: string;
 
   @IsOptional()
   @Type(() => Number)

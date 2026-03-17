@@ -22,6 +22,10 @@ export class UpdateServiceDto {
   serviceType?: (typeof serviceTypes)[number];
 
   @IsOptional()
+  @IsUUID()
+  categoryId?: string;
+
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
   category?: string;

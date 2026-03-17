@@ -41,8 +41,6 @@ import { UpdateServiceDto } from './dto/update-service.dto';
 import { UpsertExecutionReportDto } from './dto/upsert-execution-report.dto';
 import { CreateExecutionChangeDto } from './dto/create-execution-change.dto';
 import { OperationsChecklistService } from './operations-checklist.service';
-import { CreateServiceChecklistCategoryDto } from './dto/create-service-checklist-category.dto';
-import { CreateServiceChecklistPhaseDto } from './dto/create-service-checklist-phase.dto';
 import { CreateServiceChecklistTemplateDto } from './dto/create-service-checklist-template.dto';
 import { CreateServiceChecklistItemDto } from './dto/create-service-checklist-item.dto';
 import { CheckServiceChecklistItemDto } from './dto/check-service-checklist-item.dto';
@@ -94,6 +92,7 @@ export class OperationsController {
     await this.checklists.ensureServiceChecklists({
       id: service.id,
       category: service.category,
+      currentPhase: service.currentPhase,
     });
     return service;
   }
@@ -104,24 +103,10 @@ export class OperationsController {
     return this.checklists.listCategories();
   }
 
-  @Post('checklist/category')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
-  createChecklistCategory(@Req() req: Request, @Body() dto: CreateServiceChecklistCategoryDto) {
-    const user = req.user as { id: string; role: Role };
-    return this.checklists.createCategory(user, dto);
-  }
-
   @Get('checklist/phases')
   @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
   listChecklistPhases() {
     return this.checklists.listPhases();
-  }
-
-  @Post('checklist/phase')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
-  createChecklistPhase(@Req() req: Request, @Body() dto: CreateServiceChecklistPhaseDto) {
-    const user = req.user as { id: string; role: Role };
-    return this.checklists.createPhase(user, dto);
   }
 
   @Get('checklist/templates')

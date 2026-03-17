@@ -7,8 +7,6 @@ import {
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OperationsService } from './operations-main.service';
-import { CreateServiceChecklistCategoryDto } from './dto/create-service-checklist-category.dto';
-import { CreateServiceChecklistPhaseDto } from './dto/create-service-checklist-phase.dto';
 import { CreateServiceChecklistTemplateDto } from './dto/create-service-checklist-template.dto';
 import { CreateServiceChecklistItemDto } from './dto/create-service-checklist-item.dto';
 import { CheckServiceChecklistItemDto } from './dto/check-service-checklist-item.dto';
@@ -27,6 +25,7 @@ type LookupRow = {
 
 type TemplateListRow = {
   templateId: string;
+  type: string;
   title: string;
   categoryId: string;
   categoryName: string;
@@ -41,9 +40,10 @@ type TemplateListRow = {
   itemOrderIndex: number | null;
 };
 
-type ServiceChecklistRow = {
-  checklistId: string;
+type ChecklistExecutionRow = {
+  executionId: string;
   templateId: string;
+  type: string;
   title: string;
   categoryId: string;
   categoryName: string;
@@ -52,7 +52,6 @@ type ServiceChecklistRow = {
   phaseName: string;
   phaseCode: string;
   phaseOrderIndex: number | null;
-  serviceChecklistItemId: string | null;
   checklistItemId: string | null;
   itemLabel: string | null;
   itemRequired: boolean | null;
@@ -63,13 +62,43 @@ type ServiceChecklistRow = {
   checkedByName: string | null;
 };
 
-type ServiceChecklistItemLookupRow = {
-  serviceChecklistItemId: string;
+type ChecklistExecutionLookupRow = {
+  executionId: string;
   serviceId: string;
+};
+
+type TemplateTypeCode = 'herramientas' | 'productos' | 'instalacion';
+
+type PhaseSeed = {
+  name: string;
+  code: string;
+  orderIndex: number;
+};
+
+type CategorySeed = {
+  name: string;
+  code: string;
 };
 
 @Injectable()
 export class OperationsChecklistService {
+  private readonly defaultCategories: CategorySeed[] = [
+    { code: 'cameras', name: 'Cámaras' },
+    { code: 'gate_motor', name: 'Motores de puertones' },
+    { code: 'alarm', name: 'Alarma' },
+    { code: 'electric_fence', name: 'Cerco eléctrico' },
+    { code: 'intercom', name: 'Intercom' },
+    { code: 'pos', name: 'Punto de ventas' },
+  ];
+
+  private readonly operationPhases: PhaseSeed[] = [
+    { code: 'reserva', name: 'Reserva', orderIndex: 0 },
+    { code: 'levantamiento', name: 'Levantamiento', orderIndex: 1 },
+    { code: 'instalacion', name: 'Instalación', orderIndex: 2 },
+    { code: 'mantenimiento', name: 'Mantenimiento', orderIndex: 3 },
+    { code: 'garantia', name: 'Garantía', orderIndex: 4 },
+  ];
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly operations: OperationsService,
@@ -97,6 +126,117 @@ export class OperationsChecklistService {
       .replace(/^_+|_+$/g, '');
   }
 
+  private defaultTemplateTitle(type: TemplateTypeCode) {
+    switch (type) {
+      case 'herramientas':
+        return 'Herramientas';
+      case 'productos':
+        return 'Productos';
+      case 'instalacion':
+        return 'Instalación';
+    }
+  }
+
+  private normalizeTemplateType(raw: string): TemplateTypeCode {
+    const normalized = this.normalizeCode(raw);
+    if (
+      normalized !== 'herramientas' &&
+      normalized !== 'productos' &&
+      normalized !== 'instalacion'
+    ) {
+      throw new BadRequestException('Tipo de checklist inválido');
+    }
+    return normalized;
+  }
+
+  private toTemplateTypeDbValue(type: TemplateTypeCode) {
+    switch (type) {
+      case 'herramientas':
+        return 'HERRAMIENTAS';
+      case 'productos':
+        return 'PRODUCTOS';
+      case 'instalacion':
+        return 'INSTALACION';
+    }
+  }
+
+  private fromTemplateTypeDbValue(value: string | null | undefined): TemplateTypeCode {
+    const normalized = this.normalizeCode((value ?? '').toString());
+    if (
+      normalized === 'herramientas' ||
+      normalized === 'productos' ||
+      normalized === 'instalacion'
+    ) {
+      return normalized;
+    }
+    return 'instalacion';
+  }
+
+  private phaseCodeFromServicePhase(raw: string | null | undefined) {
+    return this.normalizeCode((raw ?? '').toString());
+  }
+
+  private async syncOperationsMetadata() {
+    for (const phase of this.operationPhases) {
+      await this.prisma.$executeRaw(Prisma.sql`
+        INSERT INTO service_phases (id, name, code, order_index, created_at, updated_at)
+        VALUES (gen_random_uuid(), ${phase.name}, ${phase.code}, ${phase.orderIndex}, now(), now())
+        ON CONFLICT (code)
+        DO UPDATE SET
+          name = EXCLUDED.name,
+          order_index = EXCLUDED.order_index,
+          updated_at = now()
+      `);
+    }
+
+    for (const category of this.defaultCategories) {
+      await this.prisma.$executeRaw(Prisma.sql`
+        INSERT INTO service_categories (id, name, code, created_at, updated_at)
+        VALUES (gen_random_uuid(), ${category.name}, ${category.code}, now(), now())
+        ON CONFLICT (code)
+        DO UPDATE SET
+          name = EXCLUDED.name,
+          updated_at = now()
+      `);
+    }
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      WITH distinct_categories AS (
+        SELECT DISTINCT trim(category) AS name
+        FROM services
+        WHERE trim(category) <> ''
+      )
+      INSERT INTO service_categories (id, name, code, created_at, updated_at)
+      SELECT
+        gen_random_uuid(),
+        dc.name,
+        lower(
+          regexp_replace(
+            regexp_replace(
+              translate(
+                dc.name,
+                'ÁÀÄÂáàäâÉÈËÊéèëêÍÌÏÎíìïîÓÒÖÔóòöôÚÙÜÛúùüûÑñ',
+                'AAAAaaaaEEEEeeeeIIIIiiiiOOOOooooUUUUuuuuNn'
+              ),
+              '[^a-zA-Z0-9]+',
+              '_',
+              'g'
+            ),
+            '(^_+|_+$)',
+            '',
+            'g'
+          )
+        ),
+        now(),
+        now()
+      FROM distinct_categories dc
+      ON CONFLICT (code)
+      DO UPDATE SET
+        name = EXCLUDED.name,
+        updated_at = now()
+    `);
+  }
+
   private async findCategoryOrFail(categoryId: string) {
     const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(
       Prisma.sql`SELECT id FROM service_categories WHERE id = ${categoryId}::uuid LIMIT 1`,
@@ -116,6 +256,7 @@ export class OperationsChecklistService {
   }
 
   async listCategories() {
+    await this.syncOperationsMetadata();
     return this.prisma.$queryRaw<LookupRow[]>(Prisma.sql`
       SELECT
         id,
@@ -128,31 +269,8 @@ export class OperationsChecklistService {
     `);
   }
 
-  async createCategory(user: AuthUser, dto: CreateServiceChecklistCategoryDto) {
-    this.assertAdmin(user);
-
-    const name = dto.name.trim();
-    const code = this.normalizeCode(
-      dto.code?.trim().length ? dto.code!.trim() : name,
-    );
-    if (!code) {
-      throw new BadRequestException('El código de la categoría es inválido');
-    }
-
-    const rows = await this.prisma.$queryRaw<LookupRow[]>(Prisma.sql`
-      INSERT INTO service_categories (id, name, code, created_at, updated_at)
-      VALUES (gen_random_uuid(), ${name}, ${code}, now(), now())
-      RETURNING
-        id,
-        name,
-        code,
-        created_at AS "createdAt",
-        updated_at AS "updatedAt"
-    `);
-    return rows[0];
-  }
-
   async listPhases() {
+    await this.syncOperationsMetadata();
     return this.prisma.$queryRaw<LookupRow[]>(Prisma.sql`
       SELECT
         id,
@@ -162,46 +280,27 @@ export class OperationsChecklistService {
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM service_phases
+      WHERE code IN (${Prisma.join(this.operationPhases.map((phase) => Prisma.sql`${phase.code}`))})
       ORDER BY order_index ASC, name ASC
     `);
   }
 
-  async createPhase(user: AuthUser, dto: CreateServiceChecklistPhaseDto) {
-    this.assertAdmin(user);
-
-    const name = dto.name.trim();
-    const code = this.normalizeCode(
-      dto.code?.trim().length ? dto.code!.trim() : name,
-    );
-    if (!code) {
-      throw new BadRequestException('El código de la fase es inválido');
-    }
-
-    const rows = await this.prisma.$queryRaw<LookupRow[]>(Prisma.sql`
-      INSERT INTO service_phases (id, name, code, order_index, created_at, updated_at)
-      VALUES (gen_random_uuid(), ${name}, ${code}, ${dto.orderIndex ?? 0}, now(), now())
-      RETURNING
-        id,
-        name,
-        code,
-        order_index AS "orderIndex",
-        created_at AS "createdAt",
-        updated_at AS "updatedAt"
-    `);
-    return rows[0];
-  }
-
   async createTemplate(user: AuthUser, dto: CreateServiceChecklistTemplateDto) {
     this.assertAdmin(user);
+    await this.syncOperationsMetadata();
     await Promise.all([
       this.findCategoryOrFail(dto.categoryId),
       this.findPhaseOrFail(dto.phaseId),
     ]);
 
-    const title = dto.title.trim();
+    const type = this.normalizeTemplateType(dto.type);
+    const title = (dto.title?.trim().length ?? 0) > 0
+      ? dto.title!.trim()
+      : this.defaultTemplateTitle(type);
     const rows = await this.prisma.$queryRaw<
       Array<{
         id: string;
+        type: string;
         title: string;
         categoryId: string;
         phaseId: string;
@@ -209,10 +308,23 @@ export class OperationsChecklistService {
         updatedAt: Date;
       }>
     >(Prisma.sql`
-      INSERT INTO checklist_templates (id, category_id, phase_id, title, created_at, updated_at)
-      VALUES (gen_random_uuid(), ${dto.categoryId}::uuid, ${dto.phaseId}::uuid, ${title}, now(), now())
+      INSERT INTO checklist_templates (id, category_id, phase_id, type, title, created_at, updated_at)
+      VALUES (
+        gen_random_uuid(),
+        ${dto.categoryId}::uuid,
+        ${dto.phaseId}::uuid,
+        ${this.toTemplateTypeDbValue(type)}::"ChecklistTemplateType",
+        ${title},
+        now(),
+        now()
+      )
+      ON CONFLICT (category_id, phase_id, type)
+      DO UPDATE SET
+        title = EXCLUDED.title,
+        updated_at = now()
       RETURNING
         id,
+        type,
         title,
         category_id AS "categoryId",
         phase_id AS "phaseId",
@@ -267,6 +379,7 @@ export class OperationsChecklistService {
   }
 
   async listTemplates(filters?: { categoryId?: string; phaseId?: string }) {
+    await this.syncOperationsMetadata();
     const where: Prisma.Sql[] = [];
     const categoryId = filters?.categoryId?.trim() ?? '';
     const phaseId = filters?.phaseId?.trim() ?? '';
@@ -287,6 +400,7 @@ export class OperationsChecklistService {
     const rows = await this.prisma.$queryRaw<TemplateListRow[]>(Prisma.sql`
       SELECT
         ct.id AS "templateId",
+        ct.type::text AS type,
         ct.title,
         sc.id AS "categoryId",
         sc.name AS "categoryName",
@@ -304,19 +418,36 @@ export class OperationsChecklistService {
       INNER JOIN service_phases sp ON sp.id = ct.phase_id
       LEFT JOIN checklist_items ci ON ci.template_id = ct.id
       ${predicate}
-      ORDER BY sp.order_index ASC, sp.name ASC, ct.title ASC, ci.order_index ASC, ci.label ASC
+      ORDER BY
+        sp.order_index ASC,
+        sp.name ASC,
+        CASE ct.type
+          WHEN 'HERRAMIENTAS' THEN 1
+          WHEN 'PRODUCTOS' THEN 2
+          ELSE 3
+        END ASC,
+        ct.title ASC,
+        ci.order_index ASC,
+        ci.label ASC
     `);
     return this.groupTemplateRows(rows);
   }
 
-  async ensureServiceChecklists(service: { id: string; category?: string | null }) {
+  async ensureServiceChecklists(service: {
+    id: string;
+    category?: string | null;
+    currentPhase?: string | null;
+  }) {
     const serviceId = service.id.trim();
     const categoryCode = this.normalizeCode((service.category ?? '').toString());
-    if (!serviceId || !categoryCode) return;
+    const phaseCode = this.phaseCodeFromServicePhase(service.currentPhase);
+    if (!serviceId || !categoryCode || !phaseCode) return;
+    await this.syncOperationsMetadata();
     await this.ensureServiceChecklistsWithClient(
       this.prisma,
       serviceId,
       categoryCode,
+      phaseCode,
     );
   }
 
@@ -324,21 +455,13 @@ export class OperationsChecklistService {
     db: SqlClient,
     serviceId: string,
     categoryCode: string,
+    phaseCode: string,
   ) {
     await db.$executeRaw(Prisma.sql`
-      INSERT INTO service_checklists (id, service_order_id, template_id, created_at, updated_at)
-      SELECT gen_random_uuid(), ${serviceId}::uuid, ct.id, now(), now()
-      FROM checklist_templates ct
-      INNER JOIN service_categories sc ON sc.id = ct.category_id
-      WHERE sc.code = ${categoryCode}
-      ON CONFLICT (service_order_id, template_id)
-      DO UPDATE SET updated_at = now()
-    `);
-
-    await db.$executeRaw(Prisma.sql`
-      INSERT INTO service_checklist_items (
+      INSERT INTO checklist_executions (
         id,
-        checklist_id,
+        service_order_id,
+        template_id,
         checklist_item_id,
         is_checked,
         checked_at,
@@ -348,37 +471,43 @@ export class OperationsChecklistService {
       )
       SELECT
         gen_random_uuid(),
-        scx.id,
+        ${serviceId}::uuid,
+        ct.id,
         ci.id,
         false,
         NULL,
         NULL,
         now(),
         now()
-      FROM service_checklists scx
-      INNER JOIN checklist_templates ct ON ct.id = scx.template_id
+      FROM checklist_templates ct
       INNER JOIN service_categories sc ON sc.id = ct.category_id
+      INNER JOIN service_phases sp ON sp.id = ct.phase_id
       INNER JOIN checklist_items ci ON ci.template_id = ct.id
-      LEFT JOIN service_checklist_items sci
-        ON sci.checklist_id = scx.id
-       AND sci.checklist_item_id = ci.id
-      WHERE scx.service_order_id = ${serviceId}::uuid
-        AND sc.code = ${categoryCode}
-        AND sci.id IS NULL
+      LEFT JOIN checklist_executions ce
+        ON ce.service_order_id = ${serviceId}::uuid
+       AND ce.checklist_item_id = ci.id
+      WHERE sc.code = ${categoryCode}
+        AND sp.code = ${phaseCode}
+        AND ce.id IS NULL
     `);
   }
 
   async getServiceChecklists(user: AuthUser, serviceId: string) {
     const service = await this.operations.findOne(user, serviceId);
+    const categoryCode = this.normalizeCode((service.category ?? '').toString());
+    const phaseCode = this.phaseCodeFromServicePhase(service.currentPhase);
+
     await this.ensureServiceChecklists({
       id: service.id,
       category: service.category,
+      currentPhase: service.currentPhase,
     });
 
-    const rows = await this.prisma.$queryRaw<ServiceChecklistRow[]>(Prisma.sql`
+    const rows = await this.prisma.$queryRaw<ChecklistExecutionRow[]>(Prisma.sql`
       SELECT
-        scx.id AS "checklistId",
+        ce.id AS "executionId",
         ct.id AS "templateId",
+        ct.type::text AS type,
         ct.title,
         sc.id AS "categoryId",
         sc.name AS "categoryName",
@@ -387,51 +516,59 @@ export class OperationsChecklistService {
         sp.name AS "phaseName",
         sp.code AS "phaseCode",
         sp.order_index AS "phaseOrderIndex",
-        sci.id AS "serviceChecklistItemId",
         ci.id AS "checklistItemId",
         ci.label AS "itemLabel",
         ci.is_required AS "itemRequired",
         ci.order_index AS "itemOrderIndex",
-        sci.is_checked AS "isChecked",
-        sci.checked_at AS "checkedAt",
-        sci.checked_by AS "checkedById",
+        ce.is_checked AS "isChecked",
+        ce.checked_at AS "checkedAt",
+        ce.checked_by AS "checkedById",
         u."nombreCompleto" AS "checkedByName"
-      FROM service_checklists scx
-      INNER JOIN checklist_templates ct ON ct.id = scx.template_id
+      FROM checklist_executions ce
+      INNER JOIN checklist_templates ct ON ct.id = ce.template_id
       INNER JOIN service_categories sc ON sc.id = ct.category_id
       INNER JOIN service_phases sp ON sp.id = ct.phase_id
-      LEFT JOIN service_checklist_items sci ON sci.checklist_id = scx.id
-      LEFT JOIN checklist_items ci ON ci.id = sci.checklist_item_id
-      LEFT JOIN "users" u ON u.id = sci.checked_by
-      WHERE scx.service_order_id = ${serviceId}::uuid
-      ORDER BY sp.order_index ASC, sp.name ASC, ct.title ASC, ci.order_index ASC, ci.label ASC
+      INNER JOIN checklist_items ci ON ci.id = ce.checklist_item_id
+      LEFT JOIN "users" u ON u.id = ce.checked_by
+      WHERE ce.service_order_id = ${serviceId}::uuid
+        AND sc.code = ${categoryCode}
+        AND sp.code = ${phaseCode}
+      ORDER BY
+        CASE ct.type
+          WHEN 'HERRAMIENTAS' THEN 1
+          WHEN 'PRODUCTOS' THEN 2
+          ELSE 3
+        END ASC,
+        ci.order_index ASC,
+        ci.label ASC
     `);
 
+    const templates = this.groupExecutionRows(rows);
     return {
       serviceId: service.id,
       currentPhase: service.currentPhase,
       orderState: service.orderState,
       category: {
-        code: this.normalizeCode((service.category ?? '').toString()),
+        code: categoryCode,
         label: (service.category ?? '').toString(),
       },
-      templates: this.groupServiceChecklistRows(rows),
+      sections: this.groupTemplatesByType(templates),
+      templates,
     };
   }
 
   async checkServiceChecklistItem(
     user: AuthUser,
-    serviceChecklistItemId: string,
+    executionId: string,
     dto: CheckServiceChecklistItemDto,
   ) {
-    const rows = await this.prisma.$queryRaw<ServiceChecklistItemLookupRow[]>(
+    const rows = await this.prisma.$queryRaw<ChecklistExecutionLookupRow[]>(
       Prisma.sql`
         SELECT
-          sci.id AS "serviceChecklistItemId",
-          scx.service_order_id AS "serviceId"
-        FROM service_checklist_items sci
-        INNER JOIN service_checklists scx ON scx.id = sci.checklist_id
-        WHERE sci.id = ${serviceChecklistItemId}::uuid
+          ce.id AS "executionId",
+          ce.service_order_id AS "serviceId"
+        FROM checklist_executions ce
+        WHERE ce.id = ${executionId}::uuid
         LIMIT 1
       `,
     );
@@ -453,13 +590,13 @@ export class OperationsChecklistService {
         checkedById: string | null;
       }>
     >(Prisma.sql`
-      UPDATE service_checklist_items
+      UPDATE checklist_executions
       SET
         is_checked = ${dto.isChecked},
         checked_at = ${checkedAt},
         checked_by = ${checkedById},
         updated_at = now()
-      WHERE id = ${serviceChecklistItemId}::uuid
+      WHERE id = ${executionId}::uuid
       RETURNING
         id,
         is_checked AS "isChecked",
@@ -477,6 +614,8 @@ export class OperationsChecklistService {
       if (!current) {
         current = {
           id: row.templateId,
+          templateId: row.templateId,
+          type: this.fromTemplateTypeDbValue(row.type),
           title: row.title,
           category: {
             id: row.categoryId,
@@ -497,9 +636,14 @@ export class OperationsChecklistService {
       if (row.itemId) {
         current.items.push({
           id: row.itemId,
+          checklistItemId: row.itemId,
           label: row.itemLabel ?? '',
           isRequired: row.itemRequired ?? true,
           orderIndex: row.itemOrderIndex ?? 0,
+          isChecked: false,
+          checkedAt: null,
+          checkedByUserId: null,
+          checkedByName: null,
         });
       }
     }
@@ -507,15 +651,16 @@ export class OperationsChecklistService {
     return Array.from(templates.values());
   }
 
-  private groupServiceChecklistRows(rows: ServiceChecklistRow[]) {
+  private groupExecutionRows(rows: ChecklistExecutionRow[]) {
     const templates = new Map<string, any>();
 
     for (const row of rows) {
-      let current = templates.get(row.checklistId);
+      let current = templates.get(row.templateId);
       if (!current) {
         current = {
-          id: row.checklistId,
+          id: row.templateId,
           templateId: row.templateId,
+          type: this.fromTemplateTypeDbValue(row.type),
           title: row.title,
           category: {
             id: row.categoryId,
@@ -530,12 +675,12 @@ export class OperationsChecklistService {
           },
           items: [],
         };
-        templates.set(row.checklistId, current);
+        templates.set(row.templateId, current);
       }
 
-      if (row.serviceChecklistItemId && row.checklistItemId) {
+      if (row.executionId && row.checklistItemId) {
         current.items.push({
-          id: row.serviceChecklistItemId,
+          id: row.executionId,
           checklistItemId: row.checklistItemId,
           label: row.itemLabel ?? '',
           isRequired: row.itemRequired ?? true,
@@ -549,5 +694,13 @@ export class OperationsChecklistService {
     }
 
     return Array.from(templates.values());
+  }
+
+  private groupTemplatesByType(templates: any[]) {
+    return {
+      herramientas: templates.filter((template) => template.type == 'herramientas'),
+      productos: templates.filter((template) => template.type == 'productos'),
+      instalacion: templates.filter((template) => template.type == 'instalacion'),
+    };
   }
 }

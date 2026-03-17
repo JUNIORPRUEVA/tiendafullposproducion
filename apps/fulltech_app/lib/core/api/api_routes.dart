@@ -95,8 +95,6 @@ class ApiRoutes {
   static const checklistCategories = '/checklist/categories';
   static const checklistPhases = '/checklist/phases';
   static const checklistTemplates = '/checklist/templates';
-  static const checklistCategory = '/checklist/category';
-  static const checklistPhase = '/checklist/phase';
   static const checklistTemplate = '/checklist/template';
   static const checklistItem = '/checklist/item';
   static String checklistItemCheck(String id) => '/checklist/item/$id/check';
