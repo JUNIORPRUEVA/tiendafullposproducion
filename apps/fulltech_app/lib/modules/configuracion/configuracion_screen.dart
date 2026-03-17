@@ -42,6 +42,7 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
   final _evolutionTestMessageCtrl = TextEditingController();
 
   bool _loading = true;
+  bool _refreshing = false;
   bool _saving = false;
   bool _sendingEvolutionTest = false;
   bool _showApiKey = false;
@@ -74,33 +75,55 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     super.dispose();
   }
 
+  void _applySettings(CompanySettings settings) {
+    _nameCtrl.text = settings.companyName;
+    _rncCtrl.text = settings.rnc;
+    _phoneCtrl.text = settings.phone;
+    _addressCtrl.text = settings.address;
+    _legalRepresentativeNameCtrl.text = settings.legalRepresentativeName;
+    _legalRepresentativeCedulaCtrl.text = settings.legalRepresentativeCedula;
+    _legalRepresentativeRoleCtrl.text = settings.legalRepresentativeRole;
+    _legalRepresentativeNationalityCtrl.text =
+        settings.legalRepresentativeNationality;
+    _legalRepresentativeCivilStatusCtrl.text =
+        settings.legalRepresentativeCivilStatus;
+    _logoBase64 = settings.logoBase64;
+    _openAiApiKeyCtrl.text = settings.openAiApiKey;
+    _evolutionApiBaseUrlCtrl.text = settings.evolutionApiBaseUrl;
+    _evolutionApiInstanceNameCtrl.text = settings.evolutionApiInstanceName;
+    _evolutionApiApiKeyCtrl.text = settings.evolutionApiApiKey;
+  }
+
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _refreshing = false;
+    });
+    final repo = ref.read(companySettingsRepositoryProvider);
     try {
-      final settings = await ref
-          .read(companySettingsRepositoryProvider)
-          .getSettings();
+      final cached = await repo.getCachedSettings();
+      if (cached != null) {
+        if (!mounted) return;
+        _applySettings(cached);
+        setState(() {
+          _loading = false;
+          _refreshing = true;
+        });
+      }
+
+      final settings = await repo.getSettingsRemoteAndCache();
       if (!mounted) return;
-      _nameCtrl.text = settings.companyName;
-      _rncCtrl.text = settings.rnc;
-      _phoneCtrl.text = settings.phone;
-      _addressCtrl.text = settings.address;
-      _legalRepresentativeNameCtrl.text = settings.legalRepresentativeName;
-      _legalRepresentativeCedulaCtrl.text = settings.legalRepresentativeCedula;
-      _legalRepresentativeRoleCtrl.text = settings.legalRepresentativeRole;
-      _legalRepresentativeNationalityCtrl.text =
-          settings.legalRepresentativeNationality;
-      _legalRepresentativeCivilStatusCtrl.text =
-          settings.legalRepresentativeCivilStatus;
-      _logoBase64 = settings.logoBase64;
-      _openAiApiKeyCtrl.text = settings.openAiApiKey;
-      _evolutionApiBaseUrlCtrl.text = settings.evolutionApiBaseUrl;
-      _evolutionApiInstanceNameCtrl.text = settings.evolutionApiInstanceName;
-      _evolutionApiApiKeyCtrl.text = settings.evolutionApiApiKey;
+      _applySettings(settings);
+      ref.invalidate(companySettingsProvider);
     } catch (e) {
       _showMessage('$e');
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _refreshing = false;
+        });
+      }
     }
   }
 
@@ -231,9 +254,15 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     );
 
     try {
-      await ref.read(companySettingsRepositoryProvider).saveSettings(settings);
+      final queued = await ref
+          .read(companySettingsRepositoryProvider)
+          .saveSettingsOrQueue(settings);
       ref.invalidate(companySettingsProvider);
-      _showMessage('Configuracion guardada');
+      _showMessage(
+        queued
+            ? 'Configuración guardada localmente. Se sincronizará en segundo plano.'
+            : 'Configuración guardada',
+      );
       return true;
     } catch (e) {
       _showMessage('$e');
@@ -929,8 +958,26 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : isDesktop
-          ? _buildDesktopBody(context)
-          : _buildMobileBody(),
+          ? Column(
+              children: [
+                if (_refreshing)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    child: _RefreshingSettingsBanner(),
+                  ),
+                Expanded(child: _buildDesktopBody(context)),
+              ],
+            )
+          : Column(
+              children: [
+                if (_refreshing)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    child: _RefreshingSettingsBanner(),
+                  ),
+                Expanded(child: _buildMobileBody()),
+              ],
+            ),
       bottomNavigationBar: isDesktop
           ? null
           : SafeArea(
@@ -941,6 +988,36 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
                 label: Text(_saving ? 'Guardando...' : 'Guardar configuración'),
               ),
             ),
+    );
+  }
+}
+
+class _RefreshingSettingsBanner extends StatelessWidget {
+  const _RefreshingSettingsBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: const Padding(
+        padding: EdgeInsets.all(12),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Actualizando configuración en segundo plano...',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

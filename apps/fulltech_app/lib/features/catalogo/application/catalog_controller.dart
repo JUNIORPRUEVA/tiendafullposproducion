@@ -1,8 +1,6 @@
-import 'dart:convert';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/cache/local_json_cache.dart';
 import '../../../core/cache/fulltech_cache_manager.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/models/product_model.dart';
@@ -11,6 +9,7 @@ import '../data/catalog_repository.dart';
 class CatalogState {
   final List<ProductModel> items;
   final bool loading;
+  final bool refreshing;
   final String? error;
   final bool saving;
   final String? actionError;
@@ -18,6 +17,7 @@ class CatalogState {
   const CatalogState({
     this.items = const [],
     this.loading = false,
+    this.refreshing = false,
     this.error,
     this.saving = false,
     this.actionError,
@@ -26,6 +26,7 @@ class CatalogState {
   CatalogState copyWith({
     List<ProductModel>? items,
     bool? loading,
+    bool? refreshing,
     String? error,
     bool? saving,
     String? actionError,
@@ -34,6 +35,7 @@ class CatalogState {
     return CatalogState(
       items: items ?? this.items,
       loading: loading ?? this.loading,
+      refreshing: refreshing ?? this.refreshing,
       error: clearError ? null : (error ?? this.error),
       saving: saving ?? this.saving,
       actionError: clearError ? null : (actionError ?? this.actionError),
@@ -50,6 +52,7 @@ class CatalogController extends StateNotifier<CatalogState> {
   final Ref ref;
   static const _cacheKey = 'catalog_products_cache_v4';
   static const _silentRefreshMinInterval = Duration(seconds: 20);
+  final LocalJsonCache _cache = LocalJsonCache();
   bool _remoteRefreshInFlight = false;
   DateTime? _lastSuccessfulRemoteSyncAt;
 
@@ -57,15 +60,13 @@ class CatalogController extends StateNotifier<CatalogState> {
 
   Future<List<ProductModel>> _loadFromCache() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_cacheKey);
-      if (raw == null || raw.trim().isEmpty) return const [];
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return const [];
-      return decoded
+      final cached = await _cache.readMap(_cacheKey);
+      final rows = cached?['items'];
+      if (rows is! List) return const [];
+      return rows
           .whereType<Map>()
           .map((row) => ProductModel.fromJson(row.cast<String, dynamic>()))
-          .toList();
+          .toList(growable: false);
     } catch (_) {
       return const [];
     }
@@ -73,9 +74,9 @@ class CatalogController extends StateNotifier<CatalogState> {
 
   Future<void> _saveToCache(List<ProductModel> items) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final payload = jsonEncode(items.map((p) => p.toJson()).toList());
-      await prefs.setString(_cacheKey, payload);
+      await _cache.writeMap(_cacheKey, {
+        'items': items.map((item) => item.toJson()).toList(growable: false),
+      });
     } catch (_) {
       // Ignore cache failures.
     }
@@ -100,12 +101,25 @@ class CatalogController extends StateNotifier<CatalogState> {
     if (shouldShowLoading && state.items.isEmpty) {
       final cached = await _loadFromCache();
       if (cached.isNotEmpty) {
-        state = state.copyWith(items: cached, loading: true, clearError: true);
+        state = state.copyWith(
+          items: cached,
+          loading: false,
+          refreshing: true,
+          clearError: true,
+        );
       } else {
-        state = state.copyWith(loading: true, clearError: true);
+        state = state.copyWith(
+          loading: true,
+          refreshing: false,
+          clearError: true,
+        );
       }
     } else if (shouldShowLoading) {
-      state = state.copyWith(loading: true, clearError: true);
+      state = state.copyWith(
+        loading: false,
+        refreshing: true,
+        clearError: true,
+      );
     } else {
       state = state.copyWith(clearError: true);
     }
@@ -119,7 +133,7 @@ class CatalogController extends StateNotifier<CatalogState> {
       final merged = _mergeRecoveredImages(fetched);
       final syncVersion = buildCatalogSyncVersion(merged);
       final items = applyCatalogSyncVersion(merged, syncVersion);
-      state = state.copyWith(items: items, loading: false);
+      state = state.copyWith(items: items, loading: false, refreshing: false);
       await _saveToCache(items);
       Future<void>.microtask(
         () => FulltechImageCacheManager.warmImageUrls(
@@ -133,7 +147,11 @@ class CatalogController extends StateNotifier<CatalogState> {
           : 'No se pudieron cargar los productos';
       // Keep cached/previous items (if any) so UI doesn't go blank.
       if (silent && state.items.isNotEmpty) return;
-      state = state.copyWith(loading: false, error: message);
+      state = state.copyWith(
+        loading: false,
+        refreshing: false,
+        error: message,
+      );
     } finally {
       if (silent && forceRemote) {
         _remoteRefreshInFlight = false;

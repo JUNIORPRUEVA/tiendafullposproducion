@@ -12,6 +12,7 @@ import 'core/loading/app_loading_screen.dart';
 import 'core/auth/auth_provider.dart';
 import 'core/debug/app_error_reporter.dart';
 import 'core/debug/app_error_overlay.dart';
+import 'core/offline/sync_queue_service.dart';
 import 'core/realtime/catalog_realtime_service.dart';
 import 'features/operaciones/application/operations_realtime_bootstrap_provider.dart';
 import 'core/startup/app_startup_controller.dart';
@@ -123,6 +124,7 @@ class _MyAppState extends ConsumerState<MyApp> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(syncQueueBootstrapProvider);
     ref.watch(operationsPrefetchBootstrapProvider);
     ref.watch(operationsRealtimeBootstrapProvider);
     final router = ref.watch(routerProvider);

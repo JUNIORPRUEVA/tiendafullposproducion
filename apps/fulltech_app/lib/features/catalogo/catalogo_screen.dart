@@ -16,6 +16,7 @@ import '../../core/utils/string_utils.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../../core/widgets/product_network_image.dart';
+import '../../core/widgets/sync_status_banner.dart';
 import 'application/catalog_controller.dart';
 
 String _formatStock(double? stock) {
@@ -343,6 +344,10 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
         child: Column(
           children: [
             if (isModal) modalHeader(),
+            SyncStatusBanner(
+              visible: catalog.refreshing,
+              label: 'Actualizando productos en segundo plano...',
+            ),
             if (_hasActiveFilter || query.isNotEmpty)
               Container(
                 width: double.infinity,

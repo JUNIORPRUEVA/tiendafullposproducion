@@ -5,13 +5,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_routes.dart';
 import '../auth/auth_repository.dart';
+import '../cache/local_json_cache.dart';
 import '../errors/api_exception.dart';
+import '../offline/sync_queue_service.dart';
 import 'company_settings_model.dart';
 
 final companySettingsRepositoryProvider = Provider<CompanySettingsRepository>((
   ref,
 ) {
-  return CompanySettingsRepository(ref.watch(dioProvider));
+  final repository = CompanySettingsRepository(
+    ref.watch(dioProvider),
+    ref.read(syncQueueServiceProvider.notifier),
+  );
+  repository.registerSyncHandlers();
+  return repository;
 });
 
 final companySettingsProvider = FutureProvider<CompanySettings>((ref) async {
@@ -21,8 +28,32 @@ final companySettingsProvider = FutureProvider<CompanySettings>((ref) async {
 class CompanySettingsRepository {
   final Dio _dio;
   static const Duration _settingsTimeout = Duration(seconds: 20);
+  static const String _cacheKey = 'company_settings_cache_v1';
+  static const String _saveSyncType = 'settings.save';
 
-  CompanySettingsRepository(this._dio);
+  final LocalJsonCache _cache = LocalJsonCache();
+  final SyncQueueService _syncQueue;
+
+  bool _handlersRegistered = false;
+
+  CompanySettingsRepository(this._dio, this._syncQueue);
+
+  void registerSyncHandlers() {
+    if (_handlersRegistered) return;
+    _handlersRegistered = true;
+    _syncQueue.registerHandler(_saveSyncType, (payload) async {
+      final settings = CompanySettings.fromMap(
+        ((payload['settings'] as Map?) ?? const <String, dynamic>{})
+            .cast<String, dynamic>(),
+      );
+      await _saveSettingsRemote(settings);
+    });
+  }
+
+  bool _shouldQueueSync(ApiException error) {
+    final code = error.code;
+    return code == null || code >= 500;
+  }
 
   String _extractMessage(dynamic data, String fallback) {
     if (data is String && data.trim().isNotEmpty) return data;
@@ -41,7 +72,13 @@ class CompanySettingsRepository {
     return fallback;
   }
 
-  Future<CompanySettings> getSettings() async {
+  Future<CompanySettings?> getCachedSettings() async {
+    final cached = await _cache.readMap(_cacheKey, maxAge: const Duration(days: 14));
+    if (cached == null) return null;
+    return CompanySettings.fromMap(cached);
+  }
+
+  Future<CompanySettings> getSettingsRemoteAndCache() async {
     try {
       final res = await _dio
           .get(
@@ -49,7 +86,11 @@ class CompanySettingsRepository {
             options: Options(extra: const {'skipLoader': true}),
           )
           .timeout(_settingsTimeout);
-      return CompanySettings.fromMap((res.data as Map).cast<String, dynamic>());
+      final settings = CompanySettings.fromMap(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+      await _cache.writeMap(_cacheKey, settings.toMap());
+      return settings;
     } on TimeoutException {
       throw ApiException(
         'La configuración tardó demasiado en cargar. Inténtalo de nuevo.',
@@ -67,7 +108,16 @@ class CompanySettingsRepository {
     }
   }
 
-  Future<void> saveSettings(CompanySettings settings) async {
+  Future<CompanySettings> getSettings() async {
+    final cached = await getCachedSettings();
+    if (cached != null) {
+      unawaited(getSettingsRemoteAndCache());
+      return cached;
+    }
+    return getSettingsRemoteAndCache();
+  }
+
+  Future<void> _saveSettingsRemote(CompanySettings settings) async {
     try {
       await _dio
           .patch(
@@ -108,6 +158,23 @@ class CompanySettingsRepository {
         _extractMessage(e.response?.data, 'No se pudo guardar configuración'),
         e.response?.statusCode,
       );
+    }
+  }
+
+  Future<bool> saveSettingsOrQueue(CompanySettings settings) async {
+    await _cache.writeMap(_cacheKey, settings.toMap());
+    try {
+      await _saveSettingsRemote(settings);
+      return false;
+    } on ApiException catch (e) {
+      if (!_shouldQueueSync(e)) rethrow;
+      await _syncQueue.enqueue(
+        id: _saveSyncType,
+        type: _saveSyncType,
+        scope: 'global',
+        payload: {'settings': settings.toMap()},
+      );
+      return true;
     }
   }
 }

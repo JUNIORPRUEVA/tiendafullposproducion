@@ -2314,18 +2314,8 @@ class _TechInfoActivityCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: baseBackground,
           borderRadius: BorderRadius.circular(12),
-          border: Border(
-            left: BorderSide(
-              color: highlighted
-                  ? accent
-                  : cs.outlineVariant.withValues(alpha: 0.6),
-              width: highlighted ? 3 : 1,
-            ),
-            top: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.45)),
-            right: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.45)),
-            bottom: BorderSide(
-              color: cs.outlineVariant.withValues(alpha: 0.45),
-            ),
+          border: Border.all(
+            color: cs.outlineVariant.withValues(alpha: 0.45),
           ),
           boxShadow: [
             BoxShadow(
@@ -2338,6 +2328,17 @@ class _TechInfoActivityCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+            Container(
+              width: highlighted ? 4 : 3,
+              height: 42,
+              decoration: BoxDecoration(
+                color: highlighted
+                    ? accent
+                    : cs.outlineVariant.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            const SizedBox(width: 10),
             Container(
               width: 30,
               height: 30,

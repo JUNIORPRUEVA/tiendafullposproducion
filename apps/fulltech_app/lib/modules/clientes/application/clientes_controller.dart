@@ -8,6 +8,7 @@ import '../data/clientes_repository.dart';
 class ClientesState {
   final List<ClienteModel> items;
   final bool loading;
+  final bool refreshing;
   final bool saving;
   final String? error;
   final String? actionError;
@@ -19,6 +20,7 @@ class ClientesState {
   const ClientesState({
     this.items = const [],
     this.loading = false,
+    this.refreshing = false,
     this.saving = false,
     this.error,
     this.actionError,
@@ -31,6 +33,7 @@ class ClientesState {
   ClientesState copyWith({
     List<ClienteModel>? items,
     bool? loading,
+    bool? refreshing,
     bool? saving,
     String? error,
     String? actionError,
@@ -44,6 +47,7 @@ class ClientesState {
     return ClientesState(
       items: items ?? this.items,
       loading: loading ?? this.loading,
+      refreshing: refreshing ?? this.refreshing,
       saving: saving ?? this.saving,
       error: clearError ? null : (error ?? this.error),
       actionError: clearActionError ? null : (actionError ?? this.actionError),
@@ -62,6 +66,7 @@ final clientesControllerProvider =
 
 class ClientesController extends StateNotifier<ClientesState> {
   final Ref ref;
+  int _loadSeq = 0;
 
   ClientesController(this.ref) : super(const ClientesState()) {
     load();
@@ -70,27 +75,52 @@ class ClientesController extends StateNotifier<ClientesState> {
   String get _ownerId => ref.read(authStateProvider).user?.id ?? 'default_owner';
 
   Future<void> load({String? search}) async {
+    final seq = ++_loadSeq;
     final nextSearch = search ?? state.search;
-    state = state.copyWith(
-      loading: true,
+    final repo = ref.read(clientesRepositoryProvider);
+
+    final cached = await repo.getCachedClients(
+      ownerId: _ownerId,
       search: nextSearch,
+      order: state.order,
+      correoFilter: state.correoFilter,
+      estadoFilter: state.estadoFilter,
+    );
+
+    final hasCached = cached.isNotEmpty;
+    state = state.copyWith(
+      search: nextSearch,
+      loading: !hasCached && state.items.isEmpty,
+      refreshing: hasCached || state.items.isNotEmpty,
+      items: hasCached ? cached : state.items,
       clearError: true,
       clearActionError: true,
     );
 
     try {
-      final repo = ref.read(clientesRepositoryProvider);
-      final items = await repo.listClients(
+      final items = await repo.listClientsAndCache(
         ownerId: _ownerId,
         search: nextSearch,
         order: state.order,
         correoFilter: state.correoFilter,
         estadoFilter: state.estadoFilter,
       );
-      state = state.copyWith(items: items, loading: false);
+      if (seq != _loadSeq) return;
+      state = state.copyWith(
+        items: items,
+        loading: false,
+        refreshing: false,
+      );
     } catch (e) {
-      final message = e is ApiException ? e.message : 'No se pudieron cargar los clientes';
-      state = state.copyWith(loading: false, error: message);
+      if (seq != _loadSeq) return;
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudieron cargar los clientes';
+      state = state.copyWith(
+        loading: false,
+        refreshing: false,
+        error: message,
+      );
     }
   }
 
@@ -107,6 +137,29 @@ class ClientesController extends StateNotifier<ClientesState> {
       estadoFilter: estadoFilter ?? state.estadoFilter,
     );
     await load();
+  }
+
+  bool _hasPhoneDuplicate(String telefono, {String? excludingId}) {
+    final normalized = telefono.trim().replaceAll(RegExp(r'[^0-9+]'), '');
+    if (normalized.isEmpty) return false;
+    return state.items.any((cliente) {
+      final samePhone =
+          cliente.telefono.trim().replaceAll(RegExp(r'[^0-9+]'), '') ==
+          normalized;
+      final differentId = excludingId == null || cliente.id != excludingId;
+      return samePhone && differentId && !cliente.isDeleted;
+    });
+  }
+
+  Future<void> _persistSnapshot(List<ClienteModel> items) {
+    return ref.read(clientesRepositoryProvider).saveClientsSnapshot(
+      ownerId: _ownerId,
+      search: state.search,
+      order: state.order,
+      correoFilter: state.correoFilter,
+      estadoFilter: state.estadoFilter,
+      items: items,
+    );
   }
 
   Future<ClienteModel> getById(String id) async {
@@ -131,9 +184,8 @@ class ClientesController extends StateNotifier<ClientesState> {
     final repo = ref.read(clientesRepositoryProvider);
 
     try {
-      final duplicated = await repo.existsPhoneDuplicate(
-        ownerId: _ownerId,
-        telefono: telefono,
+      final duplicated = _hasPhoneDuplicate(
+        telefono,
         excludingId: (id ?? '').isEmpty ? null : id,
       );
       if (duplicated) {
@@ -141,8 +193,10 @@ class ClientesController extends StateNotifier<ClientesState> {
       }
 
       final now = DateTime.now();
-      final cliente = ClienteModel(
-        id: id ?? '',
+      final optimistic = ClienteModel(
+        id: (id ?? '').isEmpty
+            ? 'local_${DateTime.now().microsecondsSinceEpoch}'
+            : id!,
         ownerId: _ownerId,
         nombre: nombre.trim(),
         telefono: telefono.trim(),
@@ -154,12 +208,34 @@ class ClientesController extends StateNotifier<ClientesState> {
         syncStatus: 'pending',
       );
 
-      await repo.upsertClient(ownerId: _ownerId, cliente: cliente);
-      await load();
-      state = state.copyWith(saving: false);
+      final previous = state.items;
+      final optimisticItems = [
+        if ((id ?? '').isEmpty) optimistic,
+        for (final item in previous)
+          if (item.id == optimistic.id || ((id ?? '').isNotEmpty && item.id == id))
+            optimistic
+          else
+            item,
+      ];
+      final nextItems = (id ?? '').isEmpty ? optimisticItems : optimisticItems;
+
+      state = state.copyWith(items: nextItems, saving: true);
+      await _persistSnapshot(nextItems);
+
+      final synced = await repo.syncUpsertClientOrQueue(
+        ownerId: _ownerId,
+        cliente: optimistic,
+      );
+      final merged = [
+        for (final item in state.items)
+          if (item.id == optimistic.id) synced else item,
+      ];
+      state = state.copyWith(items: merged, saving: false);
+      await _persistSnapshot(merged);
     } catch (e) {
       final message = e is ApiException ? e.message : 'No se pudo guardar el cliente';
       state = state.copyWith(saving: false, actionError: message);
+      await load(search: state.search);
       rethrow;
     }
   }
@@ -173,8 +249,8 @@ class ClientesController extends StateNotifier<ClientesState> {
 
     try {
       final repo = ref.read(clientesRepositoryProvider);
-      await repo.softDeleteClient(ownerId: _ownerId, id: id);
-      await load();
+      await _persistSnapshot(state.items);
+      await repo.syncDeleteClientOrQueue(ownerId: _ownerId, id: id);
       state = state.copyWith(saving: false);
     } catch (e) {
       final message = e is ApiException ? e.message : 'No se pudo eliminar el cliente';
@@ -183,6 +259,7 @@ class ClientesController extends StateNotifier<ClientesState> {
         saving: false,
         actionError: message,
       );
+      await _persistSnapshot(previous);
       rethrow;
     }
   }

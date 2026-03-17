@@ -11,6 +11,7 @@ import '../operations_models.dart';
 
 class OperationsState {
   final bool loading;
+  final bool refreshing;
   final String? error;
   final List<ServiceModel> services;
   final OperationsDashboardModel dashboard;
@@ -27,6 +28,7 @@ class OperationsState {
 
   const OperationsState({
     this.loading = false,
+    this.refreshing = false,
     this.error,
     this.services = const [],
     required this.dashboard,
@@ -55,6 +57,7 @@ class OperationsState {
 
   OperationsState copyWith({
     bool? loading,
+    bool? refreshing,
     String? error,
     List<ServiceModel>? services,
     OperationsDashboardModel? dashboard,
@@ -79,6 +82,7 @@ class OperationsState {
   }) {
     return OperationsState(
       loading: loading ?? this.loading,
+      refreshing: refreshing ?? this.refreshing,
       error: clearError ? null : (error ?? this.error),
       services: services ?? this.services,
       dashboard: dashboard ?? this.dashboard,
@@ -156,6 +160,7 @@ class OperationsController extends StateNotifier<OperationsState> {
       // Paint cache immediately (instant UI), then refresh in background.
       state = state.copyWith(
         loading: !hasCached && state.services.isEmpty,
+        refreshing: hasCached || state.services.isNotEmpty,
         clearError: true,
         services: cachedPage?.items ?? state.services,
         dashboard: cachedDashboard ?? state.dashboard,
@@ -194,6 +199,7 @@ class OperationsController extends StateNotifier<OperationsState> {
           final dashboard = results[1] as OperationsDashboardModel;
           state = state.copyWith(
             loading: false,
+            refreshing: false,
             services: page.items,
             dashboard: dashboard,
           );
@@ -201,6 +207,7 @@ class OperationsController extends StateNotifier<OperationsState> {
           if (!mounted || seq != _loadSeq) return;
           state = state.copyWith(
             loading: false,
+            refreshing: false,
             error: e is ApiException
                 ? e.message
                 : 'No se pudo cargar operaciones',
@@ -210,6 +217,7 @@ class OperationsController extends StateNotifier<OperationsState> {
     } catch (e) {
       state = state.copyWith(
         loading: false,
+        refreshing: false,
         error: e is ApiException ? e.message : 'No se pudo cargar operaciones',
       );
     }

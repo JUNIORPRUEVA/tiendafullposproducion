@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/models/user_model.dart';
 import '../../core/routing/routes.dart';
+import '../../core/widgets/sync_status_banner.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../features/operaciones/application/operations_controller.dart';
 import '../../features/operaciones/data/operations_repository.dart';
@@ -1299,6 +1300,11 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          SyncStatusBanner(
+                            visible: state.refreshing,
+                            label: 'Actualizando clientes en segundo plano...',
+                            compact: true,
+                          ),
                           Wrap(
                             spacing: 10,
                             runSpacing: 10,
@@ -1551,10 +1557,22 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
 
                   return ListView.separated(
                     padding: const EdgeInsets.fromLTRB(12, 10, 12, 90),
-                    itemCount: state.items.length,
+                    itemCount: state.items.length +
+                        ((state.refreshing || state.saving) ? 1 : 0),
                     separatorBuilder: (_, __) => const SizedBox(height: 3),
                     itemBuilder: (context, index) {
-                      final cliente = state.items[index];
+                      if ((state.refreshing || state.saving) && index == 0) {
+                        return SyncStatusBanner(
+                          visible: true,
+                          label: state.saving
+                              ? 'Sincronizando cambios de clientes...'
+                              : 'Actualizando clientes en segundo plano...',
+                        );
+                      }
+
+                      final dataIndex =
+                          (state.refreshing || state.saving) ? index - 1 : index;
+                      final cliente = state.items[dataIndex];
                       return Align(
                         alignment: Alignment.center,
                         child: ConstrainedBox(

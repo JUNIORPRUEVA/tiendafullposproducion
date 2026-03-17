@@ -31,6 +31,7 @@ import '../../core/utils/string_utils.dart';
 import '../../core/utils/video_preview_controller.dart';
 import '../../core/widgets/app_navigation.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/sync_status_banner.dart';
 import '../../modules/cotizaciones/data/cotizaciones_repository.dart';
 import '../../modules/cotizaciones/cotizacion_models.dart';
 import '../catalogo/catalogo_screen.dart';
@@ -38,6 +39,7 @@ import 'presentation/operations_back_button.dart';
 import '../ponche/application/punch_controller.dart';
 import '../user/data/users_repository.dart';
 import 'application/operations_controller.dart';
+import 'application/operations_metadata_providers.dart';
 import 'data/operations_repository.dart';
 import 'operations_models.dart' hide ServiceStatus;
 import 'operations_models.dart' as ops show ServiceStatus, parseStatus;
@@ -846,7 +848,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
       body: Stack(
         children: [
           _buildBoard(context, authState.user, state, notifier),
-          if (state.loading)
+          if (state.loading && state.services.isEmpty)
             const Positioned.fill(
               child: IgnorePointer(
                 child: Center(child: CircularProgressIndicator()),
@@ -865,31 +867,41 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
   ) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
-      child: _PanelOptions(
-        key: _panelKey,
-        currentUser: currentUser,
-        state: state,
-        searchCtrl: _searchCtrl,
-        onRefresh: notifier.refresh,
-        loadUsers: () => ref.read(usersRepositoryProvider).getAllUsers(),
-        loadTechnicians: () =>
-            ref.read(operationsRepositoryProvider).getTechnicians(),
-        onApplyRemote: (range, techId) => notifier.applyRangeAndTechnician(
-          from: range.start,
-          to: range.end,
-          technicianId: (techId ?? '').trim().isEmpty ? null : techId,
-        ),
-        onOpenService: _openServiceDetail,
-        onChangeStatus: _changeStatusWithConfirm,
-        onChangeOrderState: (serviceId, orderState) =>
-            notifier.changeOrderStateOptimistic(serviceId, orderState),
-        onChangePhase: (service, phase, scheduledAt, note) =>
-            notifier.changePhaseOptimistic(
-              service.id,
-              phase,
-              scheduledAt: scheduledAt,
-              note: note,
+      child: Column(
+        children: [
+          SyncStatusBanner(
+            visible: state.refreshing,
+            label: 'Actualizando operaciones en segundo plano...',
+          ),
+          Expanded(
+            child: _PanelOptions(
+              key: _panelKey,
+              currentUser: currentUser,
+              state: state,
+              searchCtrl: _searchCtrl,
+              onRefresh: notifier.refresh,
+              loadUsers: () => ref.read(usersRepositoryProvider).getAllUsers(),
+              loadTechnicians: () =>
+                  ref.read(operationsRepositoryProvider).getTechnicians(),
+              onApplyRemote: (range, techId) => notifier.applyRangeAndTechnician(
+                from: range.start,
+                to: range.end,
+                technicianId: (techId ?? '').trim().isEmpty ? null : techId,
+              ),
+              onOpenService: _openServiceDetail,
+              onChangeStatus: _changeStatusWithConfirm,
+              onChangeOrderState: (serviceId, orderState) =>
+                  notifier.changeOrderStateOptimistic(serviceId, orderState),
+              onChangePhase: (service, phase, scheduledAt, note) =>
+                  notifier.changePhaseOptimistic(
+                    service.id,
+                    phase,
+                    scheduledAt: scheduledAt,
+                    note: note,
+                  ),
             ),
+          ),
+        ],
       ),
     );
   }
@@ -901,24 +913,6 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
         builder: (context) {
           return Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-                child: Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Detalles de la orden',
-                        style: TextStyle(fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Cerrar',
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-              ),
               const Divider(height: 1),
               Expanded(
                 child: SingleChildScrollView(
@@ -2142,13 +2136,17 @@ class _OperacionesAgendaScreenState
         onPressed: _openAgendaForm,
         child: const Icon(Icons.add_rounded),
       ),
-      body: state.loading
+      body: state.loading && scheduled.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: notifier.refresh,
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
                 children: [
+                  SyncStatusBanner(
+                    visible: state.refreshing,
+                    label: 'Actualizando agenda en segundo plano...',
+                  ),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(12),
@@ -7676,9 +7674,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   String? _technicianId;
   bool _priorityTouched = false;
   bool _loadingTechnicians = false;
-  bool _loadingCategories = false;
   List<TechnicianModel> _technicians = const [];
-  List<ServiceChecklistCategoryModel> _categories = const [];
   String? _customerId;
   String? _customerName;
   String? _customerPhone;
@@ -7742,10 +7738,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     _priority = 1;
     _orderState = 'pendiente';
     _applyDefaultsForKind(widget.agendaKind, kindChanged: true);
-    Future.microtask(() async {
-      await _loadTechnicians();
-      await _loadCategories();
-    });
+    Future.microtask(_loadTechnicians);
   }
 
   @override
@@ -7893,34 +7886,14 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
 
   ServiceChecklistCategoryModel? get _selectedCategory {
     final selectedId = _categoryId.trim();
-    for (final item in _categories) {
+    final categories = ref.read(categoriesProvider).maybeWhen(
+      data: (items) => items,
+      orElse: () => const <ServiceChecklistCategoryModel>[],
+    );
+    for (final item in categories) {
       if (item.id == selectedId) return item;
     }
     return null;
-  }
-
-  Future<void> _loadCategories() async {
-    if (_loadingCategories) return;
-    setState(() => _loadingCategories = true);
-    try {
-      final items = await ref
-          .read(operationsRepositoryProvider)
-          .listChecklistCategories();
-      if (!mounted) return;
-      setState(() {
-        _categories = items;
-        if (items.isEmpty) {
-          _categoryId = '';
-        } else if (!items.any((item) => item.id == _categoryId)) {
-          _categoryId = _defaultCategoryId(items);
-        }
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _categories = const []);
-    } finally {
-      if (mounted) setState(() => _loadingCategories = false);
-    }
   }
 
   bool _looksLikeHttpUrl(String value) {
@@ -8070,30 +8043,6 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
         return 'Soporte POS';
       default:
         return 'Servicio';
-    }
-  }
-
-  String _categoryLabel(String raw) {
-    final lookup = raw.trim();
-    for (final item in _categories) {
-      if (item.id == lookup || item.code == lookup) return item.name;
-    }
-
-    switch (raw.trim().toLowerCase()) {
-      case 'cameras':
-        return 'Cámaras';
-      case 'gate_motor':
-        return 'Motores de puertones';
-      case 'alarm':
-        return 'Alarma';
-      case 'electric_fence':
-        return 'Cerco eléctrico';
-      case 'intercom':
-        return 'Intercom';
-      case 'pos':
-        return 'Punto de ventas';
-      default:
-        return raw.trim().isEmpty ? 'General' : raw.trim();
     }
   }
 
@@ -8434,8 +8383,26 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
 
   @override
   Widget build(BuildContext context) {
+    final categoriesValue = ref.watch(categoriesProvider);
     return LayoutBuilder(
       builder: (context, constraints) {
+        final categories = categoriesValue.maybeWhen(
+          data: (items) => items,
+          orElse: () => const <ServiceChecklistCategoryModel>[],
+        );
+        final hasSelectedCategory = categories.any(
+          (item) => item.id == _categoryId,
+        );
+        final selectedCategory = hasSelectedCategory
+            ? categories.firstWhere((item) => item.id == _categoryId)
+            : null;
+        if (categories.isNotEmpty && !hasSelectedCategory) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() => _categoryId = _defaultCategoryId(categories));
+          });
+        }
+
         final isCompact = constraints.maxWidth < 430;
         final isWide = constraints.maxWidth >= 520;
         final formPadding = isCompact ? 10.0 : (isWide ? 12.0 : 14.0);
@@ -8591,10 +8558,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           },
         );
 
-        final selectedCategory = _selectedCategory;
-        final selectedCategoryId = _categories.any((item) => item.id == _categoryId)
-            ? _categoryId
-            : null;
+        final selectedCategoryId = hasSelectedCategory ? _categoryId : null;
 
         final categoryField = DropdownButtonFormField<String>(
           initialValue: selectedCategoryId,
@@ -8602,13 +8566,15 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           decoration: InputDecoration(
             border: const OutlineInputBorder(),
             labelText: 'Categoría',
-            helperText: _loadingCategories
-                ? 'Cargando categorías...'
-                : (_categories.isEmpty
-                      ? 'No hay categorías disponibles todavía.'
-                      : selectedCategory?.code),
+            helperText: categoriesValue.when(
+              data: (_) => categories.isEmpty
+                  ? 'No hay categorías disponibles.'
+                  : selectedCategory?.code,
+              loading: () => 'Cargando categorías...',
+              error: (_, __) => 'No se pudieron cargar las categorías.',
+            ),
           ),
-          items: _categories
+          items: categories
               .map(
                 (item) => DropdownMenuItem(
                   value: item.id,
@@ -8620,9 +8586,11 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
             if (_categoryId.trim().isEmpty) return 'Requerido';
             return null;
           },
-          onChanged: (value) {
-            if (value != null) setState(() => _categoryId = value);
-          },
+          onChanged: categoriesValue.isLoading
+              ? null
+              : (value) {
+                  if (value != null) setState(() => _categoryId = value);
+                },
         );
 
         final orderStateField = DropdownButtonFormField<String>(

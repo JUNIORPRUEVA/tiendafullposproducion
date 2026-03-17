@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_routes.dart';
 import '../../../core/auth/auth_repository.dart';
+import '../../../core/cache/local_json_cache.dart';
+import '../../../core/offline/sync_queue_service.dart';
 import '../../../core/errors/api_exception.dart';
 import '../cliente_model.dart';
 import '../cliente_profile_model.dart';
@@ -15,13 +17,184 @@ enum CorreoFilter { todos, conCorreo, sinCorreo }
 enum EstadoFilter { activos, eliminados, todos }
 
 final clientesRepositoryProvider = Provider<ClientesRepository>((ref) {
-  return ClientesRepository(ref.watch(dioProvider));
+  final repository = ClientesRepository(
+    ref.watch(dioProvider),
+    ref.read(syncQueueServiceProvider.notifier),
+  );
+  repository.registerSyncHandlers();
+  return repository;
 });
 
 class ClientesRepository {
   final Dio _dio;
+  final SyncQueueService _syncQueue;
+  final LocalJsonCache _cache = LocalJsonCache();
 
-  ClientesRepository(this._dio);
+  static const String _upsertSyncType = 'clientes.upsert';
+  static const String _deleteSyncType = 'clientes.delete';
+  static const Duration _cacheTtl = Duration(days: 7);
+
+  bool _handlersRegistered = false;
+
+  ClientesRepository(this._dio, this._syncQueue);
+
+  void registerSyncHandlers() {
+    if (_handlersRegistered) return;
+    _handlersRegistered = true;
+
+    _syncQueue.registerHandler(_upsertSyncType, (payload) async {
+      final ownerId = (payload['ownerId'] ?? '').toString();
+      final cliente = ClienteModel.fromJson(
+        ((payload['cliente'] as Map?) ?? const <String, dynamic>{})
+            .cast<String, dynamic>(),
+      );
+      await upsertClient(
+        ownerId: ownerId,
+        cliente: cliente.copyWith(
+          updatedLocal: false,
+          syncStatus: 'synced',
+        ),
+      );
+    });
+
+    _syncQueue.registerHandler(_deleteSyncType, (payload) async {
+      final ownerId = (payload['ownerId'] ?? '').toString();
+      final id = (payload['id'] ?? '').toString();
+      await softDeleteClient(ownerId: ownerId, id: id);
+    });
+  }
+
+  String _cacheKey({
+    required String ownerId,
+    required String search,
+    required ClientesOrder order,
+    required CorreoFilter correoFilter,
+    required EstadoFilter estadoFilter,
+  }) {
+    return [
+      'clientes',
+      ownerId.trim(),
+      search.trim().toLowerCase(),
+      order.name,
+      correoFilter.name,
+      estadoFilter.name,
+    ].join('|');
+  }
+
+  bool _shouldQueueSync(ApiException error) {
+    final code = error.code;
+    return code == null || code >= 500;
+  }
+
+  Future<List<ClienteModel>> getCachedClients({
+    required String ownerId,
+    String search = '',
+    ClientesOrder order = ClientesOrder.az,
+    CorreoFilter correoFilter = CorreoFilter.todos,
+    EstadoFilter estadoFilter = EstadoFilter.activos,
+  }) async {
+    final cache = await _cache.readMap(
+      _cacheKey(
+        ownerId: ownerId,
+        search: search,
+        order: order,
+        correoFilter: correoFilter,
+        estadoFilter: estadoFilter,
+      ),
+      maxAge: _cacheTtl,
+    );
+    final rows = cache?['items'];
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => ClienteModel.fromJson(row.cast<String, dynamic>()))
+        .toList(growable: false);
+  }
+
+  Future<void> saveClientsSnapshot({
+    required String ownerId,
+    required String search,
+    required ClientesOrder order,
+    required CorreoFilter correoFilter,
+    required EstadoFilter estadoFilter,
+    required List<ClienteModel> items,
+  }) async {
+    await _cache.writeMap(
+      _cacheKey(
+        ownerId: ownerId,
+        search: search,
+        order: order,
+        correoFilter: correoFilter,
+        estadoFilter: estadoFilter,
+      ),
+      {'items': items.map((item) => item.toJson()).toList(growable: false)},
+    );
+  }
+
+  Future<List<ClienteModel>> listClientsAndCache({
+    required String ownerId,
+    String search = '',
+    ClientesOrder order = ClientesOrder.az,
+    CorreoFilter correoFilter = CorreoFilter.todos,
+    EstadoFilter estadoFilter = EstadoFilter.activos,
+    int page = 1,
+    int pageSize = 100,
+  }) async {
+    final items = await listClients(
+      ownerId: ownerId,
+      search: search,
+      order: order,
+      correoFilter: correoFilter,
+      estadoFilter: estadoFilter,
+      page: page,
+      pageSize: pageSize,
+    );
+    await saveClientsSnapshot(
+      ownerId: ownerId,
+      search: search,
+      order: order,
+      correoFilter: correoFilter,
+      estadoFilter: estadoFilter,
+      items: items,
+    );
+    return items;
+  }
+
+  Future<ClienteModel> syncUpsertClientOrQueue({
+    required String ownerId,
+    required ClienteModel cliente,
+  }) async {
+    try {
+      final synced = await upsertClient(ownerId: ownerId, cliente: cliente);
+      return synced.copyWith(syncStatus: 'synced', updatedLocal: false);
+    } on ApiException catch (e) {
+      if (!_shouldQueueSync(e)) rethrow;
+      await _syncQueue.enqueue(
+        id: '$_upsertSyncType:${cliente.id}',
+        type: _upsertSyncType,
+        scope: ownerId,
+        payload: {'ownerId': ownerId, 'cliente': cliente.toJson()},
+      );
+      return cliente.copyWith(syncStatus: 'pending', updatedLocal: true);
+    }
+  }
+
+  Future<void> syncDeleteClientOrQueue({
+    required String ownerId,
+    required String id,
+  }) async {
+    try {
+      await softDeleteClient(ownerId: ownerId, id: id);
+    } on ApiException catch (e) {
+      if (!_shouldQueueSync(e)) rethrow;
+      await _syncQueue.enqueue(
+        id: '$_deleteSyncType:$id',
+        type: _deleteSyncType,
+        scope: ownerId,
+        payload: {'ownerId': ownerId, 'id': id},
+      );
+    }
+  }
 
   String _extractMessage(dynamic data, String fallback) {
     if (data is Map) {

@@ -11,25 +11,92 @@ import '../../../core/auth/auth_repository.dart';
 import '../../../core/cache/local_json_cache.dart';
 import '../../../core/debug/trace_log.dart';
 import '../../../core/errors/api_exception.dart';
+import '../../../core/offline/sync_queue_service.dart';
 import '../../../modules/clientes/cliente_model.dart';
 import '../operations_models.dart';
 import '../tecnico/technical_visit_models.dart';
 
 final operationsRepositoryProvider = Provider<OperationsRepository>((ref) {
-  return OperationsRepository(ref.watch(dioProvider));
+  final repository = OperationsRepository(
+    ref.watch(dioProvider),
+    ref.read(syncQueueServiceProvider.notifier),
+  );
+  repository.registerSyncHandlers();
+  return repository;
 });
 
 class OperationsRepository {
   final Dio _dio;
+  final SyncQueueService _syncQueue;
 
   static const Duration _servicesCacheTtl = Duration(days: 7);
   static const Duration _dashboardCacheTtl = Duration(days: 7);
   static const Duration _serviceDetailCacheTtl = Duration(days: 7);
   static const Duration _techServicesCacheTtl = Duration(minutes: 2);
+  static const Duration _executionReportCacheTtl = Duration(days: 3);
+  static const Duration _serviceChecklistCacheTtl = Duration(days: 7);
+  static const Duration _technicalVisitCacheTtl = Duration(days: 3);
 
   final LocalJsonCache _cache = LocalJsonCache();
+  bool _handlersRegistered = false;
 
-  OperationsRepository(this._dio);
+  static const String _checkChecklistSyncType = 'operations.checklist_item';
+  static const String _saveExecutionReportSyncType =
+      'operations.execution_report';
+  static const String _saveTechnicalVisitSyncType =
+      'operations.technical_visit';
+
+  OperationsRepository(this._dio, this._syncQueue);
+
+  void registerSyncHandlers() {
+    if (_handlersRegistered) return;
+    _handlersRegistered = true;
+
+    _syncQueue.registerHandler(_checkChecklistSyncType, (payload) async {
+      await checkServiceChecklistItem(
+        itemId: (payload['itemId'] ?? '').toString(),
+        isChecked: payload['isChecked'] == true,
+      );
+    });
+
+    _syncQueue.registerHandler(_saveExecutionReportSyncType, (payload) async {
+      await upsertExecutionReport(
+        serviceId: (payload['serviceId'] ?? '').toString(),
+        technicianId: payload['technicianId']?.toString(),
+        phase: payload['phase']?.toString(),
+        arrivedAt: _dateOrNull(payload['arrivedAt']),
+        startedAt: _dateOrNull(payload['startedAt']),
+        finishedAt: _dateOrNull(payload['finishedAt']),
+        notes: payload['notes']?.toString(),
+        checklistData: (payload['checklistData'] as Map?)?.cast<String, dynamic>(),
+        phaseSpecificData:
+            (payload['phaseSpecificData'] as Map?)?.cast<String, dynamic>(),
+        clientApproved: payload['clientApproved'] as bool?,
+      );
+    });
+
+    _syncQueue.registerHandler(_saveTechnicalVisitSyncType, (payload) async {
+      final visitId = (payload['visitId'] ?? '').toString().trim();
+      final rawPayload = ((payload['payload'] as Map?) ?? const <String, dynamic>{})
+          .cast<String, dynamic>();
+      if (visitId.isEmpty) {
+        await createTechnicalVisit(payload: rawPayload);
+      } else {
+        await updateTechnicalVisit(id: visitId, payload: rawPayload);
+      }
+    });
+  }
+
+  static DateTime? _dateOrNull(dynamic raw) {
+    final value = raw?.toString().trim() ?? '';
+    if (value.isEmpty) return null;
+    return DateTime.tryParse(value);
+  }
+
+  bool _shouldQueueSync(ApiException error) {
+    final code = error.code;
+    return code == null || code >= 500;
+  }
 
   Map<String, dynamic> _decodeJsonMap(dynamic data) {
     if (data is Map) return data.cast<String, dynamic>();
@@ -116,6 +183,50 @@ class OperationsRepository {
 
   String _serviceCacheKey({required String cacheScope, required String id}) {
     return ['ops', 'service', _scope(cacheScope), id.trim()].join('|');
+  }
+
+  String _executionReportCacheKey({
+    required String cacheScope,
+    required String serviceId,
+    String? technicianId,
+  }) {
+    return [
+      'ops',
+      'execution_report',
+      _scope(cacheScope),
+      serviceId.trim(),
+      (technicianId ?? '').trim(),
+    ].join('|');
+  }
+
+  String _serviceChecklistCacheKey({
+    required String cacheScope,
+    required String serviceId,
+  }) {
+    return ['ops', 'service_checklist', _scope(cacheScope), serviceId.trim()]
+        .join('|');
+  }
+
+  String _templateChecklistCacheKey({
+    required String cacheScope,
+    required String categoryId,
+    required String phaseId,
+  }) {
+    return [
+      'ops',
+      'checklist_templates',
+      _scope(cacheScope),
+      categoryId.trim(),
+      phaseId.trim(),
+    ].join('|');
+  }
+
+  String _technicalVisitCacheKey({
+    required String cacheScope,
+    required String orderId,
+  }) {
+    return ['ops', 'technical_visit', _scope(cacheScope), orderId.trim()]
+        .join('|');
   }
 
   String _techServicesCacheKey({
@@ -352,6 +463,72 @@ class OperationsRepository {
     final map = await _cache.readMap(key, maxAge: _serviceDetailCacheTtl);
     if (map == null) return null;
     return ServiceModel.fromJson(map);
+  }
+
+  Future<ServiceExecutionBundleModel?> getCachedExecutionReport({
+    required String cacheScope,
+    required String serviceId,
+    String? technicianId,
+  }) async {
+    final map = await _cache.readMap(
+      _executionReportCacheKey(
+        cacheScope: cacheScope,
+        serviceId: serviceId,
+        technicianId: technicianId,
+      ),
+      maxAge: _executionReportCacheTtl,
+    );
+    if (map == null) return null;
+    return ServiceExecutionBundleModel.fromJson(map);
+  }
+
+  Future<ServiceChecklistBundleModel?> getCachedServiceChecklists({
+    required String cacheScope,
+    required String serviceId,
+  }) async {
+    final map = await _cache.readMap(
+      _serviceChecklistCacheKey(cacheScope: cacheScope, serviceId: serviceId),
+      maxAge: _serviceChecklistCacheTtl,
+    );
+    if (map == null) return null;
+    return ServiceChecklistBundleModel.fromJson(map);
+  }
+
+  Future<List<ServiceChecklistTemplateModel>?> getCachedChecklistTemplates({
+    required String cacheScope,
+    required String categoryId,
+    required String phaseId,
+  }) async {
+    final map = await _cache.readMap(
+      _templateChecklistCacheKey(
+        cacheScope: cacheScope,
+        categoryId: categoryId,
+        phaseId: phaseId,
+      ),
+      maxAge: _serviceChecklistCacheTtl,
+    );
+    final raw = map?['items'];
+    if (raw is! List) return null;
+    return raw
+        .whereType<Map>()
+        .map(
+          (item) => ServiceChecklistTemplateModel.fromJson(
+            item.cast<String, dynamic>(),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<TechnicalVisitModel?> getCachedTechnicalVisitByOrder({
+    required String cacheScope,
+    required String orderId,
+  }) async {
+    final map = await _cache.readMap(
+      _technicalVisitCacheKey(cacheScope: cacheScope, orderId: orderId),
+      maxAge: _technicalVisitCacheTtl,
+    );
+    if (map == null) return null;
+    return TechnicalVisitModel.fromJson(map);
   }
 
   Future<void> upsertServiceCacheFromRealtime({
@@ -689,6 +866,73 @@ class OperationsRepository {
         'Respuesta inválida del servidor al cargar el servicio',
       );
     }
+  }
+
+  Future<ServiceExecutionBundleModel> getExecutionReportAndCache({
+    required String cacheScope,
+    required String serviceId,
+    String? technicianId,
+  }) async {
+    final bundle = await getExecutionReport(
+      serviceId: serviceId,
+      technicianId: technicianId,
+    );
+    await _cache.writeMap(
+      _executionReportCacheKey(
+        cacheScope: cacheScope,
+        serviceId: serviceId,
+        technicianId: technicianId,
+      ),
+      bundle.toJson(),
+    );
+    return bundle;
+  }
+
+  Future<ServiceChecklistBundleModel> getServiceChecklistsAndCache({
+    required String cacheScope,
+    required String serviceId,
+  }) async {
+    final bundle = await getServiceChecklists(serviceId: serviceId);
+    await _cache.writeMap(
+      _serviceChecklistCacheKey(cacheScope: cacheScope, serviceId: serviceId),
+      bundle.toJson(),
+    );
+
+    final categoryKey = bundle.categoryCode.trim();
+    final phaseKey = bundle.currentPhase.trim();
+    if (categoryKey.isNotEmpty && phaseKey.isNotEmpty) {
+      await _cache.writeMap(
+        _templateChecklistCacheKey(
+          cacheScope: cacheScope,
+          categoryId: categoryKey,
+          phaseId: phaseKey,
+        ),
+        {
+          'items': bundle.templates
+              .map((template) => template.toJson())
+              .toList(growable: false),
+        },
+      );
+    }
+    return bundle;
+  }
+
+  Future<TechnicalVisitModel?> getTechnicalVisitByOrderAndCache({
+    required String cacheScope,
+    required String orderId,
+  }) async {
+    final visit = await getTechnicalVisitByOrder(orderId);
+    if (visit == null) {
+      await _cache.remove(
+        _technicalVisitCacheKey(cacheScope: cacheScope, orderId: orderId),
+      );
+      return null;
+    }
+    await _cache.writeMap(
+      _technicalVisitCacheKey(cacheScope: cacheScope, orderId: orderId),
+      visit.toJson(),
+    );
+    return visit;
   }
 
   Future<ServiceModel> updateService({
@@ -1183,6 +1427,58 @@ class OperationsRepository {
     }
   }
 
+  Future<List<ServiceChecklistTemplateModel>> listChecklistTemplatesFast({
+    required String cacheScope,
+    required String categoryId,
+    required String phaseId,
+  }) async {
+    final cached = await getCachedChecklistTemplates(
+      cacheScope: cacheScope,
+      categoryId: categoryId,
+      phaseId: phaseId,
+    );
+    if (cached != null && cached.isNotEmpty) {
+      unawaited(
+        listChecklistTemplates(
+          categoryId: categoryId,
+          phaseId: phaseId,
+        ).then((remote) async {
+          await _cache.writeMap(
+            _templateChecklistCacheKey(
+              cacheScope: cacheScope,
+              categoryId: categoryId,
+              phaseId: phaseId,
+            ),
+            {
+              'items': remote
+                  .map((template) => template.toJson())
+                  .toList(growable: false),
+            },
+          );
+        }),
+      );
+      return cached;
+    }
+
+    final remote = await listChecklistTemplates(
+      categoryId: categoryId,
+      phaseId: phaseId,
+    );
+    await _cache.writeMap(
+      _templateChecklistCacheKey(
+        cacheScope: cacheScope,
+        categoryId: categoryId,
+        phaseId: phaseId,
+      ),
+      {
+        'items': remote
+            .map((template) => template.toJson())
+            .toList(growable: false),
+      },
+    );
+    return remote;
+  }
+
   Future<void> createChecklistTemplate({
     required String categoryId,
     required String phaseId,
@@ -1248,6 +1544,26 @@ class OperationsRepository {
     }
   }
 
+  Future<bool> checkServiceChecklistItemOrQueue({
+    required String scope,
+    required String itemId,
+    required bool isChecked,
+  }) async {
+    try {
+      await checkServiceChecklistItem(itemId: itemId, isChecked: isChecked);
+      return false;
+    } on ApiException catch (e) {
+      if (!_shouldQueueSync(e)) rethrow;
+      await _syncQueue.enqueue(
+        id: '$_checkChecklistSyncType:$itemId',
+        type: _checkChecklistSyncType,
+        scope: scope,
+        payload: {'itemId': itemId, 'isChecked': isChecked},
+      );
+      return true;
+    }
+  }
+
   Future<ServiceExecutionBundleModel> upsertExecutionReport({
     required String serviceId,
     String? technicianId,
@@ -1291,6 +1607,56 @@ class OperationsRepository {
       throw ApiException(
         'Respuesta inválida del servidor al guardar el reporte',
       );
+    }
+  }
+
+  Future<bool> upsertExecutionReportOrQueue({
+    required String scope,
+    required String serviceId,
+    String? technicianId,
+    String? phase,
+    DateTime? arrivedAt,
+    DateTime? startedAt,
+    DateTime? finishedAt,
+    String? notes,
+    Map<String, dynamic>? checklistData,
+    Map<String, dynamic>? phaseSpecificData,
+    bool? clientApproved,
+  }) async {
+    try {
+      await upsertExecutionReport(
+        serviceId: serviceId,
+        technicianId: technicianId,
+        phase: phase,
+        arrivedAt: arrivedAt,
+        startedAt: startedAt,
+        finishedAt: finishedAt,
+        notes: notes,
+        checklistData: checklistData,
+        phaseSpecificData: phaseSpecificData,
+        clientApproved: clientApproved,
+      );
+      return false;
+    } on ApiException catch (e) {
+      if (!_shouldQueueSync(e)) rethrow;
+      await _syncQueue.enqueue(
+        id: '$_saveExecutionReportSyncType:$serviceId',
+        type: _saveExecutionReportSyncType,
+        scope: scope,
+        payload: {
+          'serviceId': serviceId,
+          'technicianId': technicianId,
+          'phase': phase,
+          'arrivedAt': arrivedAt?.toIso8601String(),
+          'startedAt': startedAt?.toIso8601String(),
+          'finishedAt': finishedAt?.toIso8601String(),
+          'notes': notes,
+          'checklistData': checklistData,
+          'phaseSpecificData': phaseSpecificData,
+          'clientApproved': clientApproved,
+        },
+      );
+      return true;
     }
   }
 
@@ -1597,6 +1963,39 @@ class OperationsRepository {
       throw ApiException(
         'Respuesta inválida del servidor al actualizar el levantamiento',
       );
+    }
+  }
+
+  Future<bool> saveTechnicalVisitOrQueue({
+    required String scope,
+    required String serviceId,
+    required String technicianId,
+    required String? visitId,
+    required Map<String, dynamic> payload,
+  }) async {
+    try {
+      if (visitId == null || visitId.trim().isEmpty) {
+        await createTechnicalVisit(
+          payload: {'order_id': serviceId, 'technician_id': technicianId, ...payload},
+        );
+      } else {
+        await updateTechnicalVisit(id: visitId, payload: payload);
+      }
+      return false;
+    } on ApiException catch (e) {
+      if (!_shouldQueueSync(e)) rethrow;
+      await _syncQueue.enqueue(
+        id: '$_saveTechnicalVisitSyncType:$serviceId',
+        type: _saveTechnicalVisitSyncType,
+        scope: scope,
+        payload: {
+          'visitId': visitId,
+          'payload': visitId == null || visitId.trim().isEmpty
+              ? {'order_id': serviceId, 'technician_id': technicianId, ...payload}
+              : payload,
+        },
+      );
+      return true;
     }
   }
 }

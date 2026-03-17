@@ -280,7 +280,6 @@ export class OperationsChecklistService {
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM service_phases
-      WHERE code IN (${Prisma.join(this.operationPhases.map((phase) => Prisma.sql`${phase.code}`))})
       ORDER BY order_index ASC, name ASC
     `);
   }
