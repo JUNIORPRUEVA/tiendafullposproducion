@@ -31,7 +31,18 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit() {
     if (!this.enabled) return;
-    await this.getClient();
+
+    try {
+      const client = await this.getClient();
+      if (!client) return;
+
+      const result = await this.ping();
+      if (result) {
+        console.log(result);
+      }
+    } catch (error) {
+      console.error('❌ Redis error', error);
+    }
   }
 
   async get<T>(key: string): Promise<T | null> {
@@ -81,6 +92,18 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logError(`Redis DEL failed for ${key}`, error);
       return 0;
+    }
+  }
+
+  async ping(): Promise<string | null> {
+    try {
+      const client = await this.getClient();
+      if (!client) return null;
+
+      return await client.ping();
+    } catch (error) {
+      this.logError('Redis PING failed', error);
+      return null;
     }
   }
 
@@ -160,10 +183,12 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     });
 
     client.on('connect', () => {
+      console.log('🔥 Redis connected');
       this.logger.log('Redis connected');
     });
 
     client.on('ready', () => {
+      console.log('🚀 Redis ready');
       this.logger.log('Redis ready');
     });
 
@@ -172,6 +197,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     });
 
     client.on('error', (error) => {
+      console.error('❌ Redis error', error);
       this.logError('Redis client error', error);
     });
 
