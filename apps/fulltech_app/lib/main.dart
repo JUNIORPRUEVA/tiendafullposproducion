@@ -8,7 +8,6 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'core/routing/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/loading/app_loading_overlay.dart';
-import 'core/loading/app_loading_screen.dart';
 import 'core/auth/auth_provider.dart';
 import 'core/debug/app_error_reporter.dart';
 import 'core/debug/app_error_overlay.dart';
@@ -36,6 +35,7 @@ Future<void> main() async {
       };
 
       _initializeDesktopSqlite();
+      await prepareAppFirstFrame();
       runApp(const ProviderScope(child: AppBootstrap()));
     },
     (error, stack) {
@@ -52,52 +52,9 @@ class AppBootstrap extends ConsumerStatefulWidget {
 }
 
 class _AppBootstrapState extends ConsumerState<AppBootstrap> {
-  bool _startupRequested = false;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_startupRequested) return;
-    _startupRequested = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      unawaited(ref.read(appStartupProvider.notifier).start());
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
-    final startup = ref.watch(appStartupProvider);
-    final startupController = ref.read(appStartupProvider.notifier);
-
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      builder: (context, child) {
-        return Stack(
-          children: [
-            const FulltechGlobalBackground(),
-            if (child != null) child,
-          ],
-        );
-      },
-      home: startup.hasError
-          ? AppLoadingScreen(
-              title: startup.title,
-              subtitle: startup.errorMessage ?? startup.subtitle,
-              statusLabel: startup.statusLabel,
-              showProgress: false,
-              actionLabel: 'Reintentar',
-              onAction: startupController.retry,
-            )
-          : startup.isReady
-          ? const MyApp()
-          : AppLoadingScreen(
-              title: startup.title,
-              subtitle: startup.subtitle,
-              statusLabel: startup.statusLabel,
-            ),
-    );
+    return const MyApp();
   }
 }
 
@@ -135,8 +92,7 @@ class _MyAppState extends ConsumerState<MyApp> {
         if (!mounted) return;
         if (next.isAuthenticated) {
           unawaited(ref.read(catalogRealtimeServiceProvider).connect(next));
-        } else if (previous?.isAuthenticated == true &&
-            !next.isAuthenticated) {
+        } else if (previous?.isAuthenticated == true && !next.isAuthenticated) {
           ref.read(catalogRealtimeServiceProvider).disconnect();
         }
       });
@@ -147,7 +103,9 @@ class _MyAppState extends ConsumerState<MyApp> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         if (authState.isAuthenticated) {
-          unawaited(ref.read(catalogRealtimeServiceProvider).connect(authState));
+          unawaited(
+            ref.read(catalogRealtimeServiceProvider).connect(authState),
+          );
         } else {
           ref.read(catalogRealtimeServiceProvider).disconnect();
         }

@@ -70,6 +70,23 @@ final appStartupProvider =
       return AppStartupController();
     });
 
+Future<void>? _prepareAppFirstFrameFuture;
+
+Future<void> prepareAppFirstFrame() {
+  if (_prepareAppFirstFrameFuture != null) {
+    return _prepareAppFirstFrameFuture!;
+  }
+
+  late final Future<void> future;
+  future = _prepareAppFirstFrame().whenComplete(() {
+    if (identical(_prepareAppFirstFrameFuture, future)) {
+      _prepareAppFirstFrameFuture = future;
+    }
+  });
+  _prepareAppFirstFrameFuture = future;
+  return future;
+}
+
 class AppStartupController extends StateNotifier<AppStartupState> {
   AppStartupController() : super(AppStartupState.initial());
 
@@ -182,6 +199,43 @@ class AppStartupController extends StateNotifier<AppStartupState> {
       seq: seq,
     );
   }
+}
+
+Future<void> _prepareAppFirstFrame() async {
+  final seq = TraceLog.nextSeq();
+  final stopwatch = Stopwatch()..start();
+  TraceLog.log('Startup', 'prepare first frame begin', seq: seq);
+
+  try {
+    await _ensureEnvLoaded();
+  } catch (error, stackTrace) {
+    TraceLog.log(
+      'Startup',
+      'prepare first frame env failed',
+      seq: seq,
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+
+  try {
+    await ensureContabilidadLocale().timeout(const Duration(seconds: 4));
+  } catch (error, stackTrace) {
+    TraceLog.log(
+      'Startup',
+      'prepare first frame locale failed',
+      seq: seq,
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+
+  stopwatch.stop();
+  TraceLog.log(
+    'Startup',
+    'prepare first frame done (${stopwatch.elapsedMilliseconds}ms)',
+    seq: seq,
+  );
 }
 
 Future<void> _ensureEnvLoaded() async {

@@ -62,6 +62,7 @@ const defaultServiceCategories = [
 ];
 
 const ORDERS_LIST_CACHE_PATTERN = 'orders:list:*';
+const DASHBOARD_OPERATIONS_CACHE_PATTERN = 'dashboard:operations:*';
 
 @Injectable()
 export class OperationsService {
@@ -105,11 +106,37 @@ export class OperationsService {
     return `orders:list:${hash}`;
   }
 
+  private buildDashboardCacheKey(user: AuthUser, from?: string, to?: string, techViewAll: boolean = false) {
+    const key = `dashboard:operations:${from ?? ''}:${to ?? ''}`;
+    const scope = {
+      key,
+      userId: user.id,
+      role: user.role,
+      techViewAll,
+    };
+    const hash = createHash('sha1').update(JSON.stringify(scope)).digest('hex');
+    return `dashboard:operations:${hash}`;
+  }
+
   private async invalidateOrdersListCache(reason: string) {
     const deleted = await this.redis.delByPattern(ORDERS_LIST_CACHE_PATTERN);
     if (this.redis.isEnabled()) {
       this.logger.log(`Redis INVALIDATE ${ORDERS_LIST_CACHE_PATTERN} reason=${reason} deleted=${deleted}`);
     }
+  }
+
+  private async invalidateDashboardCache(reason: string) {
+    const deleted = await this.redis.delByPattern(DASHBOARD_OPERATIONS_CACHE_PATTERN);
+    if (this.redis.isEnabled()) {
+      this.logger.log(`Redis INVALIDATE ${DASHBOARD_OPERATIONS_CACHE_PATTERN} reason=${reason} deleted=${deleted}`);
+    }
+  }
+
+  private async invalidateOperationsCache(reason: string) {
+    await Promise.all([
+      this.invalidateOrdersListCache(reason),
+      this.invalidateDashboardCache(reason),
+    ]);
   }
 
   private async notifyFleetNumbersForService(params: {
@@ -762,7 +789,7 @@ export class OperationsService {
       // ignore
     }
 
-    await this.invalidateOrdersListCache('service.create');
+    await this.invalidateOperationsCache('service.create');
 
     return normalized;
   }
@@ -980,7 +1007,7 @@ export class OperationsService {
       // ignore
     }
 
-    await this.invalidateOrdersListCache('service.changePhase');
+    await this.invalidateOperationsCache('service.changePhase');
 
     return normalized;
   }
@@ -1049,7 +1076,7 @@ export class OperationsService {
       // ignore
     }
 
-    await this.invalidateOrdersListCache('service.changeAdminPhase');
+    await this.invalidateOperationsCache('service.changeAdminPhase');
 
     return normalized;
   }
@@ -1106,7 +1133,7 @@ export class OperationsService {
       // ignore
     }
 
-    await this.invalidateOrdersListCache('service.changeAdminStatus');
+    await this.invalidateOperationsCache('service.changeAdminStatus');
 
     return normalized;
   }
@@ -1248,7 +1275,7 @@ export class OperationsService {
       // ignore
     }
 
-    await this.invalidateOrdersListCache('service.update');
+    await this.invalidateOperationsCache('service.update');
 
     return normalized;
   }
@@ -1408,7 +1435,7 @@ export class OperationsService {
       // ignore
     }
 
-    await this.invalidateOrdersListCache('service.changeStatus');
+    await this.invalidateOperationsCache('service.changeStatus');
 
     return normalized;
   }
@@ -1488,7 +1515,7 @@ export class OperationsService {
       // ignore
     }
 
-    await this.invalidateOrdersListCache('service.changeOrderState');
+    await this.invalidateOperationsCache('service.changeOrderState');
 
     return normalized;
   }
@@ -1689,7 +1716,7 @@ export class OperationsService {
       // ignore
     }
 
-    await this.invalidateOrdersListCache('service.schedule');
+    await this.invalidateOperationsCache('service.schedule');
 
     return {
       ...normalized,
@@ -1819,7 +1846,7 @@ export class OperationsService {
       // ignore
     }
 
-    await this.invalidateOrdersListCache('service.assign');
+    await this.invalidateOperationsCache('service.assign');
 
     return normalized;
   }
@@ -1905,7 +1932,7 @@ export class OperationsService {
         // ignore
       }
 
-      await this.invalidateOrdersListCache('service.addUpdate.step');
+      await this.invalidateOperationsCache('service.addUpdate.step');
 
       return normalized;
     }
@@ -1985,7 +2012,7 @@ export class OperationsService {
       // ignore
     }
 
-    await this.invalidateOrdersListCache('service.addUpdate');
+    await this.invalidateOperationsCache('service.addUpdate');
 
     return { ok: true };
   }
@@ -2406,7 +2433,7 @@ export class OperationsService {
       // ignore
     }
 
-    await this.invalidateOrdersListCache('service.addFile');
+    await this.invalidateOperationsCache('service.addFile');
 
     return file;
   }
@@ -2524,7 +2551,7 @@ export class OperationsService {
       // ignore
     }
 
-    await this.invalidateOrdersListCache('service.createWarranty');
+    await this.invalidateOperationsCache('service.createWarranty');
 
     return normalized;
   }
@@ -2549,7 +2576,7 @@ export class OperationsService {
       });
     });
 
-    await this.invalidateOrdersListCache('service.remove');
+    await this.invalidateOperationsCache('service.remove');
 
     return { ok: true };
   }
@@ -2571,6 +2598,26 @@ export class OperationsService {
 
   async dashboard(user: AuthUser, from?: string, to?: string) {
     const techViewAll = user.role === Role.TECNICO ? await this.techCanViewAllServices() : false;
+    const cacheKey = this.buildDashboardCacheKey(user, from, to, techViewAll);
+    const cached = await this.redis.get<{
+      activeByStatus: Array<{ status: string; count: number }>;
+      installationsPendingToday: number;
+      warrantiesOpen: number;
+      averageHoursByLifecycle: number;
+      technicianPerformance: Array<{ userId: string; technicianName: string; completedCount: number }>;
+    }>(cacheKey);
+
+    if (cached) {
+      if (this.redis.isEnabled()) {
+        this.logger.log(`Redis HIT ${cacheKey}`);
+      }
+      return cached;
+    }
+
+    if (this.redis.isEnabled()) {
+      this.logger.log(`Redis MISS ${cacheKey}`);
+    }
+
     const where: Prisma.ServiceWhereInput = {
       ...this.scopeWhere(user, techViewAll),
       isDeleted: false,
@@ -2638,7 +2685,7 @@ export class OperationsService {
         }, 0) / avgPerStage.length
       : 0;
 
-    return {
+    const response = {
       activeByStatus: byStatus.map((row) => ({ status: this.toApiStatus(row.status), count: row._count._all })),
       installationsPendingToday,
       warrantiesOpen,
@@ -2649,6 +2696,10 @@ export class OperationsService {
         completedCount: row._count._all,
       })),
     };
+
+    await this.redis.set(cacheKey, response, 60);
+
+    return response;
   }
 
   private serviceInclude() {
