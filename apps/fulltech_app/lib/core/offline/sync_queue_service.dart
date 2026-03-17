@@ -72,11 +72,6 @@ class SyncQueueService extends StateNotifier<SyncQueueState> {
   bool _started = false;
   bool _processing = false;
 
-  void _updateState(SyncQueueState next) {
-    if (!mounted) return;
-    state = next;
-  }
-
   void _patchState(SyncQueueState Function(SyncQueueState current) update) {
     if (!mounted) return;
     state = update(state);
@@ -134,7 +129,9 @@ class SyncQueueService extends StateNotifier<SyncQueueState> {
   Future<void> processPending() async {
     if (_processing) return;
     _processing = true;
-    _patchState((current) => current.copyWith(isProcessing: true, clearError: true));
+    _patchState(
+      (current) => current.copyWith(isProcessing: true, clearError: true),
+    );
 
     try {
       final actions = await _store.listPendingActions(limit: 40);

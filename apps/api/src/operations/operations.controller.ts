@@ -44,6 +44,8 @@ import { OperationsChecklistService } from './operations-checklist.service';
 import { CreateServiceChecklistTemplateDto } from './dto/create-service-checklist-template.dto';
 import { CreateServiceChecklistItemDto } from './dto/create-service-checklist-item.dto';
 import { CheckServiceChecklistItemDto } from './dto/check-service-checklist-item.dto';
+import { StorageService } from '../storage/storage.service';
+import { CreateServiceSignatureDto } from './dto/create-service-signature.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller()
@@ -54,6 +56,7 @@ export class OperationsController {
   constructor(
     private readonly operations: OperationsService,
     private readonly checklists: OperationsChecklistService,
+    private readonly storage: StorageService,
     config: ConfigService,
   ) {
     const dir = config.get<string>('UPLOAD_DIR') ?? join(process.cwd(), 'uploads');
@@ -304,6 +307,43 @@ export class OperationsController {
     const relativePath = `/uploads/${file.filename}`;
     const url = this.publicBaseUrl ? `${this.publicBaseUrl}${relativePath}` : relativePath;
     return this.operations.addFile(user, id, url, file.mimetype);
+  }
+
+  @Post('services/:id/signature')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      fileFilter: (
+        _req: Express.Request,
+        file: Express.Multer.File,
+        cb: (error: Error | null, acceptFile: boolean) => void,
+      ) => {
+        const allowed = /^image\/(png|jpe?g|webp)$/.test(file.mimetype);
+        if (!allowed) {
+          return cb(new BadRequestException('La firma debe ser una imagen PNG, JPG o WEBP'), false);
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 6 * 1024 * 1024 },
+    }),
+  )
+  uploadSignature(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: CreateServiceSignatureDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    const user = req.user as { id: string; role: Role };
+    return this.storage.uploadClientSignature(user, {
+      serviceId: id,
+      signatureBase64: dto.signatureBase64,
+      mimeType: dto.mimeType,
+      fileName: dto.fileName,
+      signedAt: dto.signedAt,
+      fileBuffer: file?.buffer,
+      fileMimeType: file?.mimetype,
+      fileOriginalName: file?.originalname,
+    });
   }
 
   @Post('services/:id/warranty')

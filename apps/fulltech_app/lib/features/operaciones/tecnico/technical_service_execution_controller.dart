@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -116,6 +117,11 @@ final technicalExecutionControllerProvider =
 
 class TechnicalExecutionController
     extends StateNotifier<TechnicalExecutionState> {
+  static const String _signatureSyncLocalSaved = 'local_saved';
+  static const String _signatureSyncUploading = 'uploading';
+  static const String _signatureSyncPendingUpload = 'pending_upload';
+  static const String _signatureSyncCompleted = 'completed';
+
   final Ref ref;
   final String serviceId;
 
@@ -134,6 +140,55 @@ class TechnicalExecutionController
   }
 
   String _cacheKey(String userId) => 'ops_exec|$userId|${serviceId.trim()}';
+
+  Map<String, dynamic>? _clientSignatureMap([Map<String, dynamic>? source]) {
+    final raw = (source ?? state.phaseSpecificData)['clientSignature'];
+    if (raw is Map) return raw.cast<String, dynamic>();
+    return null;
+  }
+
+  void _setClientSignatureMeta(Map<String, dynamic> meta) {
+    final next = <String, dynamic>{...state.phaseSpecificData};
+    next['clientSignature'] = meta;
+    state = state.copyWith(phaseSpecificData: next, clearError: true);
+  }
+
+  Map<String, dynamic>? _phaseSpecificDataForRemote() {
+    if (state.phaseSpecificData.isEmpty) return null;
+
+    final next = <String, dynamic>{...state.phaseSpecificData};
+    final signature = _clientSignatureMap(next);
+    if (signature != null) {
+      final cleaned = <String, dynamic>{
+        if ((signature['fileId'] ?? '').toString().trim().isNotEmpty)
+          'fileId': (signature['fileId'] ?? '').toString().trim(),
+        if ((signature['fileUrl'] ?? '').toString().trim().isNotEmpty)
+          'fileUrl': (signature['fileUrl'] ?? '').toString().trim(),
+        if ((signature['signedAt'] ?? '').toString().trim().isNotEmpty)
+          'signedAt': (signature['signedAt'] ?? '').toString().trim(),
+      };
+      if (cleaned.isEmpty) {
+        next.remove('clientSignature');
+      } else {
+        next['clientSignature'] = cleaned;
+      }
+    }
+
+    return next.isEmpty ? null : next;
+  }
+
+  bool _shouldKeepDraftAfterSave() {
+    final signature = _clientSignatureMap();
+    if (signature == null) return false;
+    final localPreview = (signature['localPreviewBase64'] ?? '')
+        .toString()
+        .trim();
+    final syncStatus = (signature['syncStatus'] ?? '').toString().trim();
+    if (localPreview.isEmpty) return false;
+    return syncStatus == _signatureSyncLocalSaved ||
+        syncStatus == _signatureSyncUploading ||
+        syncStatus == _signatureSyncPendingUpload;
+  }
 
   void _syncServiceLists(ServiceModel service) {
     // Immediate in-memory updates (no network) for current device.
@@ -211,21 +266,19 @@ class TechnicalExecutionController
         return const <String, dynamic>{};
       }
 
-        final cachedReport = cachedBundle?.report;
-        final arrivedAt = draft?['arrivedAt'] != null
+      final cachedReport = cachedBundle?.report;
+      final arrivedAt = draft?['arrivedAt'] != null
           ? parseDate(draft!['arrivedAt'])
           : cachedReport?.arrivedAt;
-        final startedAt = draft?['startedAt'] != null
+      final startedAt = draft?['startedAt'] != null
           ? parseDate(draft!['startedAt'])
           : cachedReport?.startedAt;
-        final finishedAt = draft?['finishedAt'] != null
+      final finishedAt = draft?['finishedAt'] != null
           ? parseDate(draft!['finishedAt'])
           : cachedReport?.finishedAt;
-        final notes = (draft?['notes'] ?? cachedReport?.notes ?? '').toString();
+      final notes = (draft?['notes'] ?? cachedReport?.notes ?? '').toString();
       final clientApproved =
-          (draft?['clientApproved'] ??
-            cachedReport?.clientApproved ??
-              false) ==
+          (draft?['clientApproved'] ?? cachedReport?.clientApproved ?? false) ==
           true;
 
       final phaseSpecificData = draft?['phaseSpecificData'] != null
@@ -236,10 +289,12 @@ class TechnicalExecutionController
           ? parseMap(draft!['checklistData'])
           : (cachedReport?.checklistData ?? const <String, dynamic>{});
 
-        final hasCached =
-          cachedService != null || cachedBundle != null || cachedChecklist != null;
+      final hasCached =
+          cachedService != null ||
+          cachedBundle != null ||
+          cachedChecklist != null;
 
-        if (hasCached) {
+      if (hasCached) {
         state = state.copyWith(
           loading: false,
           refreshing: true,
@@ -253,55 +308,57 @@ class TechnicalExecutionController
           checklistData: checklistData,
           phaseSpecificData: phaseSpecificData,
           dynamicChecklists:
-            cachedChecklist?.templates ?? state.dynamicChecklists,
+              cachedChecklist?.templates ?? state.dynamicChecklists,
         );
-        }
+      }
 
-        final service = cacheScope.isEmpty
+      final service = cacheScope.isEmpty
           ? await repo.getService(serviceId)
           : await repo.getServiceAndCache(
-            cacheScope: cacheScope,
-            id: serviceId,
-            silent: hasCached,
-          );
+              cacheScope: cacheScope,
+              id: serviceId,
+              silent: hasCached,
+            );
 
-        ServiceExecutionBundleModel bundle = cachedBundle ??
+      ServiceExecutionBundleModel bundle =
+          cachedBundle ??
           const ServiceExecutionBundleModel(report: null, changes: []);
-        ServiceChecklistBundleModel checklistBundle = cachedChecklist ??
+      ServiceChecklistBundleModel checklistBundle =
+          cachedChecklist ??
           const ServiceChecklistBundleModel(
-          serviceId: '',
-          currentPhase: '',
-          orderState: '',
-          categoryCode: '',
-          categoryLabel: '',
-          templates: [],
+            serviceId: '',
+            currentPhase: '',
+            orderState: '',
+            categoryCode: '',
+            categoryLabel: '',
+            templates: [],
           );
-        String? reportError;
-        try {
+      String? reportError;
+      try {
         bundle = cacheScope.isEmpty
-          ? await repo.getExecutionReport(
-            serviceId: serviceId,
-            technicianId: userId,
-            )
-          : await repo.getExecutionReportAndCache(
-            cacheScope: cacheScope,
-            serviceId: serviceId,
-            technicianId: userId,
-            );
-        } on ApiException catch (e) {
+            ? await repo.getExecutionReport(
+                serviceId: serviceId,
+                technicianId: userId,
+              )
+            : await repo.getExecutionReportAndCache(
+                cacheScope: cacheScope,
+                serviceId: serviceId,
+                technicianId: userId,
+              );
+      } on ApiException catch (e) {
         reportError = e.message;
-        } catch (e) {
+      } catch (e) {
         reportError = e.toString();
-        }
+      }
 
-        try {
+      try {
         checklistBundle = cacheScope.isEmpty
-          ? await repo.getServiceChecklists(serviceId: serviceId)
-          : await repo.getServiceChecklistsAndCache(
-            cacheScope: cacheScope,
-            serviceId: serviceId,
-            );
-        } catch (_) {}
+            ? await repo.getServiceChecklists(serviceId: serviceId)
+            : await repo.getServiceChecklistsAndCache(
+                cacheScope: cacheScope,
+                serviceId: serviceId,
+              );
+      } catch (_) {}
 
       state = state.copyWith(
         loading: false,
@@ -452,7 +509,10 @@ class TechnicalExecutionController
         })
         .toList(growable: false);
 
-    state = state.copyWith(dynamicChecklists: updatedTemplates, clearError: true);
+    state = state.copyWith(
+      dynamicChecklists: updatedTemplates,
+      clearError: true,
+    );
 
     try {
       final repo = ref.read(operationsRepositoryProvider);
@@ -637,9 +697,7 @@ class TechnicalExecutionController
         finishedAt: state.finishedAt,
         notes: state.notes,
         checklistData: state.checklistData.isEmpty ? null : state.checklistData,
-        phaseSpecificData: state.phaseSpecificData.isEmpty
-            ? null
-            : state.phaseSpecificData,
+        phaseSpecificData: _phaseSpecificDataForRemote(),
         clientApproved: state.clientApproved,
       );
 
@@ -649,7 +707,11 @@ class TechnicalExecutionController
             ? 'Reporte guardado localmente. Se sincronizará en segundo plano.'
             : null,
       );
-      await _clearDraft();
+      if (_shouldKeepDraftAfterSave()) {
+        await _persistDraft();
+      } else {
+        await _clearDraft();
+      }
     } on ApiException catch (e) {
       state = state.copyWith(savingReport: false, error: e.message);
     } catch (e) {
@@ -1233,91 +1295,83 @@ class TechnicalExecutionController
     }
   }
 
-  Future<void> uploadClientSignaturePng({required Uint8List pngBytes}) async {
+  Future<void> saveClientSignatureLocally({required Uint8List pngBytes}) async {
     if (_readOnly) return;
     final service = state.service;
     if (service == null) return;
 
-    final id = DateTime.now().microsecondsSinceEpoch.toString();
-    const mimeType = 'image/png';
-    final fileName = 'firma_cliente_$id.png';
-    final size = pngBytes.length;
-
-    _upsertPending(
-      PendingEvidenceUpload(
-        id: id,
-        fileName: fileName,
-        mimeType: mimeType,
-        caption: 'Firma del cliente',
-        fileSize: size,
-        bytes: pngBytes,
+    final signedAtIso = DateTime.now().toIso8601String();
+    final signatureBase64 = base64Encode(pngBytes);
+    _setClientSignatureMeta({
+      'signedAt': signedAtIso,
+      'syncStatus': _signatureSyncLocalSaved,
+      'localPreviewBase64': signatureBase64,
+    });
+    await _persistDraft();
+    TraceLog.log('OpsTech', 'Signature saved locally serviceId=$serviceId');
+    unawaited(
+      _uploadClientSignatureInBackground(
+        signatureBase64: signatureBase64,
+        signedAtIso: signedAtIso,
       ),
     );
+  }
+
+  Future<void> _uploadClientSignatureInBackground({
+    required String signatureBase64,
+    required String signedAtIso,
+  }) async {
+    if (_readOnly || !mounted) return;
+
+    _setClientSignatureMeta({
+      'signedAt': signedAtIso,
+      'syncStatus': _signatureSyncUploading,
+      'localPreviewBase64': signatureBase64,
+    });
+    unawaited(_persistDraft());
+    TraceLog.log('OpsTech', 'Uploading signature serviceId=$serviceId');
+
+    final userId = (ref.read(authStateProvider).user?.id ?? '').trim();
+    final repo = ref.read(operationsRepositoryProvider);
+    final fileName =
+        'firma-cliente-${DateTime.now().millisecondsSinceEpoch}.png';
 
     try {
-      final storage = ref.read(storageRepositoryProvider);
-
-      final presign = await storage.presign(
+      final result = await repo.uploadServiceSignatureOrQueue(
+        scope: userId,
         serviceId: serviceId,
+        signatureBase64: signatureBase64,
+        signedAtIso: signedAtIso,
         fileName: fileName,
-        contentType: mimeType,
-        fileSize: size,
-        kind: 'client_signature',
+        mimeType: 'image/png',
       );
 
       if (!mounted) return;
 
-      await storage.uploadToPresignedUrl(
-        uploadUrl: presign.uploadUrl,
-        bytes: pngBytes,
-        stream: null,
-        contentType: mimeType,
-        contentLength: size,
-        onProgress: (sent, total) {
-          if (!mounted) return;
-          if (total <= 0) return;
-          final p = sent / total;
-          final bounded = p < 0 ? 0.0 : (p > 1 ? 1.0 : p);
-          final cur = state.pendingEvidence.firstWhere(
-            (e) => e.id == id,
-            orElse: () => PendingEvidenceUpload(
-              id: id,
-              fileName: fileName,
-              mimeType: mimeType,
-              caption: 'Firma del cliente',
-              fileSize: size,
-              bytes: pngBytes,
-            ),
-          );
-          _upsertPending(cur.copyWith(progress: bounded));
-        },
-      );
+      if (result == null) {
+        _setClientSignatureMeta({
+          'signedAt': signedAtIso,
+          'syncStatus': _signatureSyncPendingUpload,
+          'localPreviewBase64': signatureBase64,
+        });
+        unawaited(_persistDraft());
+        TraceLog.log(
+          'OpsTech',
+          'Upload failed serviceId=$serviceId queued_retry=true',
+        );
+        return;
+      }
 
-      if (!mounted) return;
+      _setClientSignatureMeta({
+        if (result.fileId != null) 'fileId': result.fileId,
+        if (result.fileUrl != null) 'fileUrl': result.fileUrl,
+        'signedAt': (result.signedAt ?? DateTime.parse(signedAtIso))
+            .toIso8601String(),
+        'syncStatus': _signatureSyncCompleted,
+      });
+      await _persistDraft();
+      TraceLog.log('OpsTech', 'Upload success serviceId=$serviceId');
 
-      final media = await storage.confirm(
-        serviceId: serviceId,
-        objectKey: presign.objectKey,
-        publicUrl: presign.publicUrl,
-        fileName: fileName,
-        mimeType: mimeType,
-        fileSize: size,
-        kind: 'client_signature',
-        caption: 'Firma del cliente',
-      );
-
-      if (!mounted) return;
-
-      final next = <String, dynamic>{...state.phaseSpecificData};
-      next['clientSignature'] = {
-        'fileId': media.id,
-        'fileUrl': media.fileUrl,
-        'signedAt': DateTime.now().toIso8601String(),
-      };
-      state = state.copyWith(phaseSpecificData: next);
-      unawaited(_persistDraft());
-
-      final repo = ref.read(operationsRepositoryProvider);
       final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
       final refreshed = cacheScope.isEmpty
           ? await repo.getService(serviceId)
@@ -1328,7 +1382,6 @@ class TechnicalExecutionController
             );
 
       if (!mounted) return;
-      _removePending(id);
       state = state.copyWith(service: refreshed);
       _syncServiceLists(refreshed);
       unawaited(ref.read(operationsControllerProvider.notifier).refresh());
@@ -1338,16 +1391,26 @@ class TechnicalExecutionController
             .refresh(silent: true),
       );
       unawaited(saveNow());
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      _setClientSignatureMeta({
+        'signedAt': signedAtIso,
+        'syncStatus': _signatureSyncPendingUpload,
+        'localPreviewBase64': signatureBase64,
+        'syncError': e.message,
+      });
+      unawaited(_persistDraft());
+      TraceLog.log('OpsTech', 'Upload failed serviceId=$serviceId', error: e);
     } catch (e) {
       if (!mounted) return;
-      _markPendingFailed(id);
-      if (e is ApiException) {
-        state = state.copyWith(error: e.message);
-        rethrow;
-      } else {
-        state = state.copyWith(error: e.toString());
-        rethrow;
-      }
+      _setClientSignatureMeta({
+        'signedAt': signedAtIso,
+        'syncStatus': _signatureSyncPendingUpload,
+        'localPreviewBase64': signatureBase64,
+        'syncError': e.toString(),
+      });
+      unawaited(_persistDraft());
+      TraceLog.log('OpsTech', 'Upload failed serviceId=$serviceId', error: e);
     }
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../auth/auth_provider.dart';
 import 'app_loading_controller.dart';
 import 'app_loading_screen.dart';
 
@@ -9,8 +10,10 @@ class AppLoadingOverlay extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authStateProvider);
     final visible = ref.watch(appLoadingProvider.select((s) => s.visible));
-    if (!visible) return const SizedBox.shrink();
+    final suppressForStartup = !auth.initialized || auth.restoringSession;
+    if (!visible || suppressForStartup) return const SizedBox.shrink();
 
     final scheme = Theme.of(context).colorScheme;
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
 
 import 'package:dio/dio.dart';
@@ -346,13 +347,15 @@ class _TechnicalServiceExecutionScreenState
     final templates = state.dynamicChecklists;
     if (templates.isEmpty) return const [];
 
-    final filtered = templates.where((template) {
-      final phaseCode = template.phase.code.trim().toLowerCase();
-      if (phaseCode.isEmpty) return true;
-      return phaseCode == normalizedState ||
-          normalizedState.isEmpty ||
-          normalizedState == 'finalizada';
-    }).toList(growable: false);
+    final filtered = templates
+        .where((template) {
+          final phaseCode = template.phase.code.trim().toLowerCase();
+          if (phaseCode.isEmpty) return true;
+          return phaseCode == normalizedState ||
+              normalizedState.isEmpty ||
+              normalizedState == 'finalizada';
+        })
+        .toList(growable: false);
 
     return filtered.isEmpty ? templates : filtered;
   }
@@ -1275,7 +1278,7 @@ class _TechnicalServiceExecutionScreenState
               ).animate(curved),
               child: SignatureScreen(
                 onSave: (pngBytes) async {
-                  await ctrl.uploadClientSignaturePng(pngBytes: pngBytes);
+                  await ctrl.saveClientSignatureLocally(pngBytes: pngBytes);
                   if (!mounted) return;
                   setState(() => _signaturePreviewBytes = pngBytes);
                 },
@@ -1298,9 +1301,33 @@ class _TechnicalServiceExecutionScreenState
   ) {
     String asString(dynamic raw) => (raw ?? '').toString();
 
+    Uint8List? decodeBytes(dynamic raw) {
+      final value = asString(raw).trim();
+      if (value.isEmpty) return null;
+      try {
+        return base64Decode(value);
+      } catch (_) {
+        return null;
+      }
+    }
+
     DateTime? parseDate(dynamic raw) {
       if (raw == null) return null;
       return DateTime.tryParse(raw.toString());
+    }
+
+    ServiceFileModel? latestRemoteSignature() {
+      final candidates = service.files
+          .where((f) => f.fileType.trim().toLowerCase() == 'client_signature')
+          .toList(growable: false);
+      if (candidates.isEmpty) return null;
+
+      candidates.sort((a, b) {
+        final ad = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bd = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bd.compareTo(ad);
+      });
+      return candidates.first;
     }
 
     final raw = phaseSpecificData['clientSignature'];
@@ -1309,35 +1336,56 @@ class _TechnicalServiceExecutionScreenState
       final fileId = asString(map['fileId']).trim();
       final fileUrl = asString(map['fileUrl']).trim();
       final signedAt = parseDate(map['signedAt']);
-      if (fileUrl.isNotEmpty || fileId.isNotEmpty) {
+      final previewBytes = decodeBytes(map['localPreviewBase64']);
+      final syncStatus = asString(map['syncStatus']).trim();
+      final syncError = asString(map['syncError']).trim();
+      final latestRemote = latestRemoteSignature();
+      if ((syncStatus == 'pending_upload' ||
+              syncStatus == 'uploading' ||
+              syncStatus == 'local_saved') &&
+          latestRemote != null &&
+          signedAt != null &&
+          latestRemote.createdAt != null &&
+          !latestRemote.createdAt!.isBefore(
+            signedAt.subtract(const Duration(seconds: 30)),
+          )) {
+        final remoteUrl = latestRemote.fileUrl.trim();
+        if (remoteUrl.isNotEmpty) {
+          return _ClientSignatureMeta(
+            fileId: latestRemote.id.trim().isEmpty
+                ? null
+                : latestRemote.id.trim(),
+            fileUrl: remoteUrl,
+            signedAt: latestRemote.createdAt,
+            syncStatus: 'completed',
+          );
+        }
+      }
+      if (fileUrl.isNotEmpty || fileId.isNotEmpty || previewBytes != null) {
         return _ClientSignatureMeta(
           fileId: fileId.isEmpty ? null : fileId,
           fileUrl: fileUrl.isEmpty ? null : fileUrl,
           signedAt: signedAt,
+          previewBytes: previewBytes,
+          syncStatus: syncStatus.isEmpty
+              ? (fileUrl.isNotEmpty || fileId.isNotEmpty ? 'completed' : null)
+              : syncStatus,
+          syncError: syncError.isEmpty ? null : syncError,
         );
       }
     }
 
-    final candidates = service.files
-        .where((f) => f.fileType.trim().toLowerCase() == 'client_signature')
-        .toList(growable: false);
-    if (candidates.isEmpty) {
+    final latest = latestRemoteSignature();
+    if (latest == null) {
       return const _ClientSignatureMeta();
     }
-
-    candidates.sort((a, b) {
-      final ad = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final bd = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      return bd.compareTo(ad);
-    });
-
-    final latest = candidates.first;
     final url = latest.fileUrl.trim();
     if (url.isEmpty) return const _ClientSignatureMeta();
     return _ClientSignatureMeta(
       fileId: latest.id.trim().isEmpty ? null : latest.id.trim(),
       fileUrl: url,
       signedAt: latest.createdAt,
+      syncStatus: 'completed',
     );
   }
 
@@ -1679,9 +1727,12 @@ class _TechnicalServiceExecutionScreenState
                     onSignPressed: (readOnly || st.busy)
                         ? null
                         : () => _openSignatureScreen(ctrl),
-                    signaturePreviewBytes: _signaturePreviewBytes,
+                    signaturePreviewBytes:
+                        _signaturePreviewBytes ?? signatureMeta.previewBytes,
                     signatureUrl: signatureMeta.fileUrl,
                     signatureSignedAt: signatureMeta.signedAt,
+                    signatureSyncStatus: signatureMeta.syncStatus,
+                    signatureSyncError: signatureMeta.syncError,
                     busy: st.busy,
                   ),
                   const SizedBox(height: 80),
@@ -1978,10 +2029,7 @@ class _ClientInfoDialogState extends State<ClientInfoDialog> {
       addressOrText: widget.service.customerAddress,
     );
     if (!info.canOpenMaps || info.mapsUri == null) return;
-    await launchUrl(
-      info.mapsUri!,
-      mode: LaunchMode.externalApplication,
-    );
+    await launchUrl(info.mapsUri!, mode: LaunchMode.externalApplication);
   }
 
   @override
@@ -2197,7 +2245,11 @@ class _ClientInfoDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Divider(height: 14, thickness: 0.8, color: color.withValues(alpha: 0.55));
+    return Divider(
+      height: 14,
+      thickness: 0.8,
+      color: color.withValues(alpha: 0.55),
+    );
   }
 }
 
@@ -2314,9 +2366,7 @@ class _TechInfoActivityCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: baseBackground,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: 0.45),
-          ),
+          border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.45)),
           boxShadow: [
             BoxShadow(
               color: shadowColor,
@@ -2972,6 +3022,16 @@ class _ClientSignatureMeta {
   final String? fileId;
   final String? fileUrl;
   final DateTime? signedAt;
+  final Uint8List? previewBytes;
+  final String? syncStatus;
+  final String? syncError;
 
-  const _ClientSignatureMeta({this.fileId, this.fileUrl, this.signedAt});
+  const _ClientSignatureMeta({
+    this.fileId,
+    this.fileUrl,
+    this.signedAt,
+    this.previewBytes,
+    this.syncStatus,
+    this.syncError,
+  });
 }

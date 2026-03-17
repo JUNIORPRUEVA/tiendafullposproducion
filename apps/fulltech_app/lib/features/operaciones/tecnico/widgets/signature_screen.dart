@@ -15,7 +15,7 @@ class SignatureScreen extends StatefulWidget {
 
 class _SignatureScreenState extends State<SignatureScreen> {
   late final SignatureController _controller;
-  bool _saving = false;
+  bool _submitting = false;
 
   @override
   void initState() {
@@ -47,11 +47,14 @@ class _SignatureScreenState extends State<SignatureScreen> {
   }
 
   Future<void> _save() async {
-    if (_saving) return;
+    if (_submitting) return;
+
+    setState(() => _submitting = true);
 
     final bytes = await _controller.toPngBytes();
     if (!mounted) return;
     if (bytes == null || bytes.isEmpty) {
+      setState(() => _submitting = false);
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         const SnackBar(
           content: Text('Debes capturar una firma antes de guardar.'),
@@ -60,7 +63,6 @@ class _SignatureScreenState extends State<SignatureScreen> {
       return;
     }
 
-    setState(() => _saving = true);
     try {
       await widget.onSave(bytes);
       if (!mounted) return;
@@ -70,7 +72,7 @@ class _SignatureScreenState extends State<SignatureScreen> {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(content: Text('No se pudo guardar la firma: $e')),
       );
-      setState(() => _saving = false);
+      setState(() => _submitting = false);
     }
   }
 
@@ -80,7 +82,7 @@ class _SignatureScreenState extends State<SignatureScreen> {
     final cs = theme.colorScheme;
 
     return PopScope(
-      canPop: !_saving,
+      canPop: !_submitting,
       child: Scaffold(
         backgroundColor: Colors.white,
         body: SafeArea(
@@ -115,31 +117,22 @@ class _SignatureScreenState extends State<SignatureScreen> {
                     ),
                     const SizedBox(width: 12),
                     TextButton(
-                      onPressed: _saving
+                      onPressed: _submitting
                           ? null
                           : () => Navigator.of(context).pop(),
                       child: const Text('Cancelar'),
                     ),
                     const SizedBox(width: 8),
                     OutlinedButton.icon(
-                      onPressed: _saving ? null : _controller.clear,
+                      onPressed: _submitting ? null : _controller.clear,
                       icon: const Icon(Icons.delete_outline),
                       label: const Text('Limpiar'),
                     ),
                     const SizedBox(width: 8),
                     FilledButton.icon(
-                      onPressed: _saving ? null : _save,
-                      icon: _saving
-                          ? SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: cs.onPrimary,
-                              ),
-                            )
-                          : const Icon(Icons.save_outlined),
-                      label: Text(_saving ? 'Guardando...' : 'Guardar firma'),
+                      onPressed: _submitting ? null : _save,
+                      icon: const Icon(Icons.save_outlined),
+                      label: const Text('Guardar firma'),
                     ),
                   ],
                 ),

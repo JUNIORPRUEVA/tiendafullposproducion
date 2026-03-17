@@ -25,6 +25,33 @@ final operationsRepositoryProvider = Provider<OperationsRepository>((ref) {
   return repository;
 });
 
+class ServiceSignatureUploadResult {
+  final String? fileId;
+  final String? fileUrl;
+  final DateTime? signedAt;
+
+  const ServiceSignatureUploadResult({
+    this.fileId,
+    this.fileUrl,
+    this.signedAt,
+  });
+
+  factory ServiceSignatureUploadResult.fromJson(Map<String, dynamic> json) {
+    DateTime? parseDate(dynamic raw) {
+      if (raw == null) return null;
+      return DateTime.tryParse(raw.toString());
+    }
+
+    final fileId = (json['fileId'] ?? '').toString().trim();
+    final fileUrl = (json['fileUrl'] ?? '').toString().trim();
+    return ServiceSignatureUploadResult(
+      fileId: fileId.isEmpty ? null : fileId,
+      fileUrl: fileUrl.isEmpty ? null : fileUrl,
+      signedAt: parseDate(json['signedAt']),
+    );
+  }
+}
+
 class OperationsRepository {
   final Dio _dio;
   final SyncQueueService _syncQueue;
@@ -36,6 +63,8 @@ class OperationsRepository {
   static const Duration _executionReportCacheTtl = Duration(days: 3);
   static const Duration _serviceChecklistCacheTtl = Duration(days: 7);
   static const Duration _technicalVisitCacheTtl = Duration(days: 3);
+  static const Duration _techniciansDiskCacheTtl = Duration(days: 1);
+  static const Duration _checklistMetadataCacheTtl = Duration(days: 7);
 
   final LocalJsonCache _cache = LocalJsonCache();
   bool _handlersRegistered = false;
@@ -45,6 +74,8 @@ class OperationsRepository {
       'operations.execution_report';
   static const String _saveTechnicalVisitSyncType =
       'operations.technical_visit';
+  static const String _saveServiceSignatureSyncType =
+      'operations.service_signature';
 
   OperationsRepository(this._dio, this._syncQueue);
 
@@ -68,22 +99,34 @@ class OperationsRepository {
         startedAt: _dateOrNull(payload['startedAt']),
         finishedAt: _dateOrNull(payload['finishedAt']),
         notes: payload['notes']?.toString(),
-        checklistData: (payload['checklistData'] as Map?)?.cast<String, dynamic>(),
-        phaseSpecificData:
-            (payload['phaseSpecificData'] as Map?)?.cast<String, dynamic>(),
+        checklistData: (payload['checklistData'] as Map?)
+            ?.cast<String, dynamic>(),
+        phaseSpecificData: (payload['phaseSpecificData'] as Map?)
+            ?.cast<String, dynamic>(),
         clientApproved: payload['clientApproved'] as bool?,
       );
     });
 
     _syncQueue.registerHandler(_saveTechnicalVisitSyncType, (payload) async {
       final visitId = (payload['visitId'] ?? '').toString().trim();
-      final rawPayload = ((payload['payload'] as Map?) ?? const <String, dynamic>{})
-          .cast<String, dynamic>();
+      final rawPayload =
+          ((payload['payload'] as Map?) ?? const <String, dynamic>{})
+              .cast<String, dynamic>();
       if (visitId.isEmpty) {
         await createTechnicalVisit(payload: rawPayload);
       } else {
         await updateTechnicalVisit(id: visitId, payload: rawPayload);
       }
+    });
+
+    _syncQueue.registerHandler(_saveServiceSignatureSyncType, (payload) async {
+      await uploadServiceSignature(
+        serviceId: (payload['serviceId'] ?? '').toString(),
+        signatureBase64: (payload['signatureBase64'] ?? '').toString(),
+        signedAtIso: payload['signedAt']?.toString(),
+        fileName: payload['fileName']?.toString(),
+        mimeType: payload['mimeType']?.toString(),
+      );
     });
   }
 
@@ -139,7 +182,9 @@ class OperationsRepository {
     ServiceExecutionBundleModel bundle,
   ) {
     return {
-      'report': bundle.report == null ? null : _executionReportToMap(bundle.report!),
+      'report': bundle.report == null
+          ? null
+          : _executionReportToMap(bundle.report!),
       'changes': bundle.changes
           .map((change) => _executionChangeToMap(change))
           .toList(growable: false),
@@ -159,6 +204,10 @@ class OperationsRepository {
       'code': phase.code,
       'orderIndex': phase.orderIndex,
     };
+  }
+
+  Map<String, dynamic> _technicianToMap(TechnicianModel technician) {
+    return {'id': technician.id, 'nombreCompleto': technician.name};
   }
 
   Map<String, dynamic> _checklistItemToMap(ServiceChecklistItemModel item) {
@@ -198,10 +247,7 @@ class OperationsRepository {
       'serviceId': bundle.serviceId,
       'currentPhase': bundle.currentPhase,
       'orderState': bundle.orderState,
-      'category': {
-        'code': bundle.categoryCode,
-        'label': bundle.categoryLabel,
-      },
+      'category': {'code': bundle.categoryCode, 'label': bundle.categoryLabel},
       'templates': bundle.templates
           .map((template) => _checklistTemplateToMap(template))
           .toList(growable: false),
@@ -313,6 +359,10 @@ class OperationsRepository {
     return ['ops', 'service', _scope(cacheScope), id.trim()].join('|');
   }
 
+  String _techniciansCacheKey() {
+    return ['ops', 'technicians'].join('|');
+  }
+
   String _executionReportCacheKey({
     required String cacheScope,
     required String serviceId,
@@ -331,8 +381,12 @@ class OperationsRepository {
     required String cacheScope,
     required String serviceId,
   }) {
-    return ['ops', 'service_checklist', _scope(cacheScope), serviceId.trim()]
-        .join('|');
+    return [
+      'ops',
+      'service_checklist',
+      _scope(cacheScope),
+      serviceId.trim(),
+    ].join('|');
   }
 
   String _templateChecklistCacheKey({
@@ -349,12 +403,24 @@ class OperationsRepository {
     ].join('|');
   }
 
+  String _checklistCategoriesCacheKey() {
+    return ['ops', 'checklist_categories'].join('|');
+  }
+
+  String _checklistPhasesCacheKey() {
+    return ['ops', 'checklist_phases'].join('|');
+  }
+
   String _technicalVisitCacheKey({
     required String cacheScope,
     required String orderId,
   }) {
-    return ['ops', 'technical_visit', _scope(cacheScope), orderId.trim()]
-        .join('|');
+    return [
+      'ops',
+      'technical_visit',
+      _scope(cacheScope),
+      orderId.trim(),
+    ].join('|');
   }
 
   String _techServicesCacheKey({
@@ -581,6 +647,54 @@ class OperationsRepository {
     final map = await _cache.readMap(key, maxAge: _dashboardCacheTtl);
     if (map == null) return null;
     return OperationsDashboardModel.fromJson(map);
+  }
+
+  Future<List<TechnicianModel>?> getCachedTechnicians() async {
+    final map = await _cache.readMap(
+      _techniciansCacheKey(),
+      maxAge: _techniciansDiskCacheTtl,
+    );
+    final raw = map?['items'];
+    if (raw is! List) return null;
+    return raw
+        .whereType<Map>()
+        .map((row) => TechnicianModel.fromJson(row.cast<String, dynamic>()))
+        .where((item) => item.id.trim().isNotEmpty)
+        .toList(growable: false);
+  }
+
+  Future<List<ServiceChecklistCategoryModel>?>
+  getCachedChecklistCategories() async {
+    final map = await _cache.readMap(
+      _checklistCategoriesCacheKey(),
+      maxAge: _checklistMetadataCacheTtl,
+    );
+    final raw = map?['items'];
+    if (raw is! List) return null;
+    return raw
+        .whereType<Map>()
+        .map(
+          (item) => ServiceChecklistCategoryModel.fromJson(
+            item.cast<String, dynamic>(),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<List<ServiceChecklistPhaseModel>?> getCachedChecklistPhases() async {
+    final map = await _cache.readMap(
+      _checklistPhasesCacheKey(),
+      maxAge: _checklistMetadataCacheTtl,
+    );
+    final raw = map?['items'];
+    if (raw is! List) return null;
+    return raw
+        .whereType<Map>()
+        .map(
+          (item) =>
+              ServiceChecklistPhaseModel.fromJson(item.cast<String, dynamic>()),
+        )
+        .toList(growable: false);
   }
 
   Future<ServiceModel?> getCachedService({
@@ -1173,9 +1287,12 @@ class OperationsRepository {
     }
   }
 
-  Future<List<TechnicianModel>> listTechnicians() async {
+  Future<List<TechnicianModel>> listTechnicians({bool silent = false}) async {
     try {
-      final res = await _dio.get(ApiRoutes.technicians);
+      final res = await _dio.get(
+        ApiRoutes.technicians,
+        options: Options(extra: {'silent': silent}),
+      );
       final data = (res.data as Map).cast<String, dynamic>();
       final raw = data['items'];
       if (raw is! List) return const [];
@@ -1194,6 +1311,7 @@ class OperationsRepository {
 
   Future<List<TechnicianModel>> getTechnicians({
     bool forceRefresh = false,
+    bool silent = false,
   }) async {
     if (!forceRefresh &&
         _techniciansCache != null &&
@@ -1202,9 +1320,21 @@ class OperationsRepository {
       if (age < _techniciansCacheTtl) return _techniciansCache!;
     }
 
-    final items = await listTechnicians();
+    if (!forceRefresh) {
+      final cached = await getCachedTechnicians();
+      if (cached != null) {
+        _techniciansCache = cached;
+        _techniciansCacheAt = DateTime.now();
+        return cached;
+      }
+    }
+
+    final items = await listTechnicians(silent: silent);
     _techniciansCache = items;
     _techniciansCacheAt = DateTime.now();
+    await _cache.writeMap(_techniciansCacheKey(), {
+      'items': items.map(_technicianToMap).toList(growable: false),
+    });
     return items;
   }
 
@@ -1466,11 +1596,16 @@ class OperationsRepository {
     }
   }
 
-  Future<List<ServiceChecklistCategoryModel>> listChecklistCategories() async {
+  Future<List<ServiceChecklistCategoryModel>> listChecklistCategories({
+    bool silent = false,
+  }) async {
     try {
       final res = await _dio.get(
         ApiRoutes.checklistCategories,
-        options: Options(responseType: ResponseType.plain),
+        options: Options(
+          responseType: ResponseType.plain,
+          extra: {'silent': silent},
+        ),
       );
       final raw = _decodeJsonList(res.data);
       return raw
@@ -1493,11 +1628,26 @@ class OperationsRepository {
     }
   }
 
-  Future<List<ServiceChecklistPhaseModel>> listChecklistPhases() async {
+  Future<List<ServiceChecklistCategoryModel>> listChecklistCategoriesAndCache({
+    bool silent = false,
+  }) async {
+    final items = await listChecklistCategories(silent: silent);
+    await _cache.writeMap(_checklistCategoriesCacheKey(), {
+      'items': items.map(_checklistCategoryToMap).toList(growable: false),
+    });
+    return items;
+  }
+
+  Future<List<ServiceChecklistPhaseModel>> listChecklistPhases({
+    bool silent = false,
+  }) async {
     try {
       final res = await _dio.get(
         ApiRoutes.checklistPhases,
-        options: Options(responseType: ResponseType.plain),
+        options: Options(
+          responseType: ResponseType.plain,
+          extra: {'silent': silent},
+        ),
       );
       final raw = _decodeJsonList(res.data);
       return raw
@@ -1518,6 +1668,16 @@ class OperationsRepository {
         'Respuesta inválida del servidor al cargar fases de checklist',
       );
     }
+  }
+
+  Future<List<ServiceChecklistPhaseModel>> listChecklistPhasesAndCache({
+    bool silent = false,
+  }) async {
+    final items = await listChecklistPhases(silent: silent);
+    await _cache.writeMap(_checklistPhasesCacheKey(), {
+      'items': items.map(_checklistPhaseToMap).toList(growable: false),
+    });
+    return items;
   }
 
   Future<List<ServiceChecklistTemplateModel>> listChecklistTemplates({
@@ -1574,10 +1734,9 @@ class OperationsRepository {
     );
     if (cached != null && cached.isNotEmpty) {
       unawaited(
-        listChecklistTemplates(
-          categoryId: categoryId,
-          phaseId: phaseId,
-        ).then((remote) async {
+        listChecklistTemplates(categoryId: categoryId, phaseId: phaseId).then((
+          remote,
+        ) async {
           await _cache.writeMap(
             _templateChecklistCacheKey(
               cacheScope: cacheScope,
@@ -1607,7 +1766,7 @@ class OperationsRepository {
       ),
       {
         'items': remote
-          .map((template) => _checklistTemplateToMap(template))
+            .map((template) => _checklistTemplateToMap(template))
             .toList(growable: false),
       },
     );
@@ -1881,6 +2040,84 @@ class OperationsRepository {
     }
   }
 
+  Future<ServiceSignatureUploadResult> uploadServiceSignature({
+    required String serviceId,
+    required String signatureBase64,
+    String? signedAtIso,
+    String? fileName,
+    String? mimeType,
+  }) async {
+    TraceLog.log('OpsRepo', 'Uploading signature serviceId=$serviceId');
+    try {
+      final res = await _dio.post(
+        ApiRoutes.serviceSignature(serviceId),
+        data: {
+          'signatureBase64': signatureBase64,
+          if (signedAtIso != null && signedAtIso.trim().isNotEmpty)
+            'signedAt': signedAtIso.trim(),
+          if (fileName != null && fileName.trim().isNotEmpty)
+            'fileName': fileName.trim(),
+          if (mimeType != null && mimeType.trim().isNotEmpty)
+            'mimeType': mimeType.trim(),
+        },
+        options: Options(responseType: ResponseType.plain),
+      );
+      final raw = _decodeJsonMap(res.data);
+      final result = ServiceSignatureUploadResult.fromJson(raw);
+      TraceLog.log('OpsRepo', 'Upload success serviceId=$serviceId');
+      return result;
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo subir la firma'),
+        e.response?.statusCode,
+      );
+    } on FormatException {
+      throw ApiException('Respuesta inválida del servidor al subir la firma');
+    }
+  }
+
+  Future<ServiceSignatureUploadResult?> uploadServiceSignatureOrQueue({
+    required String scope,
+    required String serviceId,
+    required String signatureBase64,
+    String? signedAtIso,
+    String? fileName,
+    String? mimeType,
+  }) async {
+    try {
+      return await uploadServiceSignature(
+        serviceId: serviceId,
+        signatureBase64: signatureBase64,
+        signedAtIso: signedAtIso,
+        fileName: fileName,
+        mimeType: mimeType,
+      );
+    } on ApiException catch (e) {
+      if (!_shouldQueueSync(e)) {
+        TraceLog.log('OpsRepo', 'Upload failed serviceId=$serviceId', error: e);
+        rethrow;
+      }
+      await _syncQueue.enqueue(
+        id: '$_saveServiceSignatureSyncType:$serviceId',
+        type: _saveServiceSignatureSyncType,
+        scope: scope,
+        payload: {
+          'serviceId': serviceId,
+          'signatureBase64': signatureBase64,
+          'signedAt': signedAtIso,
+          'fileName': fileName,
+          'mimeType': mimeType,
+        },
+      );
+      TraceLog.log(
+        'OpsRepo',
+        'Upload failed serviceId=$serviceId queued_retry=true',
+        error: e,
+      );
+      return null;
+    }
+  }
+
   Future<ServiceModel> createWarranty({
     required String serviceId,
     String? title,
@@ -2119,7 +2356,11 @@ class OperationsRepository {
     try {
       if (visitId == null || visitId.trim().isEmpty) {
         await createTechnicalVisit(
-          payload: {'order_id': serviceId, 'technician_id': technicianId, ...payload},
+          payload: {
+            'order_id': serviceId,
+            'technician_id': technicianId,
+            ...payload,
+          },
         );
       } else {
         await updateTechnicalVisit(id: visitId, payload: payload);
@@ -2134,7 +2375,11 @@ class OperationsRepository {
         payload: {
           'visitId': visitId,
           'payload': visitId == null || visitId.trim().isEmpty
-              ? {'order_id': serviceId, 'technician_id': technicianId, ...payload}
+              ? {
+                  'order_id': serviceId,
+                  'technician_id': technicianId,
+                  ...payload,
+                }
               : payload,
         },
       );

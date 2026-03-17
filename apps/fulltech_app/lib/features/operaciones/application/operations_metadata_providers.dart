@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/operations_repository.dart';
@@ -14,11 +16,7 @@ const defaultCategories = <ServiceChecklistCategoryModel>[
     name: 'Motores de portones',
     code: 'gate_motor',
   ),
-  ServiceChecklistCategoryModel(
-    id: 'alarm',
-    name: 'Alarma',
-    code: 'alarm',
-  ),
+  ServiceChecklistCategoryModel(id: 'alarm', name: 'Alarma', code: 'alarm'),
   ServiceChecklistCategoryModel(
     id: 'electric_fence',
     name: 'Cerco eléctrico',
@@ -72,11 +70,18 @@ const defaultPhases = <ServiceChecklistPhaseModel>[
 final categoriesProvider = FutureProvider<List<ServiceChecklistCategoryModel>>((
   ref,
 ) async {
+  final repo = ref.read(operationsRepositoryProvider);
+  final cached = await repo.getCachedChecklistCategories();
+  if (cached != null && cached.isNotEmpty) {
+    unawaited(repo.listChecklistCategoriesAndCache(silent: true));
+    return cached;
+  }
+
   try {
-    final categories = await ref
-        .read(operationsRepositoryProvider)
-        .listChecklistCategories();
-    final safeCategories = categories.isNotEmpty ? categories : defaultCategories;
+    final categories = await repo.listChecklistCategoriesAndCache(silent: true);
+    final safeCategories = categories.isNotEmpty
+        ? categories
+        : defaultCategories;
     // ignore: avoid_print
     print('Categorias cargadas: ${categories.length}');
     // ignore: avoid_print
@@ -94,10 +99,15 @@ final categoriesProvider = FutureProvider<List<ServiceChecklistCategoryModel>>((
 final servicePhasesProvider = FutureProvider<List<ServiceChecklistPhaseModel>>((
   ref,
 ) async {
+  final repo = ref.read(operationsRepositoryProvider);
+  final cached = await repo.getCachedChecklistPhases();
+  if (cached != null && cached.isNotEmpty) {
+    unawaited(repo.listChecklistPhasesAndCache(silent: true));
+    return cached;
+  }
+
   try {
-    final phases = await ref
-        .read(operationsRepositoryProvider)
-        .listChecklistPhases();
+    final phases = await repo.listChecklistPhasesAndCache(silent: true);
     final safePhases = phases.isNotEmpty ? phases : defaultPhases;
     // ignore: avoid_print
     print('Fases cargadas: ${phases.length}');

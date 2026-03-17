@@ -35,7 +35,6 @@ Future<void> main() async {
       };
 
       _initializeDesktopSqlite();
-      await prepareAppFirstFrame();
       runApp(const ProviderScope(child: AppBootstrap()));
     },
     (error, stack) {
@@ -77,17 +76,37 @@ class MyApp extends ConsumerStatefulWidget {
 }
 
 class _MyAppState extends ConsumerState<MyApp> {
-  bool _initialRealtimeBootstrapped = false;
+  bool _backgroundStartupStarted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _backgroundStartupStarted = true);
+      unawaited(prepareAppFirstFrame());
+
+      final authState = ref.read(authStateProvider);
+      if (authState.isAuthenticated) {
+        unawaited(ref.read(catalogRealtimeServiceProvider).connect(authState));
+      } else {
+        ref.read(catalogRealtimeServiceProvider).disconnect();
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    ref.watch(syncQueueBootstrapProvider);
-    ref.watch(operationsPrefetchBootstrapProvider);
-    ref.watch(operationsRealtimeBootstrapProvider);
+    if (_backgroundStartupStarted) {
+      ref.watch(syncQueueBootstrapProvider);
+      ref.watch(operationsPrefetchBootstrapProvider);
+      ref.watch(operationsRealtimeBootstrapProvider);
+    }
     final router = ref.watch(routerProvider);
-    final authState = ref.watch(authStateProvider);
+    ref.watch(authStateProvider);
 
     ref.listen<AuthState>(authStateProvider, (previous, next) {
+      if (!_backgroundStartupStarted) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         if (next.isAuthenticated) {
@@ -98,20 +117,6 @@ class _MyAppState extends ConsumerState<MyApp> {
       });
     });
 
-    if (!_initialRealtimeBootstrapped) {
-      _initialRealtimeBootstrapped = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        if (authState.isAuthenticated) {
-          unawaited(
-            ref.read(catalogRealtimeServiceProvider).connect(authState),
-          );
-        } else {
-          ref.read(catalogRealtimeServiceProvider).disconnect();
-        }
-      });
-    }
-
     return MaterialApp.router(
       title: 'FullTech',
       debugShowCheckedModeBanner: false,
@@ -120,7 +125,9 @@ class _MyAppState extends ConsumerState<MyApp> {
       builder: (context, child) {
         return Stack(
           children: [
-            const FulltechGlobalBackground(),
+            FulltechGlobalBackground(
+              enableBlurEffects: _backgroundStartupStarted,
+            ),
             if (child != null) GlobalAiAssistantEntryPoint(child: child),
             const AppLoadingOverlay(),
             const AppErrorOverlay(),

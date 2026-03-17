@@ -31,7 +31,6 @@ import '../../core/utils/string_utils.dart';
 import '../../core/utils/video_preview_controller.dart';
 import '../../core/widgets/app_navigation.dart';
 import '../../core/widgets/app_drawer.dart';
-import '../../core/widgets/sync_status_banner.dart';
 import '../../modules/cotizaciones/data/cotizaciones_repository.dart';
 import '../../modules/cotizaciones/cotizacion_models.dart';
 import '../catalogo/catalogo_screen.dart';
@@ -877,8 +876,9 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
               searchCtrl: _searchCtrl,
               onRefresh: notifier.refresh,
               loadUsers: () => ref.read(usersRepositoryProvider).getAllUsers(),
-              loadTechnicians: () =>
-                  ref.read(operationsRepositoryProvider).getTechnicians(),
+              loadTechnicians: () => ref
+                  .read(operationsRepositoryProvider)
+                  .getTechnicians(silent: true),
               onApplyRemote: (range, techId) =>
                   notifier.applyRangeAndTechnician(
                     from: range.start,
@@ -7865,7 +7865,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     try {
       final items = await ref
           .read(operationsRepositoryProvider)
-          .getTechnicians();
+          .getTechnicians(silent: true);
       if (!mounted) return;
       setState(() => _technicians = items);
     } catch (_) {

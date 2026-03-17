@@ -85,6 +85,7 @@ class ApiRoutes {
   static String serviceAssign(String id) => '/services/$id/assign';
   static String serviceUpdate(String id) => '/services/$id/update';
   static String serviceFiles(String id) => '/services/$id/files';
+    static String serviceSignature(String id) => '/services/$id/signature';
   static String serviceExecutionReport(String id) =>
       '/services/$id/execution-report';
   static String serviceChecklists(String id) => '/services/$id/checklists';

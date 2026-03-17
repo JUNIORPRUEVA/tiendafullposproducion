@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../data/operations_repository.dart';
-import 'operations_metadata_providers.dart';
 import 'operations_controller.dart';
 import '../tecnico/application/tech_operations_controller.dart';
 
@@ -36,8 +35,10 @@ class OperationsPrefetchController {
       // Warm up caches in background. Do NOT block first paint.
       try {
         ref.read(operationsControllerProvider.notifier);
-        unawaited(ref.read(operationsRepositoryProvider).getTechnicians());
-        unawaited(ref.read(categoriesProvider.future));
+        final repo = ref.read(operationsRepositoryProvider);
+        unawaited(repo.getTechnicians(forceRefresh: true, silent: true));
+        unawaited(repo.listChecklistCategoriesAndCache(silent: true));
+        unawaited(repo.listChecklistPhasesAndCache(silent: true));
 
         final role = (auth.user?.role ?? '').trim().toLowerCase();
         if (role == 'tecnico') {

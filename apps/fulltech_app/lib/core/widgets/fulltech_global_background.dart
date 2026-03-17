@@ -3,7 +3,9 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 class FulltechGlobalBackground extends StatelessWidget {
-  const FulltechGlobalBackground({super.key});
+  final bool enableBlurEffects;
+
+  const FulltechGlobalBackground({super.key, this.enableBlurEffects = true});
 
   @override
   Widget build(BuildContext context) {
@@ -15,7 +17,10 @@ class FulltechGlobalBackground extends StatelessWidget {
     }
 
     final top = blendOnWhite(cs.primary, 0.08);
-    final mid = blendOnWhite(Color.alphaBlend(cs.secondary.withValues(alpha: 0.20), cs.primary), 0.06);
+    final mid = blendOnWhite(
+      Color.alphaBlend(cs.secondary.withValues(alpha: 0.20), cs.primary),
+      0.06,
+    );
     final bottom = blendOnWhite(cs.primary, 0.03);
 
     final blobA = blendOnWhite(cs.primary, 0.18).withValues(alpha: 0.10);
@@ -36,24 +41,26 @@ class FulltechGlobalBackground extends StatelessWidget {
                 ),
               ),
             ),
-            _BlurredCircle(
-              alignment: const Alignment(-1.15, -1.10),
-              diameter: 520,
-              color: blobA,
-              blurSigma: 120,
-            ),
-            _BlurredCircle(
-              alignment: const Alignment(1.15, -0.70),
-              diameter: 420,
-              color: blobB,
-              blurSigma: 120,
-            ),
-            _BlurredCircle(
-              alignment: const Alignment(0.85, 1.10),
-              diameter: 560,
-              color: blobC,
-              blurSigma: 140,
-            ),
+            if (enableBlurEffects) ...[
+              _BlurredCircle(
+                alignment: const Alignment(-1.15, -1.10),
+                diameter: 520,
+                color: blobA,
+                blurSigma: 120,
+              ),
+              _BlurredCircle(
+                alignment: const Alignment(1.15, -0.70),
+                diameter: 420,
+                color: blobB,
+                blurSigma: 120,
+              ),
+              _BlurredCircle(
+                alignment: const Alignment(0.85, 1.10),
+                diameter: 560,
+                color: blobC,
+                blurSigma: 140,
+              ),
+            ],
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
@@ -92,17 +99,11 @@ class _BlurredCircle extends StatelessWidget {
       alignment: alignment,
       child: ClipRect(
         child: ImageFiltered(
-          imageFilter: ImageFilter.blur(
-            sigmaX: blurSigma,
-            sigmaY: blurSigma,
-          ),
+          imageFilter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
           child: Container(
             width: diameter,
             height: diameter,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: color,
-            ),
+            decoration: BoxDecoration(shape: BoxShape.circle, color: color),
           ),
         ),
       ),

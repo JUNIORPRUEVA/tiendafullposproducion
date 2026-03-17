@@ -17,6 +17,8 @@ class ServiceClosureCard extends StatelessWidget {
   final Uint8List? signaturePreviewBytes;
   final String? signatureUrl;
   final DateTime? signatureSignedAt;
+  final String? signatureSyncStatus;
+  final String? signatureSyncError;
   final bool busy;
 
   const ServiceClosureCard({
@@ -33,6 +35,8 @@ class ServiceClosureCard extends StatelessWidget {
     this.signaturePreviewBytes,
     this.signatureUrl,
     this.signatureSignedAt,
+    this.signatureSyncStatus,
+    this.signatureSyncError,
     this.busy = false,
   });
 
@@ -163,6 +167,8 @@ class ServiceClosureCard extends StatelessWidget {
               signaturePreviewBytes: signaturePreviewBytes,
               signatureUrl: signatureUrl,
               signedAt: signatureSignedAt,
+              syncStatus: signatureSyncStatus,
+              syncError: signatureSyncError,
             ),
           ],
         ),
@@ -323,6 +329,8 @@ class SignatureButton extends StatelessWidget {
   final Uint8List? signaturePreviewBytes;
   final String? signatureUrl;
   final DateTime? signedAt;
+  final String? syncStatus;
+  final String? syncError;
 
   const SignatureButton({
     super.key,
@@ -330,6 +338,8 @@ class SignatureButton extends StatelessWidget {
     this.signaturePreviewBytes,
     this.signatureUrl,
     this.signedAt,
+    this.syncStatus,
+    this.syncError,
   });
 
   String _fmtDateTime(DateTime? dt) {
@@ -361,6 +371,41 @@ class SignatureButton extends StatelessWidget {
     return raw;
   }
 
+  ({String label, Color? bg, Color? fg})? _statusTheme(
+    BuildContext context,
+    String? status,
+  ) {
+    final cs = Theme.of(context).colorScheme;
+    switch ((status ?? '').trim()) {
+      case 'local_saved':
+        return (
+          label: '✔ Guardado local',
+          bg: cs.secondaryContainer,
+          fg: cs.onSecondaryContainer,
+        );
+      case 'uploading':
+        return (
+          label: '⏳ Subiendo...',
+          bg: cs.tertiaryContainer,
+          fg: cs.onTertiaryContainer,
+        );
+      case 'completed':
+        return (
+          label: '✅ Completado',
+          bg: cs.primaryContainer,
+          fg: cs.onPrimaryContainer,
+        );
+      case 'pending_upload':
+        return (
+          label: '⏳ Subiendo...',
+          bg: cs.surfaceContainerHighest,
+          fg: cs.onSurfaceVariant,
+        );
+      default:
+        return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -370,6 +415,7 @@ class SignatureButton extends StatelessWidget {
     final hasPreview =
         (previewBytes != null && previewBytes.isNotEmpty) ||
         signature.isNotEmpty;
+    final statusTheme = _statusTheme(context, syncStatus);
 
     return _ClosureSectionShell(
       icon: Icons.draw_outlined,
@@ -451,6 +497,45 @@ class SignatureButton extends StatelessWidget {
                             fontWeight: FontWeight.w600,
                           ),
                         ),
+                        if (statusTheme != null) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusTheme.bg,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              statusTheme.label,
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                color: statusTheme.fg,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
+                        if ((syncStatus ?? '').trim() == 'pending_upload') ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            'Se reintentará automáticamente cuando haya conexión.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ] else if ((syncError ?? '').trim().isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            syncError!.trim(),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.error,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

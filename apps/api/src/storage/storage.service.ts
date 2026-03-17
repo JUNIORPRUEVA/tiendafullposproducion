@@ -100,6 +100,37 @@ export class StorageService {
     return docMax;
   }
 
+  private _decodeBase64File(payload: string) {
+    const raw = payload.trim();
+    if (!raw) throw new BadRequestException('signatureBase64 es requerido');
+
+    const match = /^data:([^;]+);base64,(.+)$/s.exec(raw);
+    const mimeType = (match?.[1] ?? '').trim();
+    const base64Payload = (match?.[2] ?? raw).replace(/\s+/g, '');
+    let buffer: Buffer;
+    try {
+      buffer = Buffer.from(base64Payload, 'base64');
+    } catch {
+      throw new BadRequestException('signatureBase64 inválido');
+    }
+    if (!buffer.length) {
+      throw new BadRequestException('signatureBase64 inválido');
+    }
+    return { buffer, mimeType };
+  }
+
+  private _extForMimeType(mimeType: string) {
+    switch (mimeType.trim().toLowerCase()) {
+      case 'image/jpeg':
+        return 'jpg';
+      case 'image/webp':
+        return 'webp';
+      case 'image/png':
+      default:
+        return 'png';
+    }
+  }
+
   async presignUpload(user: AuthUser, dto: {
     serviceId: string;
     executionReportId?: string;
@@ -273,6 +304,131 @@ export class StorageService {
     }
 
     return created;
+  }
+
+  async uploadClientSignature(user: AuthUser, dto: {
+    serviceId: string;
+    signatureBase64?: string;
+    mimeType?: string;
+    fileName?: string;
+    signedAt?: string;
+    fileBuffer?: Buffer;
+    fileMimeType?: string;
+    fileOriginalName?: string;
+  }) {
+    await this.getServiceOrThrow(user, dto.serviceId, 'operate');
+
+    const decoded = dto.fileBuffer?.length
+      ? { buffer: dto.fileBuffer, mimeType: (dto.fileMimeType ?? '').trim() }
+      : this._decodeBase64File(dto.signatureBase64 ?? '');
+
+    const mimeType = (dto.mimeType ?? decoded.mimeType).trim().toLowerCase();
+    if (!mimeType || !isAllowedContentType(mimeType)) {
+      throw new BadRequestException('mimeType no permitido');
+    }
+
+    const mediaType = inferMediaType(mimeType);
+    if (mediaType !== 'image') {
+      throw new BadRequestException('La firma debe ser una imagen válida');
+    }
+
+    const fileSize = decoded.buffer.length;
+    const max = this.limitsBytesFor(mediaType);
+    if (!Number.isFinite(fileSize) || fileSize <= 0) {
+      throw new BadRequestException('Archivo inválido');
+    }
+    if (fileSize > max) {
+      throw new BadRequestException(`Archivo excede el máximo permitido (${max} bytes)`);
+    }
+
+    const fallbackFileName = `firma-cliente-${Date.now()}.${this._extForMimeType(mimeType)}`;
+    const safeOriginal = sanitizeFileName(
+      (dto.fileName ?? '').trim() ||
+        (dto.fileOriginalName ?? '').trim() ||
+        fallbackFileName,
+    );
+    const objectKey = buildServiceObjectKey(dto.serviceId, safeOriginal);
+    await this.r2.putObject({
+      objectKey,
+      body: decoded.buffer,
+      contentType: mimeType,
+    });
+
+    const publicUrl = this.r2.buildPublicUrl(objectKey);
+    const signedAt = dto.signedAt?.trim().length
+      ? new Date(dto.signedAt)
+      : new Date();
+    if (Number.isNaN(signedAt.getTime())) {
+      throw new BadRequestException('signedAt inválido');
+    }
+
+    const captionOrNull = 'Firma del cliente';
+    const kind = 'client_signature';
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.serviceFile.create({
+        data: {
+          serviceId: dto.serviceId,
+          uploadedByUserId: user.id,
+          fileUrl: publicUrl,
+          fileType: kind,
+          caption: captionOrNull,
+          storageProvider: 'R2',
+          objectKey,
+          originalFileName: safeOriginal,
+          mimeType,
+          mediaType,
+          kind,
+          fileSize,
+        },
+      });
+
+      await tx.serviceUpdate.create({
+        data: {
+          serviceId: dto.serviceId,
+          changedByUserId: user.id,
+          type: ServiceUpdateType.FILE_UPLOAD,
+          oldValue: Prisma.DbNull,
+          newValue: {
+            id: row.id,
+            fileUrl: publicUrl,
+            objectKey,
+            mimeType,
+            kind,
+            mediaType,
+            caption: captionOrNull,
+            signedAt: signedAt.toISOString(),
+          },
+          message: 'Firma del cliente subida',
+        },
+      });
+
+      return row;
+    });
+
+    try {
+      this.realtime.emitOps('service.event', {
+        eventId: randomUUID(),
+        happenedAt: new Date().toISOString(),
+        type: 'service.file_uploaded',
+        serviceId: dto.serviceId,
+        service: { id: dto.serviceId },
+        fileId: created.id,
+        kind,
+        actorUserId: user.id,
+      });
+    } catch {
+      // ignore
+    }
+
+    return {
+      fileId: created.id,
+      fileUrl: created.fileUrl,
+      mimeType: created.mimeType,
+      kind: created.kind,
+      signedAt: signedAt.toISOString(),
+      createdAt: created.createdAt.toISOString(),
+    };
   }
 
   async listServiceFiles(user: AuthUser, serviceId: string, query: { kind?: string; mediaType?: string }) {
