@@ -1,7 +1,9 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Logger } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { CompanyManualAudience, CompanyManualEntryKind, Prisma, Role } from '@prisma/client';
+import { RedisService } from '../common/redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizePhone } from '../common/utils/normalize-phone';
 import { AnalyzeCotizacionAiDto } from './dto/analyze-cotizacion-ai.dto';
@@ -29,6 +31,9 @@ type BusinessRuleRecord = {
   updatedAt: string | null;
 };
 
+const QUOTES_LIST_CACHE_PATTERN = 'quotes:list:*';
+const QUOTES_DETAIL_CACHE_PATTERN = 'quotes:detail:*';
+
 @Injectable()
 export class CotizacionesService {
   private readonly logger = new Logger(CotizacionesService.name);
@@ -42,7 +47,41 @@ export class CotizacionesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly redis: RedisService,
   ) {}
+
+  private buildQuotesListCacheKey(
+    user: { id: string; role: Role },
+    query: { customerPhone?: string; take?: number },
+  ) {
+    const scope = {
+      userId: user.id,
+      role: user.role,
+      customerPhone: query.customerPhone?.trim() ?? null,
+      take: Math.min(Math.max(query.take ?? 80, 1), 500),
+    };
+    const hash = createHash('sha1').update(JSON.stringify(scope)).digest('hex');
+    return `quotes:list:${hash}`;
+  }
+
+  private buildQuoteDetailCacheKey(user: { id: string; role: Role }, id: string) {
+    const hash = createHash('sha1')
+      .update(JSON.stringify({ userId: user.id, role: user.role, id: id.trim() }))
+      .digest('hex');
+    return `quotes:detail:${hash}`;
+  }
+
+  private async invalidateQuoteCache(reason: string) {
+    const [listsDeleted, detailDeleted] = await Promise.all([
+      this.redis.delByPattern(QUOTES_LIST_CACHE_PATTERN),
+      this.redis.delByPattern(QUOTES_DETAIL_CACHE_PATTERN),
+    ]);
+    if (this.redis.isEnabled()) {
+      this.logger.log(
+        `Redis INVALIDATE quotes reason=${reason} lists=${listsDeleted} details=${detailDeleted}`,
+      );
+    }
+  }
 
   private async resolveCustomerIdByPhone(
     tx: Prisma.TransactionClient,
@@ -97,6 +136,14 @@ export class CotizacionesService {
 
   async list(user: { id: string; role: Role }, query: { customerPhone?: string; take?: number }) {
     const take = Math.min(Math.max(query.take ?? 80, 1), 500);
+    const cacheKey = this.buildQuotesListCacheKey(user, query);
+    const cached = await this.redis.get<{ items: any[] }>(cacheKey);
+    if (cached) {
+      if (this.redis.isEnabled()) this.logger.log(`Redis HIT ${cacheKey}`);
+      return cached;
+    }
+    if (this.redis.isEnabled()) this.logger.log(`Redis MISS ${cacheKey}`);
+
     const where: Prisma.CotizacionWhereInput = {};
 
     const customerPhone = query.customerPhone?.trim();
@@ -120,10 +167,20 @@ export class CotizacionesService {
       include: { items: { orderBy: { createdAt: 'asc' } } },
     });
 
-    return { items };
+    const response = { items };
+    await this.redis.set(cacheKey, response);
+    return response;
   }
 
   async findOne(user: { id: string; role: Role }, id: string) {
+    const cacheKey = this.buildQuoteDetailCacheKey(user, id);
+    const cached = await this.redis.get<any>(cacheKey);
+    if (cached) {
+      if (this.redis.isEnabled()) this.logger.log(`Redis HIT ${cacheKey}`);
+      return cached;
+    }
+    if (this.redis.isEnabled()) this.logger.log(`Redis MISS ${cacheKey}`);
+
     const item = await this.prisma.cotizacion.findUnique({
       where: { id },
       include: { items: { orderBy: { createdAt: 'asc' } } },
@@ -135,6 +192,7 @@ export class CotizacionesService {
       throw new ForbiddenException('No puedes ver esta cotización');
     }
 
+    await this.redis.set(cacheKey, item);
     return item;
   }
 
@@ -202,6 +260,9 @@ export class CotizacionesService {
 
       await this.touchClientActivity(tx, customerId, created.createdAt);
 
+      return created;
+    }).then(async (created) => {
+      await this.invalidateQuoteCache('cotizacion.create');
       return created;
     });
   }
@@ -284,6 +345,9 @@ export class CotizacionesService {
       await this.touchClientActivity(tx, nextCustomerId ?? null, updated.updatedAt);
 
       return updated;
+    }).then(async (updated) => {
+      await this.invalidateQuoteCache('cotizacion.update');
+      return updated;
     });
   }
 
@@ -296,6 +360,7 @@ export class CotizacionesService {
     }
 
     await this.prisma.cotizacion.delete({ where: { id } });
+    await this.invalidateQuoteCache('cotizacion.remove');
     return { ok: true };
   }
 

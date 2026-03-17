@@ -2,9 +2,12 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { Prisma, Role } from '@prisma/client';
+import { RedisService } from '../common/redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { OperationsService } from './operations-main.service';
 import { CreateServiceChecklistTemplateDto } from './dto/create-service-checklist-template.dto';
@@ -80,8 +83,14 @@ type CategorySeed = {
   code: string;
 };
 
+const CHECKLIST_CATEGORIES_CACHE_KEY = 'checklist:categories';
+const CHECKLIST_PHASES_CACHE_KEY = 'checklist:phases';
+const CHECKLIST_TEMPLATES_CACHE_PATTERN = 'checklist:templates:*';
+const CHECKLIST_SERVICE_CACHE_PATTERN = 'checklist:service:*';
+
 @Injectable()
 export class OperationsChecklistService {
+  private readonly logger = new Logger(OperationsChecklistService.name);
   private readonly defaultCategories: CategorySeed[] = [
     { code: 'cameras', name: 'Cámaras' },
     { code: 'gate_motor', name: 'Motores de puertones' },
@@ -102,7 +111,53 @@ export class OperationsChecklistService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly operations: OperationsService,
+    private readonly redis: RedisService,
   ) {}
+
+  private buildTemplateCacheKey(filters?: {
+    categoryId?: string;
+    phaseId?: string;
+    categoryCode?: string;
+    phaseCode?: string;
+  }) {
+    const scope = {
+      categoryId: filters?.categoryId?.trim() ?? null,
+      phaseId: filters?.phaseId?.trim() ?? null,
+      categoryCode: this.normalizeCode(filters?.categoryCode ?? ''),
+      phaseCode: this.normalizeCode(filters?.phaseCode ?? ''),
+    };
+    const hash = createHash('sha1').update(JSON.stringify(scope)).digest('hex');
+    return `checklist:templates:${hash}`;
+  }
+
+  private buildServiceChecklistCacheKey(service: {
+    id: string;
+    currentPhase?: string | null;
+    orderState?: string | null;
+    category?: string | null;
+  }) {
+    const scope = {
+      serviceId: service.id,
+      currentPhase: (service.currentPhase ?? '').toString().trim() || null,
+      orderState: (service.orderState ?? '').toString().trim() || null,
+      category: this.normalizeCode((service.category ?? '').toString()),
+    };
+    const hash = createHash('sha1').update(JSON.stringify(scope)).digest('hex');
+    return `checklist:service:${service.id}:${hash}`;
+  }
+
+  private async invalidateChecklistCache(reason: string, serviceId?: string) {
+    const patterns = [CHECKLIST_TEMPLATES_CACHE_PATTERN, CHECKLIST_SERVICE_CACHE_PATTERN];
+    const deletions = await Promise.all([
+      this.redis.del(CHECKLIST_CATEGORIES_CACHE_KEY),
+      this.redis.del(CHECKLIST_PHASES_CACHE_KEY),
+      ...patterns.map((pattern) => this.redis.delByPattern(pattern)),
+      ...(serviceId ? [this.redis.delByPattern(`checklist:service:${serviceId}:*`)] : []),
+    ]);
+    if (this.redis.isEnabled()) {
+      this.logger.log(`Redis INVALIDATE checklist reason=${reason} deleted=${deletions.join(',')}`);
+    }
+  }
 
   private assertAdmin(user: AuthUser) {
     if (
@@ -299,7 +354,14 @@ export class OperationsChecklistService {
 
   async listCategories() {
     await this.syncOperationsMetadata();
-    return this.prisma.$queryRaw<LookupRow[]>(Prisma.sql`
+    const cached = await this.redis.get<LookupRow[]>(CHECKLIST_CATEGORIES_CACHE_KEY);
+    if (cached) {
+      if (this.redis.isEnabled()) this.logger.log(`Redis HIT ${CHECKLIST_CATEGORIES_CACHE_KEY}`);
+      return cached;
+    }
+    if (this.redis.isEnabled()) this.logger.log(`Redis MISS ${CHECKLIST_CATEGORIES_CACHE_KEY}`);
+
+    const rows = await this.prisma.$queryRaw<LookupRow[]>(Prisma.sql`
       SELECT
         id,
         name,
@@ -309,11 +371,20 @@ export class OperationsChecklistService {
       FROM service_categories
       ORDER BY name ASC
     `);
+    await this.redis.set(CHECKLIST_CATEGORIES_CACHE_KEY, rows);
+    return rows;
   }
 
   async listPhases() {
     await this.syncOperationsMetadata();
-    return this.prisma.$queryRaw<LookupRow[]>(Prisma.sql`
+    const cached = await this.redis.get<LookupRow[]>(CHECKLIST_PHASES_CACHE_KEY);
+    if (cached) {
+      if (this.redis.isEnabled()) this.logger.log(`Redis HIT ${CHECKLIST_PHASES_CACHE_KEY}`);
+      return cached;
+    }
+    if (this.redis.isEnabled()) this.logger.log(`Redis MISS ${CHECKLIST_PHASES_CACHE_KEY}`);
+
+    const rows = await this.prisma.$queryRaw<LookupRow[]>(Prisma.sql`
       SELECT
         id,
         name,
@@ -324,6 +395,8 @@ export class OperationsChecklistService {
       FROM service_phases
       ORDER BY order_index ASC, name ASC
     `);
+    await this.redis.set(CHECKLIST_PHASES_CACHE_KEY, rows);
+    return rows;
   }
 
   async createTemplate(user: AuthUser, dto: CreateServiceChecklistTemplateDto) {
@@ -372,6 +445,7 @@ export class OperationsChecklistService {
         created_at AS "createdAt",
         updated_at AS "updatedAt"
     `);
+      await this.invalidateChecklistCache('checklist.createTemplate');
     return rows[0];
   }
 
@@ -416,6 +490,7 @@ export class OperationsChecklistService {
         created_at AS "createdAt",
         updated_at AS "updatedAt"
     `);
+      await this.invalidateChecklistCache('checklist.createItem');
     return rows[0];
   }
 
@@ -426,6 +501,14 @@ export class OperationsChecklistService {
     phaseCode?: string;
   }) {
     await this.syncOperationsMetadata();
+    const cacheKey = this.buildTemplateCacheKey(filters);
+    const cached = await this.redis.get<any[]>(cacheKey);
+    if (cached) {
+      if (this.redis.isEnabled()) this.logger.log(`Redis HIT ${cacheKey}`);
+      return cached;
+    }
+    if (this.redis.isEnabled()) this.logger.log(`Redis MISS ${cacheKey}`);
+
     const where: Prisma.Sql[] = [];
     const categoryId = filters?.categoryId?.trim() ?? '';
     const phaseId = filters?.phaseId?.trim() ?? '';
@@ -484,7 +567,9 @@ export class OperationsChecklistService {
         ci.order_index ASC,
         ci.label ASC
     `);
-    return this.groupTemplateRows(rows);
+    const grouped = this.groupTemplateRows(rows);
+    await this.redis.set(cacheKey, grouped);
+    return grouped;
   }
 
   async ensureServiceChecklists(service: {
@@ -548,6 +633,14 @@ export class OperationsChecklistService {
 
   async getServiceChecklists(user: AuthUser, serviceId: string) {
     const service = await this.operations.findOne(user, serviceId);
+    const cacheKey = this.buildServiceChecklistCacheKey(service);
+    const cached = await this.redis.get<any>(cacheKey);
+    if (cached) {
+      if (this.redis.isEnabled()) this.logger.log(`Redis HIT ${cacheKey}`);
+      return cached;
+    }
+    if (this.redis.isEnabled()) this.logger.log(`Redis MISS ${cacheKey}`);
+
     const categoryCode = this.normalizeCode((service.category ?? '').toString());
     const phaseCode = this.phaseCodeFromServicePhase(service.currentPhase);
 
@@ -598,7 +691,7 @@ export class OperationsChecklistService {
     `);
 
     const templates = this.groupExecutionRows(rows);
-    return {
+    const response = {
       serviceId: service.id,
       currentPhase: service.currentPhase,
       orderState: service.orderState,
@@ -609,6 +702,8 @@ export class OperationsChecklistService {
       sections: this.groupTemplatesByType(templates),
       templates,
     };
+    await this.redis.set(cacheKey, response);
+    return response;
   }
 
   async checkServiceChecklistItem(
@@ -657,6 +752,7 @@ export class OperationsChecklistService {
         checked_at AS "checkedAt",
         checked_by AS "checkedById"
     `);
+      await this.invalidateChecklistCache('checklist.checkItem', row.serviceId);
     return updatedRows[0];
   }
 

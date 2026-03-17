@@ -87,7 +87,8 @@ class _OperacionesChecklistConfigScreenState
     required List<ServiceChecklistCategoryModel> categories,
     required List<ServiceChecklistPhaseModel> phases,
   }) {
-    final nextCategoryId = categories.any((item) => item.id == _selectedCategoryId)
+    final nextCategoryId =
+        categories.any((item) => item.id == _selectedCategoryId)
         ? _selectedCategoryId
         : _defaultCategoryId(categories);
     final nextPhaseId = phases.any((item) => item.id == _selectedPhaseId)
@@ -95,7 +96,8 @@ class _OperacionesChecklistConfigScreenState
         : (phases.isEmpty ? null : phases.first.id);
 
     final needsSelectionUpdate =
-        nextCategoryId != _selectedCategoryId || nextPhaseId != _selectedPhaseId;
+        nextCategoryId != _selectedCategoryId ||
+        nextPhaseId != _selectedPhaseId;
     final needsTemplateReload =
         nextCategoryId != null &&
         nextPhaseId != null &&
@@ -135,14 +137,12 @@ class _OperacionesChecklistConfigScreenState
   }) async {
     final effectiveCategoryId = categoryId ?? _selectedCategoryId;
     final effectivePhaseId = phaseId ?? _selectedPhaseId;
-    final categories = ref.read(categoriesProvider).maybeWhen(
-      data: (items) => items,
-      orElse: () => defaultCategories,
-    );
-    final phases = ref.read(servicePhasesProvider).maybeWhen(
-      data: (items) => items,
-      orElse: () => defaultPhases,
-    );
+    final categories = ref
+        .read(categoriesProvider)
+        .maybeWhen(data: (items) => items, orElse: () => defaultCategories);
+    final phases = ref
+        .read(servicePhasesProvider)
+        .maybeWhen(data: (items) => items, orElse: () => defaultPhases);
     final selectedCategory = _findSelectedCategory(categories);
     final selectedPhase = _findSelectedPhase(phases);
     final effectiveCategoryCode =
@@ -150,7 +150,8 @@ class _OperacionesChecklistConfigScreenState
     final effectivePhaseCode =
         phaseCode ?? selectedPhase?.code ?? _loadedPhaseCode;
 
-    if ((effectiveCategoryId == null && (effectiveCategoryCode ?? '').isEmpty) ||
+    if ((effectiveCategoryId == null &&
+            (effectiveCategoryCode ?? '').isEmpty) ||
         (effectivePhaseId == null && (effectivePhaseCode ?? '').isEmpty)) {
       setState(() {
         _templates = const [];
@@ -170,12 +171,18 @@ class _OperacionesChecklistConfigScreenState
     });
 
     try {
-      final templates = await ref.read(operationsRepositoryProvider).listChecklistTemplates(
-        categoryId: _isPersistableId(effectiveCategoryId) ? effectiveCategoryId : null,
-        phaseId: _isPersistableId(effectivePhaseId) ? effectivePhaseId : null,
-        categoryCode: effectiveCategoryCode,
-        phaseCode: effectivePhaseCode,
-      );
+      final templates = await ref
+          .read(operationsRepositoryProvider)
+          .listChecklistTemplates(
+            categoryId: _isPersistableId(effectiveCategoryId)
+                ? effectiveCategoryId
+                : null,
+            phaseId: _isPersistableId(effectivePhaseId)
+                ? effectivePhaseId
+                : null,
+            categoryCode: effectiveCategoryCode,
+            phaseCode: effectivePhaseCode,
+          );
       if (!mounted) return;
       setState(() {
         _templates = templates;
@@ -208,15 +215,16 @@ class _OperacionesChecklistConfigScreenState
     }
   }
 
-  Future<void> _createChecklist(ServiceChecklistSectionType type, List<_CreateItemPayload> items) async {
-    final categories = ref.read(categoriesProvider).maybeWhen(
-      data: (loaded) => loaded,
-      orElse: () => defaultCategories,
-    );
-    final phases = ref.read(servicePhasesProvider).maybeWhen(
-      data: (loaded) => loaded,
-      orElse: () => defaultPhases,
-    );
+  Future<void> _createChecklist(
+    ServiceChecklistSectionType type,
+    List<_CreateItemPayload> items,
+  ) async {
+    final categories = ref
+        .read(categoriesProvider)
+        .maybeWhen(data: (loaded) => loaded, orElse: () => defaultCategories);
+    final phases = ref
+        .read(servicePhasesProvider)
+        .maybeWhen(data: (loaded) => loaded, orElse: () => defaultPhases);
     final selectedCategory = _findSelectedCategory(categories);
     final selectedPhase = _findSelectedPhase(phases);
     final categoryId = _selectedCategoryId;
@@ -227,7 +235,9 @@ class _OperacionesChecklistConfigScreenState
     }
 
     await _withSaving(() async {
-      await ref.read(operationsRepositoryProvider).createChecklistTemplate(
+      await ref
+          .read(operationsRepositoryProvider)
+          .createChecklistTemplate(
             categoryId: _isPersistableId(categoryId) ? categoryId : null,
             phaseId: _isPersistableId(phaseId) ? phaseId : null,
             categoryCode: selectedCategory.code,
@@ -238,7 +248,9 @@ class _OperacionesChecklistConfigScreenState
       final template = await _resolveTemplateForType(type);
       if (template != null) {
         for (final item in items) {
-          await ref.read(operationsRepositoryProvider).createChecklistItem(
+          await ref
+              .read(operationsRepositoryProvider)
+              .createChecklistItem(
                 templateId: template.id,
                 label: item.label,
                 isRequired: item.isRequired,
@@ -247,7 +259,9 @@ class _OperacionesChecklistConfigScreenState
         }
       }
       await _reloadTemplates();
-      _showMessage('${serviceChecklistSectionTypeLabel(type)} creada correctamente');
+      _showMessage(
+        '${serviceChecklistSectionTypeLabel(type)} creada correctamente',
+      );
     });
   }
 
@@ -256,14 +270,12 @@ class _OperacionesChecklistConfigScreenState
   ) async {
     final categoryId = _selectedCategoryId;
     final phaseId = _selectedPhaseId;
-    final categories = ref.read(categoriesProvider).maybeWhen(
-      data: (loaded) => loaded,
-      orElse: () => defaultCategories,
-    );
-    final phases = ref.read(servicePhasesProvider).maybeWhen(
-      data: (loaded) => loaded,
-      orElse: () => defaultPhases,
-    );
+    final categories = ref
+        .read(categoriesProvider)
+        .maybeWhen(data: (loaded) => loaded, orElse: () => defaultCategories);
+    final phases = ref
+        .read(servicePhasesProvider)
+        .maybeWhen(data: (loaded) => loaded, orElse: () => defaultPhases);
     final selectedCategory = _findSelectedCategory(categories);
     final selectedPhase = _findSelectedPhase(phases);
     if ((categoryId == null && selectedCategory == null) ||
@@ -271,12 +283,14 @@ class _OperacionesChecklistConfigScreenState
       return null;
     }
 
-    final templates = await ref.read(operationsRepositoryProvider).listChecklistTemplates(
-      categoryId: _isPersistableId(categoryId) ? categoryId : null,
-      phaseId: _isPersistableId(phaseId) ? phaseId : null,
-      categoryCode: selectedCategory?.code,
-      phaseCode: selectedPhase?.code,
-    );
+    final templates = await ref
+        .read(operationsRepositoryProvider)
+        .listChecklistTemplates(
+          categoryId: _isPersistableId(categoryId) ? categoryId : null,
+          phaseId: _isPersistableId(phaseId) ? phaseId : null,
+          categoryCode: selectedCategory?.code,
+          phaseCode: selectedPhase?.code,
+        );
     for (final template in templates) {
       if (template.type == type) {
         return template;
@@ -296,7 +310,9 @@ class _OperacionesChecklistConfigScreenState
     if (payload == null) return;
 
     await _withSaving(() async {
-      await ref.read(operationsRepositoryProvider).createChecklistItem(
+      await ref
+          .read(operationsRepositoryProvider)
+          .createChecklistItem(
             templateId: template.id,
             label: payload.label,
             isRequired: payload.isRequired,
@@ -316,7 +332,9 @@ class _OperacionesChecklistConfigScreenState
     return null;
   }
 
-  Future<_CreateItemPayload?> _showCreateItemDialog(String checklistTitle) async {
+  Future<_CreateItemPayload?> _showCreateItemDialog(
+    String checklistTitle,
+  ) async {
     final labelCtrl = TextEditingController();
     final orderCtrl = TextEditingController(text: '0');
     var isRequired = true;
@@ -373,7 +391,8 @@ class _OperacionesChecklistConfigScreenState
                           _CreateItemPayload(
                             label: label,
                             isRequired: isRequired,
-                            orderIndex: int.tryParse(orderCtrl.text.trim()) ?? 0,
+                            orderIndex:
+                                int.tryParse(orderCtrl.text.trim()) ?? 0,
                           ),
                         );
                       },
@@ -417,7 +436,8 @@ class _OperacionesChecklistConfigScreenState
                   _CreateItemPayload(
                     label: label,
                     isRequired: isRequired,
-                    orderIndex: int.tryParse(orderCtrl.text.trim()) ?? items.length,
+                    orderIndex:
+                        int.tryParse(orderCtrl.text.trim()) ?? items.length,
                   ),
                 );
                 labelCtrl.clear();
@@ -473,7 +493,8 @@ class _OperacionesChecklistConfigScreenState
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Ítem obligatorio'),
                     value: isRequired,
-                    onChanged: (value) => setModalState(() => isRequired = value),
+                    onChanged: (value) =>
+                        setModalState(() => isRequired = value),
                   ),
                   Align(
                     alignment: Alignment.centerRight,
@@ -501,19 +522,25 @@ class _OperacionesChecklistConfigScreenState
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(16),
-                              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainerHighest,
                             ),
                             child: Row(
                               children: [
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         item.label,
-                                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                          fontWeight: FontWeight.w800,
-                                        ),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w800,
+                                            ),
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
@@ -526,7 +553,9 @@ class _OperacionesChecklistConfigScreenState
                                   onPressed: () {
                                     setModalState(() => items.removeAt(index));
                                   },
-                                  icon: const Icon(Icons.delete_outline_rounded),
+                                  icon: const Icon(
+                                    Icons.delete_outline_rounded,
+                                  ),
                                 ),
                               ],
                             ),
@@ -543,10 +572,15 @@ class _OperacionesChecklistConfigScreenState
                           : () {
                               Navigator.pop(
                                 context,
-                                _CreateChecklistPayload(type: type, items: List<_CreateItemPayload>.from(items)),
+                                _CreateChecklistPayload(
+                                  type: type,
+                                  items: List<_CreateItemPayload>.from(items),
+                                ),
                               );
                             },
-                      icon: const Icon(Icons.playlist_add_check_circle_outlined),
+                      icon: const Icon(
+                        Icons.playlist_add_check_circle_outlined,
+                      ),
                       label: const Text('Crear checklist'),
                     ),
                   ),
@@ -564,9 +598,9 @@ class _OperacionesChecklistConfigScreenState
   }
 
   void _showMessage(String text) {
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(text)),
-    );
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(text)));
   }
 
   @override
@@ -577,7 +611,9 @@ class _OperacionesChecklistConfigScreenState
       data: (items) => items,
       orElse: () => const <ServiceChecklistCategoryModel>[],
     );
-    final safeCategories = categories.isNotEmpty ? categories : defaultCategories;
+    final safeCategories = categories.isNotEmpty
+        ? categories
+        : defaultCategories;
     final phases = phasesValue.maybeWhen(
       data: (items) => items,
       orElse: () => const <ServiceChecklistPhaseModel>[],
@@ -595,18 +631,27 @@ class _OperacionesChecklistConfigScreenState
 
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final selectedCategory = safeCategories.cast<ServiceChecklistCategoryModel?>().firstWhere(
+    final selectedCategory = safeCategories
+        .cast<ServiceChecklistCategoryModel?>()
+        .firstWhere(
           (item) => item?.id == _selectedCategoryId,
           orElse: () => null,
         );
-    final selectedPhase = safePhases.cast<ServiceChecklistPhaseModel?>().firstWhere(
-          (item) => item?.id == _selectedPhaseId,
-          orElse: () => null,
-        );
+    final selectedPhase = safePhases
+        .cast<ServiceChecklistPhaseModel?>()
+        .firstWhere((item) => item?.id == _selectedPhaseId, orElse: () => null);
     final metadataLoading = categoriesValue.isLoading || phasesValue.isLoading;
-    final metadataError = categoriesValue.whenOrNull(error: (error, _) => error) ??
+    final metadataError =
+        categoriesValue.whenOrNull(error: (error, _) => error) ??
         phasesValue.whenOrNull(error: (error, _) => error);
     final hasSelection = selectedCategory != null && selectedPhase != null;
+    final isDesktop = MediaQuery.of(context).size.width >= 900;
+    final availableTypes = hasSelection
+        ? _sectionTypes.where((type) => _templateForType(type) != null).toList()
+        : const <ServiceChecklistSectionType>[];
+    final missingTypes = hasSelection
+        ? _sectionTypes.where((type) => _templateForType(type) == null).toList()
+        : const <ServiceChecklistSectionType>[];
 
     return Scaffold(
       appBar: AppBar(
@@ -615,17 +660,21 @@ class _OperacionesChecklistConfigScreenState
         actions: [
           IconButton(
             tooltip: 'Actualizar',
-            onPressed: metadataLoading && _loading ? null : _refreshMetadataAndTemplates,
+            onPressed: metadataLoading && _loading
+                ? null
+                : _refreshMetadataAndTemplates,
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: hasSelection && !_saving
-            ? _openCreateChecklistDialog
-            : null,
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: isDesktop
+          ? FloatingActionButton(
+              onPressed: hasSelection && !_saving
+                  ? _openCreateChecklistDialog
+                  : null,
+              child: const Icon(Icons.add),
+            )
+          : null,
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -640,7 +689,7 @@ class _OperacionesChecklistConfigScreenState
         ),
         child: _canManage
             ? RefreshIndicator(
-            onRefresh: _refreshMetadataAndTemplates,
+                onRefresh: _refreshMetadataAndTemplates,
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
                   children: [
@@ -673,15 +722,22 @@ class _OperacionesChecklistConfigScreenState
                         onRetry: _refreshMetadataAndTemplates,
                       ),
                     if (_error != null)
-                      _ErrorCard(message: _error!, onRetry: _refreshMetadataAndTemplates),
+                      _ErrorCard(
+                        message: _error!,
+                        onRetry: _refreshMetadataAndTemplates,
+                      ),
                     if (hasSelection)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 16),
                         child: Align(
                           alignment: Alignment.centerLeft,
                           child: FilledButton.icon(
-                            onPressed: _saving ? null : _openCreateChecklistDialog,
-                            icon: const Icon(Icons.playlist_add_check_circle_outlined),
+                            onPressed: _saving
+                                ? null
+                                : _openCreateChecklistDialog,
+                            icon: const Icon(
+                              Icons.playlist_add_check_circle_outlined,
+                            ),
                             label: const Text('Crear checklist'),
                           ),
                         ),
@@ -691,8 +747,11 @@ class _OperacionesChecklistConfigScreenState
                         padding: EdgeInsets.symmetric(vertical: 32),
                         child: Center(child: CircularProgressIndicator()),
                       ),
-                    if (!metadataLoading && !_loading && _error == null && hasSelection)
-                      ..._sectionTypes.map(
+                    if (!metadataLoading &&
+                        !_loading &&
+                        _error == null &&
+                        hasSelection)
+                      ...availableTypes.map(
                         (type) => Padding(
                           padding: const EdgeInsets.only(bottom: 14),
                           child: _ChecklistSectionAdminCard(
@@ -706,7 +765,25 @@ class _OperacionesChecklistConfigScreenState
                           ),
                         ),
                       ),
-                    if (!metadataLoading && !_loading && _error == null && !hasSelection)
+                    if (!metadataLoading &&
+                        !_loading &&
+                        _error == null &&
+                        missingTypes.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: _EmptyChecklistCard(
+                          categoryLabel:
+                              '${selectedCategory!.name} · ${selectedPhase!.name}',
+                          onCreateChecklist: _saving
+                              ? null
+                              : _openCreateChecklistDialog,
+                          missingTypes: missingTypes,
+                        ),
+                      ),
+                    if (!metadataLoading &&
+                        !_loading &&
+                        _error == null &&
+                        !hasSelection)
                       const _EmptyChecklistCard(
                         categoryLabel: null,
                         onCreateChecklist: null,
@@ -1064,7 +1141,9 @@ class _ChecklistTemplateAdminCard extends StatelessWidget {
               final index = entry.key;
               final item = entry.value;
               return Padding(
-                padding: EdgeInsets.only(bottom: index == template.items.length - 1 ? 0 : 10),
+                padding: EdgeInsets.only(
+                  bottom: index == template.items.length - 1 ? 0 : 10,
+                ),
                 child: Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
@@ -1093,7 +1172,9 @@ class _ChecklistTemplateAdminCard extends StatelessWidget {
                           item.isRequired
                               ? Icons.checklist_rtl_outlined
                               : Icons.label_important_outline_rounded,
-                          color: item.isRequired ? Colors.green : cs.onSurfaceVariant,
+                          color: item.isRequired
+                              ? Colors.green
+                              : cs.onSurfaceVariant,
                           size: 18,
                         ),
                       ),
@@ -1106,7 +1187,9 @@ class _ChecklistTemplateAdminCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      _MetaChip(label: item.isRequired ? 'Obligatorio' : 'Opcional'),
+                      _MetaChip(
+                        label: item.isRequired ? 'Obligatorio' : 'Opcional',
+                      ),
                     ],
                   ),
                 ),
@@ -1146,10 +1229,12 @@ class _MetaChip extends StatelessWidget {
 class _EmptyChecklistCard extends StatelessWidget {
   final String? categoryLabel;
   final VoidCallback? onCreateChecklist;
+  final List<ServiceChecklistSectionType> missingTypes;
 
   const _EmptyChecklistCard({
     required this.categoryLabel,
     required this.onCreateChecklist,
+    this.missingTypes = const [],
   });
 
   @override
@@ -1171,7 +1256,9 @@ class _EmptyChecklistCard extends StatelessWidget {
           Text(
             categoryLabel == null
                 ? 'Selecciona una categoría y una fase para empezar.'
-                : 'No hay sección creada para $categoryLabel.',
+                : missingTypes.isEmpty
+                ? 'No hay sección creada para $categoryLabel.'
+                : 'Faltan secciones por crear para $categoryLabel.',
             textAlign: TextAlign.center,
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w900,
@@ -1181,13 +1268,30 @@ class _EmptyChecklistCard extends StatelessWidget {
           Text(
             categoryLabel == null
                 ? 'El checklist siempre se configura usando la metadata existente del módulo de Operaciones.'
-                : 'Crea esta sección para empezar a controlar herramientas, productos o instalación sin duplicar categorías ni fases.',
+                : missingTypes.isEmpty
+                ? 'Crea esta sección para empezar a controlar herramientas, productos o instalación sin duplicar categorías ni fases.'
+                : 'Crea las secciones faltantes sin repetir tarjetas vacías ni duplicar categorías o fases.',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: cs.onSurfaceVariant,
               fontWeight: FontWeight.w600,
             ),
           ),
+          if (missingTypes.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: missingTypes
+                  .map(
+                    (type) => _MetaChip(
+                      label: serviceChecklistSectionTypeLabel(type),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
           if (onCreateChecklist != null) ...[
             const SizedBox(height: 16),
             FilledButton.icon(
@@ -1283,9 +1387,9 @@ class _ChecklistFormSheet extends StatelessWidget {
             const SizedBox(height: 18),
             Text(
               title,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w900,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
             ),
             if (subtitle != null) ...[
               const SizedBox(height: 4),

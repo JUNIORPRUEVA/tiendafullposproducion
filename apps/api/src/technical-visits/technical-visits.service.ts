@@ -2,19 +2,41 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma, Role, ServicePhaseType } from '@prisma/client';
+import { RedisService } from '../common/redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTechnicalVisitDto } from './dto/create-technical-visit.dto';
 import { UpdateTechnicalVisitDto } from './dto/update-technical-visit.dto';
 
 type AuthUser = { id: string; role: Role };
 
+const TECHNICAL_VISIT_BY_ORDER_CACHE_PATTERN = 'technical-visits:order:*';
+
 @Injectable()
 export class TechnicalVisitsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(TechnicalVisitsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+  ) {}
+
+  private buildVisitByOrderCacheKey(orderId: string) {
+    return `technical-visits:order:${orderId.trim()}`;
+  }
+
+  private async invalidateTechnicalVisitCache(reason: string, orderId?: string) {
+    const deleted = orderId
+      ? await this.redis.del(this.buildVisitByOrderCacheKey(orderId))
+      : await this.redis.delByPattern(TECHNICAL_VISIT_BY_ORDER_CACHE_PATTERN);
+    if (this.redis.isEnabled()) {
+      this.logger.log(`Redis INVALIDATE technical-visits reason=${reason} deleted=${deleted}`);
+    }
+  }
 
   private isAdminLike(role: Role) {
     return role === Role.ADMIN || role === Role.ASISTENTE;
@@ -83,7 +105,7 @@ export class TechnicalVisitsService {
     if (Number.isNaN(visitDate.getTime())) throw new BadRequestException('visit_date inválido');
 
     try {
-      return await this.prisma.technicalVisit.create({
+      const created = await this.prisma.technicalVisit.create({
         data: {
           orderId,
           technicianId,
@@ -95,6 +117,8 @@ export class TechnicalVisitsService {
           visitDate,
         },
       });
+      await this.invalidateTechnicalVisitCache('technicalVisit.create', orderId);
+      return created;
     } catch (e: any) {
       if (this.isSchemaMismatch(e)) {
         throw new ServiceUnavailableException('Módulo de levantamiento no disponible: falta aplicar migraciones.');
@@ -112,8 +136,18 @@ export class TechnicalVisitsService {
 
     await this.getServiceOrThrow(user, id, 'view');
 
+    const cacheKey = this.buildVisitByOrderCacheKey(id);
+    const cached = await this.redis.get<{ found: boolean; data: any | null }>(cacheKey);
+    if (cached) {
+      if (this.redis.isEnabled()) this.logger.log(`Redis HIT ${cacheKey}`);
+      return cached.data;
+    }
+    if (this.redis.isEnabled()) this.logger.log(`Redis MISS ${cacheKey}`);
+
     try {
-      return await this.prisma.technicalVisit.findUnique({ where: { orderId: id } });
+      const data = await this.prisma.technicalVisit.findUnique({ where: { orderId: id } });
+      await this.redis.set(cacheKey, { found: data != null, data });
+      return data;
     } catch (e) {
       if (this.isSchemaMismatch(e)) return null;
       throw e;
@@ -151,6 +185,8 @@ export class TechnicalVisitsService {
       throw new BadRequestException('No hay cambios para guardar');
     }
 
-    return this.prisma.technicalVisit.update({ where: { id: visitId }, data });
+    const updated = await this.prisma.technicalVisit.update({ where: { id: visitId }, data });
+    await this.invalidateTechnicalVisitCache('technicalVisit.update', existing.orderId);
+    return updated;
   }
 }
