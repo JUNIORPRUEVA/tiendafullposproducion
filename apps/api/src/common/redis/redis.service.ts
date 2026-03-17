@@ -1,9 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 
 @Injectable()
-export class RedisService implements OnModuleDestroy {
+export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
   private readonly enabled: boolean;
   private readonly redisUrl: string;
@@ -27,6 +27,11 @@ export class RedisService implements OnModuleDestroy {
 
   isEnabled() {
     return this.enabled;
+  }
+
+  async onModuleInit() {
+    if (!this.enabled) return;
+    await this.getClient();
   }
 
   async get<T>(key: string): Promise<T | null> {
