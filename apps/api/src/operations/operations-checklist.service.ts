@@ -258,7 +258,7 @@ export class OperationsChecklistService {
     await this.prisma.$executeRaw(Prisma.sql`
       WITH distinct_categories AS (
         SELECT DISTINCT trim(category) AS name
-        FROM services
+        FROM "Service"
         WHERE trim(category) <> ''
       )
       INSERT INTO service_categories (id, name, code, created_at, updated_at)

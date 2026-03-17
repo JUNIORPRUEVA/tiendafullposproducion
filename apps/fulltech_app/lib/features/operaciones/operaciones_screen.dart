@@ -869,10 +869,6 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
       child: Column(
         children: [
-          SyncStatusBanner(
-            visible: state.refreshing,
-            label: 'Actualizando operaciones en segundo plano...',
-          ),
           Expanded(
             child: _PanelOptions(
               key: _panelKey,
@@ -883,11 +879,12 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
               loadUsers: () => ref.read(usersRepositoryProvider).getAllUsers(),
               loadTechnicians: () =>
                   ref.read(operationsRepositoryProvider).getTechnicians(),
-              onApplyRemote: (range, techId) => notifier.applyRangeAndTechnician(
-                from: range.start,
-                to: range.end,
-                technicianId: (techId ?? '').trim().isEmpty ? null : techId,
-              ),
+              onApplyRemote: (range, techId) =>
+                  notifier.applyRangeAndTechnician(
+                    from: range.start,
+                    to: range.end,
+                    technicianId: (techId ?? '').trim().isEmpty ? null : techId,
+                  ),
               onOpenService: _openServiceDetail,
               onChangeStatus: _changeStatusWithConfirm,
               onChangeOrderState: (serviceId, orderState) =>
@@ -2143,10 +2140,6 @@ class _OperacionesAgendaScreenState
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
                 children: [
-                  SyncStatusBanner(
-                    visible: state.refreshing,
-                    label: 'Actualizando agenda en segundo plano...',
-                  ),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(12),
@@ -7899,11 +7892,15 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
 
   ServiceChecklistCategoryModel? get _selectedCategory {
     final selectedId = _categoryId.trim();
-    final categories = ref.read(categoriesProvider).maybeWhen(
-      data: (items) => items,
-      orElse: () => const <ServiceChecklistCategoryModel>[],
-    );
-    final safeCategories = categories.isNotEmpty ? categories : defaultCategories;
+    final categories = ref
+        .read(categoriesProvider)
+        .maybeWhen(
+          data: (items) => items,
+          orElse: () => const <ServiceChecklistCategoryModel>[],
+        );
+    final safeCategories = categories.isNotEmpty
+        ? categories
+        : defaultCategories;
     for (final item in safeCategories) {
       if (item.id == selectedId) return item;
     }
@@ -8404,7 +8401,9 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           data: (items) => items,
           orElse: () => const <ServiceChecklistCategoryModel>[],
         );
-        final safeCategories = categories.isNotEmpty ? categories : defaultCategories;
+        final safeCategories = categories.isNotEmpty
+            ? categories
+            : defaultCategories;
         // ignore: avoid_print
         print('Usando fallback: ${categories.isEmpty}');
         final hasSelectedCategory = safeCategories.any(
@@ -8599,10 +8598,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           ),
           items: safeCategories
               .map(
-                (item) => DropdownMenuItem(
-                  value: item.id,
-                  child: Text(item.name),
-                ),
+                (item) =>
+                    DropdownMenuItem(value: item.id, child: Text(item.name)),
               )
               .toList(growable: false),
           validator: (_) {
@@ -10180,7 +10177,9 @@ class _CreateReservationWarmup extends StatelessWidget {
           decoration: BoxDecoration(
             color: cs.surface,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.55)),
+            border: Border.all(
+              color: cs.outlineVariant.withValues(alpha: 0.55),
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -10220,7 +10219,9 @@ class _CreateReservationWarmup extends StatelessWidget {
           decoration: BoxDecoration(
             color: cs.surface,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.55)),
+            border: Border.all(
+              color: cs.outlineVariant.withValues(alpha: 0.55),
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
