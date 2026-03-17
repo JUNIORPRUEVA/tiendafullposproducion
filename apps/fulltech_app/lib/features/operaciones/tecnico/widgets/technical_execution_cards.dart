@@ -884,11 +884,20 @@ class _PendingEvidenceTile extends StatelessWidget {
 
     final percent = (item.progress * 100).round();
 
+    final isFailed = item.status == PendingEvidenceStatus.failed;
+    final borderColor = isFailed
+      ? cs.error.withValues(alpha: 0.60)
+      : cs.primary.withValues(alpha: 0.35);
+    final badgeLabel = isFailed ? 'FALLÓ' : 'SUBIENDO';
+    final badgeIcon = isFailed
+      ? Icons.error_outline
+      : Icons.cloud_upload_outlined;
+
     return Ink(
       decoration: BoxDecoration(
         color: cs.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cs.primary.withValues(alpha: 0.35)),
+        border: Border.all(color: borderColor),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
@@ -900,10 +909,8 @@ class _PendingEvidenceTile extends StatelessWidget {
               top: 8,
               left: 8,
               child: _TypeBadge(
-                icon: item.isVideo
-                    ? Icons.cloud_upload_outlined
-                    : Icons.cloud_upload_outlined,
-                label: 'SUBIENDO',
+                icon: badgeIcon,
+                label: badgeLabel,
               ),
             ),
             Positioned(
@@ -914,9 +921,12 @@ class _PendingEvidenceTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   LinearProgressIndicator(
-                    value: item.progress <= 0 ? null : item.progress,
+                    value: isFailed
+                        ? 1
+                        : (item.progress <= 0 ? null : item.progress),
                     minHeight: 6,
                     borderRadius: BorderRadius.circular(999),
+                    color: isFailed ? cs.error : null,
                   ),
                   const SizedBox(height: 8),
                   Container(
@@ -932,7 +942,11 @@ class _PendingEvidenceTile extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          percent > 0 ? '$percent% • Subiendo…' : 'Subiendo…',
+                          isFailed
+                              ? 'Error al subir'
+                              : (percent > 0
+                                    ? '$percent% • Subiendo…'
+                                    : 'Subiendo…'),
                           style: theme.textTheme.labelSmall?.copyWith(
                             fontWeight: FontWeight.w800,
                             color: cs.onSurfaceVariant,

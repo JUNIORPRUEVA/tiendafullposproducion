@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/cache/local_json_cache.dart';
+import '../../../core/debug/trace_log.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/storage/storage_repository.dart';
 import '../data/operations_repository.dart';
@@ -18,7 +19,8 @@ import '../application/operations_controller.dart';
 
 class TechnicalExecutionState {
   final bool loading;
-  final bool saving;
+  final bool savingReport;
+  final bool savingUpdate;
   final String? error;
   final ServiceModel? service;
   final List<ServiceExecutionChangeModel> changes;
@@ -34,7 +36,8 @@ class TechnicalExecutionState {
 
   const TechnicalExecutionState({
     this.loading = false,
-    this.saving = false,
+    this.savingReport = false,
+    this.savingUpdate = false,
     this.error,
     this.service,
     this.changes = const [],
@@ -50,9 +53,18 @@ class TechnicalExecutionState {
 
   bool get hasService => service != null && service!.id.trim().isNotEmpty;
 
+  bool get busy {
+    if (loading) return true;
+    if (savingReport || savingUpdate) return true;
+    return pendingEvidence.any(
+      (e) => e.status == PendingEvidenceStatus.uploading,
+    );
+  }
+
   TechnicalExecutionState copyWith({
     bool? loading,
-    bool? saving,
+    bool? savingReport,
+    bool? savingUpdate,
     String? error,
     bool clearError = false,
     ServiceModel? service,
@@ -68,7 +80,8 @@ class TechnicalExecutionState {
   }) {
     return TechnicalExecutionState(
       loading: loading ?? this.loading,
-      saving: saving ?? this.saving,
+      savingReport: savingReport ?? this.savingReport,
+      savingUpdate: savingUpdate ?? this.savingUpdate,
       error: clearError ? null : (error ?? this.error),
       service: service ?? this.service,
       changes: changes ?? this.changes,
@@ -242,6 +255,16 @@ class TechnicalExecutionController
   void _removePending(String id) {
     final next = state.pendingEvidence.where((e) => e.id != id).toList();
     state = state.copyWith(pendingEvidence: next);
+  }
+
+  void _markPendingFailed(String id) {
+    final list = state.pendingEvidence;
+    final idx = list.indexWhere((e) => e.id == id);
+    if (idx < 0) return;
+    final cur = list[idx];
+    final updated = [...list];
+    updated[idx] = cur.copyWith(status: PendingEvidenceStatus.failed);
+    state = state.copyWith(pendingEvidence: updated);
   }
 
   bool get _readOnly {
@@ -435,12 +458,12 @@ class TechnicalExecutionController
 
   Future<void> saveNow() async {
     if (_readOnly) return;
-    if (state.saving) return;
+    if (state.savingReport) return;
 
     final service = state.service;
     if (service == null) return;
 
-    state = state.copyWith(saving: true, clearError: true);
+    state = state.copyWith(savingReport: true, clearError: true);
 
     try {
       final repo = ref.read(operationsRepositoryProvider);
@@ -458,12 +481,12 @@ class TechnicalExecutionController
         clientApproved: state.clientApproved,
       );
 
-      state = state.copyWith(saving: false, changes: bundle.changes);
+      state = state.copyWith(savingReport: false, changes: bundle.changes);
       await _clearDraft();
     } on ApiException catch (e) {
-      state = state.copyWith(saving: false, error: e.message);
+      state = state.copyWith(savingReport: false, error: e.message);
     } catch (e) {
-      state = state.copyWith(saving: false, error: e.toString());
+      state = state.copyWith(savingReport: false, error: e.toString());
     }
   }
 
@@ -473,7 +496,7 @@ class TechnicalExecutionController
     String? message,
   }) async {
     if (_readOnly) return;
-    if (state.saving) return;
+    if (state.savingUpdate) return;
 
     final service = state.service;
     if (service == null) return;
@@ -483,7 +506,7 @@ class TechnicalExecutionController
 
     final tech = techStatus?.trim().toLowerCase();
 
-    state = state.copyWith(saving: true, clearError: true);
+    state = state.copyWith(savingUpdate: true, clearError: true);
     try {
       final repo = ref.read(operationsRepositoryProvider);
       await repo.changeOrderState(
@@ -501,15 +524,8 @@ class TechnicalExecutionController
         if (techId.isNotEmpty) 'technicianId=$techId',
       ].join('|');
 
-      try {
-        await repo.addUpdate(
-          serviceId: serviceId,
-          type: 'tech_status',
-          message: logMsg,
-        );
-      } catch (_) {
-        // Best-effort; do not block status update.
-      }
+      // Nota: el backend ya registra `status_change` al cambiar el estado.
+      // Evitamos crear updates extra con types no soportados.
 
       final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
       final refreshed = cacheScope.isEmpty
@@ -519,7 +535,7 @@ class TechnicalExecutionController
               id: serviceId,
               silent: true,
             );
-      state = state.copyWith(saving: false, service: refreshed);
+      state = state.copyWith(savingUpdate: false, service: refreshed);
 
       _syncServiceLists(refreshed);
 
@@ -533,9 +549,9 @@ class TechnicalExecutionController
       // Reconcile other filters/dashboard soon.
       unawaited(ref.read(operationsControllerProvider.notifier).refresh());
     } on ApiException catch (e) {
-      state = state.copyWith(saving: false, error: e.message);
+      state = state.copyWith(savingUpdate: false, error: e.message);
     } catch (e) {
-      state = state.copyWith(saving: false, error: e.toString());
+      state = state.copyWith(savingUpdate: false, error: e.toString());
     }
   }
 
@@ -618,12 +634,12 @@ class TechnicalExecutionController
 
   Future<void> setInvoicePaid(bool paid) async {
     if (_readOnly) return;
-    if (state.saving) return;
+    if (state.savingUpdate) return;
 
     final service = state.service;
     if (service == null) return;
 
-    state = state.copyWith(saving: true, clearError: true);
+    state = state.copyWith(savingUpdate: true, clearError: true);
     try {
       final repo = ref.read(operationsRepositoryProvider);
       final msg = paid ? '[PAGO] estado=pagado' : '[PAGO] estado=pendiente';
@@ -637,20 +653,20 @@ class TechnicalExecutionController
               id: serviceId,
               silent: true,
             );
-      state = state.copyWith(saving: false, service: refreshed);
+      state = state.copyWith(savingUpdate: false, service: refreshed);
 
       _syncServiceLists(refreshed);
 
       unawaited(
-        ref.read(techOperationsControllerProvider.notifier).refresh(
-              silent: true,
-            ),
+        ref
+            .read(techOperationsControllerProvider.notifier)
+            .refresh(silent: true),
       );
       unawaited(ref.read(operationsControllerProvider.notifier).refresh());
     } on ApiException catch (e) {
-      state = state.copyWith(saving: false, error: e.message);
+      state = state.copyWith(savingUpdate: false, error: e.message);
     } catch (e) {
-      state = state.copyWith(saving: false, error: e.toString());
+      state = state.copyWith(savingUpdate: false, error: e.toString());
     }
   }
 
@@ -659,7 +675,7 @@ class TechnicalExecutionController
     required String text,
   }) async {
     if (_readOnly) return;
-    if (state.saving) return;
+    if (state.savingUpdate) return;
 
     final k = kind.trim().toLowerCase();
     final t = text.trim();
@@ -668,13 +684,20 @@ class TechnicalExecutionController
     final service = state.service;
     if (service == null) return;
 
+    final seq = TraceLog.nextSeq();
+    TraceLog.log(
+      'OpsTech',
+      'addInfoUpdate begin serviceId=$serviceId kind=$k len=${t.length}',
+      seq: seq,
+    );
+
     final now = DateTime.now();
     final userName = (ref.read(authStateProvider).user?.nombreCompleto ?? '')
         .trim();
     final optimisticId = 'local_${now.microsecondsSinceEpoch}';
     final optimistic = ServiceUpdateModel(
       id: optimisticId,
-      type: 'tech_info',
+      type: 'note',
       message: 'kind=$k|text=$t',
       changedBy: userName.isEmpty ? 'Técnico' : userName,
       createdAt: now,
@@ -682,7 +705,7 @@ class TechnicalExecutionController
 
     // Optimistic UI update so the info shows immediately in the screen.
     state = state.copyWith(
-      saving: true,
+      savingUpdate: true,
       clearError: true,
       service: service.copyWith(updates: [...service.updates, optimistic]),
     );
@@ -690,7 +713,7 @@ class TechnicalExecutionController
       final repo = ref.read(operationsRepositoryProvider);
       await repo.addUpdate(
         serviceId: serviceId,
-        type: 'tech_info',
+        type: 'note',
         message: 'kind=$k|text=$t',
       );
       final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
@@ -701,7 +724,7 @@ class TechnicalExecutionController
               id: serviceId,
               silent: true,
             );
-      state = state.copyWith(saving: false, service: refreshed);
+      state = state.copyWith(savingUpdate: false, service: refreshed);
       _syncServiceLists(refreshed);
       unawaited(ref.read(operationsControllerProvider.notifier).refresh());
       unawaited(
@@ -709,32 +732,40 @@ class TechnicalExecutionController
             .read(techOperationsControllerProvider.notifier)
             .refresh(silent: true),
       );
+
+      TraceLog.log('OpsTech', 'addInfoUpdate done', seq: seq);
     } on ApiException catch (e) {
       final cur = state.service;
       if (cur != null) {
         state = state.copyWith(
-          saving: false,
+          savingUpdate: false,
           error: e.message,
           service: cur.copyWith(
             updates: cur.updates.where((u) => u.id != optimisticId).toList(),
           ),
         );
       } else {
-        state = state.copyWith(saving: false, error: e.message);
+        state = state.copyWith(savingUpdate: false, error: e.message);
       }
+
+      TraceLog.log('OpsTech', 'addInfoUpdate failed', seq: seq, error: e);
+      rethrow;
     } catch (e) {
       final cur = state.service;
       if (cur != null) {
         state = state.copyWith(
-          saving: false,
+          savingUpdate: false,
           error: e.toString(),
           service: cur.copyWith(
             updates: cur.updates.where((u) => u.id != optimisticId).toList(),
           ),
         );
       } else {
-        state = state.copyWith(saving: false, error: e.toString());
+        state = state.copyWith(savingUpdate: false, error: e.toString());
       }
+
+      TraceLog.log('OpsTech', 'addInfoUpdate failed', seq: seq, error: e);
+      rethrow;
     }
   }
 
@@ -792,8 +823,14 @@ class TechnicalExecutionController
     final mimeType = _guessMimeType(file);
     final isVideo = mimeType.startsWith('video/');
     final trimmedCaption = (caption ?? '').trim();
-    if (!isVideo && trimmedCaption.isEmpty) return;
     final kind = isVideo ? 'video_evidence' : 'evidence_final';
+
+    final seq = TraceLog.nextSeq();
+    TraceLog.log(
+      'OpsTech',
+      'uploadEvidence begin serviceId=$serviceId kind=$kind name=${file.name} size=${file.size}',
+      seq: seq,
+    );
 
     _upsertPending(
       PendingEvidenceUpload(
@@ -882,13 +919,19 @@ class TechnicalExecutionController
             .read(techOperationsControllerProvider.notifier)
             .refresh(silent: true),
       );
+
+      TraceLog.log('OpsTech', 'uploadEvidence done', seq: seq);
     } catch (e) {
       if (!mounted) return;
-      _removePending(id);
+      _markPendingFailed(id);
       if (e is ApiException) {
         state = state.copyWith(error: e.message);
+        TraceLog.log('OpsTech', 'uploadEvidence failed', seq: seq, error: e);
+        throw e;
       } else {
         state = state.copyWith(error: e.toString());
+        TraceLog.log('OpsTech', 'uploadEvidence failed', seq: seq, error: e);
+        rethrow;
       }
     }
   }
@@ -905,7 +948,6 @@ class TechnicalExecutionController
     final mimeType = _guessMimeTypeFromName(file.name);
     final isVideo = mimeType.startsWith('video/');
     final trimmedCaption = (caption ?? '').trim();
-    if (!isVideo && trimmedCaption.isEmpty) return;
     final kind = isVideo ? 'video_evidence' : 'evidence_final';
 
     int size;
@@ -940,6 +982,13 @@ class TechnicalExecutionController
 
     try {
       final storage = ref.read(storageRepositoryProvider);
+
+      final seq = TraceLog.nextSeq();
+      TraceLog.log(
+        'OpsTech',
+        'uploadEvidenceXFile begin serviceId=$serviceId kind=$kind name=${file.name} size=$size web=$kIsWeb',
+        seq: seq,
+      );
 
       final presign = await storage.presign(
         serviceId: serviceId,
@@ -1013,13 +1062,17 @@ class TechnicalExecutionController
             .read(techOperationsControllerProvider.notifier)
             .refresh(silent: true),
       );
+
+      TraceLog.log('OpsTech', 'uploadEvidenceXFile done', seq: seq);
     } catch (e) {
       if (!mounted) return;
-      _removePending(id);
+      _markPendingFailed(id);
       if (e is ApiException) {
         state = state.copyWith(error: e.message);
+        throw e;
       } else {
         state = state.copyWith(error: e.toString());
+        rethrow;
       }
     }
   }
@@ -1131,11 +1184,13 @@ class TechnicalExecutionController
       unawaited(saveNow());
     } catch (e) {
       if (!mounted) return;
-      _removePending(id);
+      _markPendingFailed(id);
       if (e is ApiException) {
         state = state.copyWith(error: e.message);
+        throw e;
       } else {
         state = state.copyWith(error: e.toString());
+        rethrow;
       }
     }
   }

@@ -3,12 +3,14 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:signature/signature.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/auth/auth_repository.dart';
@@ -42,6 +44,11 @@ class _TechnicalServiceExecutionScreenState
     extends ConsumerState<TechnicalServiceExecutionScreen> {
   final ImagePicker _picker = ImagePicker();
   late final SignatureController _signatureCtrl;
+
+  Timer? _signatureAutoSaveDebounce;
+  bool _signatureAutoSaveInFlight = false;
+  bool _signatureDirtyWhileUploading = false;
+  int? _signatureLastUploadFingerprint;
 
   bool _isInvoicePaid(ServiceModel service) {
     Map<String, String> parseKv(String raw) {
@@ -86,12 +93,81 @@ class _TechnicalServiceExecutionScreenState
       penStrokeWidth: 3,
       exportBackgroundColor: Colors.white,
     );
+    _signatureCtrl.addListener(_onSignatureChanged);
   }
 
   @override
   void dispose() {
+    _signatureAutoSaveDebounce?.cancel();
+    _signatureCtrl.removeListener(_onSignatureChanged);
     _signatureCtrl.dispose();
     super.dispose();
+  }
+
+  void _onSignatureChanged() {
+    if (!mounted) return;
+
+    final st = ref.read(technicalExecutionControllerProvider(widget.serviceId));
+    final service = st.service;
+    if (service == null) return;
+
+    final user = ref.read(authStateProvider).user;
+    final readOnly = _isReadOnly(service: service, user: user);
+    if (readOnly) return;
+
+    final ctrl = ref.read(
+      technicalExecutionControllerProvider(widget.serviceId).notifier,
+    );
+    _scheduleSignatureAutoSave(ctrl);
+  }
+
+  int _fingerprintBytes(Uint8List bytes) {
+    if (bytes.isEmpty) return 0;
+    final a = bytes.first;
+    final b = bytes[bytes.length ~/ 2];
+    final c = bytes.last;
+    return Object.hash(bytes.length, a, b, c);
+  }
+
+  void _scheduleSignatureAutoSave(TechnicalExecutionController ctrl) {
+    if (!mounted) return;
+    _signatureAutoSaveDebounce?.cancel();
+    _signatureAutoSaveDebounce = Timer(const Duration(milliseconds: 900), () {
+      unawaited(_runSignatureAutoSave(ctrl));
+    });
+  }
+
+  Future<void> _runSignatureAutoSave(TechnicalExecutionController ctrl) async {
+    if (!mounted) return;
+    if (_signatureAutoSaveInFlight) {
+      _signatureDirtyWhileUploading = true;
+      return;
+    }
+
+    final bytes = await _signatureCtrl.toPngBytes();
+    if (!mounted) return;
+    if (bytes == null || bytes.isEmpty) return;
+
+    final fingerprint = _fingerprintBytes(bytes);
+    if (_signatureLastUploadFingerprint == fingerprint) return;
+
+    _signatureAutoSaveInFlight = true;
+    try {
+      await ctrl.uploadClientSignaturePng(pngBytes: bytes);
+      if (!mounted) return;
+      _signatureLastUploadFingerprint = fingerprint;
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBarPostFrame(
+        SnackBar(content: Text('No se pudo guardar la firma: $e')),
+      );
+    } finally {
+      _signatureAutoSaveInFlight = false;
+      if (_signatureDirtyWhileUploading) {
+        _signatureDirtyWhileUploading = false;
+        _scheduleSignatureAutoSave(ctrl);
+      }
+    }
   }
 
   String _fmtDate(DateTime? dt) {
@@ -177,7 +253,15 @@ class _TechnicalServiceExecutionScreenState
       return;
     }
 
-    if (isVideo || !isImage) {
+    if (isVideo) {
+      await showDialog<void>(
+        context: context,
+        builder: (_) => _VideoPreviewDialog(url: urlRaw),
+      );
+      return;
+    }
+
+    if (!isImage) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
       return;
     }
@@ -526,9 +610,30 @@ class _TechnicalServiceExecutionScreenState
     );
     if (text == null || text.trim().isEmpty) return;
 
-    await ctrl.addInfoUpdate(kind: selected, text: text.trim());
-    if (!mounted) return;
-    _showSnackBarPostFrame(SnackBar(content: Text('$label guardado')));
+    await _saveInfoUpdateWithFeedback(
+      ctrl: ctrl,
+      kind: selected,
+      label: label,
+      text: text.trim(),
+    );
+  }
+
+  Future<void> _saveInfoUpdateWithFeedback({
+    required TechnicalExecutionController ctrl,
+    required String kind,
+    required String label,
+    required String text,
+  }) async {
+    try {
+      await ctrl.addInfoUpdate(kind: kind, text: text);
+      if (!mounted) return;
+      _showSnackBarPostFrame(SnackBar(content: Text('$label guardado')));
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBarPostFrame(
+        SnackBar(content: Text('No se pudo guardar $label: $e')),
+      );
+    }
   }
 
   Future<String?> _askMultilineText({
@@ -554,7 +659,7 @@ class _TechnicalServiceExecutionScreenState
             ),
             FilledButton(
               onPressed: () => Navigator.pop(dialogContext, controller.text),
-              child: const Text('Guardar'),
+              child: const Text('Agregar'),
             ),
           ],
         );
@@ -672,7 +777,8 @@ class _TechnicalServiceExecutionScreenState
         allowMultiple: false,
         type: FileType.custom,
         allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
-        withReadStream: true,
+        withReadStream: !kIsWeb,
+        withData: kIsWeb,
       );
       final file = result?.files.isNotEmpty == true
           ? result!.files.first
@@ -708,7 +814,8 @@ class _TechnicalServiceExecutionScreenState
         allowMultiple: false,
         type: FileType.custom,
         allowedExtensions: const ['mp4'],
-        withReadStream: true,
+        withReadStream: !kIsWeb,
+        withData: kIsWeb,
       );
       final file = result?.files.isNotEmpty == true
           ? result!.files.first
@@ -1014,7 +1121,12 @@ class _TechnicalServiceExecutionScreenState
     final canEditDocs = perms.canCritical;
 
     final techInfoUpdates = service.updates
-        .where((u) => u.type.trim().toLowerCase() == 'tech_info')
+        .where((u) {
+          final t = u.type.trim().toLowerCase();
+          if (t == 'tech_info') return true; // backward compatibility
+          if (t != 'note') return false;
+          return _parseTechInfoMessage(u.message) != null;
+        })
         .toList(growable: false);
     final sortedTechInfo = [...techInfoUpdates];
     sortedTechInfo.sort((a, b) {
@@ -1109,7 +1221,7 @@ class _TechnicalServiceExecutionScreenState
                     ),
                   ),
                 ),
-              if (st.saving)
+              if (st.busy)
                 const Padding(
                   padding: EdgeInsets.only(bottom: 12),
                   child: LinearProgressIndicator(minHeight: 3),
@@ -1423,21 +1535,24 @@ class _TechnicalServiceExecutionScreenState
                             const SizedBox(height: 8),
                             OutlinedButton.icon(
                               onPressed: () async {
-                                final ok = await Navigator.of(context).push<bool>(
-                                  MaterialPageRoute(
-                                    builder: (_) => ServiceDocumentsEditorScreen(
-                                      service: service,
-                                      type: ServiceDocumentType.invoice,
-                                    ),
-                                  ),
-                                );
+                                final ok = await Navigator.of(context)
+                                    .push<bool>(
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            ServiceDocumentsEditorScreen(
+                                              service: service,
+                                              type: ServiceDocumentType.invoice,
+                                            ),
+                                      ),
+                                    );
                                 if (!mounted) return;
                                 if (ok == true) {
                                   unawaited(
                                     ref
                                         .read(
-                                          technicalExecutionControllerProvider(widget.serviceId)
-                                              .notifier,
+                                          technicalExecutionControllerProvider(
+                                            widget.serviceId,
+                                          ).notifier,
                                         )
                                         .load(),
                                   );
@@ -1464,21 +1579,25 @@ class _TechnicalServiceExecutionScreenState
                             const SizedBox(height: 8),
                             OutlinedButton.icon(
                               onPressed: () async {
-                                final ok = await Navigator.of(context).push<bool>(
-                                  MaterialPageRoute(
-                                    builder: (_) => ServiceDocumentsEditorScreen(
-                                      service: service,
-                                      type: ServiceDocumentType.warranty,
-                                    ),
-                                  ),
-                                );
+                                final ok = await Navigator.of(context)
+                                    .push<bool>(
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            ServiceDocumentsEditorScreen(
+                                              service: service,
+                                              type:
+                                                  ServiceDocumentType.warranty,
+                                            ),
+                                      ),
+                                    );
                                 if (!mounted) return;
                                 if (ok == true) {
                                   unawaited(
                                     ref
                                         .read(
-                                          technicalExecutionControllerProvider(widget.serviceId)
-                                              .notifier,
+                                          technicalExecutionControllerProvider(
+                                            widget.serviceId,
+                                          ).notifier,
                                         )
                                         .load(),
                                   );
@@ -1503,7 +1622,7 @@ class _TechnicalServiceExecutionScreenState
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Factura pagada'),
                   value: _isInvoicePaid(service),
-                  onChanged: (readOnly || st.saving)
+                  onChanged: (readOnly || st.busy)
                       ? null
                       : (v) async {
                           await ctrl.setInvoicePaid(v);
@@ -1552,41 +1671,13 @@ class _TechnicalServiceExecutionScreenState
                             onPressed: readOnly
                                 ? null
                                 : () {
+                                    _signatureAutoSaveDebounce?.cancel();
+                                    _signatureDirtyWhileUploading = false;
+                                    _signatureLastUploadFingerprint = null;
                                     _signatureCtrl.clear();
                                   },
                             icon: const Icon(Icons.delete_outline),
                             label: const Text('Limpiar'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: FilledButton.icon(
-                            onPressed: readOnly
-                                ? null
-                                : () async {
-                                    final bytes = await _signatureCtrl
-                                        .toPngBytes();
-                                    if (!mounted) return;
-                                    if (bytes == null || bytes.isEmpty) {
-                                      _showSnackBarPostFrame(
-                                        const SnackBar(
-                                          content: Text('Firma vacía'),
-                                        ),
-                                      );
-                                      return;
-                                    }
-                                    await ctrl.uploadClientSignaturePng(
-                                      pngBytes: bytes,
-                                    );
-                                    if (!mounted) return;
-                                    _showSnackBarPostFrame(
-                                      const SnackBar(
-                                        content: Text('Firma guardada'),
-                                      ),
-                                    );
-                                  },
-                            icon: const Icon(Icons.cloud_upload_outlined),
-                            label: const Text('Guardar'),
                           ),
                         ),
                       ],
@@ -1634,6 +1725,205 @@ class _TechnicalServiceExecutionScreenState
               const SizedBox(height: 80),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VideoPreviewDialog extends StatefulWidget {
+  final String url;
+
+  const _VideoPreviewDialog({required this.url});
+
+  @override
+  State<_VideoPreviewDialog> createState() => _VideoPreviewDialogState();
+}
+
+class _VideoPreviewDialogState extends State<_VideoPreviewDialog> {
+  late final VideoPlayerController _controller;
+  late final Future<void> _init;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    _init = _controller.initialize().then((_) async {
+      _controller.setLooping(false);
+      try {
+        await _controller.seekTo(const Duration(milliseconds: 1));
+      } catch (_) {
+        // ignore
+      }
+      try {
+        await _controller.play();
+      } catch (_) {
+        // ignore
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Dialog.fullscreen(
+      backgroundColor: cs.scrim,
+      child: SafeArea(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: FutureBuilder<void>(
+                future: _init,
+                builder: (context, snap) {
+                  if (snap.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  if (snap.hasError) {
+                    final uri = Uri.tryParse(widget.url);
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'No se pudo reproducir el video',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(
+                                    color: cs.onSurface,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              '${snap.error}',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: cs.onSurfaceVariant),
+                            ),
+                            const SizedBox(height: 14),
+                            if (uri != null)
+                              FilledButton.tonalIcon(
+                                onPressed: () => launchUrl(
+                                  uri,
+                                  mode: LaunchMode.externalApplication,
+                                ),
+                                icon: const Icon(Icons.open_in_new),
+                                label: const Text('Abrir externo'),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+
+                  if (!_controller.value.isInitialized) {
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          'No se pudo reproducir el video',
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodyMedium?.copyWith(color: cs.onSurface),
+                        ),
+                      ),
+                    );
+                  }
+
+                  return Center(
+                    child: ValueListenableBuilder<VideoPlayerValue>(
+                      valueListenable: _controller,
+                      builder: (context, value, _) {
+                        final aspect = value.aspectRatio;
+                        return AspectRatio(
+                          aspectRatio: aspect > 0 ? aspect : 16 / 9,
+                          child: Stack(
+                            children: [
+                              Positioned.fill(child: VideoPlayer(_controller)),
+                              Positioned.fill(
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: () {
+                                      if (_controller.value.isPlaying) {
+                                        _controller.pause();
+                                      } else {
+                                        _controller.play();
+                                      }
+                                    },
+                                    child: Center(
+                                      child: Icon(
+                                        value.isPlaying
+                                            ? Icons.pause_circle_outline
+                                            : Icons.play_circle_outline,
+                                        size: 76,
+                                        color: cs.onSurface.withValues(
+                                          alpha: 0.88,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                left: 12,
+                                right: 12,
+                                bottom: 12,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: VideoProgressIndicator(
+                                    _controller,
+                                    allowScrubbing: true,
+                                    colors: VideoProgressColors(
+                                      playedColor: cs.primary,
+                                      bufferedColor: cs.primary.withValues(
+                                        alpha: 0.35,
+                                      ),
+                                      backgroundColor: cs.onSurface.withValues(
+                                        alpha: 0.20,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+            Positioned(
+              top: 0,
+              right: 0,
+              child: IconButton(
+                tooltip: 'Cerrar',
+                onPressed: () async {
+                  try {
+                    await _controller.pause();
+                  } catch (_) {
+                    // ignore
+                  }
+                  if (!context.mounted) return;
+                  Navigator.pop(context);
+                },
+                icon: const Icon(Icons.close),
+                color: cs.onSurface,
+              ),
+            ),
+          ],
         ),
       ),
     );

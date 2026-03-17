@@ -378,6 +378,22 @@ class OperationsRepository {
     return fallback;
   }
 
+  String _formatDioError(DioException e, String fallback) {
+    final status = e.response?.statusCode;
+    final rawMessage = _extractMessage(e.response?.data, fallback);
+    final uri = e.requestOptions.uri.toString();
+    final baseUrl = _dio.options.baseUrl;
+
+    if (status == null) {
+      final webHint = kIsWeb
+          ? '\nWeb: revisa API_BASE_URL (https vs http), CORS del backend, y que el servidor esté accesible desde el navegador.'
+          : '';
+      return '[NETWORK] $rawMessage\nURI: $uri\nBaseURL: $baseUrl\nDetalle: ${e.message ?? 'Sin respuesta del servidor'}$webHint';
+    }
+
+    return '[HTTP $status] $rawMessage\nURI: $uri';
+  }
+
   Future<ServicesPageModel> listServices({
     String? status,
     String? type,
@@ -627,7 +643,7 @@ class OperationsRepository {
       return ServiceModel.fromJson(raw);
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudo cargar el servicio'),
+        _formatDioError(e, 'No se pudo cargar el servicio'),
         e.response?.statusCode,
       );
     } on FormatException {
@@ -656,7 +672,7 @@ class OperationsRepository {
       return ServiceModel.fromJson(raw);
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudo cargar el servicio'),
+        _formatDioError(e, 'No se pudo cargar el servicio'),
         e.response?.statusCode,
       );
     } on FormatException {
@@ -1008,7 +1024,7 @@ class OperationsRepository {
       );
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudo guardar actualización'),
+        _formatDioError(e, 'No se pudo guardar actualización'),
         e.response?.statusCode,
       );
     }
@@ -1032,10 +1048,7 @@ class OperationsRepository {
       return ServiceExecutionBundleModel.fromJson(raw);
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(
-          e.response?.data,
-          'No se pudo cargar el reporte técnico',
-        ),
+        _formatDioError(e, 'No se pudo cargar el reporte técnico'),
         e.response?.statusCode,
       );
     } on FormatException {
@@ -1081,10 +1094,7 @@ class OperationsRepository {
       return ServiceExecutionBundleModel.fromJson(raw);
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(
-          e.response?.data,
-          'No se pudo guardar el reporte técnico',
-        ),
+        _formatDioError(e, 'No se pudo guardar el reporte técnico'),
         e.response?.statusCode,
       );
     } on FormatException {
@@ -1123,7 +1133,7 @@ class OperationsRepository {
       );
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudo agregar el cambio'),
+        _formatDioError(e, 'No se pudo agregar el cambio'),
         e.response?.statusCode,
       );
     }
@@ -1139,7 +1149,7 @@ class OperationsRepository {
       );
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudo eliminar el cambio'),
+        _formatDioError(e, 'No se pudo eliminar el cambio'),
         e.response?.statusCode,
       );
     }

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_routes.dart';
@@ -94,19 +95,35 @@ class StorageRepository {
     }
 
     final direct = Dio();
-    await direct.put(
-      uploadUrl,
-      data: bytes != null ? Uint8List.fromList(bytes) : stream,
-      options: Options(
-        headers: {
-          'Content-Type': contentType,
-          if (contentLength != null && contentLength > 0) 'Content-Length': contentLength,
-        },
-        responseType: ResponseType.plain,
-      ),
-      onSendProgress: onProgress,
-      cancelToken: cancelToken,
-    );
+
+    // Browsers block setting Content-Length manually; it can cause Dio/XHR
+    // to fail with a generic network error.
+    final headers = <String, dynamic>{'Content-Type': contentType};
+    if (!kIsWeb && contentLength != null && contentLength > 0) {
+      headers['Content-Length'] = contentLength;
+    }
+
+    try {
+      await direct.put(
+        uploadUrl,
+        data: bytes != null ? Uint8List.fromList(bytes) : stream,
+        options: Options(
+          headers: headers,
+          responseType: ResponseType.plain,
+        ),
+        onSendProgress: onProgress,
+        cancelToken: cancelToken,
+      );
+    } on DioException catch (e) {
+      final uri = e.requestOptions.uri;
+      final safeUrl = uri.hasQuery ? uri.replace(query: '').toString() : uri.toString();
+      final hint = kIsWeb
+          ? '\nWeb: esto suele ser CORS del bucket, Mixed Content (https->http), o headers prohibidos.'
+          : '';
+      throw ApiException(
+        '[UPLOAD] ${e.message ?? 'Error de red al subir archivo'}\nURL: $safeUrl$hint',
+      );
+    }
   }
 
   /// 3) Confirma la subida y guarda metadata en Postgres.

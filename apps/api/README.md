@@ -63,6 +63,36 @@ npx prisma migrate deploy
 - Campo: `file` (multipart/form-data), formatos permitidos: PNG/JPG/WEBP, límite 5 MB.
 - Respuesta: `{ filename, path, url }` donde `path`/`url` es relativo (`/uploads/<archivo>`). Sirve estático desde `UPLOAD_DIR`.
 
+## Storage (R2 / presigned uploads para Operaciones)
+
+La pantalla **Operaciones Técnico > Gestionar** sube evidencias con este flujo:
+
+1) `POST /storage/presign` (auth) → devuelve `uploadUrl` (presign), `objectKey`, `publicUrl`
+2) El cliente hace `PUT uploadUrl` (directo al bucket) con header `Content-Type`
+3) `POST /storage/confirm` (auth) → persiste el registro en Postgres
+4) `GET /storage/service/:serviceId` → lista/galería
+
+Variables de entorno requeridas (ver también `apps/api/.env.example`):
+- `R2_ENDPOINT`, `R2_REGION` (default `auto`)
+- `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
+- `R2_BUCKET`
+- `R2_PUBLIC_BASE_URL` (ideal: dominio HTTPS público del bucket/CDN)
+
+Opcionales:
+- `STORAGE_PRESIGN_EXPIRES_SECONDS` (default 900)
+- `STORAGE_IMAGE_MAX_BYTES`, `STORAGE_VIDEO_MAX_BYTES`, `STORAGE_DOCUMENT_MAX_BYTES`
+
+### Nota importante (Web/PWA)
+Si el frontend Web hace el `PUT` directo a R2 con `uploadUrl`, el bucket debe tener CORS habilitado para el dominio de la PWA.
+
+Config típico (conceptual):
+- **Allowed origins**: `https://TU_PWA_DOMINIO`
+- **Allowed methods**: `PUT`, `GET`, `HEAD`
+- **Allowed headers**: `Content-Type`
+- **Expose headers**: `ETag`
+
+Si no quieres depender de CORS del bucket, puedes servir la API como same-origin vía proxy (`/api`) desde el contenedor de la PWA y mantener el backend bajo HTTPS.
+
 ## Comandos (desde la raíz del repo)
 - Instalar: `npm install`
 - Migraciones (crea/aplica): `npm run api:migrate:dev`

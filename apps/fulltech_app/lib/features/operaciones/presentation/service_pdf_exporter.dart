@@ -11,6 +11,10 @@ import '../../../modules/cotizaciones/cotizacion_models.dart';
 import '../operations_models.dart';
 
 class ServicePdfExporter {
+  static const PdfColor _brandBlue = PdfColors.blue800;
+  static const PdfColor _brandBlueSoft = PdfColors.blue50;
+  static const PdfColor _textMuted = PdfColors.grey700;
+
   static bool get isSupported {
     if (kIsWeb) return false;
 
@@ -115,13 +119,20 @@ class ServicePdfExporter {
         : (clientSignatureFileUrl ?? '').trim();
 
     pw.Widget heading(String text) {
-      return pw.Padding(
-        padding: const pw.EdgeInsets.only(top: 12, bottom: 6),
+      return pw.Container(
+        margin: const pw.EdgeInsets.only(top: 12, bottom: 6),
+        padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: pw.BoxDecoration(
+          color: _brandBlueSoft,
+          borderRadius: pw.BorderRadius.circular(6),
+          border: pw.Border.all(color: _brandBlue, width: 0.8),
+        ),
         child: pw.Text(
           text,
           style: pw.TextStyle(
-            fontSize: 12,
+            fontSize: 11,
             fontWeight: pw.FontWeight.bold,
+            color: _brandBlue,
           ),
         ),
       );
@@ -137,10 +148,7 @@ class ServicePdfExporter {
     pw.Widget bodyLine(String text) {
       return pw.Padding(
         padding: const pw.EdgeInsets.only(bottom: 2),
-        child: pw.Text(
-          text,
-          style: const pw.TextStyle(fontSize: 10.5),
-        ),
+        child: pw.Text(text, style: const pw.TextStyle(fontSize: 10.5)),
       );
     }
 
@@ -153,7 +161,9 @@ class ServicePdfExporter {
 
     final category = service.category.trim().toLowerCase();
     final isCamerasCategory =
-        category == 'cameras' || category.contains('camera') || category.contains('camara');
+        category == 'cameras' ||
+        category.contains('camera') ||
+        category.contains('camara');
 
     doc.addPage(
       pw.MultiPage(
@@ -161,24 +171,56 @@ class ServicePdfExporter {
         margin: const pw.EdgeInsets.fromLTRB(36, 40, 36, 44),
         build: (context) {
           return [
-            pw.Text(
-              'FULLTECH, SRL',
-              style: pw.TextStyle(
-                fontSize: 16,
-                fontWeight: pw.FontWeight.bold,
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(
+                borderRadius: pw.BorderRadius.circular(8),
+                border: pw.Border.all(color: _brandBlue, width: 1.2),
+                color: PdfColors.white,
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    companyName.isEmpty ? 'FULLTECH, SRL' : companyName,
+                    style: pw.TextStyle(
+                      fontSize: 16,
+                      fontWeight: pw.FontWeight.bold,
+                      color: _brandBlue,
+                    ),
+                  ),
+                  spacer(4),
+                  pw.Wrap(
+                    spacing: 10,
+                    runSpacing: 2,
+                    children: [
+                      if (companyRnc.isNotEmpty)
+                        pw.Text(
+                          'RNC: $companyRnc',
+                          style: pw.TextStyle(fontSize: 9, color: _textMuted),
+                        ),
+                      if (companyPhone.isNotEmpty)
+                        pw.Text(
+                          'Tel: $companyPhone',
+                          style: pw.TextStyle(fontSize: 9, color: _textMuted),
+                        ),
+                      pw.Text(
+                        'Orden: ${service.orderLabel}',
+                        style: pw.TextStyle(fontSize: 9, color: _textMuted),
+                      ),
+                      pw.Text(
+                        'Fecha: ${dfDate.format(serviceDate)}',
+                        style: pw.TextStyle(fontSize: 9, color: _textMuted),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
-            spacer(6),
-            bodyLine('Empresa: $companyName'),
-            bodyLine('RNC: $companyRnc'),
-            bodyLine('Teléfono: $companyPhone'),
             spacer(12),
             pw.Text(
               'CARTA DE GARANTÍA DE INSTALACIÓN Y EQUIPOS',
-              style: pw.TextStyle(
-                fontSize: 13,
-                fontWeight: pw.FontWeight.bold,
-              ),
+              style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
             ),
             spacer(10),
             bodyText(
@@ -186,15 +228,13 @@ class ServicePdfExporter {
             ),
             heading('INFORMACIÓN DEL CLIENTE'),
             bodyLine('Nombre del cliente: $customer'),
-            bodyLine('Teléfono: ${phone.isEmpty ? '—' : phone}'),
-            bodyLine('Dirección: ${address.isEmpty ? '—' : address}'),
+            if (phone.isNotEmpty) bodyLine('Teléfono: $phone'),
+            if (address.isNotEmpty) bodyLine('Dirección: $address'),
             spacer(8),
             bodyLine('Número de orden: ${service.orderLabel}'),
             bodyLine('Fecha del servicio: ${dfDate.format(serviceDate)}'),
             heading('EQUIPOS Y PRODUCTOS INSTALADOS'),
-            if (items.isEmpty)
-              bodyLine('—')
-            else
+            if (items.isNotEmpty)
               pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: items
@@ -228,7 +268,9 @@ class ServicePdfExporter {
               ),
             ],
             heading('ALCANCE DE LA GARANTÍA'),
-            bodyText('La garantía ofrecida por FULLTECH, SRL cubre exclusivamente:'),
+            bodyText(
+              'La garantía ofrecida por FULLTECH, SRL cubre exclusivamente:',
+            ),
             spacer(6),
             bodyLine('Defectos de fábrica en los equipos instalados'),
             bodyLine(
@@ -237,10 +279,16 @@ class ServicePdfExporter {
             heading('LA GARANTÍA NO CUBRE'),
             bodyText('La garantía no será válida en los siguientes casos:'),
             spacer(6),
-            bodyLine('Daños ocasionados por alto voltaje o variaciones eléctricas'),
-            bodyLine('Daños causados por mal uso o manipulación indebida del equipo'),
+            bodyLine(
+              'Daños ocasionados por alto voltaje o variaciones eléctricas',
+            ),
+            bodyLine(
+              'Daños causados por mal uso o manipulación indebida del equipo',
+            ),
             bodyLine('Daños por golpes, humedad, agua, fuego o accidentes'),
-            bodyLine('Daños ocasionados por instalaciones eléctricas defectuosas del lugar'),
+            bodyLine(
+              'Daños ocasionados por instalaciones eléctricas defectuosas del lugar',
+            ),
             bodyLine(
               'Manipulación o desmontaje del sistema por personas o técnicos externos a FULLTECH, SRL',
             ),
@@ -251,22 +299,30 @@ class ServicePdfExporter {
             heading('PROCESO DE GARANTÍA'),
             bodyText('Para solicitar garantía el cliente deberá:'),
             spacer(6),
-            bodyLine('Presentar el reporte o comprobante del servicio realizado'),
+            bodyLine(
+              'Presentar el reporte o comprobante del servicio realizado',
+            ),
             bodyLine('Permitir la evaluación técnica del equipo o instalación'),
             spacer(6),
             bodyText(
               'Una vez evaluado el caso por el departamento técnico, se procederá a determinar la solución correspondiente.',
             ),
             heading('TIEMPO DE RESPUESTA'),
-            bodyText('El proceso de evaluación y solución de garantía tendrá un plazo estimado de:'),
+            bodyText(
+              'El proceso de evaluación y solución de garantía tendrá un plazo estimado de:',
+            ),
             spacer(6),
-            bodyLine('0 a 7 días laborables, dependiendo de la distancia y disponibilidad del personal técnico.'),
+            bodyLine(
+              '0 a 7 días laborables, dependiendo de la distancia y disponibilidad del personal técnico.',
+            ),
             heading('ACEPTACIÓN DEL SERVICIO'),
             bodyText('Con su firma, el cliente confirma que:'),
             spacer(6),
             bodyLine('El servicio fue realizado correctamente'),
             bodyLine('Los equipos fueron entregados e instalados'),
-            bodyLine('Recibió la información sobre las condiciones de garantía'),
+            bodyLine(
+              'Recibió la información sobre las condiciones de garantía',
+            ),
             spacer(10),
             bodyLine('Firma del cliente:'),
             spacer(6),
@@ -275,7 +331,7 @@ class ServicePdfExporter {
                 height: 90,
                 width: double.infinity,
                 decoration: pw.BoxDecoration(
-                  border: pw.Border.all(color: PdfColors.grey300),
+                  border: pw.Border.all(color: _brandBlue, width: 0.8),
                   borderRadius: pw.BorderRadius.circular(6),
                 ),
                 padding: const pw.EdgeInsets.all(6),
@@ -293,13 +349,13 @@ class ServicePdfExporter {
               spacer(4),
               pw.Text(
                 'Firmado: $signedAtText',
-                style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+                style: pw.TextStyle(fontSize: 8, color: _textMuted),
               ),
             ],
             if (signatureRef.isNotEmpty)
               pw.Text(
                 'Ref firma: $signatureRef',
-                style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700),
+                style: pw.TextStyle(fontSize: 7, color: _textMuted),
               ),
             spacer(8),
             bodyLine('Técnico responsable:'),
@@ -307,7 +363,10 @@ class ServicePdfExporter {
             spacer(12),
             pw.Text(
               'FULLTECH, SRL',
-              style: pw.TextStyle(fontSize: 10.5, fontWeight: pw.FontWeight.bold),
+              style: pw.TextStyle(
+                fontSize: 10.5,
+                fontWeight: pw.FontWeight.bold,
+              ),
             ),
           ];
         },
@@ -348,8 +407,8 @@ class ServicePdfExporter {
       padding: const pw.EdgeInsets.all(10),
       decoration: pw.BoxDecoration(
         borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
-        border: pw.Border.all(color: PdfColors.grey400),
-        color: PdfColors.grey100,
+        border: pw.Border.all(color: _brandBlue, width: 1.0),
+        color: PdfColors.white,
       ),
       child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -370,6 +429,7 @@ class ServicePdfExporter {
                   style: pw.TextStyle(
                     fontWeight: pw.FontWeight.bold,
                     fontSize: 13,
+                    color: _brandBlue,
                   ),
                 ),
                 if (rnc.isNotEmpty) pw.Text('RNC: $rnc'),
@@ -407,8 +467,8 @@ class ServicePdfExporter {
     );
 
     final serviceCustomer = service.customerName.trim().isEmpty
-      ? 'Cliente'
-      : service.customerName.trim();
+        ? 'Cliente'
+        : service.customerName.trim();
     final servicePhone = service.customerPhone.trim();
     final address = service.customerAddress.trim();
 
@@ -443,8 +503,8 @@ class ServicePdfExporter {
     final itbisRate = cotizacion?.itbisRate ?? 0.18;
     final subtotal = cotizacion?.subtotal ?? (service.quotedAmount ?? 0);
     final itbisAmount = cotizacion != null
-      ? cotizacion.itbisAmount
-      : (includeItbis ? subtotal * itbisRate : 0);
+        ? cotizacion.itbisAmount
+        : (includeItbis ? subtotal * itbisRate : 0);
     final total = cotizacion?.total ?? (subtotal + itbisAmount);
 
     final serviceDate = service.completedAt ?? service.scheduledStart;
@@ -466,10 +526,7 @@ class ServicePdfExporter {
               ),
             ),
             pw.Expanded(
-              child: pw.Text(
-                v.trim().isEmpty ? '—' : v.trim(),
-                style: const pw.TextStyle(fontSize: 10),
-              ),
+              child: pw.Text(v.trim(), style: const pw.TextStyle(fontSize: 10)),
             ),
           ],
         ),
@@ -484,6 +541,7 @@ class ServicePdfExporter {
           style: pw.TextStyle(
             fontWeight: pw.FontWeight.bold,
             fontSize: 10.5,
+            color: _brandBlue,
           ),
         ),
       );
@@ -497,14 +555,12 @@ class ServicePdfExporter {
         padding: const pw.EdgeInsets.all(10),
         decoration: pw.BoxDecoration(
           borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
-          border: pw.Border.all(color: PdfColors.grey400),
+          border: pw.Border.all(color: _brandBlue, width: 0.8),
+          color: PdfColors.white,
         ),
         child: pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            sectionTitle(title),
-            ...children,
-          ],
+          children: [sectionTitle(title), ...children],
         ),
       );
     }
@@ -522,8 +578,8 @@ class ServicePdfExporter {
           padding: const pw.EdgeInsets.all(10),
           decoration: pw.BoxDecoration(
             borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
-            border: pw.Border.all(color: PdfColors.grey400),
-            color: PdfColors.grey100,
+            border: pw.Border.all(color: _brandBlue, width: 0.8),
+            color: _brandBlueSoft,
           ),
           child: pw.Column(
             children: [
@@ -533,11 +589,7 @@ class ServicePdfExporter {
                 includeItbis ? money.format(itbisAmount) : 'No aplicado',
               ),
               pw.Divider(height: 12),
-              _line(
-                'Total',
-                money.format(total),
-                highlight: !hasDeposit,
-              ),
+              _line('Total', money.format(total), highlight: !hasDeposit),
 
               if (hasDeposit) ...[
                 _line('Abono', money.format(deposit)),
@@ -572,7 +624,7 @@ class ServicePdfExporter {
                 pw.Expanded(
                   child: pw.Text(
                     pieces.take(3).join(' · '),
-                    style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+                    style: pw.TextStyle(fontSize: 8, color: _textMuted),
                     maxLines: 1,
                     overflow: pw.TextOverflow.clip,
                   ),
@@ -580,13 +632,15 @@ class ServicePdfExporter {
                 pw.SizedBox(width: 8),
                 pw.Text(
                   'Página ${context.pageNumber}/${context.pagesCount}',
-                  style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+                  style: pw.TextStyle(fontSize: 8, color: _textMuted),
                 ),
               ],
             ),
           );
         },
         build: (_) => [
+          pw.Container(height: 3, color: _brandBlue),
+          pw.SizedBox(height: 10),
           _companyHeader(company),
           pw.SizedBox(height: 10),
           pw.Row(
@@ -598,7 +652,7 @@ class ServicePdfExporter {
                 style: pw.TextStyle(
                   fontSize: 22,
                   fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.black,
+                  color: _brandBlue,
                 ),
               ),
               pw.Column(
@@ -615,15 +669,12 @@ class ServicePdfExporter {
                   if (serviceDate != null)
                     pw.Text(
                       'Servicio: ${dateOnlyFmt.format(serviceDate)}',
-                      style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+                      style: pw.TextStyle(fontSize: 9, color: _textMuted),
                     ),
                   if (cotizacion != null)
                     pw.Text(
                       'Cotización: ${cotizacion.id}',
-                      style: pw.TextStyle(
-                        fontSize: 9,
-                        color: PdfColors.grey700,
-                      ),
+                      style: pw.TextStyle(fontSize: 9, color: _textMuted),
                     ),
                 ],
               ),
@@ -638,8 +689,8 @@ class ServicePdfExporter {
                   title: 'Facturar a',
                   children: [
                     kv('Cliente', customer),
-                    kv('Teléfono', phone.isEmpty ? '—' : phone),
-                    kv('Dirección', address.isEmpty ? '—' : address),
+                    if (phone.isNotEmpty) kv('Teléfono', phone),
+                    if (address.isNotEmpty) kv('Dirección', address),
                   ],
                 ),
               ),
@@ -649,7 +700,7 @@ class ServicePdfExporter {
                   title: 'Servicio',
                   children: [
                     kv('Tipo', titleType),
-                    kv('Categoría', category.trim().isEmpty ? '—' : category),
+                    if (category.trim().isNotEmpty) kv('Categoría', category),
                     kv('Orden', service.orderLabel),
                     kv('ID', service.id),
                   ],
@@ -664,19 +715,29 @@ class ServicePdfExporter {
               children: [
                 kv('ID', cotizacion.id),
                 kv('Fecha', dateFmt.format(cotizacion.createdAt)),
-                kv('Cliente', cotizacion.customerName.trim().isEmpty ? customer : cotizacion.customerName.trim()),
-                kv('Teléfono', (cotizacion.customerPhone ?? '').trim().isEmpty ? (phone.isEmpty ? '—' : phone) : (cotizacion.customerPhone ?? '').trim()),
+                if (cotizacion.customerName.trim().isNotEmpty)
+                  kv('Cliente', cotizacion.customerName.trim()),
+                if ((cotizacion.customerPhone ?? '').trim().isNotEmpty)
+                  kv('Teléfono', (cotizacion.customerPhone ?? '').trim()),
                 kv('Incluye ITBIS', cotizacion.includeItbis ? 'Sí' : 'No'),
-                kv('Tasa ITBIS', '${(cotizacion.itbisRate * 100).toStringAsFixed(0)}%'),
-                if (cotizacion.note.trim().isNotEmpty) kv('Nota', cotizacion.note.trim()),
+                kv(
+                  'Tasa ITBIS',
+                  '${(cotizacion.itbisRate * 100).toStringAsFixed(0)}%',
+                ),
+                if (cotizacion.note.trim().isNotEmpty)
+                  kv('Nota', cotizacion.note.trim()),
               ],
             ),
           ],
           pw.SizedBox(height: 12),
           pw.TableHelper.fromTextArray(
             border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.6),
-            headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
-            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
+            headerDecoration: pw.BoxDecoration(color: _brandBlue),
+            headerStyle: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 10,
+              color: PdfColors.white,
+            ),
             cellStyle: const pw.TextStyle(fontSize: 10),
             headers: const ['#', 'Descripción', 'Cant.', 'Precio', 'Total'],
             data: hasItems
@@ -724,7 +785,7 @@ class ServicePdfExporter {
           pw.SizedBox(height: 14),
           pw.Text(
             'Gracias por su preferencia.',
-            style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+            style: pw.TextStyle(fontSize: 10, color: _textMuted),
           ),
           if (signatureImage != null) ...[
             pw.SizedBox(height: 14),
@@ -732,14 +793,17 @@ class ServicePdfExporter {
               padding: const pw.EdgeInsets.all(10),
               decoration: pw.BoxDecoration(
                 borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
-                border: pw.Border.all(color: PdfColors.grey400),
+                border: pw.Border.all(color: _brandBlue, width: 0.8),
               ),
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
                   pw.Text(
                     'Aceptación del cliente',
-                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                    style: pw.TextStyle(
+                      fontWeight: pw.FontWeight.bold,
+                      color: _brandBlue,
+                    ),
                   ),
                   pw.SizedBox(height: 6),
                   pw.Text(
@@ -749,19 +813,19 @@ class ServicePdfExporter {
                   if (signedAtText.isNotEmpty)
                     pw.Text(
                       'Firmado: $signedAtText',
-                      style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+                      style: pw.TextStyle(fontSize: 9, color: _textMuted),
                     ),
                   if (signatureRef.isNotEmpty)
                     pw.Text(
                       'Ref firma: $signatureRef',
-                      style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+                      style: pw.TextStyle(fontSize: 8, color: _textMuted),
                     ),
                   pw.SizedBox(height: 8),
                   pw.Container(
                     height: 80,
                     width: double.infinity,
                     decoration: pw.BoxDecoration(
-                      color: PdfColors.grey100,
+                      color: PdfColors.white,
                       borderRadius: const pw.BorderRadius.all(
                         pw.Radius.circular(6),
                       ),

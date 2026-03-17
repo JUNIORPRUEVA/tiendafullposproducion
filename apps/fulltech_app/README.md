@@ -74,6 +74,14 @@ Configura en EasyPanel (PWA container):
 
 Esto hace que la app llame a `https://TU_PWA_DOMINIO/api/...` y Nginx lo redirija al backend.
 
+Nota:
+- `API_BASE_URL=/api` es solo para **Web/PWA** detrás del Nginx del contenedor. En Android/iOS debe ser una URL absoluta (ej: `https://tu-api.tudominio.com`).
+
+### Uploads (evidencias) en Web: CORS del bucket
+Cuando la app usa el flujo de evidencias con presigned URLs (`/storage/presign` → PUT directo a R2 → `/storage/confirm`), el PUT lo hace el navegador contra el dominio del bucket.
+
+Si ves errores tipo `DioException [connection error] ... XMLHttpRequest onError`, además de revisar `API_BASE_URL` y HTTPS, verifica el CORS del bucket (permitir el origen de la PWA, método `PUT` y header `Content-Type`).
+
 ## Arquitectura
 
 - `lib/core/`: api, auth storage, routing, theme, widgets, errors
