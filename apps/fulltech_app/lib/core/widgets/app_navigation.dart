@@ -190,7 +190,8 @@ String safeCurrentLocation(BuildContext context) {
         context,
       ).routerDelegate.currentConfiguration.uri.toString();
     } catch (_) {
-      return '';
+      final routeName = ModalRoute.of(context)?.settings.name;
+      return routeName ?? '';
     }
   }
 }

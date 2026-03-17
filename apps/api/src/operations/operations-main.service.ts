@@ -2,9 +2,11 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import {
   Prisma,
   AdminOrderPhase,
@@ -19,6 +21,7 @@ import {
   ServiceUpdateType,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../common/redis/redis.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { R2Service } from '../storage/r2.service';
 import { ServiceClosingService } from '../service-closing/service-closing.service';
@@ -58,17 +61,56 @@ const defaultServiceCategories = [
   { code: 'pos', name: 'Punto de ventas' },
 ];
 
+const ORDERS_LIST_CACHE_PATTERN = 'orders:list:*';
+
 @Injectable()
 export class OperationsService {
+  private readonly logger = new Logger(OperationsService.name);
   private _techViewAllCache: { value: boolean; at: number } | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
     private readonly notifications: NotificationsService,
     private readonly r2: R2Service,
     private readonly serviceClosing: ServiceClosingService,
     private readonly realtime: OperationsRealtimeService,
   ) {}
+
+  private buildOrdersListCacheKey(user: AuthUser, query: ServicesQueryDto, techViewAll: boolean) {
+    const scope = {
+      userId: user.id,
+      role: user.role,
+      techViewAll,
+      status: query.status ?? null,
+      type: query.type ?? null,
+      priority: query.priority ?? null,
+      assignedTo: query.assignedTo ?? null,
+      orderType: query.orderType ?? null,
+      orderState: query.orderState ?? null,
+      adminPhase: query.adminPhase ?? null,
+      adminStatus: query.adminStatus ?? null,
+      technicianId: query.technicianId ?? null,
+      from: query.from ?? null,
+      to: query.to ?? null,
+      customerId: query.customerId ?? null,
+      search: query.search?.trim() ?? null,
+      category: query.category?.trim() ?? null,
+      sellerId: query.sellerId ?? null,
+      includeDeleted: query.includeDeleted === true,
+      page: query.page && query.page > 0 ? query.page : 1,
+      pageSize: query.pageSize && query.pageSize > 0 ? query.pageSize : 30,
+    };
+    const hash = createHash('sha1').update(JSON.stringify(scope)).digest('hex');
+    return `orders:list:${hash}`;
+  }
+
+  private async invalidateOrdersListCache(reason: string) {
+    const deleted = await this.redis.delByPattern(ORDERS_LIST_CACHE_PATTERN);
+    if (this.redis.isEnabled()) {
+      this.logger.log(`Redis INVALIDATE ${ORDERS_LIST_CACHE_PATTERN} reason=${reason} deleted=${deleted}`);
+    }
+  }
 
   private async notifyFleetNumbersForService(params: {
     serviceId: string;
@@ -398,6 +440,26 @@ export class OperationsService {
     const page = query.page && query.page > 0 ? query.page : 1;
     const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : 30;
     const skip = (page - 1) * pageSize;
+    const cacheKey = this.buildOrdersListCacheKey(user, query, techViewAll);
+
+    const cached = await this.redis.get<{
+      items: any[];
+      total: number;
+      page: number;
+      pageSize: number;
+      totalPages: number;
+    }>(cacheKey);
+
+    if (cached) {
+      if (this.redis.isEnabled()) {
+        this.logger.log(`Redis HIT ${cacheKey}`);
+      }
+      return cached;
+    }
+
+    if (this.redis.isEnabled()) {
+      this.logger.log(`Redis MISS ${cacheKey}`);
+    }
 
     const where: Prisma.ServiceWhereInput = {
       ...this.scopeWhere(user, techViewAll),
@@ -447,13 +509,17 @@ export class OperationsService {
       total = 0;
     }
 
-    return {
+    const response = {
       items: items.map((item) => this.normalizeService(item)),
       total,
       page,
       pageSize,
       totalPages: Math.max(1, Math.ceil(total / pageSize)),
     };
+
+    await this.redis.set(cacheKey, response);
+
+    return response;
   }
 
   async listTechnicians(_user: AuthUser) {
@@ -696,6 +762,8 @@ export class OperationsService {
       // ignore
     }
 
+    await this.invalidateOrdersListCache('service.create');
+
     return normalized;
   }
 
@@ -911,6 +979,9 @@ export class OperationsService {
     } catch {
       // ignore
     }
+
+    await this.invalidateOrdersListCache('service.changePhase');
+
     return normalized;
   }
 
@@ -977,6 +1048,9 @@ export class OperationsService {
     } catch {
       // ignore
     }
+
+    await this.invalidateOrdersListCache('service.changeAdminPhase');
+
     return normalized;
   }
 
@@ -1031,6 +1105,9 @@ export class OperationsService {
     } catch {
       // ignore
     }
+
+    await this.invalidateOrdersListCache('service.changeAdminStatus');
+
     return normalized;
   }
 
@@ -1170,6 +1247,9 @@ export class OperationsService {
     } catch {
       // ignore
     }
+
+    await this.invalidateOrdersListCache('service.update');
+
     return normalized;
   }
 
@@ -1327,6 +1407,9 @@ export class OperationsService {
     } catch {
       // ignore
     }
+
+    await this.invalidateOrdersListCache('service.changeStatus');
+
     return normalized;
   }
 
@@ -1404,6 +1487,9 @@ export class OperationsService {
     } catch {
       // ignore
     }
+
+    await this.invalidateOrdersListCache('service.changeOrderState');
+
     return normalized;
   }
 
@@ -1603,6 +1689,8 @@ export class OperationsService {
       // ignore
     }
 
+    await this.invalidateOrdersListCache('service.schedule');
+
     return {
       ...normalized,
       conflicts: conflicts.map((c) => ({
@@ -1730,6 +1818,9 @@ export class OperationsService {
     } catch {
       // ignore
     }
+
+    await this.invalidateOrdersListCache('service.assign');
+
     return normalized;
   }
 
@@ -1813,6 +1904,9 @@ export class OperationsService {
       } catch {
         // ignore
       }
+
+      await this.invalidateOrdersListCache('service.addUpdate.step');
+
       return normalized;
     }
 
@@ -1890,6 +1984,8 @@ export class OperationsService {
     } catch {
       // ignore
     }
+
+    await this.invalidateOrdersListCache('service.addUpdate');
 
     return { ok: true };
   }
@@ -2310,6 +2406,8 @@ export class OperationsService {
       // ignore
     }
 
+    await this.invalidateOrdersListCache('service.addFile');
+
     return file;
   }
 
@@ -2426,6 +2524,8 @@ export class OperationsService {
       // ignore
     }
 
+    await this.invalidateOrdersListCache('service.createWarranty');
+
     return normalized;
   }
 
@@ -2448,6 +2548,8 @@ export class OperationsService {
         },
       });
     });
+
+    await this.invalidateOrdersListCache('service.remove');
 
     return { ok: true };
   }

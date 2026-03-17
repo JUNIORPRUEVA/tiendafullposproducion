@@ -6,6 +6,7 @@ class CotizacionItem {
   final String? imageUrl;
   final double unitPrice;
   final double qty;
+  final double? externalCostUnit;
 
   const CotizacionItem({
     required this.productId,
@@ -13,6 +14,7 @@ class CotizacionItem {
     required this.imageUrl,
     required this.unitPrice,
     required this.qty,
+    this.externalCostUnit,
   });
 
   bool get isExternal => !_isUuid(productId);
@@ -25,6 +27,7 @@ class CotizacionItem {
     String? imageUrl,
     double? unitPrice,
     double? qty,
+    double? externalCostUnit,
   }) {
     return CotizacionItem(
       productId: productId ?? this.productId,
@@ -32,6 +35,7 @@ class CotizacionItem {
       imageUrl: imageUrl ?? this.imageUrl,
       unitPrice: unitPrice ?? this.unitPrice,
       qty: qty ?? this.qty,
+      externalCostUnit: externalCostUnit ?? this.externalCostUnit,
     );
   }
 
@@ -41,6 +45,7 @@ class CotizacionItem {
     'imageUrl': imageUrl,
     'unitPrice': unitPrice,
     'qty': qty,
+    'externalCostUnit': externalCostUnit,
   };
 
   Map<String, dynamic> toCreateDto() => {
@@ -67,6 +72,7 @@ class CotizacionItem {
       imageUrl: map['imageUrl']?.toString(),
       unitPrice: (map['unitPrice'] as num?)?.toDouble() ?? 0,
       qty: (map['qty'] as num?)?.toDouble() ?? 0,
+      externalCostUnit: (map['externalCostUnit'] as num?)?.toDouble(),
     );
   }
 
@@ -91,6 +97,7 @@ class CotizacionItem {
               ?.toString(),
       unitPrice: _asDouble(map['unitPrice']),
       qty: _asDouble(map['qty']),
+      externalCostUnit: null,
     );
   }
 }

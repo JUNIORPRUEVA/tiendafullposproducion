@@ -56,7 +56,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   final List<CotizacionItem> _items = [];
   List<ProductModel> _productos = const [];
 
-  bool _loadingProducts = true;
+  bool _loadingProducts = false;
   String? _error;
   String? _selectedCategory;
 
@@ -408,7 +408,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       _lastSuccessfulRemoteSyncAt = syncedAt;
     } catch (e) {
       if (!mounted) return;
-      if (silent && _productos.isNotEmpty) return;
+      if (silent) return;
       setState(() {
         _loadingProducts = false;
         _error = 'No se pudieron cargar productos: $e';
@@ -462,11 +462,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
               _catalogCacheFreshFor;
 
       if (shouldRefresh) {
-        await _loadProducts(forceRemote: true, silent: hasCachedProducts);
+        unawaited(_loadProducts(forceRemote: true, silent: true));
       }
     } catch (_) {
       if (!mounted) return;
-      await _loadProducts(forceRemote: true);
+      unawaited(_loadProducts(forceRemote: true, silent: true));
     }
   }
 
@@ -924,15 +924,37 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     });
   }
 
-  Future<void> _openExternalItemDialog() async {
-    final nameCtrl = TextEditingController();
-    final qtyCtrl = TextEditingController(text: '1');
-    final priceCtrl = TextEditingController();
+  Future<void> _openExternalItemDialog({int? editIndex}) async {
+    final editingItem =
+        editIndex != null &&
+            editIndex >= 0 &&
+            editIndex < _items.length &&
+            _items[editIndex].isExternal
+        ? _items[editIndex]
+        : null;
+    final nameCtrl = TextEditingController(text: editingItem?.nombre ?? '');
+    final qtyCtrl = TextEditingController(
+      text: editingItem == null
+          ? '1'
+          : (editingItem.qty % 1 == 0
+                ? editingItem.qty.toStringAsFixed(0)
+                : editingItem.qty.toStringAsFixed(2)),
+    );
+    final costCtrl = TextEditingController(
+      text: editingItem?.externalCostUnit?.toStringAsFixed(2) ?? '',
+    );
+    final priceCtrl = TextEditingController(
+      text: editingItem?.unitPrice.toStringAsFixed(2) ?? '',
+    );
 
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Agregar producto fuera de inventario'),
+        title: Text(
+          editingItem == null
+              ? 'Agregar producto fuera de inventario'
+              : 'Editar producto fuera de inventario',
+        ),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -953,6 +975,14 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
               ),
               const SizedBox(height: 8),
               TextField(
+                controller: costCtrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(labelText: 'Costo unitario'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
                 controller: priceCtrl,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -969,7 +999,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Agregar'),
+            child: Text(editingItem == null ? 'Agregar' : 'Guardar'),
           ),
         ],
       ),
@@ -977,20 +1007,24 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
     final name = nameCtrl.text.trim();
     final qty = double.tryParse(qtyCtrl.text.trim()) ?? 0;
+    final externalCost = costCtrl.text.trim().isEmpty
+        ? null
+        : double.tryParse(costCtrl.text.trim());
     final unitPrice = double.tryParse(priceCtrl.text.trim()) ?? -1;
 
     nameCtrl.dispose();
     qtyCtrl.dispose();
+    costCtrl.dispose();
     priceCtrl.dispose();
 
     if (ok != true) return;
 
-    if (name.isEmpty || qty <= 0 || unitPrice < 0) {
+    if (name.isEmpty || qty <= 0 || unitPrice < 0 || (externalCost ?? 0) < 0) {
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         const SnackBar(
           content: Text(
-            'Completa datos válidos: nombre, cantidad mayor que 0 y precio no negativo',
+            'Completa datos válidos: nombre, cantidad mayor que 0, costo y precio no negativos',
           ),
         ),
       );
@@ -998,15 +1032,19 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     }
 
     _commitEditorChange(() {
-      _items.add(
-        CotizacionItem(
-          productId: '',
-          nombre: name,
-          imageUrl: null,
-          unitPrice: unitPrice,
-          qty: qty,
-        ),
+      final next = CotizacionItem(
+        productId: '',
+        nombre: name,
+        imageUrl: null,
+        unitPrice: unitPrice,
+        qty: qty,
+        externalCostUnit: externalCost,
       );
+      if (editingItem != null && editIndex != null) {
+        _items[editIndex] = next;
+      } else {
+        _items.add(next);
+      }
     });
   }
 
@@ -1772,52 +1810,6 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   }
 
   Widget _buildProductStrip() {
-    if (_loadingProducts) {
-      return Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                onPressed: _openExternalItemDialog,
-                icon: const Icon(Icons.add_box_outlined),
-                label: const Text('Agregar fuera de inventario'),
-              ),
-            ),
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 14),
-            child: CircularProgressIndicator(),
-          ),
-        ],
-      );
-    }
-    if (_error != null) {
-      return Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                onPressed: _openExternalItemDialog,
-                icon: const Icon(Icons.add_box_outlined),
-                label: const Text('Agregar fuera de inventario'),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Text(
-              _error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          ),
-        ],
-      );
-    }
-
     return Column(
       children: [
         Padding(
@@ -1834,7 +1826,14 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         SizedBox(
           height: 116,
           child: _visibleProducts.isEmpty
-              ? const Center(child: Text('No hay productos con este filtro'))
+              ? Center(
+                  child: Text(
+                    _searchCtrl.text.trim().isNotEmpty ||
+                            _selectedCategory != null
+                        ? 'No hay productos con este filtro'
+                        : 'Agrega fuera de inventario o usa el catálogo cuando sincronice',
+                  ),
+                )
               : ListView.separated(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -1912,6 +1911,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                         onMinus: () => _setQty(index, item.qty - 1),
                         onPlus: () => _setQty(index, item.qty + 1),
                         onChangePrice: (value) => _setUnitPrice(index, value),
+                        onEdit: item.isExternal
+                            ? () => _openExternalItemDialog(editIndex: index)
+                            : null,
                         onRemove: () =>
                             _commitEditorChange(() => _items.removeAt(index)),
                       );
@@ -2064,6 +2066,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                     onSearchChanged: () => _commitEditorChange(() {}),
                     onPickCategory: _pickCategory,
                     onAddProduct: _addProduct,
+                    onAddExternalItem: _openExternalItemDialog,
                   ),
                 ),
                 const SizedBox(width: 20),
@@ -2102,6 +2105,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                     onChangePrice: _setUnitPrice,
                     onDiscountItem: _applyItemDiscount,
                     onGeneralDiscount: _applyGeneralDiscount,
+                    onEditExternalItem: (index) =>
+                        _openExternalItemDialog(editIndex: index),
                     onRemoveItem: (index) =>
                         _commitEditorChange(() => _items.removeAt(index)),
                   ),
@@ -2175,12 +2180,14 @@ class _ProductThumbCard extends StatelessWidget {
                             productName: product.nombre,
                             originalUrl: product.originalFotoUrl,
                             fit: BoxFit.cover,
-                            loading: const Center(
-                              child: SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
+                            loading: Container(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainerHighest,
+                              child: const Center(
+                                child: Icon(
+                                  Icons.inventory_2_outlined,
+                                  size: 17,
                                 ),
                               ),
                             ),
@@ -2238,6 +2245,7 @@ class _DesktopCatalogPane extends StatefulWidget {
     required this.onSearchChanged,
     required this.onPickCategory,
     required this.onAddProduct,
+    required this.onAddExternalItem,
   });
 
   final TextEditingController searchController;
@@ -2249,6 +2257,7 @@ class _DesktopCatalogPane extends StatefulWidget {
   final VoidCallback onSearchChanged;
   final Future<void> Function() onPickCategory;
   final ValueChanged<ProductModel> onAddProduct;
+  final Future<void> Function({int? editIndex}) onAddExternalItem;
 
   @override
   State<_DesktopCatalogPane> createState() => _DesktopCatalogPaneState();
@@ -2347,32 +2356,34 @@ class _DesktopCatalogPaneState extends State<_DesktopCatalogPane> {
                         : widget.selectedCategory!,
                   ),
                 ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: () => widget.onAddExternalItem(),
+                  icon: const Icon(Icons.add_box_outlined),
+                  label: const Text('Fuera inventario'),
+                ),
               ],
             ),
             const SizedBox(height: 14),
             Expanded(
-              child: widget.loadingProducts
-                  ? const Center(child: CircularProgressIndicator())
-                  : widget.error != null
-                  ? Center(
-                      child: Text(
-                        widget.error!,
-                        style: TextStyle(color: theme.colorScheme.error),
-                        textAlign: TextAlign.center,
-                      ),
-                    )
-                  : widget.visibleProducts.isEmpty
+              child: widget.visibleProducts.isEmpty
                   ? Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
-                            Icons.inventory_2_outlined,
+                            Icons.playlist_add_circle_outlined,
                             size: 54,
-                            color: theme.colorScheme.outline,
+                            color: theme.colorScheme.primary,
                           ),
                           const SizedBox(height: 12),
-                          const Text('No hay productos con este filtro'),
+                          Text(
+                            widget.searchController.text.trim().isNotEmpty ||
+                                    widget.selectedCategory != null
+                                ? 'No hay productos con este filtro'
+                                : 'La pantalla abre al instante y el catálogo se sincroniza en segundo plano',
+                            textAlign: TextAlign.center,
+                          ),
                         ],
                       ),
                     )
@@ -2459,6 +2470,7 @@ class _DesktopQuotePanel extends StatelessWidget {
     required this.onChangePrice,
     required this.onDiscountItem,
     required this.onGeneralDiscount,
+    required this.onEditExternalItem,
     required this.onRemoveItem,
   });
 
@@ -2488,6 +2500,7 @@ class _DesktopQuotePanel extends StatelessWidget {
   final void Function(int index, double value) onChangePrice;
   final ValueChanged<int> onDiscountItem;
   final VoidCallback onGeneralDiscount;
+  final ValueChanged<int> onEditExternalItem;
   final ValueChanged<int> onRemoveItem;
 
   @override
@@ -2651,6 +2664,9 @@ class _DesktopQuotePanel extends StatelessWidget {
                           onMinus: () => onMinusQty(index),
                           onPlus: () => onPlusQty(index),
                           onChangePrice: (value) => onChangePrice(index, value),
+                          onEdit: item.isExternal
+                              ? () => onEditExternalItem(index)
+                              : null,
                           onRemove: () => onRemoveItem(index),
                         );
                       },
@@ -2807,8 +2823,9 @@ class _DesktopProductCard extends StatelessWidget {
                                   color:
                                       theme.colorScheme.surfaceContainerHighest,
                                   child: const Center(
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
+                                    child: Icon(
+                                      Icons.inventory_2_outlined,
+                                      size: 30,
                                     ),
                                   ),
                                 ),
@@ -2954,6 +2971,7 @@ class _DesktopTicketItem extends StatefulWidget {
     required this.onMinus,
     required this.onPlus,
     required this.onChangePrice,
+    required this.onEdit,
     required this.onRemove,
   });
 
@@ -2963,6 +2981,7 @@ class _DesktopTicketItem extends StatefulWidget {
   final VoidCallback onMinus;
   final VoidCallback onPlus;
   final ValueChanged<double> onChangePrice;
+  final VoidCallback? onEdit;
   final VoidCallback onRemove;
 
   @override
@@ -3010,10 +3029,14 @@ class _DesktopTicketItemState extends State<_DesktopTicketItem> {
         child: Ink(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerLowest,
+            color: item.isExternal
+                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.35)
+                : theme.colorScheme.surfaceContainerLowest,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+              color: item.isExternal
+                  ? theme.colorScheme.primary.withValues(alpha: 0.45)
+                  : theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
             ),
           ),
           child: Row(
@@ -3025,10 +3048,17 @@ class _DesktopTicketItemState extends State<_DesktopTicketItem> {
                   height: 28,
                   child: (item.imageUrl ?? '').trim().isEmpty
                       ? Container(
-                          color: theme.colorScheme.surfaceContainerHighest,
-                          child: const Icon(
-                            Icons.inventory_2_outlined,
+                          color: item.isExternal
+                              ? theme.colorScheme.primaryContainer
+                              : theme.colorScheme.surfaceContainerHighest,
+                          child: Icon(
+                            item.isExternal
+                                ? Icons.edit_note_outlined
+                                : Icons.inventory_2_outlined,
                             size: 15,
+                            color: item.isExternal
+                                ? theme.colorScheme.primary
+                                : null,
                           ),
                         )
                       : ProductNetworkImage(
@@ -3067,14 +3097,24 @@ class _DesktopTicketItemState extends State<_DesktopTicketItem> {
                       ),
                     ),
                     if (item.isExternal)
-                      Text(
-                        'Fuera de inventario',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
                           color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 10,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          'Manual',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onPrimary,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 9,
+                          ),
                         ),
                       ),
                   ],
@@ -3145,6 +3185,13 @@ class _DesktopTicketItemState extends State<_DesktopTicketItem> {
                   ),
                 ),
               ),
+              if (widget.onEdit != null)
+                IconButton(
+                  tooltip: 'Editar producto manual',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: widget.onEdit,
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                ),
               IconButton(
                 tooltip: 'Eliminar producto',
                 visualDensity: VisualDensity.compact,
@@ -3270,6 +3317,7 @@ class _TicketCompactItem extends StatefulWidget {
     required this.onMinus,
     required this.onPlus,
     required this.onChangePrice,
+    required this.onEdit,
     required this.onRemove,
   });
 
@@ -3278,6 +3326,7 @@ class _TicketCompactItem extends StatefulWidget {
   final VoidCallback onMinus;
   final VoidCallback onPlus;
   final ValueChanged<double> onChangePrice;
+  final VoidCallback? onEdit;
   final VoidCallback onRemove;
 
   @override
@@ -3319,9 +3368,17 @@ class _TicketCompactItemState extends State<_TicketCompactItem> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        color: item.isExternal
+            ? Theme.of(
+                context,
+              ).colorScheme.primaryContainer.withValues(alpha: 0.30)
+            : Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        border: Border.all(
+          color: item.isExternal
+              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.45)
+              : Theme.of(context).colorScheme.outlineVariant,
+        ),
       ),
       child: Row(
         children: [
@@ -3340,14 +3397,24 @@ class _TicketCompactItemState extends State<_TicketCompactItem> {
                   ),
                 ),
                 if (item.isExternal)
-                  Text(
-                    'Fuera de inventario',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.primary,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      'Manual',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        color: Theme.of(context).colorScheme.onPrimary,
+                      ),
                     ),
                   ),
               ],
@@ -3399,6 +3466,16 @@ class _TicketCompactItemState extends State<_TicketCompactItem> {
             icon: const Icon(Icons.add_circle_outline, size: 18),
           ),
           const SizedBox(width: 6),
+          if (widget.onEdit != null)
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minHeight: 28, minWidth: 28),
+              splashRadius: 14,
+              tooltip: 'Editar producto manual',
+              onPressed: widget.onEdit,
+              icon: const Icon(Icons.edit_outlined, size: 16),
+            ),
           Text(
             widget.money(item.total),
             style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11),

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { join } from 'path';
 import { PrismaModule } from './prisma/prisma.module';
+import { RedisModule } from './common/redis/redis.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -35,6 +36,7 @@ import { TechnicalVisitsModule } from './technical-visits/technical-visits.modul
         join(process.cwd(), '..', '..', '.env'),
       ]
     }),
+    RedisModule,
     PrismaModule,
     HealthModule,
     AuthModule,
