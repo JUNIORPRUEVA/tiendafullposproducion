@@ -187,6 +187,15 @@ export class OperationsChecklistService {
       .replace(/^_+|_+$/g, '');
   }
 
+  private getCategoryCodeVariants(raw: string): string[] {
+    const normalized = this.normalizeCode(raw);
+    const canonical = this.canonicalChecklistCategoryCode(raw);
+    const variants = new Set<string>();
+    if (normalized.length > 0) variants.add(normalized);
+    if (canonical.length > 0) variants.add(canonical);
+    return Array.from(variants);
+  }
+
   private canonicalChecklistCategoryCode(raw: string) {
     const normalized = this.normalizeCode(raw);
     const aliases: Record<string, string> = {
@@ -666,7 +675,9 @@ export class OperationsChecklistService {
     orderType?: string | null;
   }) {
     const serviceId = service.id.trim();
-    const categoryCode = this.canonicalChecklistCategoryCode((service.category ?? '').toString());
+    const rawCategory = (service.category ?? '').toString();
+    const categoryCode = this.canonicalChecklistCategoryCode(rawCategory);
+    const categoryCodeVariants = this.getCategoryCodeVariants(rawCategory);
     const phaseCode = this.resolveChecklistPhaseCodeForService(service);
     if (!serviceId || !categoryCode || !phaseCode) return;
     await this.syncOperationsMetadata();
@@ -675,6 +686,7 @@ export class OperationsChecklistService {
       serviceId,
       categoryCode,
       phaseCode,
+      categoryCodeVariants,
     );
   }
 
@@ -683,7 +695,12 @@ export class OperationsChecklistService {
     serviceId: string,
     categoryCode: string,
     phaseCode: string,
+    categoryCodeVariants?: string[],
   ) {
+    const catCodes = categoryCodeVariants && categoryCodeVariants.length > 0
+      ? categoryCodeVariants
+      : [categoryCode];
+    const catList = Prisma.join(catCodes, ', ');
     await db.$executeRaw(Prisma.sql`
       INSERT INTO checklist_executions (
         id,
@@ -713,7 +730,7 @@ export class OperationsChecklistService {
       LEFT JOIN checklist_executions ce
         ON ce.service_order_id = ${serviceId}::uuid
        AND ce.checklist_item_id = ci.id
-      WHERE sc.code = ${categoryCode}
+      WHERE sc.code = ANY(ARRAY[${catList}]::text[])
         AND sp.code = ${phaseCode}
         AND ce.id IS NULL
     `);
@@ -729,8 +746,16 @@ export class OperationsChecklistService {
     }
     if (this.redis.isEnabled()) this.logger.log(`Redis MISS ${cacheKey}`);
 
-    const categoryCode = this.canonicalChecklistCategoryCode((service.category ?? '').toString());
+    const rawCategory = (service.category ?? '').toString();
+    const categoryCode = this.canonicalChecklistCategoryCode(rawCategory);
+    const categoryCodeVariants = this.getCategoryCodeVariants(rawCategory);
     const phaseCode = this.resolveChecklistPhaseCodeForService(service);
+
+    this.logger.log(
+      `getServiceChecklists serviceId=${serviceId} rawCategory="${rawCategory}" ` +
+      `catVariants=[${categoryCodeVariants.join(',')}] ` +
+      `currentPhase="${service.currentPhase}" orderType="${service.orderType}" resolvedPhase="${phaseCode}"`,
+    );
 
     await this.ensureServiceChecklists({
       id: service.id,
@@ -739,6 +764,7 @@ export class OperationsChecklistService {
       orderType: service.orderType,
     });
 
+    const catList = Prisma.join(categoryCodeVariants, ', ');
     const rows = await this.prisma.$queryRaw<ChecklistExecutionRow[]>(Prisma.sql`
       SELECT
         ce.id AS "executionId",
@@ -767,7 +793,7 @@ export class OperationsChecklistService {
       INNER JOIN checklist_items ci ON ci.id = ce.checklist_item_id
       LEFT JOIN "users" u ON u.id = ce.checked_by
       WHERE ce.service_order_id = ${serviceId}::uuid
-        AND sc.code = ${categoryCode}
+        AND sc.code = ANY(ARRAY[${catList}]::text[])
         AND sp.code = ${phaseCode}
       ORDER BY
         CASE ct.type
@@ -780,6 +806,10 @@ export class OperationsChecklistService {
     `);
 
     const templates = this.groupExecutionRows(rows);
+    this.logger.log(
+      `getServiceChecklists rows=${rows.length} templates=${templates.length} ` +
+      `catVariants=[${categoryCodeVariants.join(',')}] phase=${phaseCode}`,
+    );
     const response = {
       serviceId: service.id,
       currentPhase: phaseCode,
