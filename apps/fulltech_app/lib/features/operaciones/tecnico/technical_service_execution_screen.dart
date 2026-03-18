@@ -341,23 +341,10 @@ class _TechnicalServiceExecutionScreenState
 
   List<ServiceChecklistTemplateModel> _visibleDynamicChecklists(
     TechnicalExecutionState state,
-    ServiceModel service,
   ) {
     final templates = state.dynamicChecklists;
     if (templates.isEmpty) return const [];
-
-    final servicePhase = service.currentPhase.trim().toLowerCase();
-    final serviceCategory = service.category.trim().toLowerCase();
-
-    final filtered = templates.where((template) {
-      final phaseCode = template.phase.code.trim().toLowerCase();
-      final catCode = template.category.code.trim().toLowerCase();
-      final phaseMatches = phaseCode.isEmpty || servicePhase.isEmpty || phaseCode == servicePhase;
-      final categoryMatches = catCode.isEmpty || serviceCategory.isEmpty || catCode == serviceCategory;
-      return phaseMatches && categoryMatches;
-    }).toList(growable: false);
-
-    return filtered.isEmpty ? templates : filtered;
+    return templates;
   }
 
   bool _isChecklistComplete(List<ServiceChecklistTemplateModel> templates) {
@@ -1479,7 +1466,7 @@ class _TechnicalServiceExecutionScreenState
     final currentState = _effectiveState(service);
     final firstName = _firstName(service.customerName);
     final statusOption = _serviceStatusOptionFor(currentState);
-    final visibleChecklists = _visibleDynamicChecklists(st, service);
+    final visibleChecklists = _visibleDynamicChecklists(st);
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: user),

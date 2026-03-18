@@ -133,12 +133,18 @@ export class OperationsChecklistService {
   private buildServiceChecklistCacheKey(service: {
     id: string;
     currentPhase?: string | null;
+    orderType?: string | null;
     orderState?: string | null;
     category?: string | null;
   }) {
+    const effectivePhaseCode = this.resolveChecklistPhaseCodeForService({
+      currentPhase: service.currentPhase,
+      orderType: service.orderType,
+    });
     const scope = {
       serviceId: service.id,
-      currentPhase: (service.currentPhase ?? '').toString().trim() || null,
+      currentPhase: effectivePhaseCode || null,
+      orderType: this.normalizeCode((service.orderType ?? '').toString()) || null,
       orderState: (service.orderState ?? '').toString().trim() || null,
       category: this.canonicalChecklistCategoryCode((service.category ?? '').toString()),
     };
@@ -269,6 +275,47 @@ export class OperationsChecklistService {
       booked: 'reserva',
     };
     return aliases[normalized] ?? normalized;
+  }
+
+  private phaseCodeFromOrderType(raw: string | null | undefined) {
+    const normalized = this.normalizeCode((raw ?? '').toString());
+    switch (normalized) {
+      case 'instalacion':
+      case 'installation':
+        return 'instalacion';
+      case 'mantenimiento':
+      case 'servicio':
+      case 'maintenance':
+        return 'mantenimiento';
+      case 'levantamiento':
+      case 'survey':
+        return 'levantamiento';
+      case 'garantia':
+      case 'warranty':
+        return 'garantia';
+      case 'reserva':
+      case 'reservation':
+        return 'reserva';
+      default:
+        return '';
+    }
+  }
+
+  private resolveChecklistPhaseCodeForService(service: {
+    currentPhase?: string | null;
+    orderType?: string | null;
+  }) {
+    final phaseFromCurrent = this.phaseCodeFromServicePhase(service.currentPhase);
+    if (phaseFromCurrent.isNotEmpty && phaseFromCurrent != 'reserva') {
+      return phaseFromCurrent;
+    }
+
+    final phaseFromOrderType = this.phaseCodeFromOrderType(service.orderType);
+    if (phaseFromOrderType.isNotEmpty) {
+      return phaseFromOrderType;
+    }
+
+    return phaseFromCurrent;
   }
 
   private async syncOperationsMetadata() {
@@ -616,10 +663,11 @@ export class OperationsChecklistService {
     id: string;
     category?: string | null;
     currentPhase?: string | null;
+    orderType?: string | null;
   }) {
     const serviceId = service.id.trim();
     const categoryCode = this.canonicalChecklistCategoryCode((service.category ?? '').toString());
-    const phaseCode = this.phaseCodeFromServicePhase(service.currentPhase);
+    const phaseCode = this.resolveChecklistPhaseCodeForService(service);
     if (!serviceId || !categoryCode || !phaseCode) return;
     await this.syncOperationsMetadata();
     await this.ensureServiceChecklistsWithClient(
@@ -682,12 +730,13 @@ export class OperationsChecklistService {
     if (this.redis.isEnabled()) this.logger.log(`Redis MISS ${cacheKey}`);
 
     const categoryCode = this.canonicalChecklistCategoryCode((service.category ?? '').toString());
-    const phaseCode = this.phaseCodeFromServicePhase(service.currentPhase);
+    const phaseCode = this.resolveChecklistPhaseCodeForService(service);
 
     await this.ensureServiceChecklists({
       id: service.id,
       category: service.category,
       currentPhase: service.currentPhase,
+      orderType: service.orderType,
     });
 
     const rows = await this.prisma.$queryRaw<ChecklistExecutionRow[]>(Prisma.sql`
@@ -733,7 +782,7 @@ export class OperationsChecklistService {
     const templates = this.groupExecutionRows(rows);
     const response = {
       serviceId: service.id,
-      currentPhase: service.currentPhase,
+      currentPhase: phaseCode,
       orderState: service.orderState,
       category: {
         code: categoryCode,
