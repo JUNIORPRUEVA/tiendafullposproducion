@@ -802,8 +802,14 @@ export class OperationsChecklistService {
     const cacheKey = this.buildServiceChecklistCacheKey(service);
     const cached = await this.redis.get<any>(cacheKey);
     if (cached) {
-      if (this.redis.isEnabled()) this.logger.log(`Redis HIT ${cacheKey}`);
-      return cached;
+      const cachedTemplates = Array.isArray(cached?.templates) ? cached.templates : [];
+      if (cachedTemplates.length > 0) {
+        if (this.redis.isEnabled()) this.logger.log(`Redis HIT ${cacheKey}`);
+        return cached;
+      }
+      if (this.redis.isEnabled()) {
+        this.logger.log(`Redis BYPASS empty checklist cache ${cacheKey}`);
+      }
     }
     if (this.redis.isEnabled()) this.logger.log(`Redis MISS ${cacheKey}`);
 
