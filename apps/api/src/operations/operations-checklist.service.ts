@@ -108,6 +108,30 @@ export class OperationsChecklistService {
     { code: 'garantia', name: 'Garantía', orderIndex: 4 },
   ];
 
+  private readonly checklistCategoryAliases: Record<string, string> = {
+    camaras: 'cameras',
+    camaras_seguridad: 'cameras',
+    motores_de_puertones: 'gate_motor',
+    motores_de_portones: 'gate_motor',
+    motores_portones: 'gate_motor',
+    motor_de_porton: 'gate_motor',
+    motor_porton: 'gate_motor',
+    motor_puerton: 'gate_motor',
+    motores_de_puerton: 'gate_motor',
+    gate_motors: 'gate_motor',
+    alarma: 'alarm',
+    alarmas: 'alarm',
+    cerco_electrico: 'electric_fence',
+    cerca_electrica: 'electric_fence',
+    electric_fence_system: 'electric_fence',
+    interfono: 'intercom',
+    interfonos: 'intercom',
+    punto_de_venta: 'pos',
+    punto_de_ventas: 'pos',
+    punto_ventas: 'pos',
+    point_of_sale: 'pos',
+  };
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly operations: OperationsService,
@@ -193,35 +217,15 @@ export class OperationsChecklistService {
     const variants = new Set<string>();
     if (normalized.length > 0) variants.add(normalized);
     if (canonical.length > 0) variants.add(canonical);
+    for (const [alias, canonicalCode] of Object.entries(this.checklistCategoryAliases)) {
+      if (canonicalCode === canonical) variants.add(alias);
+    }
     return Array.from(variants);
   }
 
   private canonicalChecklistCategoryCode(raw: string) {
     const normalized = this.normalizeCode(raw);
-    const aliases: Record<string, string> = {
-      camaras: 'cameras',
-      camaras_seguridad: 'cameras',
-      motores_de_puertones: 'gate_motor',
-      motores_de_portones: 'gate_motor',
-      motores_portones: 'gate_motor',
-      motor_de_porton: 'gate_motor',
-      motor_porton: 'gate_motor',
-      motor_puerton: 'gate_motor',
-      motores_de_puerton: 'gate_motor',
-      gate_motors: 'gate_motor',
-      alarma: 'alarm',
-      alarmas: 'alarm',
-      cerco_electrico: 'electric_fence',
-      cerca_electrica: 'electric_fence',
-      electric_fence_system: 'electric_fence',
-      interfono: 'intercom',
-      interfonos: 'intercom',
-      punto_de_venta: 'pos',
-      punto_de_ventas: 'pos',
-      punto_ventas: 'pos',
-      point_of_sale: 'pos',
-    };
-    return aliases[normalized] ?? normalized;
+    return this.checklistCategoryAliases[normalized] ?? normalized;
   }
 
   private defaultTemplateTitle(type: TemplateTypeCode) {
@@ -389,12 +393,13 @@ export class OperationsChecklistService {
   }
 
   private async findCategoryOrFail(categoryId: string) {
-    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(
-      Prisma.sql`SELECT id FROM service_categories WHERE id = ${categoryId}::uuid LIMIT 1`,
+    const rows = await this.prisma.$queryRaw<Array<{ id: string; code: string }>>(
+      Prisma.sql`SELECT id, code FROM service_categories WHERE id = ${categoryId}::uuid LIMIT 1`,
     );
     if (rows.length === 0) {
       throw new NotFoundException('Categoría de checklist no encontrada');
     }
+    return rows[0];
   }
 
   private async findPhaseOrFail(phaseId: string) {
@@ -409,17 +414,34 @@ export class OperationsChecklistService {
   private async resolveCategoryId(dto: CreateServiceChecklistTemplateDto) {
     const categoryId = (dto.categoryId ?? '').trim();
     if (categoryId) {
-      await this.findCategoryOrFail(categoryId);
-      return categoryId;
+      const row = await this.findCategoryOrFail(categoryId);
+      const canonicalCode = this.canonicalChecklistCategoryCode(row.code);
+      if (!canonicalCode || canonicalCode === row.code) return row.id;
+
+      const canonicalRows = await this.prisma.$queryRaw<Array<{ id: string }>>(
+        Prisma.sql`SELECT id FROM service_categories WHERE code = ${canonicalCode} LIMIT 1`,
+      );
+      return canonicalRows[0]?.id ?? row.id;
     }
 
-    const categoryCode = this.normalizeCode((dto.categoryCode ?? '').toString());
+    const rawCategoryCode = (dto.categoryCode ?? '').toString();
+    const categoryCode = this.normalizeCode(rawCategoryCode);
     if (!categoryCode) {
       throw new BadRequestException('La categoría del checklist es requerida');
     }
 
+    const variants = this.getCategoryCodeVariants(rawCategoryCode);
+    const canonical = this.canonicalChecklistCategoryCode(rawCategoryCode);
+    const codeList = Prisma.join(variants, ', ');
+
     const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(
-      Prisma.sql`SELECT id FROM service_categories WHERE code = ${categoryCode} LIMIT 1`,
+      Prisma.sql`
+        SELECT id
+        FROM service_categories
+        WHERE code = ANY(ARRAY[${codeList}]::text[])
+        ORDER BY CASE WHEN code = ${canonical} THEN 0 ELSE 1 END, code ASC
+        LIMIT 1
+      `,
     );
     if (rows.length === 0) {
       throw new NotFoundException('Categoría de checklist no encontrada');
@@ -611,13 +633,26 @@ export class OperationsChecklistService {
     const categoryCode = this.normalizeCode(filters?.categoryCode ?? '');
     const phaseCode = this.normalizeCode(filters?.phaseCode ?? '');
 
-    if (categoryId.length > 0) {
-      where.push(
-        Prisma.sql`ct.category_id = ${categoryId}::uuid`,
-      );
-    }
+    const categoryVariants = new Set<string>();
     if (categoryCode.length > 0) {
-      where.push(Prisma.sql`sc.code = ${categoryCode}`);
+      for (const code of this.getCategoryCodeVariants(categoryCode)) {
+        categoryVariants.add(code);
+      }
+    }
+    if (categoryId.length > 0) {
+      const categoryRows = await this.prisma.$queryRaw<Array<{ code: string }>>(
+        Prisma.sql`SELECT code FROM service_categories WHERE id = ${categoryId}::uuid LIMIT 1`,
+      );
+      if (categoryRows.length > 0) {
+        for (const code of this.getCategoryCodeVariants(categoryRows[0].code)) {
+          categoryVariants.add(code);
+        }
+      }
+    }
+
+    if (categoryVariants.size > 0) {
+      const categoryList = Prisma.join(Array.from(categoryVariants), ', ');
+      where.push(Prisma.sql`sc.code = ANY(ARRAY[${categoryList}]::text[])`);
     }
     if (phaseId.length > 0) {
       where.push(Prisma.sql`ct.phase_id = ${phaseId}::uuid`);
