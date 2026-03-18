@@ -470,6 +470,24 @@ export class OperationsChecklistService {
     return rows[0].id;
   }
 
+  private async resolveFallbackCategoryCodeForGeneral(phaseCode: string) {
+    const normalizedPhase = this.normalizeCode(phaseCode);
+    if (!normalizedPhase) return '';
+    const rows = await this.prisma.$queryRaw<Array<{ code: string }>>(
+      Prisma.sql`
+        SELECT sc.code AS code
+        FROM checklist_templates ct
+        INNER JOIN service_categories sc ON sc.id = ct.category_id
+        INNER JOIN service_phases sp ON sp.id = ct.phase_id
+        WHERE sp.code = ${normalizedPhase}
+        GROUP BY sc.code
+        ORDER BY CASE WHEN sc.code = 'cameras' THEN 0 ELSE 1 END, sc.code ASC
+        LIMIT 1
+      `,
+    );
+    return rows[0]?.code ?? '';
+  }
+
   async listCategories() {
     await this.syncOperationsMetadata();
     const cached = await this.redis.get<LookupRow[]>(CHECKLIST_CATEGORIES_CACHE_KEY);
@@ -715,6 +733,14 @@ export class OperationsChecklistService {
     const categoryCodeVariants = this.getCategoryCodeVariants(rawCategory);
     const phaseCode = this.resolveChecklistPhaseCodeForService(service);
     if (!serviceId || !categoryCode || !phaseCode) return;
+
+    if (categoryCode === 'general') {
+      const fallbackCategoryCode = await this.resolveFallbackCategoryCodeForGeneral(phaseCode);
+      if (fallbackCategoryCode) {
+        categoryCodeVariants.push(fallbackCategoryCode);
+      }
+    }
+
     await this.syncOperationsMetadata();
     await this.ensureServiceChecklistsWithClient(
       this.prisma,
@@ -785,6 +811,13 @@ export class OperationsChecklistService {
     const categoryCode = this.canonicalChecklistCategoryCode(rawCategory);
     const categoryCodeVariants = this.getCategoryCodeVariants(rawCategory);
     const phaseCode = this.resolveChecklistPhaseCodeForService(service);
+
+    if (categoryCode === 'general') {
+      const fallbackCategoryCode = await this.resolveFallbackCategoryCodeForGeneral(phaseCode);
+      if (fallbackCategoryCode) {
+        categoryCodeVariants.push(fallbackCategoryCode);
+      }
+    }
 
     this.logger.log(
       `getServiceChecklists serviceId=${serviceId} rawCategory="${rawCategory}" ` +
