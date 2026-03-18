@@ -1336,9 +1336,13 @@ class OperationsRepository {
           .where((t) => t.id.trim().isNotEmpty)
           .toList();
     } on DioException catch (e) {
-      throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudieron cargar técnicos'),
-        e.response?.statusCode,
+      throw _mapDioError(e, 'No se pudieron cargar técnicos');
+    } on FormatException catch (error) {
+      throw _mapParseError(
+        fallback: 'No se pudieron cargar técnicos',
+        method: 'GET',
+        path: ApiRoutes.technicians,
+        error: error,
       );
     }
   }
@@ -1363,13 +1367,23 @@ class OperationsRepository {
       }
     }
 
-    final items = await listTechnicians(silent: silent);
-    _techniciansCache = items;
-    _techniciansCacheAt = DateTime.now();
-    await _cache.writeMap(_techniciansCacheKey(), {
-      'items': items.map(_technicianToMap).toList(growable: false),
-    });
-    return items;
+    try {
+      final items = await listTechnicians(silent: silent);
+      _techniciansCache = items;
+      _techniciansCacheAt = DateTime.now();
+      await _cache.writeMap(_techniciansCacheKey(), {
+        'items': items.map(_technicianToMap).toList(growable: false),
+      });
+      return items;
+    } on ApiException catch (error) {
+      final cached = await getCachedTechnicians();
+      if (cached != null && cached.isNotEmpty) {
+        _techniciansCache = cached;
+        _techniciansCacheAt = DateTime.now();
+        return cached;
+      }
+      rethrow;
+    }
   }
 
   Future<ServiceModel> changeStatus({
