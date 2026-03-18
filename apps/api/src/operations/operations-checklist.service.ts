@@ -306,12 +306,12 @@ export class OperationsChecklistService {
     orderType?: string | null;
   }) {
     const phaseFromCurrent = this.phaseCodeFromServicePhase(service.currentPhase);
-    if (phaseFromCurrent.isNotEmpty && phaseFromCurrent != 'reserva') {
+    if (phaseFromCurrent.length > 0 && phaseFromCurrent != 'reserva') {
       return phaseFromCurrent;
     }
 
     const phaseFromOrderType = this.phaseCodeFromOrderType(service.orderType);
-    if (phaseFromOrderType.isNotEmpty) {
+    if (phaseFromOrderType.length > 0) {
       return phaseFromOrderType;
     }
 
