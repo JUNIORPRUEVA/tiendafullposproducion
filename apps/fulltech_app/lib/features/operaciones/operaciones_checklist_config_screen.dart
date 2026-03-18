@@ -10,6 +10,48 @@ import 'data/operations_repository.dart';
 import 'operations_models.dart';
 import 'presentation/operations_back_button.dart';
 
+const _allowedChecklistPhaseCodes = <String>{
+  'reserva',
+  'instalacion',
+  'mantenimiento',
+  'garantia',
+  'levantamiento',
+};
+
+String _checklistCategoryLabelFromRaw(String raw) {
+  switch (raw.trim().toLowerCase()) {
+    case 'cameras':
+      return 'Cámaras';
+    case 'gate_motor':
+      return 'Motores de portones';
+    case 'alarm':
+      return 'Alarma';
+    case 'electric_fence':
+      return 'Cerco eléctrico';
+    case 'intercom':
+      return 'Intercom';
+    case 'pos':
+      return 'Punto de ventas';
+    default:
+      return raw.trim();
+  }
+}
+
+String _checklistCategoryDisplayName(ServiceChecklistCategoryModel category) {
+  final normalizedName = _checklistCategoryLabelFromRaw(category.name);
+  final normalizedCode = _checklistCategoryLabelFromRaw(category.code);
+  final normalizedId = _checklistCategoryLabelFromRaw(category.id);
+  if (normalizedName != category.name.trim() || category.name.trim().isEmpty) {
+    if (normalizedName.isNotEmpty) return normalizedName;
+  }
+  if (category.name.trim().contains('_')) {
+    if (normalizedCode.isNotEmpty) return normalizedCode;
+  }
+  if (normalizedCode != category.code.trim()) return normalizedCode;
+  if (normalizedId != category.id.trim()) return normalizedId;
+  return category.name.trim();
+}
+
 class OperacionesChecklistConfigScreen extends ConsumerStatefulWidget {
   const OperacionesChecklistConfigScreen({super.key});
 
@@ -58,6 +100,10 @@ class _OperacionesChecklistConfigScreenState
     ).hasMatch(value);
   }
 
+  String _normalizeSelectionKey(String? value) {
+    return (value ?? '').trim().toLowerCase();
+  }
+
   String? _defaultCategoryId(List<ServiceChecklistCategoryModel> categories) {
     for (final item in categories) {
       if (item.code.trim().toLowerCase() == 'cameras') return item.id;
@@ -68,56 +114,164 @@ class _OperacionesChecklistConfigScreenState
   ServiceChecklistCategoryModel? _findSelectedCategory(
     List<ServiceChecklistCategoryModel> categories,
   ) {
-    for (final item in categories) {
-      if (item.id == _selectedCategoryId) return item;
-    }
-    return null;
+    return _findCategoryById(_selectedCategoryId, categories);
   }
 
   ServiceChecklistPhaseModel? _findSelectedPhase(
     List<ServiceChecklistPhaseModel> phases,
   ) {
-    for (final item in phases) {
-      if (item.id == _selectedPhaseId) return item;
+    return _findPhaseById(_selectedPhaseId, phases);
+  }
+
+  ServiceChecklistCategoryModel? _findCategoryById(
+    String? rawValue,
+    List<ServiceChecklistCategoryModel> categories,
+  ) {
+    final selectedCategoryId = _resolveCategoryId(rawValue, categories);
+    for (final item in categories) {
+      if (item.id == selectedCategoryId) return item;
     }
     return null;
   }
 
-  List<ServiceChecklistCategoryModel> _uniqueCategories(
-    List<ServiceChecklistCategoryModel> categories,
-  ) {
-    final seenIds = <String>{};
-    final unique = <ServiceChecklistCategoryModel>[];
-    for (final item in categories) {
-      if (!seenIds.add(item.id)) continue;
-      unique.add(item);
-    }
-    return unique;
-  }
-
-  List<ServiceChecklistPhaseModel> _uniquePhases(
+  ServiceChecklistPhaseModel? _findPhaseById(
+    String? rawValue,
     List<ServiceChecklistPhaseModel> phases,
   ) {
-    final seenIds = <String>{};
-    final unique = <ServiceChecklistPhaseModel>[];
+    final selectedPhaseId = _resolvePhaseId(rawValue, phases);
     for (final item in phases) {
-      if (!seenIds.add(item.id)) continue;
-      unique.add(item);
+      if (item.id == selectedPhaseId) return item;
     }
-    return unique;
+    return null;
+  }
+
+  List<ServiceChecklistCategoryModel> _dedupeCategories(
+    List<ServiceChecklistCategoryModel> items,
+  ) {
+    final byKey = <String, ServiceChecklistCategoryModel>{};
+    for (final item in items) {
+      if (!_isSupportedChecklistCategory(item)) continue;
+      final id = item.id.trim();
+      final code = item.code.trim().toLowerCase();
+      final key = code.isNotEmpty ? 'code:$code' : 'id:$id';
+      final current = byKey[key];
+      if (current == null || _shouldPreferCategory(item, current)) {
+        byKey[key] = item;
+      }
+    }
+    return byKey.values.toList(growable: false);
+  }
+
+  List<ServiceChecklistPhaseModel> _dedupePhases(
+    List<ServiceChecklistPhaseModel> items,
+  ) {
+    final byKey = <String, ServiceChecklistPhaseModel>{};
+    for (final item in items) {
+      if (!_isSupportedChecklistPhase(item)) continue;
+      final id = item.id.trim();
+      final code = item.code.trim().toLowerCase();
+      final key = code.isNotEmpty ? 'code:$code' : 'id:$id';
+      final current = byKey[key];
+      if (current == null || _shouldPreferPhase(item, current)) {
+        byKey[key] = item;
+      }
+    }
+    final result = byKey.values.toList(growable: false);
+    result.sort((left, right) => left.orderIndex.compareTo(right.orderIndex));
+    return result;
+  }
+
+  bool _isSupportedChecklistCategory(ServiceChecklistCategoryModel item) {
+    final values = <String>[
+      item.id.trim().toLowerCase(),
+      item.code.trim().toLowerCase(),
+      item.name.trim().toLowerCase(),
+    ];
+    return values.any((value) => value.isNotEmpty && value != 'general');
+  }
+
+  bool _isSupportedChecklistPhase(ServiceChecklistPhaseModel item) {
+    final code = item.code.trim().toLowerCase();
+    final id = item.id.trim().toLowerCase();
+    return _allowedChecklistPhaseCodes.contains(code) ||
+        _allowedChecklistPhaseCodes.contains(id);
+  }
+
+  bool _shouldPreferCategory(
+    ServiceChecklistCategoryModel candidate,
+    ServiceChecklistCategoryModel current,
+  ) {
+    final candidatePersistable = _isPersistableId(candidate.id);
+    final currentPersistable = _isPersistableId(current.id);
+    if (candidatePersistable != currentPersistable) {
+      return candidatePersistable;
+    }
+    return candidate.name.trim().length > current.name.trim().length;
+  }
+
+  bool _shouldPreferPhase(
+    ServiceChecklistPhaseModel candidate,
+    ServiceChecklistPhaseModel current,
+  ) {
+    final candidatePersistable = _isPersistableId(candidate.id);
+    final currentPersistable = _isPersistableId(current.id);
+    if (candidatePersistable != currentPersistable) {
+      return candidatePersistable;
+    }
+    if (candidate.orderIndex != current.orderIndex) {
+      return candidate.orderIndex < current.orderIndex;
+    }
+    return candidate.name.trim().length > current.name.trim().length;
+  }
+
+  String? _resolveCategoryId(
+    String? rawValue,
+    List<ServiceChecklistCategoryModel> categories,
+  ) {
+    final normalized = _normalizeSelectionKey(rawValue);
+    if (normalized.isEmpty) return null;
+
+    for (final item in categories) {
+      if (_normalizeSelectionKey(item.id) == normalized) return item.id;
+    }
+
+    final matches = categories
+        .where((item) => _normalizeSelectionKey(item.code) == normalized)
+        .toList(growable: false);
+    if (matches.length == 1) return matches.first.id;
+    return null;
+  }
+
+  String? _resolvePhaseId(
+    String? rawValue,
+    List<ServiceChecklistPhaseModel> phases,
+  ) {
+    final normalized = _normalizeSelectionKey(rawValue);
+    if (normalized.isEmpty) return null;
+
+    for (final item in phases) {
+      if (_normalizeSelectionKey(item.id) == normalized) return item.id;
+    }
+
+    final matches = phases
+        .where((item) => _normalizeSelectionKey(item.code) == normalized)
+        .toList(growable: false);
+    if (matches.length == 1) return matches.first.id;
+    return null;
   }
 
   void _syncSelection({
     required List<ServiceChecklistCategoryModel> categories,
     required List<ServiceChecklistPhaseModel> phases,
   }) {
-    final nextCategoryId =
-        categories.any((item) => item.id == _selectedCategoryId)
-        ? _selectedCategoryId
-        : _defaultCategoryId(categories);
-    final nextPhaseId = phases.any((item) => item.id == _selectedPhaseId)
-        ? _selectedPhaseId
-        : (phases.isEmpty ? null : phases.first.id);
+    final currentCategoryId = _resolveCategoryId(
+      _selectedCategoryId,
+      categories,
+    );
+    final currentPhaseId = _resolvePhaseId(_selectedPhaseId, phases);
+    final nextCategoryId = currentCategoryId ?? _defaultCategoryId(categories);
+    final nextPhaseId =
+        currentPhaseId ?? (phases.isEmpty ? null : phases.first.id);
 
     final needsSelectionUpdate =
         nextCategoryId != _selectedCategoryId ||
@@ -246,17 +400,10 @@ class _OperacionesChecklistConfigScreenState
     final phases = ref
         .read(servicePhasesProvider)
         .maybeWhen(data: (loaded) => loaded, orElse: () => defaultPhases);
-    final selectedCategory = categories
-        .cast<ServiceChecklistCategoryModel?>()
-        .firstWhere(
-          (item) => item?.id == payload.categoryId,
-          orElse: () => null,
-        );
-    final selectedPhase = phases
-        .cast<ServiceChecklistPhaseModel?>()
-        .firstWhere((item) => item?.id == payload.phaseId, orElse: () => null);
-    final categoryId = payload.categoryId;
-    final phaseId = payload.phaseId;
+    final selectedCategory = _findCategoryById(payload.categoryId, categories);
+    final selectedPhase = _findPhaseById(payload.phaseId, phases);
+    final categoryId = selectedCategory?.id;
+    final phaseId = selectedPhase?.id;
     if (selectedCategory == null || selectedPhase == null) {
       _showMessage('Primero selecciona una categoría y una fase');
       return;
@@ -273,11 +420,13 @@ class _OperacionesChecklistConfigScreenState
             type: payload.type,
             title: serviceChecklistSectionTypeLabel(payload.type),
           );
-      setState(() {
-        _selectedCategoryId = categoryId;
-        _selectedPhaseId = phaseId;
-      });
-      final template = await _resolveTemplateForType(payload.type);
+      final template = await _resolveTemplateForType(
+        payload.type,
+        categoryId: categoryId,
+        phaseId: phaseId,
+        categoryCode: selectedCategory.code,
+        phaseCode: selectedPhase.code,
+      );
       if (template != null) {
         for (final item in payload.items) {
           await ref
@@ -290,7 +439,17 @@ class _OperacionesChecklistConfigScreenState
               );
         }
       }
-      await _reloadTemplates();
+      if (!mounted) return;
+      setState(() {
+        _selectedCategoryId = categoryId;
+        _selectedPhaseId = phaseId;
+      });
+      await _reloadTemplates(
+        categoryId: categoryId,
+        phaseId: phaseId,
+        categoryCode: selectedCategory.code,
+        phaseCode: selectedPhase.code,
+      );
       _showMessage(
         '${serviceChecklistSectionTypeLabel(payload.type)} creada correctamente',
       );
@@ -298,30 +457,39 @@ class _OperacionesChecklistConfigScreenState
   }
 
   Future<ServiceChecklistTemplateModel?> _resolveTemplateForType(
-    ServiceChecklistSectionType type,
-  ) async {
-    final categoryId = _selectedCategoryId;
-    final phaseId = _selectedPhaseId;
+    ServiceChecklistSectionType type, {
+    String? categoryId,
+    String? phaseId,
+    String? categoryCode,
+    String? phaseCode,
+  }) async {
+    final effectiveCategoryId = categoryId ?? _selectedCategoryId;
+    final effectivePhaseId = phaseId ?? _selectedPhaseId;
     final categories = ref
         .read(categoriesProvider)
         .maybeWhen(data: (loaded) => loaded, orElse: () => defaultCategories);
     final phases = ref
         .read(servicePhasesProvider)
         .maybeWhen(data: (loaded) => loaded, orElse: () => defaultPhases);
-    final selectedCategory = _findSelectedCategory(categories);
-    final selectedPhase = _findSelectedPhase(phases);
-    if ((categoryId == null && selectedCategory == null) ||
-        (phaseId == null && selectedPhase == null)) {
+    final selectedCategory =
+        _findCategoryById(effectiveCategoryId, categories) ??
+        _findSelectedCategory(categories);
+    final selectedPhase =
+        _findPhaseById(effectivePhaseId, phases) ?? _findSelectedPhase(phases);
+    if ((effectiveCategoryId == null && selectedCategory == null) ||
+        (effectivePhaseId == null && selectedPhase == null)) {
       return null;
     }
 
     final templates = await ref
         .read(operationsRepositoryProvider)
         .listChecklistTemplates(
-          categoryId: _isPersistableId(categoryId) ? categoryId : null,
-          phaseId: _isPersistableId(phaseId) ? phaseId : null,
-          categoryCode: selectedCategory?.code,
-          phaseCode: selectedPhase?.code,
+          categoryId: _isPersistableId(effectiveCategoryId)
+              ? effectiveCategoryId
+              : null,
+          phaseId: _isPersistableId(effectivePhaseId) ? effectivePhaseId : null,
+          categoryCode: categoryCode ?? selectedCategory?.code,
+          phaseCode: phaseCode ?? selectedPhase?.code,
         );
     for (final template in templates) {
       if (template.type == type) {
@@ -447,22 +615,22 @@ class _OperacionesChecklistConfigScreenState
 
   Future<_CreateChecklistPayload?> _showCreateChecklistDialog() async {
     var type = ServiceChecklistSectionType.herramientas;
-    final categories = _uniqueCategories(
+    final categories = _dedupeCategories(
       ref
           .read(categoriesProvider)
-          .maybeWhen(data: (items) => items, orElse: () => defaultCategories),
+          .maybeWhen(data: (loaded) => loaded, orElse: () => defaultCategories),
     );
-    final phases = _uniquePhases(
+    final phases = _dedupePhases(
       ref
           .read(servicePhasesProvider)
-          .maybeWhen(data: (items) => items, orElse: () => defaultPhases),
+          .maybeWhen(data: (loaded) => loaded, orElse: () => defaultPhases),
     );
-    var categoryId = categories.any((item) => item.id == _selectedCategoryId)
-        ? _selectedCategoryId
-        : (categories.isEmpty ? null : categories.first.id);
-    var phaseId = phases.any((item) => item.id == _selectedPhaseId)
-        ? _selectedPhaseId
-        : (phases.isEmpty ? null : phases.first.id);
+    var selectedCategoryId =
+        _resolveCategoryId(_selectedCategoryId, categories) ??
+        _defaultCategoryId(categories);
+    var selectedPhaseId =
+        _resolvePhaseId(_selectedPhaseId, phases) ??
+        (phases.isEmpty ? null : phases.first.id);
     final labelCtrl = TextEditingController();
     final orderCtrl = TextEditingController(text: '0');
     var isRequired = true;
@@ -497,21 +665,30 @@ class _OperacionesChecklistConfigScreenState
             return _ChecklistFormSheet(
               title: 'Crear checklist',
               subtitle:
-                  'Selecciona categoría, fase, tipo y agrega los ítems iniciales',
+                  'Selecciona categoría, fase y el tipo antes de agregar los ítems iniciales',
               child: Column(
                 children: [
                   DropdownButtonFormField<String>(
-                    initialValue: categoryId,
+                    initialValue:
+                        categories.any((item) => item.id == selectedCategoryId)
+                        ? selectedCategoryId
+                        : null,
                     items: categories
                         .map(
                           (item) => DropdownMenuItem<String>(
                             value: item.id,
-                            child: Text(item.name),
+                            child: Text(_checklistCategoryDisplayName(item)),
                           ),
                         )
                         .toList(growable: false),
                     onChanged: (value) {
-                      setModalState(() => categoryId = value);
+                      setModalState(() => selectedCategoryId = value);
+                    },
+                    validator: (value) {
+                      if ((value ?? '').trim().isEmpty) {
+                        return 'Selecciona una categoría';
+                      }
+                      return null;
                     },
                     decoration: const InputDecoration(
                       labelText: 'Categoría',
@@ -520,17 +697,26 @@ class _OperacionesChecklistConfigScreenState
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    initialValue: phaseId,
+                    initialValue:
+                        phases.any((item) => item.id == selectedPhaseId)
+                        ? selectedPhaseId
+                        : null,
                     items: phases
                         .map(
-                          (item) => DropdownMenuItem<String>(
-                            value: item.id,
-                            child: Text(item.name),
+                          (phase) => DropdownMenuItem<String>(
+                            value: phase.id,
+                            child: Text(phase.name),
                           ),
                         )
                         .toList(growable: false),
                     onChanged: (value) {
-                      setModalState(() => phaseId = value);
+                      setModalState(() => selectedPhaseId = value);
+                    },
+                    validator: (value) {
+                      if ((value ?? '').trim().isEmpty) {
+                        return 'Selecciona una fase';
+                      }
+                      return null;
                     },
                     decoration: const InputDecoration(
                       labelText: 'Fase operativa',
@@ -654,14 +840,17 @@ class _OperacionesChecklistConfigScreenState
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
-                      onPressed: items.isEmpty || categoryId == null || phaseId == null
+                      onPressed:
+                          items.isEmpty ||
+                              (selectedCategoryId ?? '').trim().isEmpty ||
+                              (selectedPhaseId ?? '').trim().isEmpty
                           ? null
                           : () {
                               Navigator.pop(
                                 context,
                                 _CreateChecklistPayload(
-                                  categoryId: categoryId!,
-                                  phaseId: phaseId!,
+                                  categoryId: selectedCategoryId!,
+                                  phaseId: selectedPhaseId!,
                                   type: type,
                                   items: List<_CreateItemPayload>.from(items),
                                 ),
@@ -700,14 +889,14 @@ class _OperacionesChecklistConfigScreenState
       data: (items) => items,
       orElse: () => const <ServiceChecklistCategoryModel>[],
     );
-    final safeCategories = _uniqueCategories(
+    final safeCategories = _dedupeCategories(
       categories.isNotEmpty ? categories : defaultCategories,
     );
     final phases = phasesValue.maybeWhen(
       data: (items) => items,
       orElse: () => const <ServiceChecklistPhaseModel>[],
     );
-    final safePhases = _uniquePhases(
+    final safePhases = _dedupePhases(
       phases.isNotEmpty ? phases : defaultPhases,
     );
     // ignore: avoid_print
@@ -847,7 +1036,9 @@ class _OperacionesChecklistConfigScreenState
                           padding: const EdgeInsets.only(bottom: 14),
                           child: _ChecklistSectionAdminCard(
                             type: type,
-                            categoryLabel: selectedCategory.name,
+                            categoryLabel: _checklistCategoryDisplayName(
+                              selectedCategory,
+                            ),
                             phaseLabel: selectedPhase.name,
                             template: _templateForType(type),
                             busy: _saving,
@@ -864,7 +1055,7 @@ class _OperacionesChecklistConfigScreenState
                         padding: const EdgeInsets.only(bottom: 14),
                         child: _EmptyChecklistCard(
                           categoryLabel:
-                              '${selectedCategory!.name} · ${selectedPhase!.name}',
+                              '${_checklistCategoryDisplayName(selectedCategory!)} · ${selectedPhase!.name}',
                           onCreateChecklist: _saving
                               ? null
                               : _openCreateChecklistDialog,
@@ -1053,24 +1244,12 @@ class _FilterCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final uniqueCategories = <ServiceChecklistCategoryModel>[];
-    final seenCategoryIds = <String>{};
-    for (final item in categories) {
-      if (!seenCategoryIds.add(item.id)) continue;
-      uniqueCategories.add(item);
-    }
-    final uniquePhases = <ServiceChecklistPhaseModel>[];
-    final seenPhaseIds = <String>{};
-    for (final item in phases) {
-      if (!seenPhaseIds.add(item.id)) continue;
-      uniquePhases.add(item);
-    }
     final safeSelectedCategoryId =
-        uniqueCategories.any((item) => item.id == selectedCategoryId)
+        categories.where((item) => item.id == selectedCategoryId).length == 1
         ? selectedCategoryId
         : null;
     final safeSelectedPhaseId =
-        uniquePhases.any((item) => item.id == selectedPhaseId)
+        phases.where((item) => item.id == selectedPhaseId).length == 1
         ? selectedPhaseId
         : null;
 
@@ -1093,11 +1272,11 @@ class _FilterCard extends StatelessWidget {
           const SizedBox(height: 14),
           DropdownButtonFormField<String>(
             initialValue: safeSelectedCategoryId,
-            items: uniqueCategories
+            items: categories
                 .map(
                   (item) => DropdownMenuItem<String>(
                     value: item.id,
-                    child: Text(item.name),
+                    child: Text(_checklistCategoryDisplayName(item)),
                   ),
                 )
                 .toList(growable: false),
@@ -1110,7 +1289,7 @@ class _FilterCard extends StatelessWidget {
           const SizedBox(height: 14),
           DropdownButtonFormField<String>(
             initialValue: safeSelectedPhaseId,
-            items: uniquePhases
+            items: phases
                 .map(
                   (phase) => DropdownMenuItem<String>(
                     value: phase.id,
@@ -1214,7 +1393,11 @@ class _ChecklistTemplateAdminCard extends StatelessWidget {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        _MetaChip(label: template.category.name),
+                        _MetaChip(
+                          label: _checklistCategoryDisplayName(
+                            template.category,
+                          ),
+                        ),
                         _MetaChip(label: template.phase.name),
                         _MetaChip(label: template.title),
                         _MetaChip(label: '${template.items.length} ítems'),

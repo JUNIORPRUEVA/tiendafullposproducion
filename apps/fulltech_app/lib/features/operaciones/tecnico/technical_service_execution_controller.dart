@@ -333,8 +333,9 @@ class TechnicalExecutionController
             categoryLabel: '',
             templates: [],
           );
-      String? reportError;
-      try {
+        String? reportError;
+        String? checklistError;
+        try {
         bundle = cacheScope.isEmpty
             ? await repo.getExecutionReport(
                 serviceId: serviceId,
@@ -353,17 +354,26 @@ class TechnicalExecutionController
 
       try {
         checklistBundle = cacheScope.isEmpty
-            ? await repo.getServiceChecklists(serviceId: serviceId)
-            : await repo.getServiceChecklistsAndCache(
-                cacheScope: cacheScope,
-                serviceId: serviceId,
-              );
-      } catch (_) {}
+          ? await repo.getServiceChecklists(serviceId: serviceId)
+          : await repo.getServiceChecklistsAndCache(
+            cacheScope: cacheScope,
+            serviceId: serviceId,
+            );
+        } on ApiException catch (e) {
+        checklistError = e.message;
+        } catch (e) {
+        checklistError = e.toString();
+        }
+
+      final combinedError = [
+        if ((reportError ?? '').trim().isNotEmpty) reportError!.trim(),
+        if ((checklistError ?? '').trim().isNotEmpty) checklistError!.trim(),
+      ].join('\n');
 
       state = state.copyWith(
         loading: false,
         refreshing: false,
-        error: reportError,
+        error: combinedError.isEmpty ? null : combinedError,
         service: service,
         changes: bundle.changes,
         arrivedAt: arrivedAt,

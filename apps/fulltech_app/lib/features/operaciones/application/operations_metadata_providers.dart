@@ -5,6 +5,46 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/operations_repository.dart';
 import '../operations_models.dart';
 
+const _allowedOperationPhaseCodes = <String>{
+  'reserva',
+  'instalacion',
+  'mantenimiento',
+  'garantia',
+  'levantamiento',
+};
+
+bool _isSupportedOperationCategory(ServiceChecklistCategoryModel item) {
+  final values = <String>[
+    item.id.trim().toLowerCase(),
+    item.code.trim().toLowerCase(),
+    item.name.trim().toLowerCase(),
+  ];
+  return values.any((value) => value.isNotEmpty && value != 'general');
+}
+
+bool _isSupportedOperationPhase(ServiceChecklistPhaseModel item) {
+  final code = item.code.trim().toLowerCase();
+  final id = item.id.trim().toLowerCase();
+  return _allowedOperationPhaseCodes.contains(code) ||
+      _allowedOperationPhaseCodes.contains(id);
+}
+
+List<ServiceChecklistCategoryModel> _sanitizeOperationCategories(
+  List<ServiceChecklistCategoryModel> items,
+) {
+  return items.where(_isSupportedOperationCategory).toList(growable: false);
+}
+
+List<ServiceChecklistPhaseModel> _sanitizeOperationPhases(
+  List<ServiceChecklistPhaseModel> items,
+) {
+  final filtered = items
+      .where(_isSupportedOperationPhase)
+      .toList(growable: false);
+  filtered.sort((left, right) => left.orderIndex.compareTo(right.orderIndex));
+  return filtered;
+}
+
 const defaultCategories = <ServiceChecklistCategoryModel>[
   ServiceChecklistCategoryModel(
     id: 'cameras',
@@ -73,20 +113,21 @@ final categoriesProvider = FutureProvider<List<ServiceChecklistCategoryModel>>((
   final repo = ref.read(operationsRepositoryProvider);
   final cached = await repo.getCachedChecklistCategories();
   if (cached != null && cached.isNotEmpty) {
-    unawaited(repo.listChecklistCategoriesAndCache(silent: true));
-    return cached;
+    unawaited(repo.listChecklistCategoriesFast());
+    final safeCached = _sanitizeOperationCategories(cached);
+    return safeCached.isNotEmpty ? safeCached : defaultCategories;
   }
 
   try {
-    final categories = await repo.listChecklistCategoriesAndCache(silent: true);
+    final categories = await repo.listChecklistCategoriesFast();
     final safeCategories = categories.isNotEmpty
-        ? categories
+        ? _sanitizeOperationCategories(categories)
         : defaultCategories;
     // ignore: avoid_print
     print('Categorias cargadas: ${categories.length}');
     // ignore: avoid_print
     print('Usando fallback categorias: ${categories.isEmpty}');
-    return safeCategories;
+    return safeCategories.isNotEmpty ? safeCategories : defaultCategories;
   } catch (_) {
     // ignore: avoid_print
     print('Categorias cargadas: 0');
@@ -102,18 +143,21 @@ final servicePhasesProvider = FutureProvider<List<ServiceChecklistPhaseModel>>((
   final repo = ref.read(operationsRepositoryProvider);
   final cached = await repo.getCachedChecklistPhases();
   if (cached != null && cached.isNotEmpty) {
-    unawaited(repo.listChecklistPhasesAndCache(silent: true));
-    return cached;
+    unawaited(repo.listChecklistPhasesFast());
+    final safeCached = _sanitizeOperationPhases(cached);
+    return safeCached.isNotEmpty ? safeCached : defaultPhases;
   }
 
   try {
-    final phases = await repo.listChecklistPhasesAndCache(silent: true);
-    final safePhases = phases.isNotEmpty ? phases : defaultPhases;
+    final phases = await repo.listChecklistPhasesFast();
+    final safePhases = phases.isNotEmpty
+        ? _sanitizeOperationPhases(phases)
+        : defaultPhases;
     // ignore: avoid_print
     print('Fases cargadas: ${phases.length}');
     // ignore: avoid_print
     print('Usando fallback fases: ${phases.isEmpty}');
-    return safePhases;
+    return safePhases.isNotEmpty ? safePhases : defaultPhases;
   } catch (_) {
     // ignore: avoid_print
     print('Fases cargadas: 0');

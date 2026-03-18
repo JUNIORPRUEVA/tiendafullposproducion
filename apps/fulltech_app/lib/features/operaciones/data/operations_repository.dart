@@ -63,7 +63,6 @@ class OperationsRepository {
   static const Duration _executionReportCacheTtl = Duration(days: 3);
   static const Duration _serviceChecklistCacheTtl = Duration(days: 7);
   static const Duration _technicalVisitCacheTtl = Duration(days: 3);
-  static const Duration _techniciansDiskCacheTtl = Duration(days: 1);
   static const Duration _checklistMetadataCacheTtl = Duration(days: 7);
 
   final LocalJsonCache _cache = LocalJsonCache();
@@ -206,8 +205,32 @@ class OperationsRepository {
     };
   }
 
-  Map<String, dynamic> _technicianToMap(TechnicianModel technician) {
-    return {'id': technician.id, 'nombreCompleto': technician.name};
+  List<ServiceChecklistCategoryModel> _dedupeChecklistCategories(
+    Iterable<ServiceChecklistCategoryModel> items,
+  ) {
+    final byKey = <String, ServiceChecklistCategoryModel>{};
+    for (final item in items) {
+      final id = item.id.trim();
+      final code = item.code.trim().toLowerCase();
+      final key = id.isNotEmpty ? 'id:$id' : 'code:$code';
+      byKey.putIfAbsent(key, () => item);
+    }
+    return byKey.values.toList(growable: false);
+  }
+
+  List<ServiceChecklistPhaseModel> _dedupeChecklistPhases(
+    Iterable<ServiceChecklistPhaseModel> items,
+  ) {
+    final byKey = <String, ServiceChecklistPhaseModel>{};
+    for (final item in items) {
+      final id = item.id.trim();
+      final code = item.code.trim().toLowerCase();
+      final key = id.isNotEmpty ? 'id:$id' : 'code:$code';
+      byKey.putIfAbsent(key, () => item);
+    }
+    final result = byKey.values.toList(growable: false);
+    result.sort((left, right) => left.orderIndex.compareTo(right.orderIndex));
+    return result;
   }
 
   Map<String, dynamic> _checklistItemToMap(ServiceChecklistItemModel item) {
@@ -759,6 +782,38 @@ class OperationsRepository {
           ),
         )
         .toList(growable: false);
+  }
+
+  Future<List<ServiceChecklistCategoryModel>?>
+  getCachedChecklistCategories() async {
+    final map = await _cache.readMap(
+      _checklistCategoriesCacheKey(),
+      maxAge: _checklistMetadataCacheTtl,
+    );
+    final raw = map?['items'];
+    if (raw is! List) return null;
+    return _dedupeChecklistCategories(
+      raw.whereType<Map>().map(
+        (item) => ServiceChecklistCategoryModel.fromJson(
+          item.cast<String, dynamic>(),
+        ),
+      ),
+    );
+  }
+
+  Future<List<ServiceChecklistPhaseModel>?> getCachedChecklistPhases() async {
+    final map = await _cache.readMap(
+      _checklistPhasesCacheKey(),
+      maxAge: _checklistMetadataCacheTtl,
+    );
+    final raw = map?['items'];
+    if (raw is! List) return null;
+    return _dedupeChecklistPhases(
+      raw.whereType<Map>().map(
+        (item) =>
+            ServiceChecklistPhaseModel.fromJson(item.cast<String, dynamic>()),
+      ),
+    );
   }
 
   Future<TechnicalVisitModel?> getCachedTechnicalVisitByOrder({
@@ -1608,14 +1663,13 @@ class OperationsRepository {
         ),
       );
       final raw = _decodeJsonList(res.data);
-      return raw
-          .whereType<Map>()
-          .map(
-            (item) => ServiceChecklistCategoryModel.fromJson(
-              item.cast<String, dynamic>(),
-            ),
-          )
-          .toList(growable: false);
+      return _dedupeChecklistCategories(
+        raw.whereType<Map>().map(
+          (item) => ServiceChecklistCategoryModel.fromJson(
+            item.cast<String, dynamic>(),
+          ),
+        ),
+      );
     } on DioException catch (e) {
       throw ApiException(
         _formatDioError(e, 'No se pudieron cargar las categorías de checklist'),
@@ -1650,14 +1704,12 @@ class OperationsRepository {
         ),
       );
       final raw = _decodeJsonList(res.data);
-      return raw
-          .whereType<Map>()
-          .map(
-            (item) => ServiceChecklistPhaseModel.fromJson(
-              item.cast<String, dynamic>(),
-            ),
-          )
-          .toList(growable: false);
+      return _dedupeChecklistPhases(
+        raw.whereType<Map>().map(
+          (item) =>
+              ServiceChecklistPhaseModel.fromJson(item.cast<String, dynamic>()),
+        ),
+      );
     } on DioException catch (e) {
       throw ApiException(
         _formatDioError(e, 'No se pudieron cargar las fases de checklist'),
@@ -1670,14 +1722,57 @@ class OperationsRepository {
     }
   }
 
-  Future<List<ServiceChecklistPhaseModel>> listChecklistPhasesAndCache({
-    bool silent = false,
-  }) async {
-    final items = await listChecklistPhases(silent: silent);
-    await _cache.writeMap(_checklistPhasesCacheKey(), {
-      'items': items.map(_checklistPhaseToMap).toList(growable: false),
+  Future<List<ServiceChecklistCategoryModel>>
+  listChecklistCategoriesFast() async {
+    final cached = await getCachedChecklistCategories();
+    if (cached != null && cached.isNotEmpty) {
+      unawaited(
+        listChecklistCategories()
+            .then((remote) async {
+              await _cache.writeMap(_checklistCategoriesCacheKey(), {
+                'items': remote
+                    .map((category) => _checklistCategoryToMap(category))
+                    .toList(growable: false),
+              });
+            })
+            .catchError((_) {}),
+      );
+      return cached;
+    }
+
+    final remote = await listChecklistCategories();
+    await _cache.writeMap(_checklistCategoriesCacheKey(), {
+      'items': remote
+          .map((category) => _checklistCategoryToMap(category))
+          .toList(growable: false),
     });
-    return items;
+    return remote;
+  }
+
+  Future<List<ServiceChecklistPhaseModel>> listChecklistPhasesFast() async {
+    final cached = await getCachedChecklistPhases();
+    if (cached != null && cached.isNotEmpty) {
+      unawaited(
+        listChecklistPhases()
+            .then((remote) async {
+              await _cache.writeMap(_checklistPhasesCacheKey(), {
+                'items': remote
+                    .map((phase) => _checklistPhaseToMap(phase))
+                    .toList(growable: false),
+              });
+            })
+            .catchError((_) {}),
+      );
+      return cached;
+    }
+
+    final remote = await listChecklistPhases();
+    await _cache.writeMap(_checklistPhasesCacheKey(), {
+      'items': remote
+          .map((phase) => _checklistPhaseToMap(phase))
+          .toList(growable: false),
+    });
+    return remote;
   }
 
   Future<List<ServiceChecklistTemplateModel>> listChecklistTemplates({

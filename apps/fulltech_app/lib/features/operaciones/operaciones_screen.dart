@@ -62,6 +62,23 @@ bool _isDesktopPlatform() {
       defaultTargetPlatform == TargetPlatform.macOS;
 }
 
+const _agendaKindOptions = <String>[
+  'reserva',
+  'instalacion',
+  'mantenimiento',
+  'garantia',
+  'levantamiento',
+];
+
+String _normalizeAgendaKindValue(
+  String? rawValue, {
+  String fallback = 'mantenimiento',
+}) {
+  final normalized = (rawValue ?? '').trim().toLowerCase();
+  if (_agendaKindOptions.contains(normalized)) return normalized;
+  return fallback;
+}
+
 class _SignatureBundle {
   final Uint8List? bytes;
   final String? fileId;
@@ -876,9 +893,8 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
               searchCtrl: _searchCtrl,
               onRefresh: notifier.refresh,
               loadUsers: () => ref.read(usersRepositoryProvider).getAllUsers(),
-              loadTechnicians: () => ref
-                  .read(operationsRepositoryProvider)
-                  .getTechnicians(silent: true),
+              loadTechnicians: () =>
+                  ref.read(operationsRepositoryProvider).getTechnicians(),
               onApplyRemote: (range, techId) =>
                   notifier.applyRangeAndTechnician(
                     from: range.start,
@@ -7273,7 +7289,7 @@ class _AgendaTab extends StatelessWidget {
     const submitLabel = 'Guardar orden';
     const initialServiceType = 'maintenance';
 
-    var selectedKind = kind;
+    var selectedKind = _normalizeAgendaKindValue(kind);
 
     if (_useRightSidePanel(context)) {
       await _showRightSideDialog<void>(
@@ -7315,7 +7331,7 @@ class _AgendaTab extends StatelessWidget {
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                     child: DropdownButtonFormField<String>(
                       key: ValueKey('agenda-create-kind-$selectedKind'),
-                      initialValue: selectedKind,
+                      initialValue: _normalizeAgendaKindValue(selectedKind),
                       isExpanded: true,
                       decoration: const InputDecoration(
                         border: OutlineInputBorder(),
@@ -7419,7 +7435,7 @@ class _AgendaTab extends StatelessWidget {
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                       child: DropdownButtonFormField<String>(
                         key: ValueKey('agenda-create-kind-$selectedKind'),
-                        initialValue: selectedKind,
+                        initialValue: _normalizeAgendaKindValue(selectedKind),
                         isExpanded: true,
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
@@ -7711,7 +7727,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   bool _readyToRenderForm = false;
 
   bool get _isAgendaReserva {
-    final k = (widget.agendaKind ?? '').trim().toLowerCase();
+    final k = _normalizeAgendaKindValue(widget.agendaKind);
     return k == 'reserva';
   }
 
@@ -8435,8 +8451,10 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
         ).format(value);
 
         final agendaKindPicker = DropdownButtonFormField<String>(
-          key: ValueKey('create-kind-${(widget.agendaKind ?? '').trim()}'),
-          initialValue: (widget.agendaKind ?? 'mantenimiento').trim(),
+          key: ValueKey(
+            'create-kind-${_normalizeAgendaKindValue(widget.agendaKind)}',
+          ),
+          initialValue: _normalizeAgendaKindValue(widget.agendaKind),
           isExpanded: true,
           decoration: const InputDecoration(
             border: OutlineInputBorder(),

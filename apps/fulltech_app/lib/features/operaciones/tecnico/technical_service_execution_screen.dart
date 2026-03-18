@@ -341,21 +341,21 @@ class _TechnicalServiceExecutionScreenState
 
   List<ServiceChecklistTemplateModel> _visibleDynamicChecklists(
     TechnicalExecutionState state,
-    String currentState,
+    ServiceModel service,
   ) {
-    final normalizedState = currentState.trim().toLowerCase();
     final templates = state.dynamicChecklists;
     if (templates.isEmpty) return const [];
 
-    final filtered = templates
-        .where((template) {
-          final phaseCode = template.phase.code.trim().toLowerCase();
-          if (phaseCode.isEmpty) return true;
-          return phaseCode == normalizedState ||
-              normalizedState.isEmpty ||
-              normalizedState == 'finalizada';
-        })
-        .toList(growable: false);
+    final servicePhase = service.currentPhase.trim().toLowerCase();
+    final serviceCategory = service.category.trim().toLowerCase();
+
+    final filtered = templates.where((template) {
+      final phaseCode = template.phase.code.trim().toLowerCase();
+      final catCode = template.category.code.trim().toLowerCase();
+      final phaseMatches = phaseCode.isEmpty || servicePhase.isEmpty || phaseCode == servicePhase;
+      final categoryMatches = catCode.isEmpty || serviceCategory.isEmpty || catCode == serviceCategory;
+      return phaseMatches && categoryMatches;
+    }).toList(growable: false);
 
     return filtered.isEmpty ? templates : filtered;
   }
@@ -1479,7 +1479,7 @@ class _TechnicalServiceExecutionScreenState
     final currentState = _effectiveState(service);
     final firstName = _firstName(service.customerName);
     final statusOption = _serviceStatusOptionFor(currentState);
-    final visibleChecklists = _visibleDynamicChecklists(st, currentState);
+    final visibleChecklists = _visibleDynamicChecklists(st, service);
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: user),

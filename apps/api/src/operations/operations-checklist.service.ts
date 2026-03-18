@@ -140,7 +140,7 @@ export class OperationsChecklistService {
       serviceId: service.id,
       currentPhase: (service.currentPhase ?? '').toString().trim() || null,
       orderState: (service.orderState ?? '').toString().trim() || null,
-      category: this.normalizeCode((service.category ?? '').toString()),
+      category: this.canonicalChecklistCategoryCode((service.category ?? '').toString()),
     };
     const hash = createHash('sha1').update(JSON.stringify(scope)).digest('hex');
     return `checklist:service:${service.id}:${hash}`;
@@ -179,6 +179,34 @@ export class OperationsChecklistService {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_+|_+$/g, '');
+  }
+
+  private canonicalChecklistCategoryCode(raw: string) {
+    const normalized = this.normalizeCode(raw);
+    const aliases: Record<string, string> = {
+      camaras: 'cameras',
+      camaras_seguridad: 'cameras',
+      motores_de_puertones: 'gate_motor',
+      motores_de_portones: 'gate_motor',
+      motores_portones: 'gate_motor',
+      motor_de_porton: 'gate_motor',
+      motor_porton: 'gate_motor',
+      motor_puerton: 'gate_motor',
+      motores_de_puerton: 'gate_motor',
+      gate_motors: 'gate_motor',
+      alarma: 'alarm',
+      alarmas: 'alarm',
+      cerco_electrico: 'electric_fence',
+      cerca_electrica: 'electric_fence',
+      electric_fence_system: 'electric_fence',
+      interfono: 'intercom',
+      interfonos: 'intercom',
+      punto_de_venta: 'pos',
+      punto_de_ventas: 'pos',
+      punto_ventas: 'pos',
+      point_of_sale: 'pos',
+    };
+    return aliases[normalized] ?? normalized;
   }
 
   private defaultTemplateTitle(type: TemplateTypeCode) {
@@ -228,7 +256,19 @@ export class OperationsChecklistService {
   }
 
   private phaseCodeFromServicePhase(raw: string | null | undefined) {
-    return this.normalizeCode((raw ?? '').toString());
+    const normalized = this.normalizeCode((raw ?? '').toString());
+    const aliases: Record<string, string> = {
+      survey: 'levantamiento',
+      levantamiento_tecnico: 'levantamiento',
+      installation: 'instalacion',
+      install: 'instalacion',
+      maintenance: 'mantenimiento',
+      warranty: 'garantia',
+      reservation: 'reserva',
+      reserve: 'reserva',
+      booked: 'reserva',
+    };
+    return aliases[normalized] ?? normalized;
   }
 
   private async syncOperationsMetadata() {
@@ -578,7 +618,7 @@ export class OperationsChecklistService {
     currentPhase?: string | null;
   }) {
     const serviceId = service.id.trim();
-    const categoryCode = this.normalizeCode((service.category ?? '').toString());
+    const categoryCode = this.canonicalChecklistCategoryCode((service.category ?? '').toString());
     const phaseCode = this.phaseCodeFromServicePhase(service.currentPhase);
     if (!serviceId || !categoryCode || !phaseCode) return;
     await this.syncOperationsMetadata();
@@ -641,7 +681,7 @@ export class OperationsChecklistService {
     }
     if (this.redis.isEnabled()) this.logger.log(`Redis MISS ${cacheKey}`);
 
-    const categoryCode = this.normalizeCode((service.category ?? '').toString());
+    const categoryCode = this.canonicalChecklistCategoryCode((service.category ?? '').toString());
     const phaseCode = this.phaseCodeFromServicePhase(service.currentPhase);
 
     await this.ensureServiceChecklists({
