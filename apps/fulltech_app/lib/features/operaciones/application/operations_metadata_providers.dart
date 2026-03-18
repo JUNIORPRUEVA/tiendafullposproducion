@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/errors/api_exception.dart';
 import '../data/operations_repository.dart';
 import '../operations_models.dart';
 
@@ -107,13 +108,71 @@ const defaultPhases = <ServiceChecklistPhaseModel>[
   ),
 ];
 
+class ChecklistMetadataDiagnostics {
+  final ApiException? categoriesError;
+  final ApiException? phasesError;
+  final bool usingFallbackCategories;
+  final bool usingFallbackPhases;
+
+  const ChecklistMetadataDiagnostics({
+    this.categoriesError,
+    this.phasesError,
+    this.usingFallbackCategories = false,
+    this.usingFallbackPhases = false,
+  });
+
+  ChecklistMetadataDiagnostics copyWith({
+    ApiException? categoriesError,
+    ApiException? phasesError,
+    bool? usingFallbackCategories,
+    bool? usingFallbackPhases,
+    bool clearCategoriesError = false,
+    bool clearPhasesError = false,
+  }) {
+    return ChecklistMetadataDiagnostics(
+      categoriesError: clearCategoriesError
+          ? null
+          : (categoriesError ?? this.categoriesError),
+      phasesError: clearPhasesError
+          ? null
+          : (phasesError ?? this.phasesError),
+      usingFallbackCategories:
+          usingFallbackCategories ?? this.usingFallbackCategories,
+      usingFallbackPhases: usingFallbackPhases ?? this.usingFallbackPhases,
+    );
+  }
+}
+
+final checklistMetadataDiagnosticsProvider =
+    StateProvider<ChecklistMetadataDiagnostics>((ref) {
+      return const ChecklistMetadataDiagnostics();
+    });
+
 final categoriesProvider = FutureProvider<List<ServiceChecklistCategoryModel>>((
   ref,
 ) async {
   final repo = ref.read(operationsRepositoryProvider);
   final cached = await repo.getCachedChecklistCategories();
   if (cached != null && cached.isNotEmpty) {
-    unawaited(repo.listChecklistCategoriesFast());
+    ref.read(checklistMetadataDiagnosticsProvider.notifier).state = ref
+        .read(checklistMetadataDiagnosticsProvider)
+        .copyWith(
+          clearCategoriesError: true,
+          usingFallbackCategories: false,
+        );
+    unawaited(() async {
+      try {
+        await repo.listChecklistCategoriesFast();
+      } catch (error) {
+        if (error is! ApiException) return;
+        ref.read(checklistMetadataDiagnosticsProvider.notifier).state = ref
+            .read(checklistMetadataDiagnosticsProvider)
+            .copyWith(
+              categoriesError: error,
+              usingFallbackCategories: true,
+            );
+      }
+    }());
     final safeCached = _sanitizeOperationCategories(cached);
     return safeCached.isNotEmpty ? safeCached : defaultCategories;
   }
@@ -123,16 +182,24 @@ final categoriesProvider = FutureProvider<List<ServiceChecklistCategoryModel>>((
     final safeCategories = categories.isNotEmpty
         ? _sanitizeOperationCategories(categories)
         : defaultCategories;
-    // ignore: avoid_print
-    print('Categorias cargadas: ${categories.length}');
-    // ignore: avoid_print
-    print('Usando fallback categorias: ${categories.isEmpty}');
+    ref.read(checklistMetadataDiagnosticsProvider.notifier).state = ref
+        .read(checklistMetadataDiagnosticsProvider)
+        .copyWith(
+          clearCategoriesError: true,
+          usingFallbackCategories: categories.isEmpty,
+        );
     return safeCategories.isNotEmpty ? safeCategories : defaultCategories;
-  } catch (_) {
-    // ignore: avoid_print
-    print('Categorias cargadas: 0');
-    // ignore: avoid_print
-    print('Usando fallback categorias: true');
+  } catch (error) {
+    ref.read(checklistMetadataDiagnosticsProvider.notifier).state = ref
+        .read(checklistMetadataDiagnosticsProvider)
+        .copyWith(
+          categoriesError: error is ApiException
+              ? error
+              : ApiException(
+                  'No se pudieron cargar las categorías de checklist.',
+                ),
+          usingFallbackCategories: true,
+        );
     return defaultCategories;
   }
 });
@@ -143,7 +210,19 @@ final servicePhasesProvider = FutureProvider<List<ServiceChecklistPhaseModel>>((
   final repo = ref.read(operationsRepositoryProvider);
   final cached = await repo.getCachedChecklistPhases();
   if (cached != null && cached.isNotEmpty) {
-    unawaited(repo.listChecklistPhasesFast());
+    ref.read(checklistMetadataDiagnosticsProvider.notifier).state = ref
+        .read(checklistMetadataDiagnosticsProvider)
+        .copyWith(clearPhasesError: true, usingFallbackPhases: false);
+    unawaited(() async {
+      try {
+        await repo.listChecklistPhasesFast();
+      } catch (error) {
+        if (error is! ApiException) return;
+        ref.read(checklistMetadataDiagnosticsProvider.notifier).state = ref
+            .read(checklistMetadataDiagnosticsProvider)
+            .copyWith(phasesError: error, usingFallbackPhases: true);
+      }
+    }());
     final safeCached = _sanitizeOperationPhases(cached);
     return safeCached.isNotEmpty ? safeCached : defaultPhases;
   }
@@ -153,16 +232,22 @@ final servicePhasesProvider = FutureProvider<List<ServiceChecklistPhaseModel>>((
     final safePhases = phases.isNotEmpty
         ? _sanitizeOperationPhases(phases)
         : defaultPhases;
-    // ignore: avoid_print
-    print('Fases cargadas: ${phases.length}');
-    // ignore: avoid_print
-    print('Usando fallback fases: ${phases.isEmpty}');
+    ref.read(checklistMetadataDiagnosticsProvider.notifier).state = ref
+        .read(checklistMetadataDiagnosticsProvider)
+        .copyWith(
+          clearPhasesError: true,
+          usingFallbackPhases: phases.isEmpty,
+        );
     return safePhases.isNotEmpty ? safePhases : defaultPhases;
-  } catch (_) {
-    // ignore: avoid_print
-    print('Fases cargadas: 0');
-    // ignore: avoid_print
-    print('Usando fallback fases: true');
+  } catch (error) {
+    ref.read(checklistMetadataDiagnosticsProvider.notifier).state = ref
+        .read(checklistMetadataDiagnosticsProvider)
+        .copyWith(
+          phasesError: error is ApiException
+              ? error
+              : ApiException('No se pudieron cargar las fases de checklist.'),
+          usingFallbackPhases: true,
+        );
     return defaultPhases;
   }
 });

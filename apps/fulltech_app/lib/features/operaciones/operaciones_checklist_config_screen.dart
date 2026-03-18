@@ -885,6 +885,9 @@ class _OperacionesChecklistConfigScreenState
   Widget build(BuildContext context) {
     final categoriesValue = ref.watch(categoriesProvider);
     final phasesValue = ref.watch(servicePhasesProvider);
+    final metadataDiagnostics = ref.watch(
+      checklistMetadataDiagnosticsProvider,
+    );
     final categories = categoriesValue.maybeWhen(
       data: (items) => items,
       orElse: () => const <ServiceChecklistCategoryModel>[],
@@ -899,14 +902,6 @@ class _OperacionesChecklistConfigScreenState
     final safePhases = _dedupePhases(
       phases.isNotEmpty ? phases : defaultPhases,
     );
-    // ignore: avoid_print
-    print('Categorias cargadas: ${categories.length}');
-    // ignore: avoid_print
-    print('Usando fallback: ${categories.isEmpty}');
-    // ignore: avoid_print
-    print('Fases cargadas: ${phases.length}');
-    // ignore: avoid_print
-    print('Usando fallback fases: ${phases.isEmpty}');
     _syncSelection(categories: safeCategories, phases: safePhases);
 
     final theme = Theme.of(context);
@@ -922,8 +917,14 @@ class _OperacionesChecklistConfigScreenState
         .firstWhere((item) => item?.id == _selectedPhaseId, orElse: () => null);
     final metadataLoading = categoriesValue.isLoading || phasesValue.isLoading;
     final metadataError =
-        categoriesValue.whenOrNull(error: (error, _) => error) ??
-        phasesValue.whenOrNull(error: (error, _) => error);
+      metadataDiagnostics.categoriesError ??
+      metadataDiagnostics.phasesError ??
+      categoriesValue.whenOrNull(
+        error: (error, _) => error is ApiException ? error : null,
+      ) ??
+      phasesValue.whenOrNull(
+        error: (error, _) => error is ApiException ? error : null,
+      );
     final hasSelection = selectedCategory != null && selectedPhase != null;
     final isDesktop = MediaQuery.of(context).size.width >= 900;
     final availableTypes = hasSelection
@@ -996,9 +997,15 @@ class _OperacionesChecklistConfigScreenState
                     const SizedBox(height: 16),
                     if (metadataError != null)
                       _ErrorCard(
-                        message: metadataError is ApiException
-                            ? metadataError.message
-                            : 'No se pudo cargar la metadata de categorías/fases',
+                        message: metadataError.message,
+                        onRetry: _refreshMetadataAndTemplates,
+                      ),
+                    if (metadataError == null &&
+                        (metadataDiagnostics.usingFallbackCategories ||
+                            metadataDiagnostics.usingFallbackPhases))
+                      _ErrorCard(
+                        message:
+                            'La pantalla sigue operativa con datos temporales porque el backend no respondió con la metadata completa.',
                         onRetry: _refreshMetadataAndTemplates,
                       ),
                     if (_error != null)

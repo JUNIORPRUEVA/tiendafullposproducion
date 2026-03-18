@@ -71,7 +71,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   String _formatLoginError(ApiException error) {
-    final code = error.code != null ? 'Código: ${error.code}' : 'Código: N/D';
+    final code = 'Código: ${error.displayCode}';
     final detail = error.message.trim().isEmpty
         ? 'No se recibió detalle del servidor.'
         : error.message.trim();

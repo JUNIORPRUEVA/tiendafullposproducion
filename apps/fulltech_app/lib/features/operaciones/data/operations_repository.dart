@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_routes.dart';
+import '../../../core/api/api_error_mapper.dart';
 import '../../../core/auth/auth_repository.dart';
 import '../../../core/cache/local_json_cache.dart';
 import '../../../core/debug/trace_log.dart';
@@ -137,7 +138,7 @@ class OperationsRepository {
 
   bool _shouldQueueSync(ApiException error) {
     final code = error.code;
-    return code == null || code >= 500;
+    return error.isNetworkError || code == null || code >= 500;
   }
 
   Map<String, dynamic> _executionReportToMap(
@@ -203,6 +204,10 @@ class OperationsRepository {
       'code': phase.code,
       'orderIndex': phase.orderIndex,
     };
+  }
+
+  Map<String, dynamic> _technicianToMap(TechnicianModel technician) {
+    return {'id': technician.id, 'name': technician.name};
   }
 
   List<ServiceChecklistCategoryModel> _dedupeChecklistCategories(
@@ -675,7 +680,7 @@ class OperationsRepository {
   Future<List<TechnicianModel>?> getCachedTechnicians() async {
     final map = await _cache.readMap(
       _techniciansCacheKey(),
-      maxAge: _techniciansDiskCacheTtl,
+      maxAge: _techniciansCacheTtl,
     );
     final raw = map?['items'];
     if (raw is! List) return null;
@@ -683,40 +688,6 @@ class OperationsRepository {
         .whereType<Map>()
         .map((row) => TechnicianModel.fromJson(row.cast<String, dynamic>()))
         .where((item) => item.id.trim().isNotEmpty)
-        .toList(growable: false);
-  }
-
-  Future<List<ServiceChecklistCategoryModel>?>
-  getCachedChecklistCategories() async {
-    final map = await _cache.readMap(
-      _checklistCategoriesCacheKey(),
-      maxAge: _checklistMetadataCacheTtl,
-    );
-    final raw = map?['items'];
-    if (raw is! List) return null;
-    return raw
-        .whereType<Map>()
-        .map(
-          (item) => ServiceChecklistCategoryModel.fromJson(
-            item.cast<String, dynamic>(),
-          ),
-        )
-        .toList(growable: false);
-  }
-
-  Future<List<ServiceChecklistPhaseModel>?> getCachedChecklistPhases() async {
-    final map = await _cache.readMap(
-      _checklistPhasesCacheKey(),
-      maxAge: _checklistMetadataCacheTtl,
-    );
-    final raw = map?['items'];
-    if (raw is! List) return null;
-    return raw
-        .whereType<Map>()
-        .map(
-          (item) =>
-              ServiceChecklistPhaseModel.fromJson(item.cast<String, dynamic>()),
-        )
         .toList(growable: false);
   }
 
@@ -862,19 +833,27 @@ class OperationsRepository {
   }
 
   String _formatDioError(DioException e, String fallback) {
-    final status = e.response?.statusCode;
-    final rawMessage = _extractMessage(e.response?.data, fallback);
-    final uri = e.requestOptions.uri.toString();
-    final baseUrl = _dio.options.baseUrl;
+    return ApiErrorMapper.fromDio(e, fallbackMessage: fallback, dio: _dio)
+        .message;
+  }
 
-    if (status == null) {
-      final webHint = kIsWeb
-          ? '\nWeb: revisa API_BASE_URL (https vs http), CORS del backend, y que el servidor esté accesible desde el navegador.'
-          : '';
-      return '[NETWORK] $rawMessage\nURI: $uri\nBaseURL: $baseUrl\nDetalle: ${e.message ?? 'Sin respuesta del servidor'}$webHint';
-    }
+  ApiException _mapDioError(DioException error, String fallback) {
+    return ApiErrorMapper.fromDio(error, fallbackMessage: fallback, dio: _dio);
+  }
 
-    return '[HTTP $status] $rawMessage\nURI: $uri';
+  ApiException _mapParseError({
+    required String fallback,
+    required String method,
+    required String path,
+    required Object error,
+  }) {
+    final baseUri = Uri.parse(_dio.options.baseUrl);
+    return ApiErrorMapper.fromParse(
+      fallbackMessage: fallback,
+      uri: baseUri.resolve(path),
+      method: method,
+      error: error,
+    );
   }
 
   Future<ServicesPageModel> listServices({
@@ -1640,13 +1619,13 @@ class OperationsRepository {
       final raw = _decodeJsonMap(res.data);
       return ServiceChecklistBundleModel.fromJson(raw);
     } on DioException catch (e) {
-      throw ApiException(
-        _formatDioError(e, 'No se pudo cargar el checklist dinámico'),
-        e.response?.statusCode,
-      );
-    } on FormatException {
-      throw ApiException(
-        'Respuesta inválida del servidor al cargar el checklist dinámico',
+      throw _mapDioError(e, 'No se pudo cargar el checklist dinámico');
+    } on FormatException catch (error) {
+      throw _mapParseError(
+        fallback: 'No se pudo cargar el checklist dinámico',
+        method: 'GET',
+        path: ApiRoutes.serviceChecklists(serviceId),
+        error: error,
       );
     }
   }
@@ -1671,13 +1650,16 @@ class OperationsRepository {
         ),
       );
     } on DioException catch (e) {
-      throw ApiException(
-        _formatDioError(e, 'No se pudieron cargar las categorías de checklist'),
-        e.response?.statusCode,
+      throw _mapDioError(
+        e,
+        'No se pudieron cargar las categorías de checklist',
       );
-    } on FormatException {
-      throw ApiException(
-        'Respuesta inválida del servidor al cargar categorías de checklist',
+    } on FormatException catch (error) {
+      throw _mapParseError(
+        fallback: 'No se pudieron cargar las categorías de checklist',
+        method: 'GET',
+        path: ApiRoutes.checklistCategories,
+        error: error,
       );
     }
   }
@@ -1711,15 +1693,25 @@ class OperationsRepository {
         ),
       );
     } on DioException catch (e) {
-      throw ApiException(
-        _formatDioError(e, 'No se pudieron cargar las fases de checklist'),
-        e.response?.statusCode,
-      );
-    } on FormatException {
-      throw ApiException(
-        'Respuesta inválida del servidor al cargar fases de checklist',
+      throw _mapDioError(e, 'No se pudieron cargar las fases de checklist');
+    } on FormatException catch (error) {
+      throw _mapParseError(
+        fallback: 'No se pudieron cargar las fases de checklist',
+        method: 'GET',
+        path: ApiRoutes.checklistPhases,
+        error: error,
       );
     }
+  }
+
+  Future<List<ServiceChecklistPhaseModel>> listChecklistPhasesAndCache({
+    bool silent = false,
+  }) async {
+    final items = await listChecklistPhases(silent: silent);
+    await _cache.writeMap(_checklistPhasesCacheKey(), {
+      'items': items.map(_checklistPhaseToMap).toList(growable: false),
+    });
+    return items;
   }
 
   Future<List<ServiceChecklistCategoryModel>>
@@ -1806,13 +1798,16 @@ class OperationsRepository {
           )
           .toList(growable: false);
     } on DioException catch (e) {
-      throw ApiException(
-        _formatDioError(e, 'No se pudieron cargar las plantillas de checklist'),
-        e.response?.statusCode,
+      throw _mapDioError(
+        e,
+        'No se pudieron cargar las plantillas de checklist',
       );
-    } on FormatException {
-      throw ApiException(
-        'Respuesta inválida del servidor al cargar plantillas de checklist',
+    } on FormatException catch (error) {
+      throw _mapParseError(
+        fallback: 'No se pudieron cargar las plantillas de checklist',
+        method: 'GET',
+        path: ApiRoutes.checklistTemplates,
+        error: error,
       );
     }
   }

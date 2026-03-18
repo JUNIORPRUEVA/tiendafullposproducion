@@ -37,8 +37,12 @@ class OperationsPrefetchController {
         ref.read(operationsControllerProvider.notifier);
         final repo = ref.read(operationsRepositoryProvider);
         unawaited(repo.getTechnicians(forceRefresh: true, silent: true));
-        unawaited(repo.listChecklistCategoriesAndCache(silent: true));
-        unawaited(repo.listChecklistPhasesAndCache(silent: true));
+        unawaited(
+            repo.listChecklistCategoriesAndCache(silent: true),
+          );
+        unawaited(
+            repo.listChecklistPhasesAndCache(silent: true),
+          );
 
         final role = (auth.user?.role ?? '').trim().toLowerCase();
         if (role == 'tecnico') {

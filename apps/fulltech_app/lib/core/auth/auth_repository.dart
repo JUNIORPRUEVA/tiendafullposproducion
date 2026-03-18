@@ -4,9 +4,14 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_client.dart';
+import '../api/api_connectivity_interceptor.dart';
+import '../api/api_diagnostics_interceptor.dart';
+import '../api/api_error_mapper.dart';
+import '../api/api_retry_interceptor.dart';
 import '../api/api_routes.dart';
 import '../errors/api_exception.dart';
 import '../models/user_model.dart';
+import '../network/network_reachability.dart';
 import '../utils/is_flutter_test.dart';
 import 'auth_interceptor.dart';
 import 'token_storage.dart';
@@ -42,13 +47,23 @@ class SessionVerificationResult {
 
 final tokenStorageProvider = Provider<TokenStorage>((ref) => TokenStorage());
 
+final networkReachabilityProvider = Provider<NetworkReachability>((ref) {
+  return NetworkReachability();
+});
+
 final dioProvider = Provider<Dio>((ref) {
   final api = ApiClient();
   final storage = ref.watch(tokenStorageProvider);
+  final reachability = ref.watch(networkReachabilityProvider);
   api.dio.interceptors.add(AuthInterceptor(storage, api.dio));
+  api.dio.interceptors.add(
+    ApiConnectivityInterceptor(dio: api.dio, reachability: reachability),
+  );
   api.dio.interceptors.add(
     LoadingInterceptor(ref.read(appLoadingProvider.notifier)),
   );
+  api.dio.interceptors.add(ApiDiagnosticsInterceptor());
+  api.dio.interceptors.add(ApiRetryInterceptor(dio: api.dio));
   return api.dio;
 });
 
@@ -89,18 +104,8 @@ class AuthRepository {
     return fallback;
   }
 
-  String _formatDioError(DioException e, String fallback) {
-    final status = e.response?.statusCode;
-    final endpoint = e.requestOptions.path;
-    final uri = e.requestOptions.uri.toString();
-    final baseUrl = _dio.options.baseUrl;
-    final rawMessage = _extractMessage(e.response?.data, fallback);
-
-    if (status == null) {
-      return '[NETWORK] $rawMessage\nEndpoint: $endpoint\nURI: $uri\nBaseURL: $baseUrl\nDetalle: ${e.message ?? 'Sin respuesta del servidor'}';
-    }
-
-    return '[HTTP $status] $rawMessage\nEndpoint: $endpoint\nURI: $uri';
+  ApiException _mapDioError(DioException error, String fallback) {
+    return ApiErrorMapper.fromDio(error, fallbackMessage: fallback, dio: _dio);
   }
 
   UserModel? _userFromLoginResponse(dynamic data) {
@@ -197,16 +202,16 @@ class AuthRepository {
       }
     } on TimeoutException {
       await _safeClearTokens();
-      throw ApiException(
-        '[TIMEOUT] El servidor tardó demasiado en responder. Inténtalo de nuevo.',
-        null,
+      throw const ApiException.detailed(
+        message:
+            'El servidor tardó demasiado en responder. Inténtalo de nuevo.',
+        type: ApiErrorType.timeout,
+        displayCode: 'NETWORK_TIMEOUT',
+        retryable: true,
       );
     } on DioException catch (e) {
       await _safeClearTokens();
-      throw ApiException(
-        _formatDioError(e, 'Login fallido'),
-        e.response?.statusCode,
-      );
+      throw _mapDioError(e, 'No se pudo iniciar sesión');
     } catch (_) {
       await _safeClearTokens();
       rethrow;
