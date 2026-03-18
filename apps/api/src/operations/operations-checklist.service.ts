@@ -305,12 +305,12 @@ export class OperationsChecklistService {
     currentPhase?: string | null;
     orderType?: string | null;
   }) {
-    final phaseFromCurrent = this.phaseCodeFromServicePhase(service.currentPhase);
+    const phaseFromCurrent = this.phaseCodeFromServicePhase(service.currentPhase);
     if (phaseFromCurrent.isNotEmpty && phaseFromCurrent != 'reserva') {
       return phaseFromCurrent;
     }
 
-    final phaseFromOrderType = this.phaseCodeFromOrderType(service.orderType);
+    const phaseFromOrderType = this.phaseCodeFromOrderType(service.orderType);
     if (phaseFromOrderType.isNotEmpty) {
       return phaseFromOrderType;
     }
