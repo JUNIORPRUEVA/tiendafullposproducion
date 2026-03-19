@@ -17,7 +17,8 @@ class Routes {
   static const operacionesAgenda = '/operaciones/agenda';
   static const operacionesMapaClientes = '/operaciones/mapa-clientes';
   static const operacionesReglas = '/operaciones/reglas';
-    static const operacionesChecklistConfig = '/operaciones/checklist-config';
+  static const operacionesChecklistConfig = '/operaciones/checklist-config';
+  static const operacionesWarrantyConfig = '/operaciones/warranty-config';
   static const catalogo = '/catalogo';
   static const contabilidad = '/contabilidad';
   static const contabilidadCierresDiarios = '/contabilidad/cierres-diarios';

@@ -12,11 +12,13 @@ import {
   ServiceClosingSignatureStatus,
   ServiceUpdateType,
   ServiceStatus,
+  WarrantyDurationUnit,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { R2Service } from '../storage/r2.service';
 import { buildInvoicePdf, buildWarrantyPdf, InvoiceDraftData, WarrantyDraftData } from './pdf/pdf-builders';
+import { WarrantyConfigResolution, WarrantyConfigsService } from '../warranty-configs/warranty-configs.service';
 
 type AuthUser = { id: string; role: Role };
 
@@ -50,6 +52,7 @@ export class ServiceClosingService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly r2: R2Service,
+    private readonly warrantyConfigs: WarrantyConfigsService,
   ) {}
 
   private isSchemaMismatch(error: unknown) {
@@ -268,6 +271,36 @@ export class ServiceClosingService {
     });
   }
 
+  private durationValueFromResolution(resolution: WarrantyConfigResolution | null) {
+    return resolution?.hasWarranty === false ? null : (resolution?.durationValue ?? null);
+  }
+
+  private durationUnitFromResolution(resolution: WarrantyConfigResolution | null) {
+    if (resolution?.hasWarranty === false) return null;
+    return (resolution?.durationUnit ?? WarrantyDurationUnit.MONTHS) as 'DAYS' | 'MONTHS' | 'YEARS' | null;
+  }
+
+  private buildWarrantyFallbackSummary(serviceTypeLabel: string) {
+    return `Garantia operativa para ${serviceTypeLabel.toLowerCase()} sujeta a revision tecnica, validacion del caso y condiciones normales de uso.`;
+  }
+
+  private async resolveWarrantyDraftContext(params: {
+    createdByUserId: string;
+    categoryId?: string | null;
+    category?: string | null;
+    serviceTitle?: string | null;
+    equipmentInstalledText?: string | null;
+  }) {
+    return this.warrantyConfigs.resolveForService({
+      fallbackUserId: params.createdByUserId,
+      categoryId: params.categoryId,
+      categoryCode: params.category,
+      categoryName: params.category,
+      serviceTitle: params.serviceTitle,
+      equipmentInstalledText: params.equipmentInstalledText,
+    });
+  }
+
   private async buildDraftDataFromService(serviceId: string) {
     const service = await this.prisma.service.findFirst({
       where: { id: serviceId, isDeleted: false },
@@ -304,6 +337,15 @@ export class ServiceClosingService {
     const total = finalCost > 0 ? finalCost : computedTotal;
 
     const serviceDateIso = (service.completedAt ?? service.scheduledStart ?? service.createdAt)?.toISOString?.() ?? null;
+    const equipmentInstalledText = typeof orderExtras?.materialsUsed === 'string' ? orderExtras.materialsUsed : null;
+    const resolvedWarranty = await this.resolveWarrantyDraftContext({
+      createdByUserId: service.createdByUserId,
+      categoryId: service.categoryId,
+      category: service.category,
+      serviceTitle: service.title,
+      equipmentInstalledText,
+    });
+    const serviceTypeLabel = this.toServiceTypeLabel(service.serviceType);
 
     const invoiceData: InvoiceDraftData = {
       company,
@@ -319,13 +361,13 @@ export class ServiceClosingService {
       service: {
         id: service.id,
         title: (service.title ?? '').trim() || 'Servicio',
-        typeLabel: this.toServiceTypeLabel(service.serviceType),
+        typeLabel: serviceTypeLabel,
         technicianName: (service.technician?.nombreCompleto ?? '').trim() || null,
         serviceDateIso,
       },
       initialQuoteAmount: quotedAmount,
       extras,
-      notes: typeof orderExtras?.materialsUsed === 'string' ? orderExtras.materialsUsed : null,
+      notes: equipmentInstalledText,
       totals: {
         extrasTotal,
         total,
@@ -335,16 +377,24 @@ export class ServiceClosingService {
     };
 
     const warrantyData: WarrantyDraftData = {
-      company: { name: company.name },
+      company,
       certificate: {
         number: `GAR-${service.id.slice(0, 8).toUpperCase()}`,
         dateIso: new Date().toISOString(),
       },
       clientName: (service.customer?.nombre ?? '').trim() || 'Cliente',
-      serviceTypeLabel: this.toServiceTypeLabel(service.serviceType),
-      equipmentInstalledText: typeof orderExtras?.materialsUsed === 'string' ? orderExtras.materialsUsed : null,
+      serviceTypeLabel: serviceTypeLabel,
+      serviceLabel: (service.title ?? '').trim() || null,
+      scopeLabel: resolvedWarranty?.scopeLabel ?? ((service.category ?? '').trim() || null),
+      equipmentInstalledText,
       installationDateIso: serviceDateIso,
-      warrantyDurationMonths: 12,
+      hasWarranty: resolvedWarranty?.hasWarranty ?? true,
+      warrantyDurationValue: this.durationValueFromResolution(resolvedWarranty),
+      warrantyDurationUnit: this.durationUnitFromResolution(resolvedWarranty),
+      warrantySummary: resolvedWarranty?.summary ?? this.buildWarrantyFallbackSummary(serviceTypeLabel),
+      coverageSummary: resolvedWarranty?.coverageSummary ?? null,
+      exclusionsSummary: resolvedWarranty?.exclusionsSummary ?? null,
+      notes: resolvedWarranty?.notes ?? null,
       technicianName: (service.technician?.nombreCompleto ?? '').trim() || null,
       serviceDateIso,
       approvalRecord: null,
@@ -531,87 +581,7 @@ export class ServiceClosingService {
       throw e;
     }
 
-    const service = await this.prisma.service.findFirst({
-      where: { id: params.serviceId, isDeleted: false },
-      include: {
-        customer: true,
-        technician: { select: { id: true, nombreCompleto: true, telefono: true } },
-      },
-    });
-
-    if (!service) throw new NotFoundException('Servicio no encontrado');
-
-    const company = await this.resolveCompanyInfo();
-
-    // Extras from execution changes.
-    const changes = await this.prisma.serviceExecutionChange.findMany({
-      where: { serviceId: service.id },
-      orderBy: { createdAt: 'asc' },
-      select: { description: true, quantity: true, extraCost: true, note: true },
-    });
-
-    const extras = changes
-      .map((c) => ({
-        description: (c.description ?? '').trim() || 'Extra',
-        qty: c.quantity != null ? safeNumber(c.quantity) : null,
-        amount: safeNumber(c.extraCost),
-        note: (c.note ?? '').trim() || null,
-      }))
-      .filter((x) => x.amount > 0 || x.description);
-
-    const quotedAmount = safeNumber((service as any).quotedAmount);
-    const extrasTotal = extras.reduce((acc, x) => acc + safeNumber(x.amount), 0);
-
-    const orderExtras: any = (service as any).orderExtras as any;
-    const finalCost = safeNumber(orderExtras?.finalCost);
-    const computedTotal = quotedAmount + extrasTotal;
-    const total = finalCost > 0 ? finalCost : computedTotal;
-
-    const invoiceData: InvoiceDraftData = {
-      company,
-      invoice: {
-        number: `SVC-${service.id.slice(0, 8).toUpperCase()}`,
-        dateIso: new Date().toISOString(),
-      },
-      client: {
-        name: (service.customer?.nombre ?? '').trim() || 'Cliente',
-        phone: (service.customer?.telefono ?? '').trim() || null,
-        address: (service.addressSnapshot ?? service.customer?.direccion ?? '').trim() || null,
-      },
-      service: {
-        id: service.id,
-        title: (service.title ?? '').trim() || 'Servicio',
-        typeLabel: this.toServiceTypeLabel(service.serviceType),
-        technicianName: (service.technician?.nombreCompleto ?? '').trim() || null,
-        serviceDateIso: (service.completedAt ?? service.scheduledStart ?? service.createdAt)?.toISOString?.() ?? null,
-      },
-      initialQuoteAmount: quotedAmount,
-      extras,
-      notes: typeof orderExtras?.materialsUsed === 'string' ? orderExtras.materialsUsed : null,
-      totals: {
-        extrasTotal,
-        total,
-      },
-      approvalRecord: null,
-      signature: null,
-    };
-
-    const warrantyData: WarrantyDraftData = {
-      company: { name: company.name },
-      certificate: {
-        number: `GAR-${service.id.slice(0, 8).toUpperCase()}`,
-        dateIso: new Date().toISOString(),
-      },
-      clientName: (service.customer?.nombre ?? '').trim() || 'Cliente',
-      serviceTypeLabel: this.toServiceTypeLabel(service.serviceType),
-      equipmentInstalledText: typeof orderExtras?.materialsUsed === 'string' ? orderExtras.materialsUsed : null,
-      installationDateIso: (service.completedAt ?? service.scheduledStart ?? service.createdAt)?.toISOString?.() ?? null,
-      warrantyDurationMonths: 12,
-      technicianName: (service.technician?.nombreCompleto ?? '').trim() || null,
-      serviceDateIso: (service.completedAt ?? service.scheduledStart ?? service.createdAt)?.toISOString?.() ?? null,
-      approvalRecord: null,
-      signature: null,
-    };
+    const { service, invoiceData, warrantyData } = await this.buildDraftDataFromService(params.serviceId);
 
     let closing: any;
     try {

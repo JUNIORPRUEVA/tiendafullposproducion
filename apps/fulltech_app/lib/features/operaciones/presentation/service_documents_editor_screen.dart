@@ -339,6 +339,26 @@ class _ServiceDocumentsEditorScreenState
 
   Future<Uint8List> _buildPdfBytes() async {
     final quote = _buildQuoteSnapshot();
+    List<WarrantyProductConfigModel> warrantyConfigs = const [];
+    if (!_isInvoice) {
+      try {
+        warrantyConfigs = await ref
+            .read(operationsRepositoryProvider)
+            .listWarrantyProductConfigs(
+              categoryId: widget.service.categoryId,
+              categoryCode:
+                  widget.service.categoryName?.trim().isNotEmpty == true
+                  ? widget.service.categoryName
+                  : widget.service.category,
+              products: [
+                widget.service.title,
+                ...quote.items.map((item) => item.nombre),
+              ],
+            );
+      } catch (_) {
+        warrantyConfigs = const [];
+      }
+    }
 
     if (_isInvoice) {
       return ServicePdfExporter.buildInvoicePdfBytes(
@@ -356,6 +376,7 @@ class _ServiceDocumentsEditorScreenState
       widget.service,
       cotizacion: quote,
       company: _company,
+      warrantyConfigs: warrantyConfigs,
       clientSignaturePngBytes: _signatureBytes,
       clientSignatureFileId: _signatureFileId,
       clientSignatureFileUrl: _signatureFileUrl,

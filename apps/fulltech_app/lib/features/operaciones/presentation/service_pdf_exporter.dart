@@ -1,4 +1,4 @@
-import 'dart:convert';
+cimport 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -14,6 +14,7 @@ class ServicePdfExporter {
   static const PdfColor _brandBlue = PdfColors.blue800;
   static const PdfColor _brandBlueSoft = PdfColors.blue50;
   static const PdfColor _textMuted = PdfColors.grey700;
+  static const PdfColor _lineColor = PdfColor.fromInt(0xFFD7E5F2);
 
   static bool get isSupported {
     if (kIsWeb) return false;
@@ -76,31 +77,68 @@ class ServicePdfExporter {
     ServiceModel service, {
     CotizacionModel? cotizacion,
     CompanySettings? company,
+    List<WarrantyProductConfigModel> warrantyConfigs = const [],
     Uint8List? clientSignaturePngBytes,
     String? clientSignatureFileId,
     String? clientSignatureFileUrl,
     DateTime? clientSignedAt,
   }) async {
     final companyName = (company?.companyName ?? 'FULLTECH, SRL').trim();
-    final companyRnc = (company?.rnc ?? '133080206').trim();
-    final companyPhone = (company?.phone ?? '829-534-4286').trim();
-
+    final companyRnc = (company?.rnc ?? '').trim();
+    final companyPhone = (company?.phone ?? '').trim();
     final customer = service.customerName.trim().isEmpty
         ? 'Cliente'
         : service.customerName.trim();
     final phone = service.customerPhone.trim();
     final address = service.customerAddress.trim();
-
     final techs = service.assignments
         .map((a) => a.userName.trim())
         .where((s) => s.isNotEmpty)
-        .toList();
-
+        .toList(growable: false);
     final serviceDate =
         service.completedAt ?? service.scheduledStart ?? DateTime.now();
     final dfDate = DateFormat('dd/MM/yyyy', 'es');
-
+    final dateTimeFmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
     final items = cotizacion?.items ?? const <CotizacionItem>[];
+    final resolvedWarranty = _resolveWarrantyConfig(
+      service: service,
+      cotizacion: cotizacion,
+      configs: warrantyConfigs,
+    );
+    final categoryLabel = _categoryLabel(
+      service.categoryName?.trim().isNotEmpty == true
+          ? service.categoryName!
+          : service.category,
+    );
+    final coverageLabel = resolvedWarranty?.scopeLabel.trim().isNotEmpty == true
+        ? resolvedWarranty!.scopeLabel.trim()
+        : categoryLabel;
+    final durationText = _warrantyDurationText(resolvedWarranty);
+    final summaryText =
+        (resolvedWarranty?.warrantySummary ?? '').trim().isNotEmpty
+        ? resolvedWarranty!.warrantySummary!.trim()
+        : resolvedWarranty?.hasWarranty == false
+        ? 'Este servicio queda registrado sin garantía comercial adicional. Cualquier incidencia debe revisarse mediante validación técnica.'
+        : 'FULLTECH certifica la cobertura aplicable al servicio ejecutado, conforme a la configuración vigente y a las condiciones normales de operación del equipo instalado.';
+    final coverageText =
+        (resolvedWarranty?.coverageSummary ?? '').trim().isNotEmpty
+        ? resolvedWarranty!.coverageSummary!.trim()
+        : 'Incluye diagnóstico técnico, verificación del defecto reportado y corrección cuando la falla corresponda al alcance aprobado de instalación o producto.';
+    final exclusionsText =
+        (resolvedWarranty?.exclusionsSummary ?? '').trim().isNotEmpty
+        ? resolvedWarranty!.exclusionsSummary!.trim()
+        : 'No cubre daños por manipulación de terceros, golpes, humedad, variaciones eléctricas, uso indebido, vandalismo ni modificaciones ajenas a FULLTECH.';
+    final serviceNotes = [
+      if (items.isNotEmpty)
+        items
+            .map(
+              (item) =>
+                  '${item.qty.toStringAsFixed(item.qty % 1 == 0 ? 0 : 2)} x ${item.nombre.trim().isEmpty ? 'Producto' : item.nombre.trim()}',
+            )
+            .join(', '),
+      if ((resolvedWarranty?.notes ?? '').trim().isNotEmpty)
+        resolvedWarranty!.notes!.trim(),
+    ].where((part) => part.trim().isNotEmpty).join('\n\n');
 
     pw.MemoryImage? signatureImage;
     if (clientSignaturePngBytes != null && clientSignaturePngBytes.isNotEmpty) {
@@ -111,60 +149,110 @@ class ServicePdfExporter {
       }
     }
 
+    pw.MemoryImage? logoImage;
+    final logoBase64 = (company?.logoBase64 ?? '').trim();
+    if (logoBase64.isNotEmpty) {
+      try {
+        logoImage = pw.MemoryImage(_safeBase64Decode(logoBase64));
+      } catch (_) {
+        logoImage = null;
+      }
+    }
+
     final signedAtText = clientSignedAt == null
         ? ''
-        : DateFormat('dd/MM/yyyy HH:mm', 'es').format(clientSignedAt);
+        : dateTimeFmt.format(clientSignedAt);
     final signatureRef = (clientSignatureFileId ?? '').trim().isNotEmpty
         ? (clientSignatureFileId ?? '').trim()
         : (clientSignatureFileUrl ?? '').trim();
 
-    pw.Widget heading(String text) {
-      return pw.Container(
-        margin: const pw.EdgeInsets.only(top: 12, bottom: 6),
-        padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: pw.BoxDecoration(
-          color: _brandBlueSoft,
-          borderRadius: pw.BorderRadius.circular(6),
-          border: pw.Border.all(color: _brandBlue, width: 0.8),
-        ),
-        child: pw.Text(
-          text,
-          style: pw.TextStyle(
-            fontSize: 11,
-            fontWeight: pw.FontWeight.bold,
-            color: _brandBlue,
-          ),
-        ),
-      );
-    }
-
-    pw.Widget bodyText(String text) {
-      return pw.Text(
-        text,
-        style: const pw.TextStyle(fontSize: 10.5, lineSpacing: 2.2),
-      );
-    }
-
-    pw.Widget bodyLine(String text) {
+    pw.Widget buildField(String label, String value) {
       return pw.Padding(
-        padding: const pw.EdgeInsets.only(bottom: 2),
-        child: pw.Text(text, style: const pw.TextStyle(fontSize: 10.5)),
+        padding: const pw.EdgeInsets.only(bottom: 10),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              label.toUpperCase(),
+              style: pw.TextStyle(
+                fontSize: 8,
+                fontWeight: pw.FontWeight.bold,
+                color: _textMuted,
+                letterSpacing: 0.6,
+              ),
+            ),
+            pw.SizedBox(height: 3),
+            pw.Text(value, style: const pw.TextStyle(fontSize: 10.3)),
+          ],
+        ),
       );
     }
 
-    pw.Widget spacer([double h = 8]) => pw.SizedBox(height: h);
+    pw.Widget buildInfoCard(
+      String title,
+      List<MapEntry<String, String>> fields,
+    ) {
+      final visibleFields = fields
+          .where((entry) => entry.value.trim().isNotEmpty)
+          .toList(growable: false);
+      return pw.Container(
+        padding: const pw.EdgeInsets.fromLTRB(16, 14, 16, 10),
+        decoration: pw.BoxDecoration(
+          color: PdfColors.white,
+          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(12)),
+          border: pw.Border.all(color: _lineColor, width: 0.9),
+        ),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              title.toUpperCase(),
+              style: pw.TextStyle(
+                fontSize: 9.2,
+                fontWeight: pw.FontWeight.bold,
+                color: _brandBlue,
+                letterSpacing: 0.8,
+              ),
+            ),
+            pw.SizedBox(height: 10),
+            ...visibleFields.map((entry) => buildField(entry.key, entry.value)),
+          ],
+        ),
+      );
+    }
 
-    final doc = pw.Document(
-      title: 'Carta de Garantía de Instalación y Equipos',
-      author: companyName,
-    );
+    pw.Widget buildTextCard(String title, String text) {
+      return pw.Container(
+        margin: const pw.EdgeInsets.only(bottom: 14),
+        padding: const pw.EdgeInsets.fromLTRB(16, 14, 16, 14),
+        decoration: pw.BoxDecoration(
+          color: PdfColors.white,
+          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(12)),
+          border: pw.Border.all(color: _lineColor, width: 0.9),
+        ),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              title.toUpperCase(),
+              style: pw.TextStyle(
+                fontSize: 9.2,
+                fontWeight: pw.FontWeight.bold,
+                color: _brandBlue,
+                letterSpacing: 0.8,
+              ),
+            ),
+            pw.SizedBox(height: 10),
+            pw.Text(
+              text,
+              style: const pw.TextStyle(fontSize: 10.4, lineSpacing: 2.1),
+            ),
+          ],
+        ),
+      );
+    }
 
-    final category = service.category.trim().toLowerCase();
-    final isCamerasCategory =
-        category == 'cameras' ||
-        category.contains('camera') ||
-        category.contains('camara');
-
+    final doc = pw.Document(title: 'Carta de Garantía', author: companyName);
     doc.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
@@ -172,201 +260,220 @@ class ServicePdfExporter {
         build: (context) {
           return [
             pw.Container(
-              padding: const pw.EdgeInsets.all(12),
+              padding: const pw.EdgeInsets.fromLTRB(18, 18, 18, 18),
               decoration: pw.BoxDecoration(
-                borderRadius: pw.BorderRadius.circular(8),
-                border: pw.Border.all(color: _brandBlue, width: 1.2),
                 color: PdfColors.white,
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(14)),
+                border: pw.Border.all(color: _lineColor, width: 1),
+              ),
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Expanded(
+                    child: pw.Row(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        if (logoImage != null)
+                          pw.Container(
+                            width: 54,
+                            height: 54,
+                            margin: const pw.EdgeInsets.only(right: 12),
+                            padding: const pw.EdgeInsets.all(6),
+                            decoration: pw.BoxDecoration(
+                              color: _brandBlueSoft,
+                              borderRadius: const pw.BorderRadius.all(
+                                pw.Radius.circular(12),
+                              ),
+                            ),
+                            child: pw.Image(logoImage, fit: pw.BoxFit.contain),
+                          )
+                        else
+                          pw.Container(
+                            width: 54,
+                            height: 54,
+                            margin: const pw.EdgeInsets.only(right: 12),
+                            decoration: pw.BoxDecoration(
+                              color: _brandBlueSoft,
+                              borderRadius: const pw.BorderRadius.all(
+                                pw.Radius.circular(12),
+                              ),
+                            ),
+                            alignment: pw.Alignment.center,
+                            child: pw.Text(
+                              'FT',
+                              style: pw.TextStyle(
+                                color: _brandBlue,
+                                fontWeight: pw.FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
+                          ),
+                        pw.Expanded(
+                          child: pw.Column(
+                            crossAxisAlignment: pw.CrossAxisAlignment.start,
+                            children: [
+                              pw.Text(
+                                companyName.isEmpty
+                                    ? 'FULLTECH, SRL'
+                                    : companyName,
+                                style: pw.TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: pw.FontWeight.bold,
+                                  color: _brandBlue,
+                                ),
+                              ),
+                              pw.SizedBox(height: 5),
+                              if (companyRnc.isNotEmpty)
+                                pw.Text(
+                                  'RNC: $companyRnc',
+                                  style: pw.TextStyle(
+                                    fontSize: 9.2,
+                                    color: _textMuted,
+                                  ),
+                                ),
+                              if (companyPhone.isNotEmpty)
+                                pw.Text(
+                                  'Tel: $companyPhone',
+                                  style: pw.TextStyle(
+                                    fontSize: 9.2,
+                                    color: _textMuted,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  pw.SizedBox(width: 18),
+                  pw.Container(
+                    width: 190,
+                    padding: const pw.EdgeInsets.fromLTRB(16, 14, 16, 14),
+                    decoration: pw.BoxDecoration(
+                      color: PdfColor.fromHex('#0D3558'),
+                      borderRadius: const pw.BorderRadius.all(
+                        pw.Radius.circular(14),
+                      ),
+                    ),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.end,
+                      children: [
+                        pw.Text(
+                          'GARANTÍA',
+                          style: pw.TextStyle(
+                            fontSize: 21,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.white,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                        pw.SizedBox(height: 12),
+                        buildField(
+                          'Número',
+                          service.orderLabel.trim().isEmpty
+                              ? service.id
+                              : service.orderLabel.trim(),
+                        ),
+                        buildField('Fecha', dfDate.format(serviceDate)),
+                        buildField('Cobertura', coverageLabel),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 16),
+            pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Expanded(
+                  child: buildInfoCard('Cliente y servicio', [
+                    MapEntry('Cliente', customer),
+                    if (phone.isNotEmpty) MapEntry('Teléfono', phone),
+                    if (address.isNotEmpty) MapEntry('Dirección', address),
+                    MapEntry(
+                      'Servicio',
+                      _serviceTypeLabel(service.serviceType),
+                    ),
+                  ]),
+                ),
+                pw.SizedBox(width: 14),
+                pw.Expanded(
+                  child: buildInfoCard('Cobertura aplicada', [
+                    MapEntry('Ámbito', coverageLabel),
+                    MapEntry('Categoría', categoryLabel),
+                    MapEntry('Duración', durationText),
+                    if (techs.isNotEmpty) MapEntry('Técnico', techs.join(', ')),
+                  ]),
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 14),
+            buildTextCard('Resumen ejecutivo', summaryText),
+            buildTextCard('Cobertura incluida', coverageText),
+            buildTextCard('Exclusiones y límites', exclusionsText),
+            if (serviceNotes.trim().isNotEmpty)
+              buildTextCard('Notas del servicio', serviceNotes),
+            pw.Container(
+              padding: const pw.EdgeInsets.fromLTRB(16, 14, 16, 14),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.white,
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(12)),
+                border: pw.Border.all(color: _lineColor, width: 0.9),
               ),
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
                   pw.Text(
-                    companyName.isEmpty ? 'FULLTECH, SRL' : companyName,
+                    'ACEPTACIÓN DEL CLIENTE',
                     style: pw.TextStyle(
-                      fontSize: 16,
+                      fontSize: 9.2,
                       fontWeight: pw.FontWeight.bold,
                       color: _brandBlue,
+                      letterSpacing: 0.8,
                     ),
                   ),
-                  spacer(4),
-                  pw.Wrap(
-                    spacing: 10,
-                    runSpacing: 2,
-                    children: [
-                      if (companyRnc.isNotEmpty)
-                        pw.Text(
-                          'RNC: $companyRnc',
-                          style: pw.TextStyle(fontSize: 9, color: _textMuted),
-                        ),
-                      if (companyPhone.isNotEmpty)
-                        pw.Text(
-                          'Tel: $companyPhone',
-                          style: pw.TextStyle(fontSize: 9, color: _textMuted),
-                        ),
-                      pw.Text(
-                        'Orden: ${service.orderLabel}',
-                        style: pw.TextStyle(fontSize: 9, color: _textMuted),
-                      ),
-                      pw.Text(
-                        'Fecha: ${dfDate.format(serviceDate)}',
-                        style: pw.TextStyle(fontSize: 9, color: _textMuted),
-                      ),
-                    ],
+                  pw.SizedBox(height: 10),
+                  pw.Text(
+                    'El cliente declara haber recibido la información de cobertura, límites y proceso de validación técnica.',
+                    style: const pw.TextStyle(fontSize: 10.4, lineSpacing: 2.1),
                   ),
+                  pw.SizedBox(height: 14),
+                  if (signatureImage != null)
+                    pw.Container(
+                      height: 90,
+                      width: double.infinity,
+                      decoration: pw.BoxDecoration(
+                        border: pw.Border.all(color: _lineColor, width: 0.9),
+                        borderRadius: const pw.BorderRadius.all(
+                          pw.Radius.circular(10),
+                        ),
+                      ),
+                      padding: const pw.EdgeInsets.all(8),
+                      child: pw.Image(signatureImage, fit: pw.BoxFit.contain),
+                    )
+                  else
+                    pw.Container(height: 1, color: PdfColors.grey600),
+                  pw.SizedBox(height: 10),
+                  pw.Text(customer, style: const pw.TextStyle(fontSize: 10.4)),
+                  pw.Text(
+                    signedAtText.isEmpty
+                        ? 'Fecha: ${dfDate.format(serviceDate)}'
+                        : 'Firmado: $signedAtText',
+                    style: pw.TextStyle(fontSize: 8.5, color: _textMuted),
+                  ),
+                  if (signatureRef.isNotEmpty)
+                    pw.Text(
+                      'Ref firma: $signatureRef',
+                      style: pw.TextStyle(fontSize: 7.2, color: _textMuted),
+                    ),
                 ],
               ),
             ),
-            spacer(12),
+            pw.SizedBox(height: 14),
             pw.Text(
-              'CARTA DE GARANTÍA DE INSTALACIÓN Y EQUIPOS',
-              style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
-            ),
-            spacer(10),
-            bodyText(
-              'Por medio de la presente, FULLTECH, SRL certifica que los equipos y servicios instalados al cliente mencionado a continuación cuentan con garantía bajo las condiciones especificadas en este documento.',
-            ),
-            heading('INFORMACIÓN DEL CLIENTE'),
-            bodyLine('Nombre del cliente: $customer'),
-            if (phone.isNotEmpty) bodyLine('Teléfono: $phone'),
-            if (address.isNotEmpty) bodyLine('Dirección: $address'),
-            spacer(8),
-            bodyLine('Número de orden: ${service.orderLabel}'),
-            bodyLine('Fecha del servicio: ${dfDate.format(serviceDate)}'),
-            heading('EQUIPOS Y PRODUCTOS INSTALADOS'),
-            if (items.isNotEmpty)
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: items
-                    .map(
-                      (i) => bodyLine(
-                        '${i.qty.toStringAsFixed(i.qty % 1 == 0 ? 0 : 2)} x ${i.nombre}',
-                      ),
-                    )
-                    .toList(growable: false),
-              ),
-            spacer(6),
-            bodyText(
-              '(Los productos instalados corresponden a los indicados en la cotización y orden de servicio.)',
-            ),
-            heading('CONDICIONES DE GARANTÍA'),
-            if (isCamerasCategory) ...[
-              bodyLine('Sistemas de cámaras de seguridad'),
-              spacer(4),
-              bodyLine('Cámaras de seguridad: 1 año de garantía'),
-              spacer(2),
-              bodyLine('DVR / NVR: 1 año de garantía'),
-              spacer(2),
-              bodyLine('Disco duro: 15 días de garantía'),
-              spacer(2),
-              bodyLine('Servicio de instalación: 3 meses de garantía'),
-            ] else ...[
-              bodyLine('Motores de portones y otros servicios'),
-              spacer(4),
-              bodyLine(
-                'Motores para portones eléctricos y otros servicios tecnológicos: 6 meses de garantía',
-              ),
-            ],
-            heading('ALCANCE DE LA GARANTÍA'),
-            bodyText(
-              'La garantía ofrecida por FULLTECH, SRL cubre exclusivamente:',
-            ),
-            spacer(6),
-            bodyLine('Defectos de fábrica en los equipos instalados'),
-            bodyLine(
-              'Fallos ocasionados directamente por la instalación realizada por técnicos autorizados de la empresa',
-            ),
-            heading('LA GARANTÍA NO CUBRE'),
-            bodyText('La garantía no será válida en los siguientes casos:'),
-            spacer(6),
-            bodyLine(
-              'Daños ocasionados por alto voltaje o variaciones eléctricas',
-            ),
-            bodyLine(
-              'Daños causados por mal uso o manipulación indebida del equipo',
-            ),
-            bodyLine('Daños por golpes, humedad, agua, fuego o accidentes'),
-            bodyLine(
-              'Daños ocasionados por instalaciones eléctricas defectuosas del lugar',
-            ),
-            bodyLine(
-              'Manipulación o desmontaje del sistema por personas o técnicos externos a FULLTECH, SRL',
-            ),
-            spacer(6),
-            bodyText(
-              'Si el sistema instalado es modificado, manipulado o desmontado por terceros, la garantía quedará automáticamente anulada.',
-            ),
-            heading('PROCESO DE GARANTÍA'),
-            bodyText('Para solicitar garantía el cliente deberá:'),
-            spacer(6),
-            bodyLine(
-              'Presentar el reporte o comprobante del servicio realizado',
-            ),
-            bodyLine('Permitir la evaluación técnica del equipo o instalación'),
-            spacer(6),
-            bodyText(
-              'Una vez evaluado el caso por el departamento técnico, se procederá a determinar la solución correspondiente.',
-            ),
-            heading('TIEMPO DE RESPUESTA'),
-            bodyText(
-              'El proceso de evaluación y solución de garantía tendrá un plazo estimado de:',
-            ),
-            spacer(6),
-            bodyLine(
-              '0 a 7 días laborables, dependiendo de la distancia y disponibilidad del personal técnico.',
-            ),
-            heading('ACEPTACIÓN DEL SERVICIO'),
-            bodyText('Con su firma, el cliente confirma que:'),
-            spacer(6),
-            bodyLine('El servicio fue realizado correctamente'),
-            bodyLine('Los equipos fueron entregados e instalados'),
-            bodyLine(
-              'Recibió la información sobre las condiciones de garantía',
-            ),
-            spacer(10),
-            bodyLine('Firma del cliente:'),
-            spacer(6),
-            if (signatureImage != null)
-              pw.Container(
-                height: 90,
-                width: double.infinity,
-                decoration: pw.BoxDecoration(
-                  border: pw.Border.all(color: _brandBlue, width: 0.8),
-                  borderRadius: pw.BorderRadius.circular(6),
-                ),
-                padding: const pw.EdgeInsets.all(6),
-                child: pw.Image(signatureImage, fit: pw.BoxFit.contain),
-              )
-            else
-              pw.Container(height: 1, color: PdfColors.grey600),
-            spacer(8),
-            bodyLine('Nombre del cliente:'),
-            bodyLine(customer),
-            spacer(6),
-            bodyLine('Fecha:'),
-            bodyLine(dfDate.format(serviceDate)),
-            if (signedAtText.isNotEmpty) ...[
-              spacer(4),
-              pw.Text(
-                'Firmado: $signedAtText',
-                style: pw.TextStyle(fontSize: 8, color: _textMuted),
-              ),
-            ],
-            if (signatureRef.isNotEmpty)
-              pw.Text(
-                'Ref firma: $signatureRef',
-                style: pw.TextStyle(fontSize: 7, color: _textMuted),
-              ),
-            spacer(8),
-            bodyLine('Técnico responsable:'),
-            bodyLine(techs.isEmpty ? '—' : techs.join(', ')),
-            spacer(12),
-            pw.Text(
-              'FULLTECH, SRL',
-              style: pw.TextStyle(
-                fontSize: 10.5,
-                fontWeight: pw.FontWeight.bold,
-              ),
+              'Documento emitido por ${companyName.isEmpty ? 'FULLTECH, SRL' : companyName} para seguimiento y atención post-servicio.',
+              style: pw.TextStyle(fontSize: 8.2, color: _textMuted),
             ),
           ];
         },
@@ -382,69 +489,64 @@ class ServicePdfExporter {
     return 'RD\$${safe.toStringAsFixed(2)}';
   }
 
-  static pw.Widget _companyHeader(CompanySettings? company) {
-    final hasLogo = (company?.logoBase64 ?? '').trim().isNotEmpty;
-    pw.MemoryImage? logoImage;
+  static Uint8List _safeBase64Decode(String raw) {
+    return Uint8List.fromList(const Base64Decoder().convert(raw));
+  }
 
-    if (hasLogo) {
-      try {
-        // base64Decode from dart:convert; but keep exporter minimal: pdf provides it via printing? no.
-        // We'll decode using a safe helper below.
-        logoImage = pw.MemoryImage(
-          _safeBase64Decode(company!.logoBase64!.trim()),
-        );
-      } catch (_) {
-        logoImage = null;
+  static WarrantyProductConfigModel? _resolveWarrantyConfig({
+    required ServiceModel service,
+    required CotizacionModel? cotizacion,
+    required List<WarrantyProductConfigModel> configs,
+  }) {
+    if (configs.isEmpty) return null;
+
+    final productKeys = <String>{
+      _normalizeWarrantyKey(service.title),
+      ...?cotizacion?.items.map((item) => _normalizeWarrantyKey(item.nombre)),
+    }..removeWhere((item) => item.isEmpty);
+
+    for (final key in productKeys) {
+      for (final config in configs) {
+        if (_normalizeWarrantyKey(config.productName ?? '') == key) {
+          return config;
+        }
       }
     }
 
-    final name = (company?.companyName ?? '').trim();
-    final rnc = (company?.rnc ?? '').trim();
-    final phone = (company?.phone ?? '').trim();
-    final address = (company?.address ?? '').trim();
+    final categoryKeys = <String>{
+      _normalizeWarrantyKey(service.categoryId ?? ''),
+      _normalizeWarrantyKey(service.categoryName ?? ''),
+      _normalizeWarrantyKey(service.category),
+    }..removeWhere((item) => item.isEmpty);
 
-    return pw.Container(
-      padding: const pw.EdgeInsets.all(10),
-      decoration: pw.BoxDecoration(
-        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
-        border: pw.Border.all(color: _brandBlue, width: 1.0),
-        color: PdfColors.white,
-      ),
-      child: pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          if (logoImage != null)
-            pw.Container(
-              width: 52,
-              height: 52,
-              margin: const pw.EdgeInsets.only(right: 10),
-              child: pw.Image(logoImage, fit: pw.BoxFit.cover),
-            ),
-          pw.Expanded(
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text(
-                  name.isEmpty ? 'FULLTECH' : name,
-                  style: pw.TextStyle(
-                    fontWeight: pw.FontWeight.bold,
-                    fontSize: 13,
-                    color: _brandBlue,
-                  ),
-                ),
-                if (rnc.isNotEmpty) pw.Text('RNC: $rnc'),
-                if (phone.isNotEmpty) pw.Text('Tel: $phone'),
-                if (address.isNotEmpty) pw.Text('Dir: $address'),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+    for (final config in configs) {
+      final configKeys = <String>{
+        _normalizeWarrantyKey(config.categoryId ?? ''),
+        _normalizeWarrantyKey(config.categoryCode ?? ''),
+        _normalizeWarrantyKey(config.categoryName ?? ''),
+      }..removeWhere((item) => item.isEmpty);
+      if (configKeys.any(categoryKeys.contains)) return config;
+    }
+
+    return null;
   }
 
-  static Uint8List _safeBase64Decode(String raw) {
-    return Uint8List.fromList(const Base64Decoder().convert(raw));
+  static String _normalizeWarrantyKey(String raw) {
+    return raw
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[áàäâ]'), 'a')
+        .replaceAll(RegExp(r'[éèëê]'), 'e')
+        .replaceAll(RegExp(r'[íìïî]'), 'i')
+        .replaceAll(RegExp(r'[óòöô]'), 'o')
+        .replaceAll(RegExp(r'[úùüû]'), 'u')
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .trim();
+  }
+
+  static String _warrantyDurationText(WarrantyProductConfigModel? config) {
+    if (config == null) return 'Cobertura según configuración vigente';
+    return config.durationLabel;
   }
 
   static Future<Uint8List> _buildInvoicePdfBytes(
@@ -466,6 +568,13 @@ class ServicePdfExporter {
       author: (company?.companyName ?? 'FULLTECH').trim(),
     );
 
+    final companyName = (company?.companyName ?? 'Fulltech SRL').trim().isEmpty
+        ? 'Fulltech SRL'
+        : (company?.companyName ?? 'Fulltech SRL').trim();
+    final companyRnc = (company?.rnc ?? '').trim();
+    final companyPhone = (company?.phone ?? '').trim();
+    final companyAddress = (company?.address ?? '').trim();
+
     final serviceCustomer = service.customerName.trim().isEmpty
         ? 'Cliente'
         : service.customerName.trim();
@@ -479,9 +588,14 @@ class ServicePdfExporter {
 
     final titleType = _serviceTypeLabel(service.serviceType);
     final category = _categoryLabel(service.category);
+    final documentType = titleType.toLowerCase().contains('venta')
+        ? 'Venta'
+        : 'Servicio';
+    final invoiceNumber = service.orderLabel.trim().isEmpty
+        ? service.id
+        : service.orderLabel.trim();
 
     final items = cotizacion?.items ?? const <CotizacionItem>[];
-    final hasItems = items.isNotEmpty;
 
     pw.MemoryImage? signatureImage;
     if (clientSignaturePngBytes != null && clientSignaturePngBytes.isNotEmpty) {
@@ -509,340 +623,79 @@ class ServicePdfExporter {
 
     final serviceDate = service.completedAt ?? service.scheduledStart;
 
-    pw.Widget kv(String k, String v) {
-      return pw.Padding(
-        padding: const pw.EdgeInsets.symmetric(vertical: 2),
-        child: pw.Row(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.SizedBox(
-              width: 90,
-              child: pw.Text(
-                k,
-                style: pw.TextStyle(
-                  fontWeight: pw.FontWeight.bold,
-                  fontSize: 10,
-                ),
-              ),
-            ),
-            pw.Expanded(
-              child: pw.Text(v.trim(), style: const pw.TextStyle(fontSize: 10)),
-            ),
-          ],
-        ),
-      );
-    }
-
-    pw.Widget sectionTitle(String text) {
-      return pw.Padding(
-        padding: const pw.EdgeInsets.only(bottom: 6),
-        child: pw.Text(
-          text,
-          style: pw.TextStyle(
-            fontWeight: pw.FontWeight.bold,
-            fontSize: 10.5,
-            color: _brandBlue,
-          ),
-        ),
-      );
-    }
-
-    pw.Widget infoBox({
-      required String title,
-      required List<pw.Widget> children,
-    }) {
-      return pw.Container(
-        padding: const pw.EdgeInsets.all(10),
-        decoration: pw.BoxDecoration(
-          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
-          border: pw.Border.all(color: _brandBlue, width: 0.8),
-          color: PdfColors.white,
-        ),
-        child: pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [sectionTitle(title), ...children],
-        ),
-      );
-    }
-
-    pw.Widget totalsBox() {
-      final rawDeposit = service.depositAmount ?? 0.0;
-      final deposit = rawDeposit.isNaN ? 0.0 : rawDeposit;
-      final balance = (total - deposit) < 0 ? 0.0 : (total - deposit);
-      final hasDeposit = deposit > 0;
-
-      return pw.Align(
-        alignment: pw.Alignment.centerRight,
-        child: pw.Container(
-          width: 280,
-          padding: const pw.EdgeInsets.all(10),
-          decoration: pw.BoxDecoration(
-            borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
-            border: pw.Border.all(color: _brandBlue, width: 0.8),
-            color: _brandBlueSoft,
-          ),
-          child: pw.Column(
-            children: [
-              _line('Subtotal', money.format(subtotal)),
-              _line(
-                'ITBIS (${(itbisRate * 100).toStringAsFixed(0)}%)',
-                includeItbis ? money.format(itbisAmount) : 'No aplicado',
-              ),
-              pw.Divider(height: 12),
-              _line('Total', money.format(total), highlight: !hasDeposit),
-
-              if (hasDeposit) ...[
-                _line('Abono', money.format(deposit)),
-                pw.Divider(height: 12),
-                _line('Balance', money.format(balance), highlight: true),
-              ],
-            ],
-          ),
-        ),
-      );
+    pw.MemoryImage? logoImage;
+    final logoBase64 = (company?.logoBase64 ?? '').trim();
+    if (logoBase64.isNotEmpty) {
+      try {
+        logoImage = pw.MemoryImage(_safeBase64Decode(logoBase64));
+      } catch (_) {
+        logoImage = null;
+      }
     }
 
     doc.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(24),
-        footer: (context) {
-          final companyName = (company?.companyName ?? 'FULLTECH, SRL').trim();
-          final phone = (company?.phone ?? '').trim();
-          final rnc = (company?.rnc ?? '').trim();
-          final pieces = <String>[
-            companyName,
-            if (rnc.isNotEmpty) 'RNC: $rnc',
-            if (phone.isNotEmpty) 'Tel: $phone',
-            'Página ${context.pageNumber} de ${context.pagesCount}',
-          ];
-          return pw.Padding(
-            padding: const pw.EdgeInsets.only(top: 14),
-            child: pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Expanded(
-                  child: pw.Text(
-                    pieces.take(3).join(' · '),
-                    style: pw.TextStyle(fontSize: 8, color: _textMuted),
-                    maxLines: 1,
-                    overflow: pw.TextOverflow.clip,
-                  ),
-                ),
-                pw.SizedBox(width: 8),
-                pw.Text(
-                  'Página ${context.pageNumber}/${context.pagesCount}',
-                  style: pw.TextStyle(fontSize: 8, color: _textMuted),
-                ),
-              ],
-            ),
-          );
-        },
+        margin: const pw.EdgeInsets.fromLTRB(24, 22, 24, 28),
+        footer: (context) => _buildFooter(
+          context,
+          companyName: companyName,
+          companyRnc: companyRnc,
+          companyPhone: companyPhone,
+        ),
         build: (_) => [
-          pw.Container(height: 3, color: _brandBlue),
+          _buildInvoiceHeader(
+            logoImage: logoImage,
+            companyName: companyName,
+            companyRnc: companyRnc,
+            companyPhone: companyPhone,
+            companyAddress: companyAddress,
+            invoiceNumber: invoiceNumber,
+            invoiceDate: dateFmt.format(now),
+            documentType: documentType,
+            serviceType: titleType,
+          ),
           pw.SizedBox(height: 10),
-          _companyHeader(company),
-          pw.SizedBox(height: 10),
-          pw.Row(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              pw.Text(
-                'Factura',
-                style: pw.TextStyle(
-                  fontSize: 22,
-                  fontWeight: pw.FontWeight.bold,
-                  color: _brandBlue,
-                ),
-              ),
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.end,
-                children: [
-                  pw.Text(
-                    'No.: ${service.orderLabel}',
-                    style: const pw.TextStyle(fontSize: 10),
-                  ),
-                  pw.Text(
-                    'Fecha: ${dateFmt.format(now)}',
-                    style: const pw.TextStyle(fontSize: 10),
-                  ),
-                  if (serviceDate != null)
-                    pw.Text(
-                      'Servicio: ${dateOnlyFmt.format(serviceDate)}',
-                      style: pw.TextStyle(fontSize: 9, color: _textMuted),
-                    ),
-                  if (cotizacion != null)
-                    pw.Text(
-                      'Cotización: ${cotizacion.id}',
-                      style: pw.TextStyle(fontSize: 9, color: _textMuted),
-                    ),
-                ],
-              ),
+          _buildClientAndServiceRow(
+            customerFields: [
+              MapEntry('Nombre', customer),
+              if (phone.isNotEmpty) MapEntry('Teléfono', phone),
+              if (address.isNotEmpty) MapEntry('Dirección', address),
+            ],
+            serviceFields: [
+              MapEntry('Tipo', titleType),
+              if (category.trim().isNotEmpty) MapEntry('Categoría', category),
+              if (serviceDate != null)
+                MapEntry('Fecha servicio', dateOnlyFmt.format(serviceDate)),
+              if (service.orderLabel.trim().isNotEmpty)
+                MapEntry('Orden', service.orderLabel.trim()),
             ],
           ),
+          pw.SizedBox(height: 12),
+          _buildItemsTable(
+            money: money,
+            items: items,
+            serviceTitle: service.title.trim(),
+            fallbackSubtotal: subtotal,
+          ),
           pw.SizedBox(height: 10),
-          pw.Row(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Expanded(
-                child: infoBox(
-                  title: 'Facturar a',
-                  children: [
-                    kv('Cliente', customer),
-                    if (phone.isNotEmpty) kv('Teléfono', phone),
-                    if (address.isNotEmpty) kv('Dirección', address),
-                  ],
-                ),
-              ),
-              pw.SizedBox(width: 10),
-              pw.Expanded(
-                child: infoBox(
-                  title: 'Servicio',
-                  children: [
-                    kv('Tipo', titleType),
-                    if (category.trim().isNotEmpty) kv('Categoría', category),
-                    kv('Orden', service.orderLabel),
-                    kv('ID', service.id),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          if (cotizacion != null) ...[
-            pw.SizedBox(height: 10),
-            infoBox(
-              title: 'Datos de la cotización',
-              children: [
-                kv('ID', cotizacion.id),
-                kv('Fecha', dateFmt.format(cotizacion.createdAt)),
-                if (cotizacion.customerName.trim().isNotEmpty)
-                  kv('Cliente', cotizacion.customerName.trim()),
-                if ((cotizacion.customerPhone ?? '').trim().isNotEmpty)
-                  kv('Teléfono', (cotizacion.customerPhone ?? '').trim()),
-                kv('Incluye ITBIS', cotizacion.includeItbis ? 'Sí' : 'No'),
-                kv(
-                  'Tasa ITBIS',
-                  '${(cotizacion.itbisRate * 100).toStringAsFixed(0)}%',
-                ),
-                if (cotizacion.note.trim().isNotEmpty)
-                  kv('Nota', cotizacion.note.trim()),
-              ],
-            ),
-          ],
-          pw.SizedBox(height: 12),
-          pw.TableHelper.fromTextArray(
-            border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.6),
-            headerDecoration: pw.BoxDecoration(color: _brandBlue),
-            headerStyle: pw.TextStyle(
-              fontWeight: pw.FontWeight.bold,
-              fontSize: 10,
-              color: PdfColors.white,
-            ),
-            cellStyle: const pw.TextStyle(fontSize: 10),
-            headers: const ['#', 'Descripción', 'Cant.', 'Precio', 'Total'],
-            data: hasItems
-                ? items
-                      .asMap()
-                      .entries
-                      .map(
-                        (e) => [
-                          '${e.key + 1}',
-                          e.value.nombre,
-                          e.value.qty.toStringAsFixed(
-                            e.value.qty % 1 == 0 ? 0 : 2,
-                          ),
-                          money.format(e.value.unitPrice),
-                          money.format(e.value.total),
-                        ],
-                      )
-                      .toList(growable: false)
-                : [
-                    [
-                      '1',
-                      service.title.trim().isEmpty
-                          ? 'Servicio'
-                          : service.title.trim(),
-                      '1',
-                      money.format(subtotal),
-                      money.format(subtotal),
-                    ],
-                  ],
-            cellAlignments: {
-              0: pw.Alignment.center,
-              2: pw.Alignment.center,
-              3: pw.Alignment.centerRight,
-              4: pw.Alignment.centerRight,
-            },
-            columnWidths: {
-              0: const pw.FixedColumnWidth(18),
-              2: const pw.FixedColumnWidth(42),
-              3: const pw.FixedColumnWidth(70),
-              4: const pw.FixedColumnWidth(70),
-            },
-          ),
-          pw.SizedBox(height: 12),
-          totalsBox(),
-          pw.SizedBox(height: 14),
-          pw.Text(
-            'Gracias por su preferencia.',
-            style: pw.TextStyle(fontSize: 10, color: _textMuted),
+          _buildTotalsSection(
+            money: money,
+            subtotal: subtotal,
+            includeItbis: includeItbis,
+            itbisRate: itbisRate,
+            itbisAmount: itbisAmount,
+            total: total,
+            depositAmount: service.depositAmount,
           ),
           if (signatureImage != null) ...[
             pw.SizedBox(height: 14),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(10),
-              decoration: pw.BoxDecoration(
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
-                border: pw.Border.all(color: _brandBlue, width: 0.8),
-              ),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    'Aceptación del cliente',
-                    style: pw.TextStyle(
-                      fontWeight: pw.FontWeight.bold,
-                      color: _brandBlue,
-                    ),
-                  ),
-                  pw.SizedBox(height: 6),
-                  pw.Text(
-                    'Cliente: $customer',
-                    style: const pw.TextStyle(fontSize: 10),
-                  ),
-                  if (signedAtText.isNotEmpty)
-                    pw.Text(
-                      'Firmado: $signedAtText',
-                      style: pw.TextStyle(fontSize: 9, color: _textMuted),
-                    ),
-                  if (signatureRef.isNotEmpty)
-                    pw.Text(
-                      'Ref firma: $signatureRef',
-                      style: pw.TextStyle(fontSize: 8, color: _textMuted),
-                    ),
-                  pw.SizedBox(height: 8),
-                  pw.Container(
-                    height: 80,
-                    width: double.infinity,
-                    decoration: pw.BoxDecoration(
-                      color: PdfColors.white,
-                      borderRadius: const pw.BorderRadius.all(
-                        pw.Radius.circular(6),
-                      ),
-                      border: pw.Border.all(color: PdfColors.grey300),
-                    ),
-                    padding: const pw.EdgeInsets.all(6),
-                    child: pw.Image(signatureImage, fit: pw.BoxFit.contain),
-                  ),
-                  pw.SizedBox(height: 6),
-                  pw.Container(height: 1, color: PdfColors.grey600),
-                  pw.SizedBox(height: 4),
-                  pw.Text(
-                    'Firma del cliente (Orden ${service.orderLabel})',
-                    style: const pw.TextStyle(fontSize: 9),
-                  ),
-                ],
-              ),
+            _buildSignatureSection(
+              customer: customer,
+              signedAtText: signedAtText,
+              signatureRef: signatureRef,
+              signatureImage: signatureImage,
+              invoiceNumber: invoiceNumber,
             ),
           ],
         ],
@@ -850,6 +703,519 @@ class ServicePdfExporter {
     );
 
     return doc.save();
+  }
+
+  static pw.Widget _buildInvoiceHeader({
+    required pw.MemoryImage? logoImage,
+    required String companyName,
+    required String companyRnc,
+    required String companyPhone,
+    required String companyAddress,
+    required String invoiceNumber,
+    required String invoiceDate,
+    required String documentType,
+    required String serviceType,
+  }) {
+    final companyLines = <String>[
+      if (companyRnc.isNotEmpty) 'RNC: $companyRnc',
+      if (companyPhone.isNotEmpty) 'Tel: $companyPhone',
+      if (companyAddress.isNotEmpty) companyAddress,
+    ];
+
+    return pw.Container(
+      padding: const pw.EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: pw.BoxDecoration(
+        color: PdfColors.white,
+        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(16)),
+        border: pw.Border.all(color: _lineColor, width: 0.9),
+      ),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Expanded(
+            flex: 6,
+            child: pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                _buildInvoiceLogo(logoImage),
+                pw.SizedBox(width: 10),
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        companyName,
+                        style: pw.TextStyle(
+                          fontSize: 15.5,
+                          fontWeight: pw.FontWeight.bold,
+                          color: _brandBlue,
+                        ),
+                      ),
+                      if (companyLines.isNotEmpty) ...[
+                        pw.SizedBox(height: 3),
+                        ...companyLines.map(
+                          (line) => pw.Padding(
+                            padding: const pw.EdgeInsets.only(bottom: 2),
+                            child: pw.Text(
+                              line,
+                              style: pw.TextStyle(
+                                fontSize: 8.8,
+                                color: _textMuted,
+                                lineSpacing: 1.2,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          pw.SizedBox(width: 12),
+          pw.Container(
+            width: 190,
+            padding: const pw.EdgeInsets.fromLTRB(14, 12, 14, 12),
+            decoration: pw.BoxDecoration(
+              color: PdfColor.fromHex('#0D3558'),
+              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(16)),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.end,
+              children: [
+                pw.Text(
+                  'FACTURA',
+                  style: pw.TextStyle(
+                    fontSize: 20,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.white,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                pw.SizedBox(height: 8),
+                _invoiceMetaLine('No.', invoiceNumber, light: true),
+                _invoiceMetaLine('Fecha', invoiceDate, light: true),
+                _invoiceMetaLine('Doc.', documentType, light: true),
+                if (serviceType.trim().isNotEmpty)
+                  _invoiceMetaLine('Servicio', serviceType, light: true),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _buildClientAndServiceRow({
+    required List<MapEntry<String, String>> customerFields,
+    required List<MapEntry<String, String>> serviceFields,
+  }) {
+    return pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Expanded(child: _buildCompactInfoBlock('Cliente', customerFields)),
+        pw.SizedBox(width: 10),
+        pw.Expanded(child: _buildCompactInfoBlock('Servicio', serviceFields)),
+      ],
+    );
+  }
+
+  static pw.Widget _buildItemsTable({
+    required NumberFormat money,
+    required List<CotizacionItem> items,
+    required String serviceTitle,
+    required double fallbackSubtotal,
+  }) {
+    final rows = items.isNotEmpty
+        ? items
+              .map(
+                (item) => (
+                  item.nombre.trim().isEmpty
+                      ? 'Producto / servicio'
+                      : item.nombre.trim(),
+                  item.qty.toStringAsFixed(item.qty % 1 == 0 ? 0 : 2),
+                  money.format(item.unitPrice),
+                  money.format(item.total),
+                ),
+              )
+              .toList(growable: false)
+        : [
+            (
+              serviceTitle.isEmpty ? 'Servicio' : serviceTitle,
+              '1',
+              money.format(fallbackSubtotal),
+              money.format(fallbackSubtotal),
+            ),
+          ];
+
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(
+          'Detalle',
+          style: pw.TextStyle(
+            fontSize: 10,
+            fontWeight: pw.FontWeight.bold,
+            color: _brandBlue,
+          ),
+        ),
+        pw.SizedBox(height: 6),
+        pw.Table(
+          border: pw.TableBorder(
+            horizontalInside: pw.BorderSide(
+              color: PdfColor.fromHex('#E7EDF4'),
+              width: 0.6,
+            ),
+            bottom: pw.BorderSide(
+              color: PdfColor.fromHex('#E7EDF4'),
+              width: 0.7,
+            ),
+          ),
+          columnWidths: {
+            0: const pw.FlexColumnWidth(5.4),
+            1: const pw.FixedColumnWidth(48),
+            2: const pw.FixedColumnWidth(76),
+            3: const pw.FixedColumnWidth(82),
+          },
+          children: [
+            pw.TableRow(
+              decoration: pw.BoxDecoration(
+                color: _brandBlue,
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(10)),
+              ),
+              children: [
+                _invoiceTableCell('Descripción', header: true),
+                _invoiceTableCell(
+                  'Cant.',
+                  header: true,
+                  align: pw.TextAlign.right,
+                ),
+                _invoiceTableCell(
+                  'Precio',
+                  header: true,
+                  align: pw.TextAlign.right,
+                ),
+                _invoiceTableCell(
+                  'Total',
+                  header: true,
+                  align: pw.TextAlign.right,
+                ),
+              ],
+            ),
+            ...rows.asMap().entries.map(
+              (entry) => pw.TableRow(
+                decoration: pw.BoxDecoration(
+                  color: entry.key.isEven
+                      ? PdfColors.white
+                      : PdfColor.fromHex('#FAFCFE'),
+                ),
+                children: [
+                  _invoiceTableCell(entry.value.$1),
+                  _invoiceTableCell(entry.value.$2, align: pw.TextAlign.right),
+                  _invoiceTableCell(entry.value.$3, align: pw.TextAlign.right),
+                  _invoiceTableCell(entry.value.$4, align: pw.TextAlign.right),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  static pw.Widget _buildTotalsSection({
+    required NumberFormat money,
+    required double subtotal,
+    required bool includeItbis,
+    required double itbisRate,
+    required double itbisAmount,
+    required double total,
+    required double? depositAmount,
+  }) {
+    final rawDeposit = depositAmount ?? 0.0;
+    final safeDeposit = rawDeposit.isNaN ? 0.0 : rawDeposit;
+    final balance = (total - safeDeposit) < 0 ? 0.0 : (total - safeDeposit);
+
+    return pw.Align(
+      alignment: pw.Alignment.centerRight,
+      child: pw.Container(
+        width: 220,
+        padding: const pw.EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: pw.BoxDecoration(
+          color: PdfColor.fromHex('#F6FAFD'),
+          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(14)),
+          border: pw.Border.all(color: _lineColor, width: 0.9),
+        ),
+        child: pw.Column(
+          children: [
+            _line('Subtotal', money.format(subtotal)),
+            if (includeItbis)
+              _line(
+                'ITBIS ${(itbisRate * 100).toStringAsFixed(0)}%',
+                money.format(itbisAmount),
+              ),
+            if (safeDeposit > 0) _line('Abono', money.format(safeDeposit)),
+            pw.Padding(
+              padding: const pw.EdgeInsets.symmetric(vertical: 6),
+              child: pw.Container(
+                height: 1,
+                color: PdfColor.fromHex('#DDE7F0'),
+              ),
+            ),
+            _line('TOTAL', money.format(total), highlight: true),
+            if (safeDeposit > 0)
+              _line('Balance', money.format(balance), highlight: true),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static pw.Widget _buildSignatureSection({
+    required String customer,
+    required String signedAtText,
+    required String signatureRef,
+    required pw.MemoryImage signatureImage,
+    required String invoiceNumber,
+  }) {
+    return pw.Container(
+      padding: const pw.EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: pw.BoxDecoration(
+        color: PdfColors.white,
+        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(14)),
+        border: pw.Border.all(color: _lineColor, width: 0.9),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            'Aceptación del cliente',
+            style: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              color: _brandBlue,
+              fontSize: 10,
+            ),
+          ),
+          pw.SizedBox(height: 4),
+          pw.Text(
+            'Cliente: $customer',
+            style: const pw.TextStyle(fontSize: 9.6),
+          ),
+          if (signedAtText.isNotEmpty)
+            pw.Text(
+              'Firmado: $signedAtText',
+              style: pw.TextStyle(fontSize: 8.6, color: _textMuted),
+            ),
+          if (signatureRef.isNotEmpty)
+            pw.Text(
+              'Ref: $signatureRef',
+              style: pw.TextStyle(fontSize: 8, color: _textMuted),
+            ),
+          pw.SizedBox(height: 8),
+          pw.Container(
+            height: 72,
+            width: double.infinity,
+            decoration: pw.BoxDecoration(
+              color: PdfColor.fromHex('#FBFDFF'),
+              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(10)),
+              border: pw.Border.all(color: PdfColor.fromHex('#E5ECF2')),
+            ),
+            padding: const pw.EdgeInsets.all(6),
+            child: pw.Image(signatureImage, fit: pw.BoxFit.contain),
+          ),
+          pw.SizedBox(height: 4),
+          pw.Text(
+            'Firma del cliente (Orden $invoiceNumber)',
+            style: pw.TextStyle(fontSize: 8.8, color: _textMuted),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _buildFooter(
+    pw.Context context, {
+    required String companyName,
+    required String companyRnc,
+    required String companyPhone,
+  }) {
+    final pieces = <String>[
+      companyName,
+      if (companyRnc.isNotEmpty) 'RNC: $companyRnc',
+      if (companyPhone.isNotEmpty) 'Tel: $companyPhone',
+    ];
+
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(top: 10),
+      child: pw.Column(
+        mainAxisSize: pw.MainAxisSize.min,
+        children: [
+          pw.Container(height: 1, color: PdfColor.fromHex('#E5ECF2')),
+          pw.SizedBox(height: 6),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Expanded(
+                child: pw.Text(
+                  pieces.join(' · '),
+                  style: pw.TextStyle(fontSize: 8, color: _textMuted),
+                  maxLines: 1,
+                  overflow: pw.TextOverflow.clip,
+                ),
+              ),
+              pw.SizedBox(width: 8),
+              pw.Text(
+                'Página ${context.pageNumber}/${context.pagesCount}',
+                style: pw.TextStyle(fontSize: 8, color: _textMuted),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _buildInvoiceLogo(pw.MemoryImage? logoImage) {
+    return pw.Container(
+      width: 44,
+      height: 44,
+      padding: const pw.EdgeInsets.all(5),
+      decoration: pw.BoxDecoration(
+        color: _brandBlueSoft,
+        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(12)),
+      ),
+      child: logoImage != null
+          ? pw.Image(logoImage, fit: pw.BoxFit.contain)
+          : pw.Center(
+              child: pw.Text(
+                'FT',
+                style: pw.TextStyle(
+                  color: _brandBlue,
+                  fontWeight: pw.FontWeight.bold,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+    );
+  }
+
+  static pw.Widget _buildCompactInfoBlock(
+    String title,
+    List<MapEntry<String, String>> fields,
+  ) {
+    final visibleFields = fields
+        .where((entry) => entry.value.trim().isNotEmpty)
+        .toList(growable: false);
+
+    return pw.Container(
+      padding: const pw.EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: pw.BoxDecoration(
+        color: PdfColors.white,
+        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(14)),
+        border: pw.Border.all(color: _lineColor, width: 0.9),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            title.toUpperCase(),
+            style: pw.TextStyle(
+              fontSize: 8.8,
+              fontWeight: pw.FontWeight.bold,
+              color: _brandBlue,
+              letterSpacing: 0.8,
+            ),
+          ),
+          pw.SizedBox(height: 7),
+          ...visibleFields.map(
+            (entry) => pw.Padding(
+              padding: const pw.EdgeInsets.only(bottom: 5),
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.SizedBox(
+                    width: 54,
+                    child: pw.Text(
+                      entry.key,
+                      style: pw.TextStyle(
+                        fontSize: 8,
+                        color: _textMuted,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  pw.SizedBox(width: 6),
+                  pw.Expanded(
+                    child: pw.Text(
+                      entry.value.trim(),
+                      style: const pw.TextStyle(fontSize: 9.4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _invoiceMetaLine(
+    String label,
+    String value, {
+    bool light = false,
+  }) {
+    final foreground = light ? PdfColors.white : PdfColors.black;
+    final muted = light ? PdfColors.blue100 : _textMuted;
+
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 4),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.end,
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            '$label: ',
+            style: pw.TextStyle(
+              fontSize: 8.2,
+              color: muted,
+              fontWeight: pw.FontWeight.bold,
+            ),
+          ),
+          pw.Flexible(
+            child: pw.Text(
+              value,
+              textAlign: pw.TextAlign.right,
+              style: pw.TextStyle(
+                fontSize: 8.8,
+                color: foreground,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _invoiceTableCell(
+    String text, {
+    pw.TextAlign align = pw.TextAlign.left,
+    bool header = false,
+  }) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      child: pw.Text(
+        text,
+        textAlign: align,
+        style: pw.TextStyle(
+          fontSize: header ? 9 : 9.2,
+          fontWeight: header ? pw.FontWeight.bold : pw.FontWeight.normal,
+          color: header ? PdfColors.white : PdfColors.black,
+        ),
+      ),
+    );
   }
 
   static pw.Widget _line(String label, String value, {bool highlight = false}) {

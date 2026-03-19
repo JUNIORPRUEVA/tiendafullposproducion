@@ -35,6 +35,7 @@ import '../../modules/cotizaciones/data/cotizaciones_repository.dart';
 import '../../modules/cotizaciones/cotizacion_models.dart';
 import '../catalogo/catalogo_screen.dart';
 import 'presentation/operations_back_button.dart';
+import 'presentation/operations_compact_filter_panel.dart';
 import '../ponche/application/punch_controller.dart';
 import '../user/data/users_repository.dart';
 import 'application/operations_controller.dart';
@@ -43,8 +44,10 @@ import 'data/operations_repository.dart';
 import 'operations_models.dart' hide ServiceStatus;
 import 'operations_models.dart' as ops show ServiceStatus, parseStatus;
 import 'presentation/service_agenda_card.dart';
+import 'presentation/create_order_form_ui.dart';
 import 'presentation/info_card.dart';
 import 'presentation/operations_filters.dart';
+import 'presentation/operations_mobile_widgets.dart';
 import 'presentation/operations_permissions.dart';
 import 'presentation/service_actions_sheet.dart';
 import 'presentation/service_header.dart';
@@ -243,6 +246,9 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
 
   final _searchCtrl = TextEditingController();
   final _panelKey = GlobalKey<_PanelOptionsState>();
+  final _desktopFilterButtonKey = GlobalKey(
+    debugLabel: 'operationsDesktopFilterButton',
+  );
   String? _lastAppliedDeepLinkKey;
 
   bool _canManageDynamicChecklist(AuthState authState) {
@@ -265,52 +271,31 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
         builder: (_) {
           return StatefulBuilder(
             builder: (context, setDialogState) {
-              return Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w900,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Cerrar',
-                          onPressed: () => Navigator.pop(context),
-                          icon: const Icon(Icons.close),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: _CreateReservationTab(
-                      onCreate: (draft) async {
-                        final ok = await _handleCreateGenericOrder(
-                          draft,
-                          orderType: orderType,
-                        );
-                        if (ok && context.mounted) Navigator.pop(context);
-                      },
-                      submitLabel: submitLabel,
-                      initialServiceType: initialServiceType,
-                      showServiceTypeField: false,
-                      agendaKind: orderType,
-                      showAgendaKindPicker: true,
-                      onAgendaKindChanged: (value) {
-                        final next = value.trim().toLowerCase();
-                        if (next.isEmpty) return;
-                        setDialogState(() => orderType = next);
-                      },
-                    ),
-                  ),
-                ],
+              return CreateOrderModalShell(
+                title: title,
+                subtitle:
+                    'Completa los datos clave para registrar una nueva orden con una distribución más clara y profesional.',
+                onClose: () => Navigator.pop(context),
+                showGrip: false,
+                child: _CreateReservationTab(
+                  onCreate: (draft) async {
+                    final ok = await _handleCreateGenericOrder(
+                      draft,
+                      orderType: orderType,
+                    );
+                    if (ok && context.mounted) Navigator.pop(context);
+                  },
+                  submitLabel: submitLabel,
+                  initialServiceType: initialServiceType,
+                  showServiceTypeField: false,
+                  agendaKind: orderType,
+                  showAgendaKindPicker: true,
+                  onAgendaKindChanged: (value) {
+                    final next = value.trim().toLowerCase();
+                    if (next.isEmpty) return;
+                    setDialogState(() => orderType = next);
+                  },
+                ),
               );
             },
           );
@@ -322,7 +307,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
+      showDragHandle: false,
       builder: (_) => SafeArea(
         child: StatefulBuilder(
           builder: (context, setSheetState) {
@@ -332,55 +317,30 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
               ),
               child: SizedBox(
                 height: MediaQuery.sizeOf(context).height * 0.92,
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              title,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () => Navigator.pop(context),
-                            icon: const Icon(Icons.close),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                      child: const SizedBox.shrink(),
-                    ),
-                    const Divider(height: 1),
-                    Expanded(
-                      child: _CreateReservationTab(
-                        onCreate: (draft) async {
-                          final ok = await _handleCreateGenericOrder(
-                            draft,
-                            orderType: orderType,
-                          );
-                          if (ok && context.mounted) Navigator.pop(context);
-                        },
-                        submitLabel: submitLabel,
-                        initialServiceType: initialServiceType,
-                        showServiceTypeField: false,
-                        agendaKind: orderType,
-                        showAgendaKindPicker: true,
-                        onAgendaKindChanged: (value) {
-                          final next = value.trim().toLowerCase();
-                          if (next.isEmpty) return;
-                          setSheetState(() => orderType = next);
-                        },
-                      ),
-                    ),
-                  ],
+                child: CreateOrderModalShell(
+                  title: title,
+                  subtitle:
+                      'Completa los datos clave para registrar una nueva orden con una distribución más clara y profesional.',
+                  onClose: () => Navigator.pop(context),
+                  child: _CreateReservationTab(
+                    onCreate: (draft) async {
+                      final ok = await _handleCreateGenericOrder(
+                        draft,
+                        orderType: orderType,
+                      );
+                      if (ok && context.mounted) Navigator.pop(context);
+                    },
+                    submitLabel: submitLabel,
+                    initialServiceType: initialServiceType,
+                    showServiceTypeField: false,
+                    agendaKind: orderType,
+                    showAgendaKindPicker: true,
+                    onAgendaKindChanged: (value) {
+                      final next = value.trim().toLowerCase();
+                      if (next.isEmpty) return;
+                      setSheetState(() => orderType = next);
+                    },
+                  ),
                 ),
               ),
             );
@@ -611,55 +571,23 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     required Color gradientMid,
     required Color gradientBottom,
   }) {
-    return AppBar(
-      title: const FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.centerLeft,
-        child: Text(
-          'Operaciones',
-          maxLines: 1,
-          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
-        ),
+    return OperationsAppBar(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [gradientTop, gradientMid, gradientBottom],
+        stops: const [0.0, 0.55, 1.0],
       ),
-      flexibleSpace: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [gradientTop, gradientMid, gradientBottom],
-            stops: const [0.0, 0.55, 1.0],
-          ),
-        ),
-      ),
-      actions: [
-        if (_canManageDynamicChecklist(authState))
-          TextButton.icon(
-            onPressed: () => context.push(Routes.operacionesChecklistConfig),
-            icon: const Icon(Icons.checklist_rtl_outlined),
-            label: const Text('Checklist'),
-          ),
-        TextButton.icon(
-          onPressed: () => context.go(Routes.operacionesReglas),
-          icon: const Icon(Icons.rule_folder_outlined),
-          label: const Text('Reglas'),
-        ),
-        IconButton(
-          tooltip: 'Agregar orden',
-          onPressed: _openQuickCreateFromAppBar,
-          icon: _agendaPlusIcon(),
-        ),
-        IconButton(
-          tooltip: 'Mapa clientes',
-          onPressed: () => context.push(Routes.operacionesMapaClientes),
-          icon: const Icon(Icons.map_outlined),
-        ),
-        _UserAvatarAction(
-          userName: authState.user?.nombreCompleto,
-          photoUrl: authState.user?.fotoPersonalUrl,
-          onTap: () => context.go(Routes.profile),
-        ),
-        const SizedBox(width: 6),
-      ],
+      canManageChecklist: _canManageDynamicChecklist(authState),
+      userName: authState.user?.nombreCompleto,
+      photoUrl: authState.user?.fotoPersonalUrl,
+      onOpenQuickCreate: _openQuickCreateFromAppBar,
+      onOpenMap: () => context.push(Routes.operacionesMapaClientes),
+      onOpenRules: () => context.go(Routes.operacionesReglas),
+      onOpenChecklist: _canManageDynamicChecklist(authState)
+          ? () => context.push(Routes.operacionesChecklistConfig)
+          : null,
+      onOpenProfile: () => context.go(Routes.profile),
     );
   }
 
@@ -669,6 +597,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     required TextEditingController searchCtrl,
     required VoidCallback onOpenFilters,
     required VoidCallback onRefresh,
+    Key? filterButtonKey,
   }) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
@@ -710,6 +639,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
           ),
           const SizedBox(width: 10),
           IconButton.filledTonal(
+            key: filterButtonKey,
             tooltip: 'Filtros',
             onPressed: onOpenFilters,
             icon: const Icon(Icons.tune_rounded),
@@ -800,6 +730,51 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     );
   }
 
+  Widget _buildMobileFabDock() {
+    final scheme = Theme.of(context).colorScheme;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset + 88),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surface.withValues(alpha: 0.98),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: scheme.outlineVariant.withValues(alpha: 0.45),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: scheme.shadow.withValues(alpha: 0.08),
+              blurRadius: 18,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              IconButton.filledTonal(
+                tooltip: 'Catálogo',
+                onPressed: _openCatalogoDialog,
+                icon: const _CatalogoFabIcon(),
+              ),
+              const SizedBox(height: 8),
+              IconButton.filledTonal(
+                tooltip: 'Ponche',
+                onPressed: _openPoncheDialog,
+                icon: const _PoncheFabIcon(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
@@ -830,9 +805,14 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
               authState: authState,
               searchCtrl: _searchCtrl,
               onOpenFilters: () {
-                unawaited(_panelKey.currentState?._openFilters());
+                unawaited(
+                  _panelKey.currentState?._openFilters(
+                    anchorKey: _desktopFilterButtonKey,
+                  ),
+                );
               },
               onRefresh: notifier.refresh,
+              filterButtonKey: _desktopFilterButtonKey,
             )
           : _buildMobileAppBar(
               authState: authState,
@@ -842,25 +822,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
             ),
       floatingActionButton: isDesktop
           ? _buildDesktopFabDock()
-          : Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                FloatingActionButton.small(
-                  heroTag: 'fab-catalogo',
-                  tooltip: 'Catálogo',
-                  onPressed: _openCatalogoDialog,
-                  child: const _CatalogoFabIcon(),
-                ),
-                const SizedBox(height: 12),
-                FloatingActionButton.small(
-                  heroTag: 'fab-ponche',
-                  tooltip: 'Ponche',
-                  onPressed: _openPoncheDialog,
-                  child: const _PoncheFabIcon(),
-                ),
-              ],
-            ),
+          : _buildMobileFabDock(),
       body: Stack(
         children: [
           _buildBoard(context, authState.user, state, notifier),
@@ -882,7 +844,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     OperationsController notifier,
   ) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
       child: Column(
         children: [
           Expanded(
@@ -1891,49 +1853,21 @@ class _OperacionesAgendaScreenState
       await _showRightSideDialog<void>(
         context,
         builder: (context) {
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        title,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Cerrar',
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                child: Text(
-                  'Crea una orden genérica. La etapa se puede ajustar luego en Detalles.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: _CreateReservationTab(
-                  submitLabel: submitLabel,
-                  initialServiceType: initialServiceType,
-                  showServiceTypeField: false,
-                  onCreate: (draft) async {
-                    final ok = await _createGenericFromAgenda(draft);
-                    if (ok && context.mounted) Navigator.pop(context);
-                  },
-                ),
-              ),
-            ],
+          return CreateOrderModalShell(
+            title: title,
+            subtitle:
+                'Crea una orden genérica con una estructura más clara. La etapa se puede ajustar luego en Detalles.',
+            onClose: () => Navigator.pop(context),
+            showGrip: false,
+            child: _CreateReservationTab(
+              submitLabel: submitLabel,
+              initialServiceType: initialServiceType,
+              showServiceTypeField: false,
+              onCreate: (draft) async {
+                final ok = await _createGenericFromAgenda(draft);
+                if (ok && context.mounted) Navigator.pop(context);
+              },
+            ),
           );
         },
       );
@@ -1943,7 +1877,7 @@ class _OperacionesAgendaScreenState
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
+      showDragHandle: false,
       builder: (context) {
         return SafeArea(
           child: Padding(
@@ -1954,48 +1888,20 @@ class _OperacionesAgendaScreenState
               height: MediaQuery.sizeOf(context).height * 0.92,
               child: StatefulBuilder(
                 builder: (context, setSheetState) {
-                  return Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                title,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ),
-                            IconButton(
-                              onPressed: () => Navigator.pop(context),
-                              icon: const Icon(Icons.close),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                        child: Text(
-                          'Crea una orden genérica. La etapa se puede ajustar luego en Detalles.',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ),
-                      const Divider(height: 1),
-                      Expanded(
-                        child: _CreateReservationTab(
-                          submitLabel: submitLabel,
-                          initialServiceType: initialServiceType,
-                          showServiceTypeField: false,
-                          onCreate: (draft) async {
-                            final ok = await _createGenericFromAgenda(draft);
-                            if (ok && context.mounted) Navigator.pop(context);
-                          },
-                        ),
-                      ),
-                    ],
+                  return CreateOrderModalShell(
+                    title: title,
+                    subtitle:
+                        'Crea una orden genérica con una estructura más clara. La etapa se puede ajustar luego en Detalles.',
+                    onClose: () => Navigator.pop(context),
+                    child: _CreateReservationTab(
+                      submitLabel: submitLabel,
+                      initialServiceType: initialServiceType,
+                      showServiceTypeField: false,
+                      onCreate: (draft) async {
+                        final ok = await _createGenericFromAgenda(draft);
+                        if (ok && context.mounted) Navigator.pop(context);
+                      },
+                    ),
                   );
                 },
               ),
@@ -2489,6 +2395,16 @@ class _PanelOptions extends StatefulWidget {
 
 class _PanelOptionsState extends State<_PanelOptions> {
   OperationsFilters _filters = OperationsFilters.todayDefault();
+  final _searchFilterButtonKey = GlobalKey(
+    debugLabel: 'operationsSearchFilterButton',
+  );
+  final _filtersBarButtonKey = GlobalKey(
+    debugLabel: 'operationsFiltersBarButton',
+  );
+  final _createdByFieldKey = GlobalKey(debugLabel: 'operationsCreatedByField');
+  final _technicianFieldKey = GlobalKey(
+    debugLabel: 'operationsTechnicianField',
+  );
 
   Future<List<UserModel>>? _usersFuture;
   Future<List<TechnicianModel>>? _techsFuture;
@@ -2529,6 +2445,65 @@ class _PanelOptionsState extends State<_PanelOptions> {
     return '${df.format(r.start)} - ${df.format(r.end)}';
   }
 
+  int _activeFilterCount() {
+    var count = 0;
+    if (_filters.status != OperationsStatusFilter.all) count++;
+    if (_filters.priority != OperationsPriorityFilter.all) count++;
+    if ((_filters.createdByUserId ?? '').trim().isNotEmpty) count++;
+    if ((_filters.technicianId ?? '').trim().isNotEmpty) count++;
+    if (_filters.datePreset != OperationsDatePreset.today) count++;
+    return count;
+  }
+
+  List<OperationsFilterChipData> _buildFilterChips() {
+    final chips = <OperationsFilterChipData>[
+      OperationsFilterChipData(
+        label: datePresetLabel(_filters.datePreset),
+        icon: Icons.calendar_today_outlined,
+        highlighted: _filters.datePreset != OperationsDatePreset.today,
+      ),
+    ];
+
+    if (_filters.status != OperationsStatusFilter.all) {
+      chips.add(
+        OperationsFilterChipData(
+          label: statusFilterLabel(_filters.status),
+          icon: Icons.local_offer_outlined,
+          highlighted: true,
+        ),
+      );
+    }
+    if (_filters.priority != OperationsPriorityFilter.all) {
+      chips.add(
+        OperationsFilterChipData(
+          label: 'Prioridad ${priorityFilterLabel(_filters.priority)}',
+          icon: Icons.priority_high_rounded,
+          highlighted: true,
+        ),
+      );
+    }
+    if ((_filters.technicianId ?? '').trim().isNotEmpty) {
+      chips.add(
+        const OperationsFilterChipData(
+          label: 'Tecnico filtrado',
+          icon: Icons.engineering_outlined,
+          highlighted: true,
+        ),
+      );
+    }
+    if ((_filters.createdByUserId ?? '').trim().isNotEmpty) {
+      chips.add(
+        const OperationsFilterChipData(
+          label: 'Creador filtrado',
+          icon: Icons.badge_outlined,
+          highlighted: true,
+        ),
+      );
+    }
+
+    return chips;
+  }
+
   // ignore: unused_element
   bool _isDefaultTodayRange(DateTimeRange r) {
     final today = OperationsFilters.todayDefault().range;
@@ -2550,25 +2525,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
   }
 
   Widget _sectionCard({required String title, required Widget child}) {
-    final theme = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              title,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 10),
-            child,
-          ],
-        ),
-      ),
-    );
+    return CompactFilterSection(title: title, child: child);
   }
 
   Widget _choiceChips<T>({
@@ -2576,29 +2533,10 @@ class _PanelOptionsState extends State<_PanelOptions> {
     required List<(T, String)> items,
     required void Function(T next) onChanged,
   }) {
-    final theme = Theme.of(context);
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      children: [
-        for (final it in items)
-          ChoiceChip(
-            label: Text(
-              it.$2,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              softWrap: false,
-            ),
-            selected: value == it.$1,
-            onSelected: (_) => onChanged(it.$1),
-            visualDensity: VisualDensity.compact,
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            labelStyle: theme.textTheme.labelSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          ),
-      ],
+    return CompactFilterChoiceGroup<T>(
+      value: value,
+      items: items,
+      onChanged: onChanged,
     );
   }
 
@@ -2606,11 +2544,12 @@ class _PanelOptionsState extends State<_PanelOptions> {
     required String title,
     required List<(String id, String label)> items,
     required String? selectedId,
+    required GlobalKey anchorKey,
   }) {
-    return showModalBottomSheet<String?>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
+    return showAnchoredCompactPanel<String?>(
+      context,
+      anchorKey: anchorKey,
+      maxWidth: 380,
       builder: (context) {
         String query = '';
 
@@ -2623,109 +2562,125 @@ class _PanelOptionsState extends State<_PanelOptions> {
           return items.where((e) => e.$2.toLowerCase().contains(q)).toList();
         }
 
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.viewInsetsOf(context).bottom,
-            ),
-            child: StatefulBuilder(
-              builder: (context, setInner) {
-                final list = filtered();
+        return StatefulBuilder(
+          builder: (context, setInner) {
+            final list = filtered();
 
-                return ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+            return DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: const Color(0xFFD9E3EE)),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0F172A).withValues(alpha: 0.14),
+                    blurRadius: 28,
+                    offset: const Offset(0, 14),
                   ),
-                  child: Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 6, 8, 0),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                title,
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ),
-                            IconButton(
-                              tooltip: 'Cerrar',
-                              onPressed: () => Navigator.pop(context),
-                              icon: const Icon(Icons.close_rounded),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-                        child: TextField(
-                          decoration: InputDecoration(
-                            isDense: true,
-                            prefixIcon: const Icon(Icons.search_rounded),
-                            hintText: 'Buscar…',
-                            border: const OutlineInputBorder(),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 8, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w900,
                             ),
                           ),
-                          onChanged: (v) => setInner(() => query = v),
                         ),
-                      ),
-                      Expanded(
-                        child: ListView(
-                          children: [
-                            ListTile(
-                              leading: Icon(
-                                Icons.all_inclusive,
-                                color: scheme.primary,
-                              ),
-                              title: const Text(
-                                'Todos',
-                                style: TextStyle(fontWeight: FontWeight.w800),
-                              ),
-                              trailing: selectedId == null
-                                  ? Icon(
-                                      Icons.check_rounded,
-                                      color: scheme.primary,
-                                    )
-                                  : null,
-                              onTap: () => Navigator.pop(context, null),
-                            ),
-                            const Divider(height: 1),
-                            for (final e in list)
-                              ListTile(
-                                title: Text(
-                                  e.$2,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                trailing: selectedId == e.$1
-                                    ? Icon(
-                                        Icons.check_rounded,
-                                        color: scheme.primary,
-                                      )
-                                    : null,
-                                onTap: () => Navigator.pop(context, e.$1),
-                              ),
-                          ],
+                        IconButton(
+                          tooltip: 'Cerrar',
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                          visualDensity: VisualDensity.compact,
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                );
-              },
-            ),
-          ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                    child: TextField(
+                      decoration: InputDecoration(
+                        isDense: true,
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        hintText: 'Buscar…',
+                        filled: true,
+                        fillColor: const Color(0xFFF6F9FC),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                      ),
+                      onChanged: (v) => setInner(() => query = v),
+                    ),
+                  ),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                      children: [
+                        ListTile(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          leading: Icon(
+                            Icons.all_inclusive_rounded,
+                            color: scheme.primary,
+                          ),
+                          title: const Text(
+                            'Todos',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          trailing: selectedId == null
+                              ? Icon(
+                                  Icons.check_circle_rounded,
+                                  color: scheme.primary,
+                                )
+                              : null,
+                          onTap: () => Navigator.pop(context, null),
+                        ),
+                        for (final e in list)
+                          ListTile(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            title: Text(
+                              e.$2,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            trailing: selectedId == e.$1
+                                ? Icon(
+                                    Icons.check_circle_rounded,
+                                    color: scheme.primary,
+                                  )
+                                : null,
+                            onTap: () => Navigator.pop(context, e.$1),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
         );
       },
     );
   }
 
-  Future<void> _openFilters() async {
+  Future<void> _openFilters({GlobalKey? anchorKey}) async {
     _usersFuture ??= widget.loadUsers();
     _techsFuture ??= widget.loadTechnicians();
 
@@ -2735,444 +2690,304 @@ class _PanelOptionsState extends State<_PanelOptions> {
     );
     final hasLowPriority = widget.state.services.any((s) => s.priority >= 3);
 
-    final result = await showModalBottomSheet<OperationsFilters>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
+    final result = await showAnchoredCompactPanel<OperationsFilters>(
+      context,
+      anchorKey: anchorKey ?? _searchFilterButtonKey,
+      maxWidth: 440,
       builder: (context) {
-        final theme = Theme.of(context);
-        return SafeArea(
-          child: DraggableScrollableSheet(
-            expand: false,
-            initialChildSize: 0.80,
-            minChildSize: 0.70,
-            maxChildSize: 0.95,
-            builder: (context, scrollController) {
-              return StatefulBuilder(
-                builder: (context, setSheetState) {
-                  Future<void> pickCustomRange() async {
-                    final picked = await showDateRangePicker(
-                      context: context,
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2100),
-                      initialDateRange: draft.range,
-                      helpText: 'Selecciona intervalo de fecha',
-                    );
-                    if (picked == null) return;
-                    setSheetState(() => draft = draft.withCustomRange(picked));
-                  }
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> pickCustomRange() async {
+              final picked = await showDateRangePicker(
+                context: context,
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2100),
+                initialDateRange: draft.range,
+                helpText: 'Selecciona intervalo de fecha',
+              );
+              if (picked == null) return;
+              setSheetState(() => draft = draft.withCustomRange(picked));
+            }
 
-                  Widget header() {
-                    return Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              'Filtros',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Cerrar',
-                            onPressed: () => Navigator.pop(context),
-                            icon: const Icon(Icons.close_rounded),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  Widget footer() {
-                    final scheme = theme.colorScheme;
-                    return Container(
-                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-                      decoration: BoxDecoration(
-                        color: scheme.surface,
-                        border: Border(
-                          top: BorderSide(
-                            color: scheme.outlineVariant.withValues(
-                              alpha: 0.55,
-                            ),
-                          ),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () {
-                                setSheetState(
-                                  () =>
-                                      draft = OperationsFilters.todayDefault(),
-                                );
-                              },
-                              child: const Text('Limpiar'),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: () => Navigator.pop(context, draft),
-                              child: const Text('Aplicar'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  return Material(
-                    color: theme.colorScheme.surface,
-                    child: Column(
-                      children: [
-                        const SizedBox(height: 6),
-                        header(),
-                        const SizedBox(height: 6),
-                        Expanded(
-                          child: ListView(
-                            controller: scrollController,
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            return CompactFilterPanelFrame(
+              title: 'Filtros',
+              onClose: () => Navigator.pop(context),
+              onApply: () => Navigator.pop(context, draft),
+              onClear: () {
+                setSheetState(() => draft = OperationsFilters.todayDefault());
+              },
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                children: [
+                  _sectionCard(
+                    title: 'Usuario creador',
+                    child: FutureBuilder<List<UserModel>>(
+                      future: _usersFuture,
+                      builder: (context, snap) {
+                        if (snap.connectionState != ConnectionState.done) {
+                          return const LinearProgressIndicator();
+                        }
+                        if (snap.hasError) {
+                          return Row(
                             children: [
-                              _sectionCard(
-                                title: 'Usuario creador',
-                                child: FutureBuilder<List<UserModel>>(
-                                  future: _usersFuture,
-                                  builder: (context, snap) {
-                                    if (snap.connectionState !=
-                                        ConnectionState.done) {
-                                      return const LinearProgressIndicator();
-                                    }
-                                    if (snap.hasError) {
-                                      return Row(
-                                        children: [
-                                          const Expanded(
-                                            child: Text(
-                                              'No se pudieron cargar usuarios',
-                                            ),
-                                          ),
-                                          TextButton(
-                                            onPressed: () {
-                                              setSheetState(() {
-                                                _usersFuture = widget
-                                                    .loadUsers();
-                                              });
-                                            },
-                                            child: const Text('Reintentar'),
-                                          ),
-                                        ],
-                                      );
-                                    }
-
-                                    final users =
-                                        (snap.data ?? const [])
-                                            .where(
-                                              (u) =>
-                                                  (u.blocked) == false &&
-                                                  u.id.trim().isNotEmpty,
-                                            )
-                                            .toList()
-                                          ..sort(
-                                            (a, b) => a.nombreCompleto
-                                                .toLowerCase()
-                                                .compareTo(
-                                                  b.nombreCompleto
-                                                      .toLowerCase(),
-                                                ),
-                                          );
-
-                                    final selectedId = draft.createdByUserId;
-                                    final selectedLabel = selectedId == null
-                                        ? 'Todos'
-                                        : (users
-                                                  .firstWhere(
-                                                    (u) => u.id == selectedId,
-                                                    orElse: () => users.first,
-                                                  )
-                                                  .nombreCompleto)
-                                              .trim();
-
-                                    return ListTile(
-                                      contentPadding: EdgeInsets.zero,
-                                      leading: const Icon(Icons.badge_outlined),
-                                      title: Text(
-                                        selectedLabel.isEmpty
-                                            ? 'Todos'
-                                            : selectedLabel,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      trailing: const Icon(
-                                        Icons.chevron_right_rounded,
-                                      ),
-                                      onTap: () async {
-                                        final items = users
-                                            .map(
-                                              (u) => (
-                                                u.id,
-                                                u.nombreCompleto.trim().isEmpty
-                                                    ? (u.email.trim().isEmpty
-                                                          ? 'Usuario'
-                                                          : u.email.trim())
-                                                    : u.nombreCompleto.trim(),
-                                              ),
-                                            )
-                                            .toList(growable: false);
-
-                                        final picked = await _pickFromListSheet(
-                                          title: 'Usuario creador',
-                                          items: items,
-                                          selectedId: selectedId,
-                                        );
-                                        if (picked == null) {
-                                          setSheetState(
-                                            () => draft = draft.copyWith(
-                                              clearCreatedBy: true,
-                                            ),
-                                          );
-                                          return;
-                                        }
-
-                                        setSheetState(
-                                          () => draft = draft.copyWith(
-                                            createdByUserId: picked,
-                                          ),
-                                        );
-                                      },
-                                    );
-                                  },
-                                ),
+                              const Expanded(
+                                child: Text('No se pudieron cargar usuarios'),
                               ),
-                              const SizedBox(height: 10),
-                              _sectionCard(
-                                title: 'Técnico asignado',
-                                child: FutureBuilder<List<TechnicianModel>>(
-                                  future: _techsFuture,
-                                  builder: (context, snap) {
-                                    if (snap.connectionState !=
-                                        ConnectionState.done) {
-                                      return const LinearProgressIndicator();
-                                    }
-                                    if (snap.hasError) {
-                                      return Row(
-                                        children: [
-                                          const Expanded(
-                                            child: Text(
-                                              'No se pudieron cargar técnicos',
-                                            ),
-                                          ),
-                                          TextButton(
-                                            onPressed: () {
-                                              setSheetState(() {
-                                                _techsFuture = widget
-                                                    .loadTechnicians();
-                                              });
-                                            },
-                                            child: const Text('Reintentar'),
-                                          ),
-                                        ],
-                                      );
-                                    }
-
-                                    final techs =
-                                        (snap.data ?? const [])
-                                            .where(
-                                              (t) => t.id.trim().isNotEmpty,
-                                            )
-                                            .toList()
-                                          ..sort(
-                                            (a, b) =>
-                                                a.name.toLowerCase().compareTo(
-                                                  b.name.toLowerCase(),
-                                                ),
-                                          );
-
-                                    final selectedId = draft.technicianId;
-                                    final selectedLabel = selectedId == null
-                                        ? 'Todos'
-                                        : (techs
-                                                  .firstWhere(
-                                                    (t) => t.id == selectedId,
-                                                    orElse: () => techs.first,
-                                                  )
-                                                  .name)
-                                              .trim();
-
-                                    return ListTile(
-                                      contentPadding: EdgeInsets.zero,
-                                      leading: const Icon(
-                                        Icons.engineering_outlined,
-                                      ),
-                                      title: Text(
-                                        selectedLabel.isEmpty
-                                            ? 'Todos'
-                                            : selectedLabel,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      trailing: const Icon(
-                                        Icons.chevron_right_rounded,
-                                      ),
-                                      onTap: () async {
-                                        final items = techs
-                                            .map(
-                                              (t) => (
-                                                t.id,
-                                                t.name.trim().isEmpty
-                                                    ? 'Técnico'
-                                                    : t.name.trim(),
-                                              ),
-                                            )
-                                            .toList(growable: false);
-
-                                        final picked = await _pickFromListSheet(
-                                          title: 'Técnico asignado',
-                                          items: items,
-                                          selectedId: selectedId,
-                                        );
-                                        if (picked == null) {
-                                          setSheetState(
-                                            () => draft = draft.copyWith(
-                                              clearTechnician: true,
-                                            ),
-                                          );
-                                          return;
-                                        }
-
-                                        setSheetState(
-                                          () => draft = draft.copyWith(
-                                            technicianId: picked,
-                                          ),
-                                        );
-                                      },
-                                    );
-                                  },
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              _sectionCard(
-                                title: 'Rango de fechas',
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    _choiceChips<OperationsDatePreset>(
-                                      value: draft.datePreset,
-                                      items: const [
-                                        (OperationsDatePreset.today, 'Hoy'),
-                                        (OperationsDatePreset.week, 'Semana'),
-                                        (OperationsDatePreset.month, 'Mes'),
-                                        (
-                                          OperationsDatePreset.custom,
-                                          'Personalizado',
-                                        ),
-                                      ],
-                                      onChanged: (next) {
-                                        setSheetState(() {
-                                          draft = switch (next) {
-                                            OperationsDatePreset.today =>
-                                              draft.withTodayRange(),
-                                            OperationsDatePreset.week =>
-                                              draft.withWeekRange(),
-                                            OperationsDatePreset.month =>
-                                              draft.withMonthRange(),
-                                            OperationsDatePreset.custom =>
-                                              draft.copyWith(
-                                                datePreset:
-                                                    OperationsDatePreset.custom,
-                                              ),
-                                          };
-                                        });
-                                      },
-                                    ),
-                                    const SizedBox(height: 10),
-                                    Card(
-                                      margin: EdgeInsets.zero,
-                                      child: ListTile(
-                                        dense: true,
-                                        leading: const Icon(
-                                          Icons.date_range_outlined,
-                                        ),
-                                        title: const Text('Intervalo'),
-                                        subtitle: Text(
-                                          _rangeLabel(draft.range),
-                                        ),
-                                        trailing: const Icon(
-                                          Icons.chevron_right_rounded,
-                                        ),
-                                        onTap:
-                                            draft.datePreset ==
-                                                OperationsDatePreset.custom
-                                            ? pickCustomRange
-                                            : null,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              _sectionCard(
-                                title: 'Estado',
-                                child: _choiceChips<OperationsStatusFilter>(
-                                  value: draft.status,
-                                  items: [
-                                    (OperationsStatusFilter.all, 'Todos'),
-                                    (
-                                      OperationsStatusFilter.pending,
-                                      'Pendientes',
-                                    ),
-                                    (
-                                      OperationsStatusFilter.inProgress,
-                                      'En proceso',
-                                    ),
-                                    (
-                                      OperationsStatusFilter.completed,
-                                      'Completadas',
-                                    ),
-                                    if (hasCancelled)
-                                      (
-                                        OperationsStatusFilter.cancelled,
-                                        'Canceladas',
-                                      ),
-                                  ],
-                                  onChanged: (next) => setSheetState(
-                                    () => draft = draft.copyWith(status: next),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              _sectionCard(
-                                title: 'Prioridad',
-                                child: _choiceChips<OperationsPriorityFilter>(
-                                  value: draft.priority,
-                                  items: [
-                                    (OperationsPriorityFilter.all, 'Todas'),
-                                    (OperationsPriorityFilter.high, 'Alta'),
-                                    (OperationsPriorityFilter.normal, 'Normal'),
-                                    if (hasLowPriority)
-                                      (OperationsPriorityFilter.low, 'Baja'),
-                                  ],
-                                  onChanged: (next) => setSheetState(
-                                    () =>
-                                        draft = draft.copyWith(priority: next),
-                                  ),
-                                ),
+                              TextButton(
+                                onPressed: () {
+                                  setSheetState(() {
+                                    _usersFuture = widget.loadUsers();
+                                  });
+                                },
+                                child: const Text('Reintentar'),
                               ),
                             ],
-                          ),
+                          );
+                        }
+
+                        final users =
+                            (snap.data ?? const [])
+                                .where(
+                                  (u) =>
+                                      (u.blocked) == false &&
+                                      u.id.trim().isNotEmpty,
+                                )
+                                .toList()
+                              ..sort(
+                                (a, b) => a.nombreCompleto
+                                    .toLowerCase()
+                                    .compareTo(b.nombreCompleto.toLowerCase()),
+                              );
+
+                        final selectedId = draft.createdByUserId;
+                        final selectedLabel = selectedId == null
+                            ? 'Todos'
+                            : (users
+                                      .firstWhere(
+                                        (u) => u.id == selectedId,
+                                        orElse: () => users.first,
+                                      )
+                                      .nombreCompleto)
+                                  .trim();
+
+                        return CompactFilterSelectorTile(
+                          key: _createdByFieldKey,
+                          icon: Icons.badge_outlined,
+                          label: 'Usuario creador',
+                          value: selectedLabel.isEmpty
+                              ? 'Todos'
+                              : selectedLabel,
+                          onTap: () async {
+                            final items = users
+                                .map(
+                                  (u) => (
+                                    u.id,
+                                    u.nombreCompleto.trim().isEmpty
+                                        ? (u.email.trim().isEmpty
+                                              ? 'Usuario'
+                                              : u.email.trim())
+                                        : u.nombreCompleto.trim(),
+                                  ),
+                                )
+                                .toList(growable: false);
+
+                            final picked = await _pickFromListSheet(
+                              title: 'Usuario creador',
+                              items: items,
+                              selectedId: selectedId,
+                              anchorKey: _createdByFieldKey,
+                            );
+                            if (picked == null) {
+                              setSheetState(
+                                () => draft = draft.copyWith(
+                                  clearCreatedBy: true,
+                                ),
+                              );
+                              return;
+                            }
+
+                            setSheetState(
+                              () => draft = draft.copyWith(
+                                createdByUserId: picked,
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _sectionCard(
+                    title: 'Técnico asignado',
+                    child: FutureBuilder<List<TechnicianModel>>(
+                      future: _techsFuture,
+                      builder: (context, snap) {
+                        if (snap.connectionState != ConnectionState.done) {
+                          return const LinearProgressIndicator();
+                        }
+                        if (snap.hasError) {
+                          return Row(
+                            children: [
+                              const Expanded(
+                                child: Text('No se pudieron cargar técnicos'),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  setSheetState(() {
+                                    _techsFuture = widget.loadTechnicians();
+                                  });
+                                },
+                                child: const Text('Reintentar'),
+                              ),
+                            ],
+                          );
+                        }
+
+                        final techs =
+                            (snap.data ?? const [])
+                                .where((t) => t.id.trim().isNotEmpty)
+                                .toList()
+                              ..sort(
+                                (a, b) => a.name.toLowerCase().compareTo(
+                                  b.name.toLowerCase(),
+                                ),
+                              );
+
+                        final selectedId = draft.technicianId;
+                        final selectedLabel = selectedId == null
+                            ? 'Todos'
+                            : (techs
+                                      .firstWhere(
+                                        (t) => t.id == selectedId,
+                                        orElse: () => techs.first,
+                                      )
+                                      .name)
+                                  .trim();
+
+                        return CompactFilterSelectorTile(
+                          key: _technicianFieldKey,
+                          icon: Icons.engineering_outlined,
+                          label: 'Técnico asignado',
+                          value: selectedLabel.isEmpty
+                              ? 'Todos'
+                              : selectedLabel,
+                          onTap: () async {
+                            final items = techs
+                                .map(
+                                  (t) => (
+                                    t.id,
+                                    t.name.trim().isEmpty
+                                        ? 'Técnico'
+                                        : t.name.trim(),
+                                  ),
+                                )
+                                .toList(growable: false);
+
+                            final picked = await _pickFromListSheet(
+                              title: 'Técnico asignado',
+                              items: items,
+                              selectedId: selectedId,
+                              anchorKey: _technicianFieldKey,
+                            );
+                            if (picked == null) {
+                              setSheetState(
+                                () => draft = draft.copyWith(
+                                  clearTechnician: true,
+                                ),
+                              );
+                              return;
+                            }
+
+                            setSheetState(
+                              () =>
+                                  draft = draft.copyWith(technicianId: picked),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _sectionCard(
+                    title: 'Rango de fechas',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _choiceChips<OperationsDatePreset>(
+                          value: draft.datePreset,
+                          items: const [
+                            (OperationsDatePreset.today, 'Hoy'),
+                            (OperationsDatePreset.week, 'Semana'),
+                            (OperationsDatePreset.month, 'Mes'),
+                            (OperationsDatePreset.custom, 'Personalizado'),
+                          ],
+                          onChanged: (next) {
+                            setSheetState(() {
+                              draft = switch (next) {
+                                OperationsDatePreset.today =>
+                                  draft.withTodayRange(),
+                                OperationsDatePreset.week =>
+                                  draft.withWeekRange(),
+                                OperationsDatePreset.month =>
+                                  draft.withMonthRange(),
+                                OperationsDatePreset.custom => draft.copyWith(
+                                  datePreset: OperationsDatePreset.custom,
+                                ),
+                              };
+                            });
+                          },
                         ),
-                        footer(),
+                        const SizedBox(height: 10),
+                        CompactFilterSelectorTile(
+                          icon: Icons.date_range_outlined,
+                          label: 'Intervalo',
+                          value: _rangeLabel(draft.range),
+                          onTap: draft.datePreset == OperationsDatePreset.custom
+                              ? pickCustomRange
+                              : null,
+                        ),
                       ],
                     ),
-                  );
-                },
-              );
-            },
-          ),
+                  ),
+                  const SizedBox(height: 10),
+                  _sectionCard(
+                    title: 'Estado',
+                    child: _choiceChips<OperationsStatusFilter>(
+                      value: draft.status,
+                      items: [
+                        (OperationsStatusFilter.all, 'Todos'),
+                        (OperationsStatusFilter.pending, 'Pendientes'),
+                        (OperationsStatusFilter.inProgress, 'En proceso'),
+                        (OperationsStatusFilter.completed, 'Completadas'),
+                        if (hasCancelled)
+                          (OperationsStatusFilter.cancelled, 'Canceladas'),
+                      ],
+                      onChanged: (next) => setSheetState(
+                        () => draft = draft.copyWith(status: next),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _sectionCard(
+                    title: 'Prioridad',
+                    child: _choiceChips<OperationsPriorityFilter>(
+                      value: draft.priority,
+                      items: [
+                        (OperationsPriorityFilter.all, 'Todas'),
+                        (OperationsPriorityFilter.high, 'Alta'),
+                        (OperationsPriorityFilter.normal, 'Normal'),
+                        if (hasLowPriority)
+                          (OperationsPriorityFilter.low, 'Baja'),
+                      ],
+                      onChanged: (next) => setSheetState(
+                        () => draft = draft.copyWith(priority: next),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
         );
       },
     );
@@ -3518,82 +3333,6 @@ class _PanelOptionsState extends State<_PanelOptions> {
       return true;
     }());
 
-    Widget summaryCard({
-      required String label,
-      required int value,
-      required IconData icon,
-      required Color tint,
-      String? caption,
-    }) {
-      return Expanded(
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 26,
-                      height: 26,
-                      decoration: BoxDecoration(
-                        color: tint.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(icon, color: tint, size: 17),
-                    ),
-                    const Spacer(),
-                    Text(
-                      '$value',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.visible,
-                    softWrap: false,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      color: theme.colorScheme.onSurface.withValues(
-                        alpha: 0.75,
-                      ),
-                    ),
-                  ),
-                ),
-                if (caption != null) ...[
-                  const SizedBox(height: 2),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      caption,
-                      maxLines: 1,
-                      overflow: TextOverflow.visible,
-                      softWrap: false,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withValues(
-                          alpha: 0.6,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
     if (isDesktop) {
       return _buildDesktopLayout(
         theme: theme,
@@ -3614,7 +3353,6 @@ class _PanelOptionsState extends State<_PanelOptions> {
       procesoCount: procesoCount,
       completadasCount: completadasCount,
       atrasadas: atrasadas,
-      summaryCard: summaryCard,
     );
   }
 
@@ -3626,93 +3364,147 @@ class _PanelOptionsState extends State<_PanelOptions> {
     required int procesoCount,
     required int completadasCount,
     required int atrasadas,
-    required Widget Function({
-      required String label,
-      required int value,
-      required IconData icon,
-      required Color tint,
-      String? caption,
-    })
-    summaryCard,
   }) {
+    final filterCount = _activeFilterCount();
+    final metrics = [
+      OperationsMetricItem(
+        label: 'Pendientes',
+        value: '$pendientesCount',
+        caption: atrasadas > 0 ? '$atrasadas atrasadas' : 'En ventana',
+        icon: Icons.error_outline,
+        tint: theme.colorScheme.error,
+      ),
+      OperationsMetricItem(
+        label: 'En proceso',
+        value: '$procesoCount',
+        caption: 'Trabajo activo',
+        icon: Icons.play_circle_outline,
+        tint: theme.colorScheme.tertiary,
+      ),
+      OperationsMetricItem(
+        label: 'Completadas',
+        value: '$completadasCount',
+        caption: 'Cierre del periodo',
+        icon: Icons.check_circle_outline,
+        tint: theme.colorScheme.primary,
+      ),
+      OperationsMetricItem(
+        label: 'Visibles',
+        value: '${visibleOrders.length}',
+        caption: _rangeLabel(range),
+        icon: Icons.view_agenda_outlined,
+        tint: theme.colorScheme.secondary,
+      ),
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        TextField(
+        SearchBarWidget(
           controller: widget.searchCtrl,
-          textInputAction: TextInputAction.search,
-          decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.search),
-            hintText: 'Buscar servicios, clientes, técnicos…',
-            border: const OutlineInputBorder(),
-            suffixIcon: IconButton(
-              tooltip: 'Filtros',
-              onPressed: _openFilters,
-              icon: const Icon(Icons.filter_alt_rounded),
-            ),
-          ),
+          filterButtonKey: _searchFilterButtonKey,
+          onOpenFilters: () => _openFilters(anchorKey: _searchFilterButtonKey),
+          onSubmitted: (_) => setState(() {}),
+          hintText: 'Buscar cliente, orden o tecnico',
         ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            summaryCard(
-              label: 'Pendientes',
-              value: pendientesCount,
-              icon: Icons.error_outline,
-              tint: theme.colorScheme.error,
-              caption: atrasadas > 0 ? '$atrasadas atrasados' : null,
-            ),
-            const SizedBox(width: 6),
-            summaryCard(
-              label: 'En proceso',
-              value: procesoCount,
-              icon: Icons.play_circle_outline,
-              tint: theme.colorScheme.tertiary,
-            ),
-            const SizedBox(width: 6),
-            summaryCard(
-              label: 'Completadas',
-              value: completadasCount,
-              icon: Icons.check_circle_outline,
-              tint: theme.colorScheme.primary,
-            ),
-          ],
+        const SizedBox(height: 6),
+        FiltersBar(
+          chips: _buildFilterChips(),
+          activeCount: filterCount,
+          filterButtonKey: _filtersBarButtonKey,
+          onOpenFilters: () => _openFilters(anchorKey: _filtersBarButtonKey),
+          onRefresh: () {
+            unawaited(widget.onRefresh());
+          },
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
+        MetricsRow(items: metrics),
+        const SizedBox(height: 8),
         Row(
           children: [
             Expanded(
-              child: Text(
-                'Agenda de Servicios · ${_rangeLabel(range)}',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w900,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Ordenes de servicio',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${visibleOrders.length} visibles · ${_rangeLabel(range)}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
             ),
+            if (filterCount > 0)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$filterCount filtros',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
           ],
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 6),
         Expanded(
           child: RefreshIndicator(
             onRefresh: widget.onRefresh,
             child: visibleOrders.isEmpty
                 ? ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.only(top: 4),
                     children: [
-                      Card(
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surface,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: theme.colorScheme.outlineVariant.withValues(
+                              alpha: 0.45,
+                            ),
+                          ),
+                        ),
                         child: Padding(
-                          padding: const EdgeInsets.all(14),
+                          padding: const EdgeInsets.all(16),
                           child: Row(
                             children: [
-                              Icon(
-                                Icons.inbox_outlined,
-                                color: theme.colorScheme.primary,
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.primary.withValues(
+                                    alpha: 0.10,
+                                  ),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Icon(
+                                  Icons.inbox_outlined,
+                                  color: theme.colorScheme.primary,
+                                ),
                               ),
-                              const SizedBox(width: 10),
+                              const SizedBox(width: 12),
                               const Expanded(
                                 child: Text(
-                                  'Sin servicios para mostrar.',
-                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                  'Sin servicios para mostrar con los filtros actuales.',
+                                  style: TextStyle(fontWeight: FontWeight.w800),
                                 ),
                               ),
                             ],
@@ -3721,12 +3513,18 @@ class _PanelOptionsState extends State<_PanelOptions> {
                       ),
                     ],
                   )
-                : ListView.separated(
+                : ListView.builder(
                     physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.only(top: 2, bottom: 72),
                     itemCount: visibleOrders.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) =>
-                        _buildServiceAgendaTile(visibleOrders[index]),
+                    itemBuilder: (context, index) {
+                      return Padding(
+                        padding: EdgeInsets.only(
+                          bottom: index == visibleOrders.length - 1 ? 0 : 8,
+                        ),
+                        child: _buildServiceAgendaTile(visibleOrders[index]),
+                      );
+                    },
                   ),
           ),
         ),
@@ -3771,7 +3569,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
               ? service.orderState
               : service.status;
           final status = ops.parseStatus(raw);
-          return status == ops.ServiceStatus.completed ||
+          rarta tatus == ops.ServiceStatus.completed ||
               status == ops.ServiceStatus.closed;
         })
         .toList(growable: false);
@@ -7297,90 +7095,53 @@ class _AgendaTab extends StatelessWidget {
         builder: (_) {
           return StatefulBuilder(
             builder: (context, setDialogState) {
-              return Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w900,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Cerrar',
-                          onPressed: () => Navigator.pop(context),
-                          icon: const Icon(Icons.close),
-                        ),
-                      ],
-                    ),
+              return CreateOrderModalShell(
+                title: title,
+                subtitle:
+                    'Configura la etapa de la orden y completa el formulario con una estructura más clara y profesional.',
+                onClose: () => Navigator.pop(context),
+                showGrip: false,
+                headerAccessory: DropdownButtonFormField<String>(
+                  key: ValueKey('agenda-create-kind-$selectedKind'),
+                  initialValue: _normalizeAgendaKindValue(selectedKind),
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Fase de orden',
                   ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                    child: Text(
-                      'Crea una orden genérica. La etapa se puede ajustar luego en Detalles.',
-                      style: Theme.of(context).textTheme.bodySmall,
+                  items: const [
+                    DropdownMenuItem(value: 'reserva', child: Text('Reserva')),
+                    DropdownMenuItem(
+                      value: 'instalacion',
+                      child: Text('Instalación'),
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                    child: DropdownButtonFormField<String>(
-                      key: ValueKey('agenda-create-kind-$selectedKind'),
-                      initialValue: _normalizeAgendaKindValue(selectedKind),
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        border: OutlineInputBorder(),
-                        labelText: 'Fase de orden',
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'reserva',
-                          child: Text('Reserva'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'instalacion',
-                          child: Text('Instalación'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'mantenimiento',
-                          child: Text('Mantenimiento'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'garantia',
-                          child: Text('Garantía'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'levantamiento',
-                          child: Text('Levantamiento'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() => selectedKind = value);
-                      },
+                    DropdownMenuItem(
+                      value: 'mantenimiento',
+                      child: Text('Mantenimiento'),
                     ),
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: _CreateReservationTab(
-                      onCreate: (draft) async {
-                        final ok = await onCreateFromAgenda(
-                          draft,
-                          selectedKind,
-                        );
-                        if (ok && context.mounted) Navigator.pop(context);
-                      },
-                      submitLabel: submitLabel,
-                      initialServiceType: initialServiceType,
-                      showServiceTypeField: false,
+                    DropdownMenuItem(
+                      value: 'garantia',
+                      child: Text('Garantía'),
                     ),
-                  ),
-                ],
+                    DropdownMenuItem(
+                      value: 'levantamiento',
+                      child: Text('Levantamiento'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setDialogState(() => selectedKind = value);
+                  },
+                ),
+                child: _CreateReservationTab(
+                  onCreate: (draft) async {
+                    final ok = await onCreateFromAgenda(draft, selectedKind);
+                    if (ok && context.mounted) Navigator.pop(context);
+                  },
+                  submitLabel: submitLabel,
+                  initialServiceType: initialServiceType,
+                  showServiceTypeField: false,
+                ),
               );
             },
           );
@@ -7392,7 +7153,7 @@ class _AgendaTab extends StatelessWidget {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
+      showDragHandle: false,
       builder: (_) => SafeArea(
         child: StatefulBuilder(
           builder: (context, setSheetState) {
@@ -7402,89 +7163,55 @@ class _AgendaTab extends StatelessWidget {
               ),
               child: SizedBox(
                 height: MediaQuery.sizeOf(context).height * 0.92,
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              title,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () => Navigator.pop(context),
-                            icon: const Icon(Icons.close),
-                          ),
-                        ],
-                      ),
+                child: CreateOrderModalShell(
+                  title: title,
+                  subtitle:
+                      'Configura la etapa de la orden y completa el formulario con una estructura más clara y profesional.',
+                  onClose: () => Navigator.pop(context),
+                  headerAccessory: DropdownButtonFormField<String>(
+                    key: ValueKey('agenda-create-kind-$selectedKind'),
+                    initialValue: _normalizeAgendaKindValue(selectedKind),
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: 'Fase de orden',
                     ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                      child: Text(
-                        'Crea una orden genérica. La etapa se puede ajustar luego en Detalles.',
-                        style: Theme.of(context).textTheme.bodySmall,
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'reserva',
+                        child: Text('Reserva'),
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                      child: DropdownButtonFormField<String>(
-                        key: ValueKey('agenda-create-kind-$selectedKind'),
-                        initialValue: _normalizeAgendaKindValue(selectedKind),
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          labelText: 'Fase de orden',
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'reserva',
-                            child: Text('Reserva'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'instalacion',
-                            child: Text('Instalación'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'mantenimiento',
-                            child: Text('Mantenimiento'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'garantia',
-                            child: Text('Garantía'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'levantamiento',
-                            child: Text('Levantamiento'),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setSheetState(() => selectedKind = value);
-                        },
+                      DropdownMenuItem(
+                        value: 'instalacion',
+                        child: Text('Instalación'),
                       ),
-                    ),
-                    const Divider(height: 1),
-                    Expanded(
-                      child: _CreateReservationTab(
-                        onCreate: (draft) async {
-                          final ok = await onCreateFromAgenda(
-                            draft,
-                            selectedKind,
-                          );
-                          if (ok && context.mounted) Navigator.pop(context);
-                        },
-                        submitLabel: submitLabel,
-                        initialServiceType: initialServiceType,
-                        showServiceTypeField: false,
+                      DropdownMenuItem(
+                        value: 'mantenimiento',
+                        child: Text('Mantenimiento'),
                       ),
-                    ),
-                  ],
+                      DropdownMenuItem(
+                        value: 'garantia',
+                        child: Text('Garantía'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'levantamiento',
+                        child: Text('Levantamiento'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setSheetState(() => selectedKind = value);
+                    },
+                  ),
+                  child: _CreateReservationTab(
+                    onCreate: (draft) async {
+                      final ok = await onCreateFromAgenda(draft, selectedKind);
+                      if (ok && context.mounted) Navigator.pop(context);
+                    },
+                    submitLabel: submitLabel,
+                    initialServiceType: initialServiceType,
+                    showServiceTypeField: false,
+                  ),
                 ),
               ),
             );
@@ -8444,6 +8171,86 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
         final isCompact = constraints.maxWidth < 430;
         final isWide = constraints.maxWidth >= 520;
         final formPadding = isCompact ? 10.0 : (isWide ? 12.0 : 14.0);
+        final theme = Theme.of(context);
+        final scheme = theme.colorScheme;
+
+        final formTheme = theme.copyWith(
+          inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: scheme.surface,
+            isDense: false,
+            alignLabelWithHint: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 14,
+            ),
+            helperMaxLines: 3,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(
+                color: scheme.outlineVariant.withValues(alpha: 0.45),
+              ),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(
+                color: scheme.outlineVariant.withValues(alpha: 0.45),
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: scheme.primary, width: 1.4),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: scheme.error),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: scheme.error, width: 1.4),
+            ),
+            labelStyle: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+            floatingLabelStyle: theme.textTheme.bodyMedium?.copyWith(
+              color: scheme.primary,
+              fontWeight: FontWeight.w800,
+            ),
+            helperStyle: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              height: 1.25,
+            ),
+          ),
+          filledButtonTheme: FilledButtonThemeData(
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(50),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              textStyle: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 14,
+              ),
+            ),
+          ),
+          outlinedButtonTheme: OutlinedButtonThemeData(
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(0, 46),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              side: BorderSide(
+                color: scheme.outlineVariant.withValues(alpha: 0.55),
+              ),
+              textStyle: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        );
 
         String money(double value) => NumberFormat.currency(
           locale: 'es_DO',
@@ -8684,234 +8491,188 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                 },
         );
 
-        return Form(
-          key: _formKey,
-          child: ListView(
-            padding: EdgeInsets.all(formPadding),
-            children: [
-              if (widget.showAgendaKindPicker && isWide) ...[
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: agendaKindPicker),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      flex: 2,
-                      child: Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Cliente',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w800,
+        return Theme(
+          data: formTheme,
+          child: Form(
+            key: _formKey,
+            child: ListView(
+              padding: EdgeInsets.all(formPadding),
+              children: [
+                CreateOrderSection(
+                  title: 'Datos principales',
+                  icon: Icons.auto_awesome_mosaic_outlined,
+                  subtitle:
+                      'Define el contexto base de la orden para completar el resto del formulario con claridad.',
+                  child: Column(
+                    children: [
+                      if (widget.showAgendaKindPicker) ...[
+                        agendaKindPicker,
+                        const SizedBox(height: 12),
+                      ],
+                      if (isWide)
+                        Row(
+                          children: [
+                            Expanded(child: reservationField),
+                            const SizedBox(width: 10),
+                            Expanded(child: priorityField),
+                          ],
+                        )
+                      else ...[
+                        reservationField,
+                        const SizedBox(height: 10),
+                        priorityField,
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                CreateOrderSection(
+                  title: 'Cliente',
+                  icon: Icons.person_outline_rounded,
+                  subtitle:
+                      'Selecciona el cliente y administra su contexto comercial antes de guardar la orden.',
+                  child: Column(
+                    children: [
+                      CreateOrderClientCard(
+                        title: _customerName ?? 'Sin cliente seleccionado',
+                        subtitle: _customerName == null
+                            ? 'Selecciona un cliente para completar teléfono, dirección y cotización.'
+                            : [
+                                if ((_customerPhone ?? '').trim().isNotEmpty)
+                                  _customerPhone!.trim(),
+                                if ((_addressCtrl.text).trim().isNotEmpty)
+                                  _addressCtrl.text.trim(),
+                              ].join(' · '),
+                        trailing: _checkingCotizaciones
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : (_hasCotizaciones
+                                  ? Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 6,
                                       ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      _customerName == null
-                                          ? 'Sin cliente seleccionado'
-                                          : _customerName!,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    if (_customerName != null) ...[
-                                      const SizedBox(height: 6),
-                                      if (_checkingCotizaciones)
-                                        const SizedBox(
-                                          width: 160,
-                                          child: LinearProgressIndicator(
-                                            minHeight: 2,
-                                          ),
-                                        )
-                                      else if (_hasCotizaciones)
-                                        Align(
-                                          alignment: Alignment.centerLeft,
-                                          child: OutlinedButton.icon(
-                                            onPressed: () {
-                                              final phone =
-                                                  (_customerPhone ?? '').trim();
-                                              if (phone.isEmpty) return;
-                                              context.push(
-                                                '${Routes.cotizacionesHistorial}?customerPhone=${Uri.encodeQueryComponent(phone)}&pick=0',
-                                              );
-                                            },
-                                            icon: const Icon(
-                                              Icons.receipt_long_outlined,
-                                            ),
-                                            label: const Text(
-                                              'Ver cotizaciones',
-                                            ),
-                                          ),
+                                      decoration: BoxDecoration(
+                                        color: scheme.primary.withValues(
+                                          alpha: 0.10,
                                         ),
-                                    ],
-                                  ],
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        'Cotización',
+                                        style: theme.textTheme.labelSmall
+                                            ?.copyWith(
+                                              color: scheme.primary,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                      ),
+                                    )
+                                  : null),
+                        actions: [
+                          FilledButton.tonalIcon(
+                            onPressed: _openClientPicker,
+                            icon: const Icon(Icons.person_search_outlined),
+                            label: const Text('Cliente'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: (_customerId ?? '').trim().isEmpty
+                                ? null
+                                : () async {
+                                    final id = _customerId!;
+                                    await context.push(Routes.clienteEdit(id));
+                                    if (!mounted) return;
+                                    await _openClientPicker();
+                                  },
+                            icon: const Icon(Icons.edit_outlined, size: 18),
+                            label: const Text('Editar'),
+                          ),
+                          if (_customerName != null &&
+                              !_checkingCotizaciones &&
+                              _hasCotizaciones)
+                            OutlinedButton.icon(
+                              onPressed: () {
+                                final phone = (_customerPhone ?? '').trim();
+                                if (phone.isEmpty) return;
+                                context.push(
+                                  '${Routes.cotizacionesHistorial}?customerPhone=${Uri.encodeQueryComponent(phone)}&pick=0',
+                                );
+                              },
+                              icon: const Icon(Icons.receipt_long_outlined),
+                              label: const Text('Ver cotizaciones'),
+                            ),
+                        ],
+                      ),
+                      if (_customerName != null) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: scheme.surfaceContainerLowest,
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(
+                              color: scheme.outlineVariant.withValues(
+                                alpha: 0.4,
+                              ),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
+                                'Cotización',
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w900,
                                 ),
                               ),
-                              const SizedBox(width: 8),
+                              const SizedBox(height: 4),
+                              Text(
+                                _selectedCotizacion == null
+                                    ? (_hasCotizaciones
+                                          ? 'Selecciona una cotización existente o crea una nueva para completar el precio vendido.'
+                                          : 'Este cliente todavía no tiene cotizaciones guardadas.')
+                                    : 'Seleccionada: ${money(_selectedCotizacion!.total)} · ${DateFormat('dd/MM/yyyy HH:mm').format(_selectedCotizacion!.createdAt)}',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: scheme.onSurfaceVariant,
+                                  height: 1.25,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
                               Wrap(
                                 spacing: 8,
                                 runSpacing: 8,
-                                alignment: WrapAlignment.end,
                                 children: [
-                                  FilledButton.tonalIcon(
-                                    onPressed: _openClientPicker,
-                                    icon: const Icon(
-                                      Icons.person_search_outlined,
-                                    ),
-                                    label: const Text('Cliente'),
-                                  ),
                                   OutlinedButton.icon(
                                     onPressed:
-                                        (_customerId ?? '').trim().isEmpty
+                                        (_customerPhone ?? '').trim().isEmpty
                                         ? null
                                         : () async {
-                                            final id = _customerId!;
-                                            await context.push(
-                                              Routes.clienteEdit(id),
-                                            );
-                                            if (!mounted) return;
-                                            await _openClientPicker();
+                                            final picked =
+                                                await _openCotizacionPickerDialog();
+                                            if (!mounted || picked == null)
+                                              return;
+                                            setState(() {
+                                              _selectedCotizacion = picked;
+                                              _quotedCtrl.text = picked.total
+                                                  .toStringAsFixed(2);
+                                            });
                                           },
-                                    icon: const Icon(
-                                      Icons.edit_outlined,
-                                      size: 18,
-                                    ),
-                                    label: const Text('Editar'),
+                                    icon: const Icon(Icons.fact_check_outlined),
+                                    label: const Text('Seleccionar'),
                                   ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ] else ...[
-                if (widget.showAgendaKindPicker && !isCompact) ...[
-                  agendaKindPicker,
-                  const SizedBox(height: 10),
-                ],
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Cliente',
-                                style: TextStyle(fontWeight: FontWeight.w800),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                _customerName == null
-                                    ? 'Sin cliente seleccionado'
-                                    : _customerName!,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              if (_customerName != null) ...[
-                                const SizedBox(height: 8),
-                                if (_checkingCotizaciones)
-                                  const SizedBox(
-                                    width: 160,
-                                    child: LinearProgressIndicator(
-                                      minHeight: 2,
-                                    ),
-                                  )
-                                else if (_hasCotizaciones)
-                                  Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: OutlinedButton.icon(
-                                      onPressed: () {
-                                        final phone = (_customerPhone ?? '')
-                                            .trim();
-                                        if (phone.isEmpty) return;
-                                        context.push(
-                                          '${Routes.cotizacionesHistorial}?customerPhone=${Uri.encodeQueryComponent(phone)}&pick=0',
-                                        );
-                                      },
-                                      icon: const Icon(
-                                        Icons.receipt_long_outlined,
-                                      ),
-                                      label: const Text('Ver cotizaciones'),
-                                    ),
-                                  ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            FilledButton.tonalIcon(
-                              onPressed: _openClientPicker,
-                              icon: const Icon(Icons.person_search_outlined),
-                              label: const Text('Cliente'),
-                            ),
-                            const SizedBox(height: 8),
-                            OutlinedButton.icon(
-                              onPressed: (_customerId ?? '').trim().isEmpty
-                                  ? null
-                                  : () async {
-                                      final id = _customerId!;
+                                  OutlinedButton.icon(
+                                    onPressed: () async {
                                       await context.push(
-                                        Routes.clienteEdit(id),
+                                        _cotizacionesRouteForSelectedClient(),
                                       );
                                       if (!mounted) return;
-                                      await _openClientPicker();
-                                    },
-                              icon: const Icon(Icons.edit_outlined, size: 18),
-                              label: const Text('Editar'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-              if (_customerName != null) ...[
-                const SizedBox(height: 10),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const Text(
-                          'Cotización',
-                          style: TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          _selectedCotizacion == null
-                              ? (_hasCotizaciones
-                                    ? 'Selecciona una cotización o crea una nueva.'
-                                    : 'Este cliente no tiene cotizaciones guardadas.')
-                              : 'Seleccionada: ${money(_selectedCotizacion!.total)} · ${DateFormat('dd/MM/yyyy HH:mm').format(_selectedCotizacion!.createdAt)}',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: (_customerPhone ?? '').trim().isEmpty
-                                  ? null
-                                  : () async {
+                                      await _checkCotizacionesForSelectedClient();
                                       final picked =
                                           await _openCotizacionPickerDialog();
                                       if (!mounted || picked == null) return;
@@ -8921,191 +8682,177 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                                             .toStringAsFixed(2);
                                       });
                                     },
-                              icon: const Icon(Icons.fact_check_outlined),
-                              label: const Text('Seleccionar'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                await context.push(
-                                  _cotizacionesRouteForSelectedClient(),
-                                );
-                                if (!mounted) return;
-                                await _checkCotizacionesForSelectedClient();
-                                final picked =
-                                    await _openCotizacionPickerDialog();
-                                if (!mounted || picked == null) return;
-                                setState(() {
-                                  _selectedCotizacion = picked;
-                                  _quotedCtrl.text = picked.total
-                                      .toStringAsFixed(2);
-                                });
-                              },
-                              icon: const Icon(Icons.add_box_outlined),
-                              label: const Text('Crear'),
-                            ),
-                          ],
+                                    icon: const Icon(Icons.add_box_outlined),
+                                    label: const Text('Crear'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ],
-                    ),
+                    ],
                   ),
                 ),
-              ],
-              const SizedBox(height: 10),
-              if (isWide)
-                Row(
-                  children: [
-                    Expanded(child: reservationField),
-                    const SizedBox(width: 8),
-                    Expanded(child: priorityField),
-                  ],
-                )
-              else
-                reservationField,
-              const SizedBox(height: 10),
-
-              if (isCompact) ...[
-                if (widget.showServiceTypeField) ...[
-                  serviceTypeField,
-                  const SizedBox(height: 8),
-                ],
-                categoryField,
-              ] else ...[
-                if (widget.showServiceTypeField) ...[
-                  if (isWide)
-                    serviceTypeField
-                  else
-                    Row(
-                      children: [
-                        Expanded(child: serviceTypeField),
-                        const SizedBox(width: 8),
-                        Expanded(child: categoryField),
+                const SizedBox(height: 12),
+                CreateOrderSection(
+                  title: 'Programación',
+                  icon: Icons.event_available_outlined,
+                  subtitle:
+                      'Controla el estado operativo de la orden y asigna el técnico responsable.',
+                  child: Column(
+                    children: [
+                      if (isWide)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: orderStateField),
+                            const SizedBox(width: 10),
+                            Expanded(child: technicianField),
+                          ],
+                        )
+                      else ...[
+                        orderStateField,
+                        const SizedBox(height: 10),
+                        technicianField,
                       ],
-                    ),
-                ] else ...[
-                  if (!isWide) categoryField,
-                ],
-              ],
-              if (!isWide) ...[const SizedBox(height: 10), priorityField],
-              const SizedBox(height: 10),
-              if (!isCompact && isWide)
-                Row(
-                  children: [
-                    Expanded(child: categoryField),
-                    const SizedBox(width: 8),
-                    Expanded(child: orderStateField),
-                    const SizedBox(width: 8),
-                    Expanded(child: technicianField),
-                  ],
-                )
-              else ...[
-                orderStateField,
-                const SizedBox(height: 10),
-                technicianField,
-              ],
-              if (!_loadingTechnicians && _technicians.isEmpty) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'No tienes técnicos registrados.',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: _saving
-                          ? null
-                          : () => context.push(Routes.users),
-                      icon: const Icon(Icons.person_add_alt_1_outlined),
-                      label: const Text('Crear técnico'),
-                    ),
-                  ],
+                      if (!_loadingTechnicians && _technicians.isEmpty) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: scheme.surfaceContainerLowest,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'No tienes técnicos registrados. Puedes guardar sin asignar o crear uno ahora.',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              OutlinedButton.icon(
+                                onPressed: _saving
+                                    ? null
+                                    : () => context.push(Routes.users),
+                                icon: const Icon(
+                                  Icons.person_add_alt_1_outlined,
+                                ),
+                                label: const Text('Crear técnico'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
-              ],
-              Builder(
-                builder: (context) {
-                  final kind = (widget.agendaKind ?? '').trim().toLowerCase();
-
-                  if (kind == 'garantia') {
-                    return Column(
-                      children: [
-                        const SizedBox(height: 10),
-                        TextFormField(
-                          controller: _relatedServiceCtrl,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            labelText:
-                                'Orden anterior / Servicio relacionado (opcional)',
-                          ),
-                        ),
-                      ],
-                    );
-                  }
-
-                  if (kind == 'levantamiento') {
-                    return Column(
-                      children: [
-                        const SizedBox(height: 10),
-                        TextFormField(
-                          controller: _surveyResultCtrl,
-                          minLines: 2,
-                          maxLines: 4,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            labelText: 'Resultado del levantamiento (opcional)',
-                          ),
-                        ),
-                      ],
-                    );
-                  }
-
-                  if (kind == 'servicio') {
-                    return Column(
-                      children: [
-                        const SizedBox(height: 10),
-                        TextFormField(
-                          controller: _materialsUsedCtrl,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            labelText: 'Material usado (opcional)',
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: _finalCostCtrl,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            labelText: 'Costo final (opcional)',
-                          ),
-                        ),
-                      ],
-                    );
-                  }
-
-                  return const SizedBox.shrink();
-                },
-              ),
-              const SizedBox(height: 10),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
+                const SizedBox(height: 12),
+                CreateOrderSection(
+                  title: 'Clasificación del servicio',
+                  icon: Icons.category_outlined,
+                  subtitle:
+                      'Clasifica correctamente la orden para que el flujo operativo quede bien definido.',
+                  child: Column(
+                    children: [
+                      if (widget.showServiceTypeField) ...[
+                        if (isWide)
+                          Row(
+                            children: [
+                              Expanded(child: serviceTypeField),
+                              const SizedBox(width: 10),
+                              Expanded(child: categoryField),
+                            ],
+                          )
+                        else ...[
+                          serviceTypeField,
+                          const SizedBox(height: 10),
+                          categoryField,
+                        ],
+                      ] else
+                        categoryField,
+                      Builder(
+                        builder: (context) {
+                          final kind = (widget.agendaKind ?? '')
+                              .trim()
+                              .toLowerCase();
+                          if (kind == 'garantia') {
+                            return Column(
+                              children: [
+                                const SizedBox(height: 10),
+                                TextFormField(
+                                  controller: _relatedServiceCtrl,
+                                  decoration: const InputDecoration(
+                                    border: OutlineInputBorder(),
+                                    labelText:
+                                        'Orden anterior / Servicio relacionado (opcional)',
+                                  ),
+                                ),
+                              ],
+                            );
+                          }
+                          if (kind == 'levantamiento') {
+                            return Column(
+                              children: [
+                                const SizedBox(height: 10),
+                                TextFormField(
+                                  controller: _surveyResultCtrl,
+                                  minLines: 2,
+                                  maxLines: 4,
+                                  decoration: const InputDecoration(
+                                    border: OutlineInputBorder(),
+                                    labelText:
+                                        'Resultado del levantamiento (opcional)',
+                                  ),
+                                ),
+                              ],
+                            );
+                          }
+                          if (kind == 'servicio') {
+                            return Column(
+                              children: [
+                                const SizedBox(height: 10),
+                                TextFormField(
+                                  controller: _materialsUsedCtrl,
+                                  decoration: const InputDecoration(
+                                    border: OutlineInputBorder(),
+                                    labelText: 'Material usado (opcional)',
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                TextFormField(
+                                  controller: _finalCostCtrl,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                  decoration: const InputDecoration(
+                                    border: OutlineInputBorder(),
+                                    labelText: 'Costo final (opcional)',
+                                  ),
+                                ),
+                              ],
+                            );
+                          }
+                          return const SizedBox.shrink();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                CreateOrderSection(
+                  title: 'Referencias del cliente',
+                  icon: Icons.perm_media_outlined,
+                  subtitle:
+                      'Agrega el contexto visual y descriptivo que el técnico necesita antes de salir a la visita.',
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Text(
-                        'Referencias del cliente',
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Texto: obligatorio. Fotos y/o video: opcional (si el cliente envió referencias).',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 10),
                       TextFormField(
                         controller: _referenceTextCtrl,
                         decoration: const InputDecoration(
@@ -9120,136 +8867,17 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                           return null;
                         },
                       ),
-                      if (_referenceImages.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        Text(
-                          'Fotos seleccionadas: ${_referenceImages.length}',
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        const SizedBox(height: 8),
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: List.generate(_referenceImages.length, (
-                              index,
-                            ) {
-                              final f = _referenceImages[index];
-                              return Padding(
-                                padding: EdgeInsets.only(
-                                  right: index == _referenceImages.length - 1
-                                      ? 0
-                                      : 8,
-                                ),
-                                child: Stack(
-                                  children: [
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: Container(
-                                        width: 92,
-                                        height: 92,
-                                        decoration: BoxDecoration(
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.surfaceContainerHighest,
-                                          border: Border.all(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .outline
-                                                .withValues(alpha: 0.25),
-                                          ),
-                                        ),
-                                        child: (f.bytes != null)
-                                            ? Image.memory(
-                                                f.bytes!,
-                                                fit: BoxFit.cover,
-                                              )
-                                            : Center(
-                                                child: Icon(
-                                                  Icons.image_outlined,
-                                                  color: Theme.of(context)
-                                                      .colorScheme
-                                                      .onSurface
-                                                      .withValues(alpha: 0.65),
-                                                ),
-                                              ),
-                                      ),
-                                    ),
-                                    Positioned(
-                                      top: 4,
-                                      right: 4,
-                                      child: InkWell(
-                                        onTap: () =>
-                                            _removeReferenceImageAt(index),
-                                        borderRadius: BorderRadius.circular(
-                                          999,
-                                        ),
-                                        child: Container(
-                                          padding: const EdgeInsets.all(4),
-                                          decoration: BoxDecoration(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .surface
-                                                .withValues(alpha: 0.9),
-                                            borderRadius: BorderRadius.circular(
-                                              999,
-                                            ),
-                                            border: Border.all(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .outline
-                                                  .withValues(alpha: 0.25),
-                                            ),
-                                          ),
-                                          child: const Icon(
-                                            Icons.close_rounded,
-                                            size: 16,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }),
-                          ),
-                        ),
-                      ],
-                      if (_referenceVideo != null) ...[
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            const Icon(Icons.videocam_outlined, size: 18),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                'Video: ${_referenceVideo!.name}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            IconButton(
-                              tooltip: 'Quitar video',
-                              onPressed: () {
-                                setState(() => _referenceVideo = null);
-                                _clearReferenceVideoPreview();
-                              },
-                              icon: const Icon(Icons.delete_outline),
-                            ),
-                          ],
-                        ),
-                        _buildReferenceVideoPreview(),
-                      ],
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 12),
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          OutlinedButton.icon(
+                          FilledButton.tonalIcon(
                             onPressed: _pickReferenceImages,
                             icon: const Icon(Icons.photo_library_outlined),
                             label: const Text('Agregar fotos'),
                           ),
-                          OutlinedButton.icon(
+                          FilledButton.tonalIcon(
                             onPressed: _pickReferenceVideo,
                             icon: const Icon(Icons.videocam_outlined),
                             label: Text(
@@ -9275,247 +8903,423 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                           ),
                         ],
                       ),
+                      if (_referenceImages.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'Fotos seleccionadas: ${_referenceImages.length}',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: List.generate(_referenceImages.length, (
+                              index,
+                            ) {
+                              final f = _referenceImages[index];
+                              return Padding(
+                                padding: EdgeInsets.only(
+                                  right: index == _referenceImages.length - 1
+                                      ? 0
+                                      : 8,
+                                ),
+                                child: Stack(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(14),
+                                      child: Container(
+                                        width: 96,
+                                        height: 96,
+                                        decoration: BoxDecoration(
+                                          color: scheme.surfaceContainerHighest,
+                                          border: Border.all(
+                                            color: scheme.outline.withValues(
+                                              alpha: 0.25,
+                                            ),
+                                          ),
+                                        ),
+                                        child: (f.bytes != null)
+                                            ? Image.memory(
+                                                f.bytes!,
+                                                fit: BoxFit.cover,
+                                              )
+                                            : Center(
+                                                child: Icon(
+                                                  Icons.image_outlined,
+                                                  color: scheme.onSurface
+                                                      .withValues(alpha: 0.65),
+                                                ),
+                                              ),
+                                      ),
+                                    ),
+                                    Positioned(
+                                      top: 4,
+                                      right: 4,
+                                      child: InkWell(
+                                        onTap: () =>
+                                            _removeReferenceImageAt(index),
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                        child: Container(
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: BoxDecoration(
+                                            color: scheme.surface.withValues(
+                                              alpha: 0.92,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
+                                            border: Border.all(
+                                              color: scheme.outline.withValues(
+                                                alpha: 0.25,
+                                              ),
+                                            ),
+                                          ),
+                                          child: const Icon(
+                                            Icons.close_rounded,
+                                            size: 16,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ),
+                        ),
+                      ],
+                      if (_referenceVideo != null) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            const Icon(Icons.videocam_outlined, size: 18),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Video: ${_referenceVideo!.name}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Quitar video',
+                              onPressed: () {
+                                setState(() => _referenceVideo = null);
+                                _clearReferenceVideoPreview();
+                              },
+                              icon: const Icon(Icons.delete_outline),
+                            ),
+                          ],
+                        ),
+                        _buildReferenceVideoPreview(),
+                      ],
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              if (isWide)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: addressField),
-                    const SizedBox(width: 8),
-                    Expanded(child: gpsField),
-                  ],
-                )
-              else ...[
-                addressField,
-                const SizedBox(height: 10),
-                gpsField,
-              ],
-              if (_gpsPoint != null) ...[
-                const SizedBox(height: 10),
-                _GpsMapPreviewCard(
-                  point: _gpsPoint!,
-                  onOpen: () {
-                    final point = _gpsPoint;
-                    if (point == null) return;
-                    _openGpsFullScreen(point);
-                  },
-                  onNavigate: () {
-                    final point = _gpsPoint;
-                    if (point == null) return;
-                    _openBestNavigation(context, point);
-                  },
-                ),
-              ],
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _descriptionCtrl,
-                minLines: 2,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Nota (opcional)',
-                ),
-              ),
-              const SizedBox(height: 10),
-              if (isCompact) ...[
-                TextFormField(
-                  controller: _quotedCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    labelText: 'Precio vendido',
-                  ),
-                  validator: _requiredPriceValidator,
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _depositCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    labelText: 'Abono (señal)',
-                    helperText: 'Si hay abono, se marca como SEGURO',
-                  ),
-                ),
-              ] else
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _quotedCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          labelText: 'Precio vendido',
-                        ),
-                        validator: _requiredPriceValidator,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _depositCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          labelText: 'Abono (señal)',
-                          helperText: 'Si hay abono, se marca como SEGURO',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: _paymentStatus,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Estado de pago',
-                ),
-                items: const [
-                  DropdownMenuItem(
-                    value: 'pendiente',
-                    child: Text('Pendiente'),
-                  ),
-                  DropdownMenuItem(value: 'pagado', child: Text('Pagado')),
-                ],
-                onChanged: (value) {
-                  final next = (value ?? 'pendiente').trim().toLowerCase();
-                  setState(() {
-                    _paymentStatus = next;
-                    if (next != 'pagado') _paidAmountCtrl.clear();
-                  });
-                },
-              ),
-              if (_paymentStatus == 'pagado') ...[
-                const SizedBox(height: 8),
-                if (isCompact) ...[
-                  TextFormField(
-                    controller: _paidAmountCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      labelText: 'Monto pagado',
-                    ),
-                    validator: (value) {
-                      if (_paymentStatus != 'pagado') return null;
-                      final raw = (value ?? '').trim();
-                      if (raw.isEmpty) return 'Requerido';
-                      final parsed = double.tryParse(raw);
-                      if (parsed == null || parsed <= 0) return 'Requerido';
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    initialValue: _paymentMethod,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      labelText: 'Método de pago',
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'efectivo',
-                        child: Text('Efectivo'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'transferencia',
-                        child: Text('Transferencia'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'tarjeta',
-                        child: Text('Tarjeta'),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      setState(
-                        () => _paymentMethod = (value ?? 'efectivo')
-                            .trim()
-                            .toLowerCase(),
-                      );
-                    },
-                  ),
-                ] else
-                  Row(
+                const SizedBox(height: 12),
+                CreateOrderSection(
+                  title: 'Ubicación',
+                  icon: Icons.place_outlined,
+                  subtitle:
+                      'Completa la dirección y el enlace GPS para que el técnico llegue con precisión.',
+                  child: Column(
                     children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _paidAmountCtrl,
+                      if (isWide)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: addressField),
+                            const SizedBox(width: 10),
+                            Expanded(child: gpsField),
+                          ],
+                        )
+                      else ...[
+                        addressField,
+                        const SizedBox(height: 10),
+                        gpsField,
+                      ],
+                      if (_gpsPoint != null) ...[
+                        const SizedBox(height: 12),
+                        _GpsMapPreviewCard(
+                          point: _gpsPoint!,
+                          onOpen: () {
+                            final point = _gpsPoint;
+                            if (point == null) return;
+                            _openGpsFullScreen(point);
+                          },
+                          onNavigate: () {
+                            final point = _gpsPoint;
+                            if (point == null) return;
+                            _openBestNavigation(context, point);
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                CreateOrderSection(
+                  title: 'Notas y observaciones',
+                  icon: Icons.notes_rounded,
+                  subtitle:
+                      'Agrega el contexto operativo o comercial que no debe perderse en la ejecución.',
+                  child: TextFormField(
+                    controller: _descriptionCtrl,
+                    minLines: 3,
+                    maxLines: 5,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: 'Nota (opcional)',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                CreateOrderSection(
+                  title: 'Datos económicos',
+                  icon: Icons.payments_outlined,
+                  subtitle:
+                      'Completa el valor comercial y el estado de cobro sin afectar la lógica actual del formulario.',
+                  child: Column(
+                    children: [
+                      if (isCompact) ...[
+                        TextFormField(
+                          controller: _quotedCtrl,
                           keyboardType: const TextInputType.numberWithOptions(
                             decimal: true,
                           ),
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
-                            labelText: 'Monto pagado',
+                            labelText: 'Precio vendido',
                           ),
-                          validator: (value) {
-                            if (_paymentStatus != 'pagado') return null;
-                            final raw = (value ?? '').trim();
-                            if (raw.isEmpty) return 'Requerido';
-                            final parsed = double.tryParse(raw);
-                            if (parsed == null || parsed <= 0) {
-                              return 'Requerido';
-                            }
-                            return null;
-                          },
+                          validator: _requiredPriceValidator,
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _paymentMethod,
+                        const SizedBox(height: 10),
+                        TextFormField(
+                          controller: _depositCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
-                            labelText: 'Método de pago',
+                            labelText: 'Abono (señal)',
+                            helperText: 'Si hay abono, se marca como SEGURO',
                           ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'efectivo',
-                              child: Text('Efectivo'),
+                        ),
+                      ] else
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                controller: _quotedCtrl,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                decoration: const InputDecoration(
+                                  border: OutlineInputBorder(),
+                                  labelText: 'Precio vendido',
+                                ),
+                                validator: _requiredPriceValidator,
+                              ),
                             ),
-                            DropdownMenuItem(
-                              value: 'transferencia',
-                              child: Text('Transferencia'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'tarjeta',
-                              child: Text('Tarjeta'),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextFormField(
+                                controller: _depositCtrl,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                decoration: const InputDecoration(
+                                  border: OutlineInputBorder(),
+                                  labelText: 'Abono (señal)',
+                                  helperText:
+                                      'Si hay abono, se marca como SEGURO',
+                                ),
+                              ),
                             ),
                           ],
-                          onChanged: (value) {
-                            setState(
-                              () => _paymentMethod = (value ?? 'efectivo')
-                                  .trim()
-                                  .toLowerCase(),
-                            );
-                          },
+                        ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        initialValue: _paymentStatus,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Estado de pago',
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'pendiente',
+                            child: Text('Pendiente'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'pagado',
+                            child: Text('Pagado'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          final next = (value ?? 'pendiente')
+                              .trim()
+                              .toLowerCase();
+                          setState(() {
+                            _paymentStatus = next;
+                            if (next != 'pagado') _paidAmountCtrl.clear();
+                          });
+                        },
+                      ),
+                      if (_paymentStatus == 'pagado') ...[
+                        const SizedBox(height: 10),
+                        if (isCompact) ...[
+                          TextFormField(
+                            controller: _paidAmountCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              labelText: 'Monto pagado',
+                            ),
+                            validator: (value) {
+                              if (_paymentStatus != 'pagado') return null;
+                              final raw = (value ?? '').trim();
+                              if (raw.isEmpty) return 'Requerido';
+                              final parsed = double.tryParse(raw);
+                              if (parsed == null || parsed <= 0)
+                                return 'Requerido';
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 10),
+                          DropdownButtonFormField<String>(
+                            initialValue: _paymentMethod,
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              labelText: 'Método de pago',
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'efectivo',
+                                child: Text('Efectivo'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'transferencia',
+                                child: Text('Transferencia'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'tarjeta',
+                                child: Text('Tarjeta'),
+                              ),
+                            ],
+                            onChanged: (value) {
+                              setState(
+                                () => _paymentMethod = (value ?? 'efectivo')
+                                    .trim()
+                                    .toLowerCase(),
+                              );
+                            },
+                          ),
+                        ] else
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextFormField(
+                                  controller: _paidAmountCtrl,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                  decoration: const InputDecoration(
+                                    border: OutlineInputBorder(),
+                                    labelText: 'Monto pagado',
+                                  ),
+                                  validator: (value) {
+                                    if (_paymentStatus != 'pagado') return null;
+                                    final raw = (value ?? '').trim();
+                                    if (raw.isEmpty) return 'Requerido';
+                                    final parsed = double.tryParse(raw);
+                                    if (parsed == null || parsed <= 0)
+                                      return 'Requerido';
+                                    return null;
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: DropdownButtonFormField<String>(
+                                  initialValue: _paymentMethod,
+                                  decoration: const InputDecoration(
+                                    border: OutlineInputBorder(),
+                                    labelText: 'Método de pago',
+                                  ),
+                                  items: const [
+                                    DropdownMenuItem(
+                                      value: 'efectivo',
+                                      child: Text('Efectivo'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'transferencia',
+                                      child: Text('Transferencia'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'tarjeta',
+                                      child: Text('Tarjeta'),
+                                    ),
+                                  ],
+                                  onChanged: (value) {
+                                    setState(
+                                      () =>
+                                          _paymentMethod = (value ?? 'efectivo')
+                                              .trim()
+                                              .toLowerCase(),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                CreateOrderFooterBar(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Revisa los datos principales antes de guardar. Las validaciones y el flujo actual se mantienen sin cambios.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          height: 1.3,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: _saving ? null : _save,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: scheme.primary,
+                          foregroundColor: scheme.onPrimary,
+                          elevation: 1,
+                          shadowColor: scheme.primary.withValues(alpha: 0.25),
+                        ),
+                        icon: const Icon(Icons.save_outlined),
+                        label: Text(
+                          _saving ? 'Guardando...' : widget.submitLabel,
                         ),
                       ),
                     ],
                   ),
+                ),
               ],
-
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: const Icon(Icons.save_outlined),
-                label: Text(_saving ? 'Guardando...' : widget.submitLabel),
-              ),
-            ],
+            ),
           ),
         );
       },

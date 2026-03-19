@@ -255,6 +255,12 @@ enum ServiceClosingSignatureStatus {
   SKIPPED
 }
 
+enum WarrantyDurationUnit {
+  DAYS
+  MONTHS
+  YEARS
+}
+
 model User {
   id               String   @id @default(uuid()) @db.Uuid
   email            String   @unique
@@ -328,6 +334,7 @@ model User {
   technicalVisits TechnicalVisit[] @relation("TechnicalVisitTechnician")
 
   workEmployeeConfig WorkEmployeeConfig?
+  warrantyProductConfigs WarrantyProductConfig[]
 
   @@map("users")
 }
@@ -435,6 +442,7 @@ model ServiceCategory {
 
   services  Service[]
   templates ChecklistTemplate[]
+  warrantyConfigs WarrantyProductConfig[]
 
   @@index([name])
   @@map("service_categories")
@@ -982,6 +990,36 @@ model ServiceClosing {
   @@index([signatureStatus])
   @@index([approvedAt])
   @@index([signedAt])
+}
+
+model WarrantyProductConfig {
+  id                String               @id @default(uuid()) @db.Uuid
+  ownerId           String               @db.Uuid @map("owner_id")
+  categoryId        String?              @db.Uuid @map("category_id")
+  categoryCode      String?              @map("category_code")
+  categoryName      String?              @map("category_name")
+  productName       String?              @map("product_name")
+  productKey        String?              @map("product_key")
+  hasWarranty       Boolean              @default(true) @map("has_warranty")
+  durationValue     Int?                 @map("duration_value")
+  durationUnit      WarrantyDurationUnit? @map("duration_unit")
+  warrantySummary   String?              @db.Text @map("warranty_summary")
+  coverageSummary   String?              @db.Text @map("coverage_summary")
+  exclusionsSummary String?              @db.Text @map("exclusions_summary")
+  notes             String?              @db.Text
+  isActive          Boolean              @default(true) @map("is_active")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+
+  owner    User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  category ServiceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId])
+  @@index([ownerId, isActive])
+  @@index([ownerId, categoryId])
+  @@index([ownerId, categoryCode])
+  @@index([ownerId, productKey])
+  @@map("warranty_product_configs")
 }
 
 model TechnicalVisit {

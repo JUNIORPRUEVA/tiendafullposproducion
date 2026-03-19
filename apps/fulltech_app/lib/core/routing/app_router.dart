@@ -15,6 +15,7 @@ import '../../features/operaciones/tecnico/technical_service_phase_router_screen
 import '../../features/salidas_tecnicas/tecnico_salidas_screen.dart';
 import '../../features/operaciones/operaciones_mapa_clientes_screen.dart';
 import '../../features/operaciones/operaciones_checklist_config_screen.dart';
+import '../../features/operaciones/operaciones_warranty_config_screen.dart';
 import '../../features/operaciones/operaciones_reglas_screen.dart';
 import '../../features/contabilidad/contabilidad_screen.dart';
 import '../../features/contabilidad/cierres_diarios_screen.dart';
@@ -155,7 +156,13 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: Routes.operacionesChecklistConfig,
-            builder: (context, state) => const OperacionesChecklistConfigScreen(),
+            builder: (context, state) =>
+                const OperacionesChecklistConfigScreen(),
+          ),
+          GoRoute(
+            path: Routes.operacionesWarrantyConfig,
+            builder: (context, state) =>
+                const OperacionesWarrantyConfigScreen(),
           ),
           GoRoute(
             path: Routes.catalogo,

@@ -561,8 +561,8 @@ class ServiceModel {
       description: (json['description'] ?? '').toString(),
       serviceType: (json['serviceType'] ?? 'other').toString(),
       category: (json['category'] ?? '').toString(),
-        categoryId: json['categoryId']?.toString(),
-        categoryName: json['categoryName']?.toString(),
+      categoryId: json['categoryId']?.toString(),
+      categoryName: json['categoryName']?.toString(),
       status: (json['status'] ?? 'reserved').toString(),
       currentPhase: (json['currentPhase'] ?? json['phase'] ?? 'reserva')
           .toString(),
@@ -804,6 +804,124 @@ class ServiceChecklistPhaseModel {
       code: (json['code'] ?? '').toString(),
       orderIndex: (json['orderIndex'] as num?)?.toInt() ?? 0,
     );
+  }
+}
+
+enum WarrantyDurationUnitModel { days, months, years }
+
+WarrantyDurationUnitModel warrantyDurationUnitFromRaw(dynamic raw) {
+  switch ((raw ?? '').toString().trim().toUpperCase()) {
+    case 'DAYS':
+      return WarrantyDurationUnitModel.days;
+    case 'YEARS':
+      return WarrantyDurationUnitModel.years;
+    case 'MONTHS':
+    default:
+      return WarrantyDurationUnitModel.months;
+  }
+}
+
+String warrantyDurationUnitCode(WarrantyDurationUnitModel unit) {
+  switch (unit) {
+    case WarrantyDurationUnitModel.days:
+      return 'DAYS';
+    case WarrantyDurationUnitModel.months:
+      return 'MONTHS';
+    case WarrantyDurationUnitModel.years:
+      return 'YEARS';
+  }
+}
+
+String warrantyDurationUnitLabel(WarrantyDurationUnitModel unit) {
+  switch (unit) {
+    case WarrantyDurationUnitModel.days:
+      return 'Días';
+    case WarrantyDurationUnitModel.months:
+      return 'Meses';
+    case WarrantyDurationUnitModel.years:
+      return 'Años';
+  }
+}
+
+class WarrantyProductConfigModel {
+  final String id;
+  final String? categoryId;
+  final String? categoryCode;
+  final String? categoryName;
+  final String? productName;
+  final bool hasWarranty;
+  final int? durationValue;
+  final WarrantyDurationUnitModel? durationUnit;
+  final String? warrantySummary;
+  final String? coverageSummary;
+  final String? exclusionsSummary;
+  final String? notes;
+  final bool isActive;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final String scopeLabel;
+
+  const WarrantyProductConfigModel({
+    required this.id,
+    required this.hasWarranty,
+    required this.isActive,
+    required this.scopeLabel,
+    this.categoryId,
+    this.categoryCode,
+    this.categoryName,
+    this.productName,
+    this.durationValue,
+    this.durationUnit,
+    this.warrantySummary,
+    this.coverageSummary,
+    this.exclusionsSummary,
+    this.notes,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  factory WarrantyProductConfigModel.fromJson(Map<String, dynamic> json) {
+    DateTime? parseDate(dynamic raw) {
+      if (raw == null) return null;
+      return DateTime.tryParse(raw.toString());
+    }
+
+    String? parseText(dynamic raw) {
+      final value = (raw ?? '').toString().trim();
+      return value.isEmpty ? null : value;
+    }
+
+    return WarrantyProductConfigModel(
+      id: (json['id'] ?? '').toString(),
+      categoryId: parseText(json['categoryId']),
+      categoryCode: parseText(json['categoryCode']),
+      categoryName: parseText(json['categoryName']),
+      productName: parseText(json['productName']),
+      hasWarranty: json['hasWarranty'] != false,
+      durationValue: (json['durationValue'] as num?)?.toInt(),
+      durationUnit: json['durationUnit'] == null
+          ? null
+          : warrantyDurationUnitFromRaw(json['durationUnit']),
+      warrantySummary: parseText(json['warrantySummary']),
+      coverageSummary: parseText(json['coverageSummary']),
+      exclusionsSummary: parseText(json['exclusionsSummary']),
+      notes: parseText(json['notes']),
+      isActive: json['isActive'] != false,
+      createdAt: parseDate(json['createdAt']),
+      updatedAt: parseDate(json['updatedAt']),
+      scopeLabel:
+          parseText(json['scopeLabel']) ??
+          parseText(json['productName']) ??
+          'Garantía general',
+    );
+  }
+
+  String get durationLabel {
+    if (!hasWarranty) return 'Sin garantía comercial adicional';
+    if (durationValue == null || durationUnit == null || durationValue! <= 0) {
+      return 'Garantía según configuración';
+    }
+    return '$durationValue ${warrantyDurationUnitLabel(durationUnit!)}';
   }
 }
 

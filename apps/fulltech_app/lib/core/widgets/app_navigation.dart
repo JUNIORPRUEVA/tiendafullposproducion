@@ -133,6 +133,13 @@ List<AppNavigationSection> buildAppNavigationSections(
             title: 'Checklist operativo',
             route: Routes.operacionesChecklistConfig,
           ),
+        if (can(AppPermission.viewAdminPanel) &&
+            can(AppPermission.viewOperations))
+          const AppNavigationItem(
+            icon: Icons.verified_user_outlined,
+            title: 'Garantías operativas',
+            route: Routes.operacionesWarrantyConfig,
+          ),
       ],
     ),
     AppNavigationSection(
@@ -220,6 +227,7 @@ String resolveNavigationTitle(
   if (path == Routes.operacionesAgenda) return 'Agenda de operaciones';
   if (path == Routes.operacionesMapaClientes) return 'Mapa de clientes';
   if (path == Routes.operacionesReglas) return 'Reglas operativas';
+  if (path == Routes.operacionesWarrantyConfig) return 'Garantías operativas';
   if (path == Routes.operacionesTecnico) return 'Mis servicios';
   if (path.startsWith('${Routes.operacionesTecnico}/')) {
     if (path.endsWith('/orden')) return 'Orden de servicio';
@@ -243,6 +251,8 @@ bool desktopShellShouldShowOwnAppBar(String location) {
   final path = Uri.tryParse(location)?.path ?? location;
   const routesWithOwnAppBar = <String>[
     Routes.operaciones,
+    Routes.operacionesChecklistConfig,
+    Routes.operacionesWarrantyConfig,
     Routes.operacionesTecnico,
     Routes.salidasTecnicas,
     Routes.ponche,

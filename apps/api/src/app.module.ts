@@ -25,6 +25,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { StorageModule } from './storage/storage.module';
 import { ServiceClosingModule } from './service-closing/service-closing.module';
 import { TechnicalVisitsModule } from './technical-visits/technical-visits.module';
+import { WarrantyConfigsModule } from './warranty-configs/warranty-configs.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { TechnicalVisitsModule } from './technical-visits/technical-visits.modul
     StorageModule,
     ServiceClosingModule,
     TechnicalVisitsModule,
+    WarrantyConfigsModule,
   ]
 })
 export class AppModule {}

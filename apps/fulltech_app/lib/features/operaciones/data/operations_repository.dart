@@ -833,8 +833,11 @@ class OperationsRepository {
   }
 
   String _formatDioError(DioException e, String fallback) {
-    return ApiErrorMapper.fromDio(e, fallbackMessage: fallback, dio: _dio)
-        .message;
+    return ApiErrorMapper.fromDio(
+      e,
+      fallbackMessage: fallback,
+      dio: _dio,
+    ).message;
   }
 
   ApiException _mapDioError(DioException error, String fallback) {
@@ -1967,6 +1970,195 @@ class OperationsRepository {
         payload: {'itemId': itemId, 'isChecked': isChecked},
       );
       return true;
+    }
+  }
+
+  Future<List<WarrantyProductConfigModel>> listWarrantyProductConfigs({
+    String? categoryId,
+    String? categoryCode,
+    String? search,
+    List<String>? products,
+    bool includeInactive = false,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.warrantyConfigs,
+        options: Options(responseType: ResponseType.plain),
+        queryParameters: {
+          if (categoryId != null && categoryId.trim().isNotEmpty)
+            'categoryId': categoryId.trim(),
+          if (categoryCode != null && categoryCode.trim().isNotEmpty)
+            'categoryCode': categoryCode.trim(),
+          if (search != null && search.trim().isNotEmpty)
+            'search': search.trim(),
+          if (products != null && products.isNotEmpty)
+            'products': products
+                .map((item) => item.trim())
+                .where((item) => item.isNotEmpty)
+                .join(','),
+          if (includeInactive) 'includeInactive': true,
+        },
+      );
+      final raw = _decodeJsonMap(res.data);
+      final items = raw['items'];
+      if (items is! List) return const [];
+      return items
+          .whereType<Map>()
+          .map(
+            (item) => WarrantyProductConfigModel.fromJson(
+              item.cast<String, dynamic>(),
+            ),
+          )
+          .toList(growable: false);
+    } on DioException catch (e) {
+      throw _mapDioError(
+        e,
+        'No se pudieron cargar las configuraciones de garantía',
+      );
+    } on FormatException catch (error) {
+      throw _mapParseError(
+        fallback: 'No se pudieron cargar las configuraciones de garantía',
+        method: 'GET',
+        path: ApiRoutes.warrantyConfigs,
+        error: error,
+      );
+    }
+  }
+
+  Future<WarrantyProductConfigModel> createWarrantyProductConfig({
+    String? categoryId,
+    String? categoryCode,
+    String? categoryName,
+    String? productName,
+    required bool hasWarranty,
+    int? durationValue,
+    WarrantyDurationUnitModel? durationUnit,
+    String? warrantySummary,
+    String? coverageSummary,
+    String? exclusionsSummary,
+    String? notes,
+    bool isActive = true,
+  }) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.warrantyConfigs,
+        data: {
+          if (categoryId != null && categoryId.trim().isNotEmpty)
+            'categoryId': categoryId.trim(),
+          if (categoryCode != null && categoryCode.trim().isNotEmpty)
+            'categoryCode': categoryCode.trim(),
+          if (categoryName != null && categoryName.trim().isNotEmpty)
+            'categoryName': categoryName.trim(),
+          if (productName != null && productName.trim().isNotEmpty)
+            'productName': productName.trim(),
+          'hasWarranty': hasWarranty,
+          if (durationValue != null) 'durationValue': durationValue,
+          if (durationUnit != null)
+            'durationUnit': warrantyDurationUnitCode(durationUnit),
+          if (warrantySummary != null && warrantySummary.trim().isNotEmpty)
+            'warrantySummary': warrantySummary.trim(),
+          if (coverageSummary != null && coverageSummary.trim().isNotEmpty)
+            'coverageSummary': coverageSummary.trim(),
+          if (exclusionsSummary != null && exclusionsSummary.trim().isNotEmpty)
+            'exclusionsSummary': exclusionsSummary.trim(),
+          if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+          'isActive': isActive,
+        },
+      );
+      return WarrantyProductConfigModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(
+          e.response?.data,
+          'No se pudo crear la configuración de garantía',
+        ),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<WarrantyProductConfigModel> updateWarrantyProductConfig({
+    required String id,
+    String? categoryId,
+    String? categoryCode,
+    String? categoryName,
+    String? productName,
+    required bool hasWarranty,
+    int? durationValue,
+    WarrantyDurationUnitModel? durationUnit,
+    String? warrantySummary,
+    String? coverageSummary,
+    String? exclusionsSummary,
+    String? notes,
+    required bool isActive,
+  }) async {
+    try {
+      final res = await _dio.patch(
+        ApiRoutes.warrantyConfigDetail(id),
+        data: {
+          'categoryId': categoryId,
+          'categoryCode': categoryCode,
+          'categoryName': categoryName,
+          'productName': productName,
+          'hasWarranty': hasWarranty,
+          'durationValue': durationValue,
+          'durationUnit': durationUnit == null
+              ? null
+              : warrantyDurationUnitCode(durationUnit),
+          'warrantySummary': warrantySummary,
+          'coverageSummary': coverageSummary,
+          'exclusionsSummary': exclusionsSummary,
+          'notes': notes,
+          'isActive': isActive,
+        },
+      );
+      return WarrantyProductConfigModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(
+          e.response?.data,
+          'No se pudo actualizar la configuración de garantía',
+        ),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<void> setWarrantyProductConfigActive({
+    required String id,
+    required bool isActive,
+  }) async {
+    try {
+      await _dio.patch(
+        ApiRoutes.warrantyConfigActive(id),
+        data: {'isActive': isActive},
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(
+          e.response?.data,
+          'No se pudo actualizar el estado de la garantía',
+        ),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<void> deleteWarrantyProductConfig(String id) async {
+    try {
+      await _dio.delete(ApiRoutes.warrantyConfigDetail(id));
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(
+          e.response?.data,
+          'No se pudo eliminar la configuración de garantía',
+        ),
+        e.response?.statusCode,
+      );
     }
   }
 

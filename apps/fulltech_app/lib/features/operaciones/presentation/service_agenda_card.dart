@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/utils/safe_url_launcher.dart';
@@ -5,6 +7,7 @@ import '../../../core/utils/safe_url_launcher.dart';
 import '../operations_models.dart';
 import '../../../core/utils/geo_utils.dart';
 import 'map_preview.dart';
+import 'operations_mobile_widgets.dart';
 import 'photo_preview.dart';
 import 'service_location_helpers.dart';
 import 'status_chip.dart';
@@ -135,6 +138,36 @@ class ServiceAgendaCard extends StatelessWidget {
         ? servicePhaseText
         : (adminPhaseRaw.isNotEmpty ? adminPhaseLabel(adminPhaseRaw) : '—');
 
+    if (!isDesktop) {
+      return OrderCard(
+        service: service,
+        subtitle: subtitle,
+        technicianText: technicianText,
+        scheduledText: scheduledText,
+        statusText: statusRaw,
+        phaseText: phaseText,
+        createdByShort: createdByShort,
+        onView: onView,
+        onChangeState: onChangeState,
+        onChangePhase: onChangePhase,
+        onOpenMaps: showLocationRow && location.canOpenMaps
+            ? () {
+                unawaited(_openMaps(context));
+              }
+            : null,
+        onChat: hasPhone
+            ? () {
+                unawaited(_openWhatsApp(context));
+              }
+            : null,
+        onCall: hasPhone
+            ? () {
+                unawaited(_callPhone(context));
+              }
+            : null,
+      );
+    }
+
     return Card(
       elevation: 1,
       clipBehavior: Clip.antiAlias,
@@ -144,9 +177,7 @@ class ServiceAgendaCard extends StatelessWidget {
       ),
       child: Padding(
         padding: EdgeInsets.all(
-          isDesktop
-              ? (isCompactCard ? 8 : 10)
-              : (isCompactCard ? 10 : 12),
+          isDesktop ? (isCompactCard ? 8 : 10) : (isCompactCard ? 10 : 12),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -159,12 +190,11 @@ class ServiceAgendaCard extends StatelessWidget {
                     customerName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: (isDesktop
-                            ? theme.textTheme.titleSmall
-                            : theme.textTheme.titleMedium)
-                        ?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
+                    style:
+                        (isDesktop
+                                ? theme.textTheme.titleSmall
+                                : theme.textTheme.titleMedium)
+                            ?.copyWith(fontWeight: FontWeight.w900),
                   ),
                 ),
                 const SizedBox(width: 8),
