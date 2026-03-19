@@ -664,7 +664,7 @@ class ServicePdfExporter {
     String? clientSignatureFileUrl,
     DateTime? clientSignedAt,
   }) async {
-    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: '\$');
     final dateFmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
     final dateOnlyFmt = DateFormat('dd/MM/yyyy', 'es');
 
@@ -959,7 +959,7 @@ class ServicePdfExporter {
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
         pw.Container(
-          padding: const pw.EdgeInsets.fromLTRB(14, 12, 14, 12),
+          padding: const pw.EdgeInsets.fromLTRB(12, 10, 12, 10),
           decoration: pw.BoxDecoration(
             color: PdfColors.white,
             borderRadius: const pw.BorderRadius.all(pw.Radius.circular(16)),
@@ -998,18 +998,9 @@ class ServicePdfExporter {
                         pw.Text(
                           'Especificaciones de la factura',
                           style: pw.TextStyle(
-                            fontSize: 11.2,
+                            fontSize: 10.2,
                             fontWeight: pw.FontWeight.bold,
                             color: _brandBlue,
-                          ),
-                        ),
-                        pw.SizedBox(height: 3),
-                        pw.Text(
-                          'Detalle claro de los productos o servicios incluidos en este documento.',
-                          style: pw.TextStyle(
-                            fontSize: 8.8,
-                            color: _textMuted,
-                            lineSpacing: 1.4,
                           ),
                         ),
                       ],
@@ -1017,7 +1008,7 @@ class ServicePdfExporter {
                   ),
                 ],
               ),
-              pw.SizedBox(height: 10),
+              pw.SizedBox(height: 8),
               pw.Table(
                 border: pw.TableBorder(
                   horizontalInside: pw.BorderSide(
@@ -1030,10 +1021,10 @@ class ServicePdfExporter {
                   ),
                 ),
                 columnWidths: {
-                  0: const pw.FlexColumnWidth(5.4),
-                  1: const pw.FixedColumnWidth(48),
-                  2: const pw.FixedColumnWidth(76),
-                  3: const pw.FixedColumnWidth(82),
+                  0: const pw.FlexColumnWidth(6.7),
+                  1: const pw.FixedColumnWidth(38),
+                  2: const pw.FixedColumnWidth(64),
+                  3: const pw.FixedColumnWidth(68),
                 },
                 children: [
                   pw.TableRow(
@@ -1049,16 +1040,19 @@ class ServicePdfExporter {
                         'Cant.',
                         header: true,
                         align: pw.TextAlign.right,
+                        compact: true,
                       ),
                       _invoiceTableCell(
                         'Precio',
                         header: true,
                         align: pw.TextAlign.right,
+                        compact: true,
                       ),
                       _invoiceTableCell(
                         'Total',
                         header: true,
                         align: pw.TextAlign.right,
+                        compact: true,
                       ),
                     ],
                   ),
@@ -1072,15 +1066,18 @@ class ServicePdfExporter {
                         _invoiceTableCell(
                           entry.value.$2,
                           align: pw.TextAlign.right,
+                          compact: true,
                         ),
                         _invoiceTableCell(
                           entry.value.$3,
                           align: pw.TextAlign.right,
+                          compact: true,
                         ),
                         _invoiceTableCell(
                           entry.value.$4,
                           align: pw.TextAlign.right,
                           emphasize: true,
+                          compact: true,
                         ),
                       ],
                     ),
@@ -1342,7 +1339,7 @@ class ServicePdfExporter {
         .toList(growable: false);
 
     return pw.Container(
-      padding: const pw.EdgeInsets.fromLTRB(12, 10, 12, 10),
+      padding: const pw.EdgeInsets.fromLTRB(10, 9, 10, 9),
       decoration: pw.BoxDecoration(
         color: PdfColors.white,
         borderRadius: const pw.BorderRadius.all(pw.Radius.circular(14)),
@@ -1354,25 +1351,25 @@ class ServicePdfExporter {
           pw.Text(
             title.toUpperCase(),
             style: pw.TextStyle(
-              fontSize: 8.8,
+              fontSize: 8.2,
               fontWeight: pw.FontWeight.bold,
               color: _brandBlue,
-              letterSpacing: 0.8,
+              letterSpacing: 0.6,
             ),
           ),
-          pw.SizedBox(height: 7),
+          pw.SizedBox(height: 5),
           ...visibleFields.map(
             (entry) => pw.Padding(
-              padding: const pw.EdgeInsets.only(bottom: 5),
+              padding: const pw.EdgeInsets.only(bottom: 3),
               child: pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
                   pw.SizedBox(
-                    width: 54,
+                    width: 44,
                     child: pw.Text(
                       entry.key,
                       style: pw.TextStyle(
-                        fontSize: 8,
+                        fontSize: 7.3,
                         color: _textMuted,
                         fontWeight: pw.FontWeight.bold,
                       ),
@@ -1382,7 +1379,9 @@ class ServicePdfExporter {
                   pw.Expanded(
                     child: pw.Text(
                       _safeText(entry.value),
-                      style: const pw.TextStyle(fontSize: 9.4),
+                      maxLines: 1,
+                      overflow: pw.TextOverflow.clip,
+                      style: const pw.TextStyle(fontSize: 8.4),
                     ),
                   ),
                 ],
@@ -1437,14 +1436,20 @@ class ServicePdfExporter {
     pw.TextAlign align = pw.TextAlign.left,
     bool header = false,
     bool emphasize = false,
+    bool compact = false,
   }) {
     return pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 9, vertical: 9),
+      padding: pw.EdgeInsets.symmetric(
+        horizontal: compact ? 6 : 8,
+        vertical: compact ? 7 : 8,
+      ),
       child: pw.Text(
         _safeText(text),
         textAlign: align,
+        maxLines: 1,
+        overflow: pw.TextOverflow.clip,
         style: pw.TextStyle(
-          fontSize: header ? 9.2 : 9.7,
+          fontSize: compact ? (header ? 8.2 : 8.5) : (header ? 9.2 : 9.1),
           fontWeight: header || emphasize
               ? pw.FontWeight.bold
               : pw.FontWeight.normal,
