@@ -1,4 +1,4 @@
-cimport 'dart:convert';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -614,12 +614,13 @@ class ServicePdfExporter {
         : (clientSignatureFileUrl ?? '').trim();
 
     final includeItbis = cotizacion?.includeItbis ?? false;
-    final itbisRate = cotizacion?.itbisRate ?? 0.18;
-    final subtotal = cotizacion?.subtotal ?? (service.quotedAmount ?? 0);
-    final itbisAmount = cotizacion != null
+    final double itbisRate = cotizacion?.itbisRate ?? 0.18;
+    final double subtotal =
+        cotizacion?.subtotal ?? (service.quotedAmount ?? 0.0);
+    final double itbisAmount = cotizacion != null
         ? cotizacion.itbisAmount
-        : (includeItbis ? subtotal * itbisRate : 0);
-    final total = cotizacion?.total ?? (subtotal + itbisAmount);
+        : (includeItbis ? subtotal * itbisRate : 0.0);
+    final double total = cotizacion?.total ?? (subtotal + itbisAmount);
 
     final serviceDate = service.completedAt ?? service.scheduledStart;
 

@@ -3569,7 +3569,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
               ? service.orderState
               : service.status;
           final status = ops.parseStatus(raw);
-          rarta tatus == ops.ServiceStatus.completed ||
+          return status == ops.ServiceStatus.completed ||
               status == ops.ServiceStatus.closed;
         })
         .toList(growable: false);

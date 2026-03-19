@@ -540,7 +540,7 @@ function drawSignature(doc: PdfDoc, data: SignatureCarrier) {
   doc.save();
   doc.roundedRect(left + 16, cardY + 48, 250, 52, 8).lineWidth(0.8).strokeColor(INVOICE_COLORS.line).stroke();
   doc.restore();
-  doc.image(data.signature.pngBytes, left + 24, cardY + 54, { fit: [234, 38], align: 'left', valign: 'center' });
+  doc.image(data.signature.pngBytes, left + 24, cardY + 54, { fit: [234, 38], valign: 'center' });
   doc.save();
   doc.moveTo(left + 16, cardY + 106).lineTo(left + 266, cardY + 106).lineWidth(0.8).strokeColor(INVOICE_COLORS.muted).stroke();
   doc.restore();

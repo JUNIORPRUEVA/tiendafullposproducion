@@ -23,7 +23,6 @@ import '../../../core/utils/local_file_bytes.dart';
 import '../../../core/widgets/app_drawer.dart';
 import '../../../modules/cotizaciones/cotizacion_models.dart';
 import '../../../modules/cotizaciones/data/cotizaciones_repository.dart';
-import '../data/operations_repository.dart';
 import '../operations_models.dart';
 import '../presentation/operations_back_button.dart';
 import '../presentation/operations_permissions.dart';
