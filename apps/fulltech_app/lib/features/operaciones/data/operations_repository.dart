@@ -1375,7 +1375,7 @@ class OperationsRepository {
         'items': items.map(_technicianToMap).toList(growable: false),
       });
       return items;
-    } on ApiException catch (error) {
+    } on ApiException {
       final cached = await getCachedTechnicians();
       if (cached != null && cached.isNotEmpty) {
         _techniciansCache = cached;

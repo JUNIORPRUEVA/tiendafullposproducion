@@ -12,7 +12,8 @@ import '../application/operations_controller.dart';
 import '../data/operations_repository.dart';
 import '../operations_models.dart';
 import '../presentation/service_location_helpers.dart';
-import 'widgets/technical_execution_cards.dart';
+import 'presentation/tech_operations_filters.dart';
+import 'widgets/service_order_detail_components.dart';
 
 final _serviceDetailProvider = FutureProvider.family<ServiceModel, String>((
   ref,
@@ -54,7 +55,7 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
   const ServiceOrderDetailScreen({super.key, required this.serviceId});
 
   String _fmtDate(DateTime? dt) {
-    if (dt == null) return '—';
+    if (dt == null) return '';
     final v = dt.toLocal();
     final d = v.day.toString().padLeft(2, '0');
     final m = v.month.toString().padLeft(2, '0');
@@ -62,10 +63,68 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
     return '$d/$m/$y';
   }
 
+  String _fmtDateTime(DateTime? dt) {
+    if (dt == null) return '';
+    final v = dt.toLocal();
+    final d = v.day.toString().padLeft(2, '0');
+    final m = v.month.toString().padLeft(2, '0');
+    final y = v.year.toString();
+    final hour = v.hour == 0 ? 12 : (v.hour > 12 ? v.hour - 12 : v.hour);
+    final minute = v.minute.toString().padLeft(2, '0');
+    final suffix = v.hour >= 12 ? 'PM' : 'AM';
+    return '$d/$m/$y · $hour:$minute $suffix';
+  }
+
   String _money(double? v) {
-    if (v == null) return '—';
+    if (v == null) return '';
     final safe = v.isNaN ? 0.0 : v;
     return 'RD\$${safe.toStringAsFixed(2)}';
+  }
+
+  String _clean(String? value) => (value ?? '').trim();
+
+  bool _hasText(String? value) => _clean(value).isNotEmpty;
+
+  ({Color background, Color foreground, IconData icon}) _statusTheme(
+    ServiceModel service,
+  ) {
+    final status = techOrderStatusFrom(service);
+    return (
+      background: techOrderStatusColor(status).withValues(alpha: 0.14),
+      foreground: techOrderStatusColor(status),
+      icon: techOrderStatusIcon(status),
+    );
+  }
+
+  ({Color background, Color foreground, IconData icon}) _paymentTheme(
+    String label,
+  ) {
+    switch (label.trim().toLowerCase()) {
+      case 'pagado':
+        return (
+          background: const Color(0xFFEAF8EF),
+          foreground: const Color(0xFF15803D),
+          icon: Icons.check_circle_rounded,
+        );
+      case 'abono recibido':
+        return (
+          background: const Color(0xFFEAF2FF),
+          foreground: const Color(0xFF0B6BDE),
+          icon: Icons.account_balance_wallet_rounded,
+        );
+      case 'pendiente':
+        return (
+          background: const Color(0xFFFFF3E6),
+          foreground: const Color(0xFFC77800),
+          icon: Icons.schedule_rounded,
+        );
+      default:
+        return (
+          background: const Color(0xFFF1F5F9),
+          foreground: const Color(0xFF64748B),
+          icon: Icons.help_outline_rounded,
+        );
+    }
   }
 
   ({double? total, double? deposit, double? balance, String status})
@@ -232,6 +291,204 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
     );
   }
 
+  List<Widget> _buildClientSection(ServiceModel service) {
+    final rows = <Widget>[];
+    final customerName = _clean(service.customerName);
+    final phone = _clean(service.customerPhone);
+
+    if (customerName.isNotEmpty) {
+      rows.add(
+        Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF2FF),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(Icons.person_rounded, color: Color(0xFF0B6BDE)),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Cliente',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF64758B),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    customerName,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF10233F),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (phone.isNotEmpty) {
+      if (rows.isNotEmpty) rows.add(const SizedBox(height: 10));
+      rows.add(
+        InfoRow(
+          label: 'Teléfono',
+          value: phone,
+          icon: Icons.call_outlined,
+          emphasize: true,
+        ),
+      );
+    }
+
+    return rows;
+  }
+
+  List<Widget> _buildOrderSection(ServiceModel service, List<String> assigned) {
+    final rawStatus = _clean(service.orderState).isEmpty
+        ? _clean(service.status)
+        : _clean(service.orderState);
+    final scheduled = _fmtDateTime(
+      service.scheduledStart ?? service.scheduledEnd,
+    );
+    final phase = techOrderPhaseFrom(service);
+    final statusTheme = _statusTheme(service);
+    final rows = <Widget>[
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          if (phase != null)
+            StatusBadge(
+              label: techOrderPhaseLabel(phase),
+              background: techOrderPhaseColor(phase).withValues(alpha: 0.14),
+              foreground: techOrderPhaseColor(phase),
+              icon: techOrderPhaseIcon(phase),
+            ),
+          if (rawStatus.isNotEmpty)
+            StatusBadge(
+              label: rawStatus,
+              background: statusTheme.background,
+              foreground: statusTheme.foreground,
+              icon: statusTheme.icon,
+            ),
+        ],
+      ),
+    ];
+
+    final info = <Widget>[];
+    if (_hasText(service.serviceType)) {
+      info.add(
+        InfoRow(
+          label: 'Tipo',
+          value: _clean(service.serviceType),
+          icon: Icons.miscellaneous_services_rounded,
+        ),
+      );
+    }
+    if (_hasText(service.orderLabel)) {
+      if (info.isNotEmpty) info.add(const SizedBox(height: 8));
+      info.add(
+        InfoRow(
+          label: 'Orden',
+          value: _clean(service.orderLabel),
+          icon: Icons.confirmation_number_outlined,
+          emphasize: true,
+        ),
+      );
+    }
+    if (scheduled.isNotEmpty) {
+      if (info.isNotEmpty) info.add(const SizedBox(height: 8));
+      info.add(
+        InfoRow(
+          label: 'Fecha',
+          value: scheduled,
+          icon: Icons.calendar_month_rounded,
+        ),
+      );
+    }
+    if (assigned.isNotEmpty) {
+      if (info.isNotEmpty) info.add(const SizedBox(height: 8));
+      info.add(
+        InfoRow(
+          label: 'Técnico',
+          value: assigned.join(', '),
+          icon: Icons.engineering_outlined,
+        ),
+      );
+    }
+
+    if (info.isNotEmpty) {
+      rows
+        ..add(const SizedBox(height: 12))
+        ..addAll(info);
+    }
+
+    return rows;
+  }
+
+  List<Widget> _buildLocationSection(
+    String addressLabel,
+    ({String address, String reference, String gpsText, String mapsText})
+    snapshot,
+  ) {
+    final rows = <Widget>[];
+    if (_hasText(addressLabel) && addressLabel != '—') {
+      rows.add(
+        InfoRow(
+          label: 'Dirección',
+          value: addressLabel,
+          icon: Icons.place_outlined,
+          multiline: true,
+          emphasize: true,
+        ),
+      );
+    }
+    if (_hasText(snapshot.reference) && snapshot.reference != '—') {
+      if (rows.isNotEmpty) rows.add(const SizedBox(height: 8));
+      rows.add(
+        InfoRow(
+          label: 'Referencia',
+          value: snapshot.reference,
+          icon: Icons.pin_drop_outlined,
+          multiline: true,
+        ),
+      );
+    }
+    if (_hasText(snapshot.gpsText) && snapshot.gpsText != '—') {
+      if (rows.isNotEmpty) rows.add(const SizedBox(height: 8));
+      rows.add(
+        InfoRow(
+          label: 'GPS',
+          value: snapshot.gpsText,
+          icon: Icons.my_location_rounded,
+        ),
+      );
+    }
+    if (_hasText(snapshot.mapsText) && snapshot.mapsText != '—') {
+      if (rows.isNotEmpty) rows.add(const SizedBox(height: 8));
+      rows.add(
+        InfoRow(
+          label: 'Maps',
+          value: snapshot.mapsText,
+          icon: Icons.link_rounded,
+          multiline: true,
+        ),
+      );
+    }
+    return rows;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authStateProvider).user;
@@ -288,8 +545,6 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
             .where((s) => s.isNotEmpty)
             .toList(growable: false);
 
-        final scheduled = service.scheduledStart ?? service.scheduledEnd;
-
         final location = buildServiceLocationInfo(
           addressOrText: service.customerAddress,
         );
@@ -316,10 +571,37 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
             .where((f) => !(_isLikelyImage(f) || _isLikelyVideo(f)))
             .toList(growable: false);
 
+        Future<void> openMaps() async {
+          final uri = location.mapsUri;
+          if (uri == null) return;
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+
+        final locationSection = _buildLocationSection(addressLabel, snapshot);
+        if (location.canOpenMaps) {
+          locationSection
+            ..addIf(locationSection.isNotEmpty, const SizedBox(height: 12))
+            ..add(
+              ActionButton(
+                label: 'Abrir en Maps',
+                icon: Icons.map_outlined,
+                tonal: true,
+                onPressed: openMaps,
+              ),
+            );
+        }
+
+        final paymentTheme = _paymentTheme(pay.status);
+        final clientSection = _buildClientSection(service);
+        final orderSection = _buildOrderSection(service, assigned);
+
         return Scaffold(
+          backgroundColor: const Color(0xFFF7FBFE),
           drawer: buildAdaptiveDrawer(context, currentUser: user),
           appBar: AppBar(
             title: const Text('Orden de servicio'),
+            elevation: 0,
+            backgroundColor: Colors.transparent,
             leading: IconButton(
               onPressed: () {
                 if (context.canPop()) {
@@ -351,14 +633,19 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
               await ref.read(_serviceDetailProvider(serviceId).future);
             },
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: BouncingScrollPhysics(),
+              ),
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
               children: [
-                TechnicalSectionCard(
+                SectionCard(
                   icon: Icons.flash_on_outlined,
                   title: 'Acciones rápidas',
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final manageButton = FilledButton.icon(
+                  child: Column(
+                    children: [
+                      ActionButton(
+                        label: 'Gestionar servicio',
+                        icon: Icons.build_outlined,
                         onPressed: () {
                           final id = service.id.trim();
                           if (id.isEmpty) return;
@@ -367,191 +654,182 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                             context.push(Routes.operacionesTecnicoDetail(id));
                           });
                         },
-                        icon: const Icon(Icons.build_outlined),
-                        label: const Text('Gestionar'),
-                      );
-
-                      return SizedBox(
-                        width: double.infinity,
-                        child: manageButton,
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TechnicalSectionCard(
-                  icon: Icons.person_outline,
-                  title: 'Información del cliente',
-                  child: Column(
-                    children: [
-                      _KvRow(label: 'Cliente', value: service.customerName),
-                      const SizedBox(height: 10),
-                      _KvRow(label: 'Teléfono', value: service.customerPhone),
+                      ),
+                      if (_hasText(service.customerPhone) ||
+                          location.canOpenMaps) ...[
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            if (_hasText(service.customerPhone))
+                              Expanded(
+                                child: ActionButton(
+                                  label: 'Llamar',
+                                  icon: Icons.call_outlined,
+                                  tonal: true,
+                                  onPressed: () async {
+                                    final phoneValue = _clean(
+                                      service.customerPhone,
+                                    );
+                                    final uri = Uri(
+                                      scheme: 'tel',
+                                      path: phoneValue,
+                                    );
+                                    await launchUrl(uri);
+                                  },
+                                ),
+                              ),
+                            if (_hasText(service.customerPhone) &&
+                                location.canOpenMaps)
+                              const SizedBox(width: 8),
+                            if (location.canOpenMaps)
+                              Expanded(
+                                child: ActionButton(
+                                  label: 'Maps',
+                                  icon: Icons.map_outlined,
+                                  tonal: true,
+                                  onPressed: openMaps,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                TechnicalSectionCard(
-                  icon: Icons.place_outlined,
-                  title: 'Ubicación y referencias',
-                  trailing: FilledButton.tonalIcon(
-                    onPressed: location.canOpenMaps
-                        ? () async {
-                            final uri = location.mapsUri;
-                            if (uri == null) return;
-                            await launchUrl(
-                              uri,
-                              mode: LaunchMode.externalApplication,
-                            );
-                          }
-                        : null,
-                    icon: const Icon(Icons.map_outlined),
-                    label: const Text('Abrir en Google Maps'),
+                if (clientSection.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  SectionCard(
+                    icon: Icons.person_outline,
+                    title: 'Información del cliente',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: clientSection,
+                    ),
                   ),
-                  child: Column(
-                    children: [
-                      _KvRow(label: 'Dirección', value: addressLabel),
-                      const SizedBox(height: 10),
-                      _KvRow(label: 'Referencia', value: snapshot.reference),
-                      const SizedBox(height: 10),
-                      _KvRow(label: 'GPS', value: snapshot.gpsText),
-                      const SizedBox(height: 10),
-                      _KvRow(
-                        label: 'MAPS',
-                        value: snapshot.mapsText,
-                        multiline: true,
-                      ),
-                    ],
+                ],
+                if (orderSection.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  SectionCard(
+                    icon: Icons.assignment_outlined,
+                    title: 'Información de la orden',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: orderSection,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                TechnicalSectionCard(
-                  icon: Icons.description_outlined,
-                  title: 'Información del servicio',
-                  child: Column(
-                    children: [
-                      _KvRow(
-                        label: 'Tipo de servicio',
-                        value: service.serviceType,
-                      ),
-                      const SizedBox(height: 10),
-                      _KvRow(
-                        label: 'Técnico asignado',
-                        value: assigned.isEmpty ? '—' : assigned.join(', '),
-                      ),
-                      const SizedBox(height: 10),
-                      _KvRow(
-                        label: 'Fecha programada',
-                        value: _fmtDate(scheduled),
-                      ),
-                      const SizedBox(height: 10),
-                      _KvRow(
-                        label: 'Estado actual',
-                        value: service.orderState.trim().isEmpty
-                            ? service.status
-                            : service.orderState,
-                      ),
-                    ],
+                ],
+                if (locationSection.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  SectionCard(
+                    icon: Icons.place_outlined,
+                    title: 'Ubicación y referencias',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: locationSection,
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 12),
-                TechnicalSectionCard(
-                  icon: Icons.subject_outlined,
-                  title: 'Descripción del servicio',
-                  child: Column(
-                    children: [
-                      _KvRow(
-                        label: 'Trabajo solicitado',
-                        value: service.title.trim().isEmpty
-                            ? '—'
-                            : service.title,
-                        multiline: true,
-                      ),
-                      const SizedBox(height: 10),
-                      _KvRow(
-                        label: 'Problema / notas',
-                        value: service.description.trim().isEmpty
-                            ? '—'
-                            : service.description,
-                        multiline: true,
-                      ),
-                      const SizedBox(height: 10),
-                      const _KvRow(
-                        label: 'Notas adicionales',
-                        value: '—',
-                        multiline: true,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TechnicalSectionCard(
+                SectionCard(
                   icon: Icons.receipt_long_outlined,
                   title: 'Información de cotización',
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _KvRow(label: 'Total a pagar', value: _money(pay.total)),
-                      const SizedBox(height: 10),
-                      _KvRow(label: 'Estado del pago', value: pay.status),
-                      const SizedBox(height: 10),
-                      _KvRow(
-                        label: 'Saldo pendiente',
-                        value: _money(pay.balance),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          StatusBadge(
+                            label: pay.status,
+                            background: paymentTheme.background,
+                            foreground: paymentTheme.foreground,
+                            icon: paymentTheme.icon,
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      _KvRow(
-                        label: 'Total cotizado',
-                        value: _money(service.quotedAmount),
-                      ),
-                      const SizedBox(height: 10),
-                      _KvRow(
-                        label: 'Depósito',
-                        value: _money(service.depositAmount),
-                      ),
-                      const SizedBox(height: 10),
-                      _KvRow(
-                        label: 'Costo final',
-                        value: _money(service.finalCost),
-                      ),
-                      const SizedBox(height: 14),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.tonalIcon(
-                          onPressed: canOpenQuote
-                              ? () {
-                                  final uri = Uri(
-                                    path: Routes.cotizacionesHistorial,
-                                    queryParameters: {
-                                      'customerPhone': phone,
-                                      'pick': '0',
-                                    },
-                                  );
-                                  context.go(uri.toString());
-                                }
-                              : null,
-                          icon: const Icon(Icons.open_in_new_outlined),
-                          label: const Text('Ver cotización completa'),
+                      if (_money(pay.total).isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        InfoRow(
+                          label: 'Total',
+                          value: _money(pay.total),
+                          icon: Icons.payments_outlined,
+                          emphasize: true,
                         ),
-                      ),
+                      ],
+                      if (_money(pay.balance).isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        InfoRow(
+                          label: 'Saldo',
+                          value: _money(pay.balance),
+                          icon: Icons.account_balance_wallet_outlined,
+                        ),
+                      ],
+                      if (_money(pay.deposit).isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        InfoRow(
+                          label: 'Depósito',
+                          value: _money(pay.deposit),
+                          icon: Icons.savings_outlined,
+                        ),
+                      ],
+                      if (_money(service.quotedAmount).isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        InfoRow(
+                          label: 'Cotizado',
+                          value: _money(service.quotedAmount),
+                          icon: Icons.request_quote_outlined,
+                        ),
+                      ],
+                      if (_money(service.finalCost).isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        InfoRow(
+                          label: 'Costo final',
+                          value: _money(service.finalCost),
+                          icon: Icons.price_check_outlined,
+                        ),
+                      ],
+                      if (canOpenQuote) ...[
+                        const SizedBox(height: 12),
+                        ActionButton(
+                          label: 'Ver cotización',
+                          icon: Icons.open_in_new_outlined,
+                          tonal: true,
+                          onPressed: () {
+                            final uri = Uri(
+                              path: Routes.cotizacionesHistorial,
+                              queryParameters: {
+                                'customerPhone': phone,
+                                'pick': '0',
+                              },
+                            );
+                            context.go(uri.toString());
+                          },
+                        ),
+                      ],
                     ],
                   ),
                 ),
                 const SizedBox(height: 12),
-                TechnicalSectionCard(
+                SectionCard(
                   icon: Icons.history_outlined,
                   title: 'Historial de servicios',
                   child: historyAsync.when(
                     loading: () => const _InlineLoading(),
                     error: (e, _) {
-                      return Text(
-                        e is ApiException ? e.message : e.toString(),
-                        style: Theme.of(context).textTheme.bodySmall,
+                      return EmptyStateWidget(
+                        icon: Icons.error_outline_rounded,
+                        title: 'No fue posible cargar el historial',
+                        message: e is ApiException ? e.message : e.toString(),
                       );
                     },
                     data: (items) {
                       if (items.isEmpty) {
-                        return const _EmptyHint(
-                          label: 'Sin servicios anteriores para este cliente',
+                        return const EmptyStateWidget(
+                          icon: Icons.history_toggle_off_rounded,
+                          title: 'Sin historial anterior',
+                          message:
+                              'Este cliente no tiene otros servicios registrados.',
                         );
                       }
                       return Column(
@@ -566,7 +844,7 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                TechnicalSectionCard(
+                SectionCard(
                   icon: Icons.attach_file_outlined,
                   title: 'Documentos adjuntos',
                   child: Column(
@@ -592,6 +870,37 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                     ],
                   ),
                 ),
+                if (_hasText(service.title) ||
+                    _hasText(service.description)) ...[
+                  const SizedBox(height: 12),
+                  SectionCard(
+                    icon: Icons.subject_outlined,
+                    title: 'Descripción del servicio',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (_hasText(service.title))
+                          InfoRow(
+                            label: 'Trabajo',
+                            value: _clean(service.title),
+                            icon: Icons.assignment_turned_in_outlined,
+                            multiline: true,
+                            emphasize: true,
+                          ),
+                        if (_hasText(service.title) &&
+                            _hasText(service.description))
+                          const SizedBox(height: 10),
+                        if (_hasText(service.description))
+                          InfoRow(
+                            label: 'Notas',
+                            value: _clean(service.description),
+                            icon: Icons.notes_rounded,
+                            multiline: true,
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -601,57 +910,9 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
   }
 }
 
-class _KvRow extends StatelessWidget {
-  final String label;
-  final String value;
-  final bool multiline;
-
-  const _KvRow({
-    required this.label,
-    required this.value,
-    this.multiline = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final w = constraints.maxWidth;
-        final labelWidth = w < 360
-            ? 110.0
-            : (w < 420 ? 130.0 : (w < 520 ? 140.0 : 150.0));
-
-        return Row(
-          crossAxisAlignment: multiline
-              ? CrossAxisAlignment.start
-              : CrossAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: labelWidth,
-              child: Text(
-                label,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: cs.onSurfaceVariant,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                value.trim().isEmpty ? '—' : value.trim(),
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
+extension _WidgetListX on List<Widget> {
+  void addIf(bool condition, Widget widget) {
+    if (condition) add(widget);
   }
 }
 
@@ -674,41 +935,6 @@ class _InlineLoading extends StatelessWidget {
   }
 }
 
-class _EmptyHint extends StatelessWidget {
-  final String label;
-
-  const _EmptyHint({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.info_outline, color: cs.onSurfaceVariant),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              label,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: cs.onSurfaceVariant,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _HistoryTile extends StatelessWidget {
   final ServiceModel service;
   final String Function(DateTime? dt) fmtDate;
@@ -718,7 +944,7 @@ class _HistoryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final statusTheme = _historyStatusTheme(service.status);
 
     final dt =
         service.completedAt ?? service.scheduledStart ?? service.scheduledEnd;
@@ -733,16 +959,25 @@ class _HistoryTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.65)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE3EAF2)),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
-            radius: 16,
-            backgroundColor: cs.secondaryContainer,
-            foregroundColor: cs.onSecondaryContainer,
-            child: const Icon(Icons.assignment_outlined, size: 18),
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: statusTheme.background,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              Icons.assignment_outlined,
+              size: 18,
+              color: statusTheme.foreground,
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -751,21 +986,43 @@ class _HistoryTile extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w900,
+                    color: const Color(0xFF10233F),
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  '$dateLabel • ${service.status}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurfaceVariant,
-                    fontWeight: FontWeight.w700,
-                  ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (dateLabel.isNotEmpty)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.calendar_month_rounded,
+                            size: 13,
+                            color: Color(0xFF64758B),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            dateLabel,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF64758B),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    StatusBadge(
+                      label: service.status,
+                      background: statusTheme.background,
+                      foreground: statusTheme.foreground,
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -774,6 +1031,26 @@ class _HistoryTile extends StatelessWidget {
       ),
     );
   }
+}
+
+({Color background, Color foreground}) _historyStatusTheme(String rawStatus) {
+  final status = rawStatus.trim().toLowerCase();
+  if (status.contains('complete') || status.contains('final')) {
+    return (
+      background: const Color(0xFFEAF8EF),
+      foreground: const Color(0xFF15803D),
+    );
+  }
+  if (status.contains('progress') || status.contains('proceso')) {
+    return (
+      background: const Color(0xFFEAF2FF),
+      foreground: const Color(0xFF0B6BDE),
+    );
+  }
+  return (
+    background: const Color(0xFFFFF3E6),
+    foreground: const Color(0xFFC77800),
+  );
 }
 
 class _AttachmentsGrid extends StatelessWidget {
@@ -795,7 +1072,6 @@ class _AttachmentsGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
 
     if (files.isEmpty) {
       return Column(
@@ -805,10 +1081,19 @@ class _AttachmentsGrid extends StatelessWidget {
             title,
             style: theme.textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.w900,
+              color: const Color(0xFF10233F),
             ),
           ),
           const SizedBox(height: 8),
-          _EmptyHint(label: 'Sin $title'),
+          EmptyStateWidget(
+            icon: title == 'Videos'
+                ? Icons.videocam_outlined
+                : (title == 'Fotos'
+                      ? Icons.image_outlined
+                      : Icons.attach_file_outlined),
+            title: 'Sin $title',
+            message: 'Aun no hay elementos adjuntos en esta sección.',
+          ),
         ],
       );
     }
@@ -827,6 +1112,7 @@ class _AttachmentsGrid extends StatelessWidget {
               title,
               style: theme.textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.w900,
+                color: const Color(0xFF10233F),
               ),
             ),
             const SizedBox(height: 8),
@@ -849,11 +1135,12 @@ class _AttachmentsGrid extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                   child: Ink(
                     decoration: BoxDecoration(
-                      color: cs.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(10),
+                      color: const Color(0xFFF7FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE3EAF2)),
                     ),
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(12),
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
@@ -865,7 +1152,7 @@ class _AttachmentsGrid extends StatelessWidget {
                                 return Center(
                                   child: Icon(
                                     Icons.insert_drive_file_outlined,
-                                    color: cs.onSurfaceVariant,
+                                    color: const Color(0xFF64758B),
                                   ),
                                 );
                               },
@@ -874,22 +1161,59 @@ class _AttachmentsGrid extends StatelessWidget {
                             Center(
                               child: Icon(
                                 Icons.insert_drive_file_outlined,
-                                color: cs.onSurfaceVariant,
+                                color: const Color(0xFF64758B),
                               ),
                             ),
+                          Positioned(
+                            left: 8,
+                            top: 8,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.94),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Icon(
+                                title == 'Videos'
+                                    ? Icons.play_circle_outline_rounded
+                                    : (title == 'Fotos'
+                                          ? Icons.image_outlined
+                                          : Icons.attach_file_outlined),
+                                size: 14,
+                                color: const Color(0xFF34495E),
+                              ),
+                            ),
+                          ),
                           Positioned(
                             left: 6,
                             bottom: 6,
                             right: 6,
-                            child: Text(
-                              file.caption?.trim().isNotEmpty == true
-                                  ? file.caption!.trim()
-                                  : '',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: cs.onSurface,
-                                fontWeight: FontWeight.w800,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.9),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 4,
+                                ),
+                                child: Text(
+                                  file.caption?.trim().isNotEmpty == true
+                                      ? file.caption!.trim()
+                                      : title.substring(
+                                          0,
+                                          title.length > 1
+                                              ? title.length - 1
+                                              : title.length,
+                                        ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: const Color(0xFF10233F),
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
                               ),
                             ),
                           ),

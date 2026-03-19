@@ -6,32 +6,26 @@ import '../../../../core/auth/auth_provider.dart';
 import '../../data/operations_repository.dart';
 import '../../operations_models.dart';
 
-enum TechOpsTab { hoy, pendientes, enProceso, finalizados }
-
 class TechOperationsState {
   final bool loading;
   final String? error;
-  final TechOpsTab tab;
   final List<ServiceModel> services;
 
   const TechOperationsState({
     this.loading = false,
     this.error,
-    this.tab = TechOpsTab.hoy,
     this.services = const [],
   });
 
   TechOperationsState copyWith({
     bool? loading,
     String? error,
-    TechOpsTab? tab,
     List<ServiceModel>? services,
     bool clearError = false,
   }) {
     return TechOperationsState(
       loading: loading ?? this.loading,
       error: clearError ? null : (error ?? this.error),
-      tab: tab ?? this.tab,
       services: services ?? this.services,
     );
   }
@@ -117,10 +111,5 @@ class TechOperationsController extends StateNotifier<TechOperationsState> {
     final next = [...before];
     next[index] = service;
     state = state.copyWith(services: next);
-  }
-
-  void setTab(TechOpsTab tab) {
-    if (state.tab == tab) return;
-    state = state.copyWith(tab: tab);
   }
 }

@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -14,6 +16,11 @@ import 'technical_evidence_upload.dart';
 import 'technical_visit_models.dart';
 
 class TechnicalVisitState {
+  static const String signatureSyncLocalSaved = 'local_saved';
+  static const String signatureSyncUploading = 'uploading';
+  static const String signatureSyncPendingUpload = 'pending_upload';
+  static const String signatureSyncCompleted = 'completed';
+
   final bool loading;
   final bool refreshing;
   final bool saving;
@@ -25,8 +32,10 @@ class TechnicalVisitState {
   final String reportDescription;
   final String installationNotes;
   final List<EstimatedProductItemModel> estimatedProducts;
+  final List<ReplacementItemModel> replacements;
   final List<String> photos;
   final List<String> videos;
+  final VisitClientSignatureModel? clientSignature;
   final List<PendingEvidenceUpload> pendingUploads;
 
   const TechnicalVisitState({
@@ -39,10 +48,20 @@ class TechnicalVisitState {
     this.reportDescription = '',
     this.installationNotes = '',
     this.estimatedProducts = const [],
+    this.replacements = const [],
     this.photos = const [],
     this.videos = const [],
+    this.clientSignature,
     this.pendingUploads = const [],
   });
+
+  String get unifiedNotes {
+    final report = reportDescription.trim();
+    if (report.isNotEmpty) return reportDescription;
+    return installationNotes;
+  }
+
+  bool get hasClientSignature => clientSignature?.hasAnyValue == true;
 
   TechnicalVisitState copyWith({
     bool? loading,
@@ -55,8 +74,11 @@ class TechnicalVisitState {
     String? reportDescription,
     String? installationNotes,
     List<EstimatedProductItemModel>? estimatedProducts,
+    List<ReplacementItemModel>? replacements,
     List<String>? photos,
     List<String>? videos,
+    VisitClientSignatureModel? clientSignature,
+    bool clearClientSignature = false,
     List<PendingEvidenceUpload>? pendingUploads,
   }) {
     return TechnicalVisitState(
@@ -69,8 +91,12 @@ class TechnicalVisitState {
       reportDescription: reportDescription ?? this.reportDescription,
       installationNotes: installationNotes ?? this.installationNotes,
       estimatedProducts: estimatedProducts ?? this.estimatedProducts,
+      replacements: replacements ?? this.replacements,
       photos: photos ?? this.photos,
       videos: videos ?? this.videos,
+      clientSignature: clearClientSignature
+          ? null
+          : (clientSignature ?? this.clientSignature),
       pendingUploads: pendingUploads ?? this.pendingUploads,
     );
   }
@@ -101,6 +127,52 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
   void dispose() {
     _saveDebounce?.cancel();
     super.dispose();
+  }
+
+  bool _isWarrantyPhase([ServiceModel? service]) {
+    final value = ((service ?? state.service)?.currentPhase ?? '')
+        .trim()
+        .toLowerCase()
+        .replaceAll(' ', '_')
+        .replaceAll('-', '_');
+    return value == 'garantia' || value == 'warranty';
+  }
+
+  String get _phaseCaption => _isWarrantyPhase() ? 'Garantía' : 'Levantamiento';
+
+  VisitClientSignatureModel? _signatureFromService(ServiceModel? service) {
+    if (service == null) return null;
+    final signatures =
+        service.files
+            .where(
+              (file) =>
+                  file.fileType.trim().toLowerCase() == 'client_signature',
+            )
+            .toList()
+          ..sort((a, b) {
+            final left = a.createdAt?.millisecondsSinceEpoch ?? 0;
+            final right = b.createdAt?.millisecondsSinceEpoch ?? 0;
+            return right.compareTo(left);
+          });
+    if (signatures.isEmpty) return null;
+    final latest = signatures.first;
+    final url = latest.fileUrl.trim();
+    if (url.isEmpty) return null;
+    return VisitClientSignatureModel(
+      fileId: latest.id,
+      fileUrl: url,
+      signedAt: latest.createdAt,
+      syncStatus: TechnicalVisitState.signatureSyncCompleted,
+    );
+  }
+
+  Map<String, dynamic>? _clientSignaturePayload({
+    bool includeLocalPreview = false,
+  }) {
+    final signature = state.clientSignature;
+    if (signature == null) return null;
+    final payload = signature.toJson(includeLocalPreview: includeLocalPreview);
+    return payload.isEmpty ? null : payload;
   }
 
   String _cacheKey(String userId) => 'ops_visit|$userId|${serviceId.trim()}';
@@ -165,6 +237,17 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
             .toList(growable: false);
       }
 
+      List<ReplacementItemModel> readReplacements(dynamic raw) {
+        if (raw is! List) return const [];
+        return raw
+            .whereType<Map>()
+            .map(
+              (m) => ReplacementItemModel.fromJson(m.cast<String, dynamic>()),
+            )
+            .where((item) => item.description.trim().isNotEmpty)
+            .toList(growable: false);
+      }
+
       final report =
           (draft?['report_description'] ??
                   draft?['reportDescription'] ??
@@ -180,7 +263,12 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
 
       final products = draft != null && draft.containsKey('estimated_products')
           ? readProducts(draft['estimated_products'])
-          : (cachedVisit?.estimatedProducts ?? const <EstimatedProductItemModel>[]);
+          : (cachedVisit?.estimatedProducts ??
+                const <EstimatedProductItemModel>[]);
+
+      final replacements = draft != null && draft.containsKey('replacements')
+          ? readReplacements(draft['replacements'])
+          : (cachedVisit?.replacements ?? const <ReplacementItemModel>[]);
 
       final photos = draft != null && draft.containsKey('photos')
           ? readUrls(draft['photos'])
@@ -189,6 +277,13 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
       final videos = draft != null && draft.containsKey('videos')
           ? readUrls(draft['videos'])
           : (cachedVisit?.videos ?? const <String>[]);
+
+      final signature = (draft?['client_signature'] is Map)
+          ? VisitClientSignatureModel.fromJson(
+              (draft!['client_signature'] as Map).cast<String, dynamic>(),
+            )
+          : (cachedVisit?.clientSignature ??
+                _signatureFromService(cachedService));
 
       final hasCached = cachedService != null || cachedVisit != null;
 
@@ -201,8 +296,10 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
           reportDescription: report,
           installationNotes: notes,
           estimatedProducts: products,
+          replacements: replacements,
           photos: photos,
           videos: videos,
+          clientSignature: signature,
         );
       }
 
@@ -228,8 +325,10 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
         reportDescription: report,
         installationNotes: notes,
         estimatedProducts: products,
+        replacements: replacements,
         photos: photos,
         videos: videos,
+        clientSignature: signature ?? _signatureFromService(service),
       );
     } on ApiException catch (e) {
       state = state.copyWith(
@@ -256,8 +355,11 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
       'estimated_products': state.estimatedProducts
           .map((e) => e.toJson())
           .toList(),
+      'replacements': state.replacements.map((e) => e.toJson()).toList(),
       'photos': state.photos,
       'videos': state.videos,
+      if (_clientSignaturePayload(includeLocalPreview: true) != null)
+        'client_signature': _clientSignaturePayload(includeLocalPreview: true),
     });
   }
 
@@ -278,6 +380,15 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
     _scheduleDraftPersist();
   }
 
+  void setNotes(String value) {
+    state = state.copyWith(
+      reportDescription: value,
+      installationNotes: value,
+      clearError: true,
+    );
+    _scheduleDraftPersist();
+  }
+
   void addEstimatedProduct(EstimatedProductItemModel item) {
     final name = item.name.trim();
     if (name.isEmpty) return;
@@ -295,6 +406,128 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
     list.removeAt(idx);
     state = state.copyWith(estimatedProducts: list, clearError: true);
     _scheduleDraftPersist();
+  }
+
+  void addReplacement(String description) {
+    final value = description.trim();
+    if (value.isEmpty) return;
+    final list = [
+      ...state.replacements,
+      ReplacementItemModel(description: value),
+    ];
+    state = state.copyWith(replacements: list, clearError: true);
+    _scheduleDraftPersist();
+  }
+
+  void removeReplacementAt(int idx) {
+    final list = [...state.replacements];
+    if (idx < 0 || idx >= list.length) return;
+    list.removeAt(idx);
+    state = state.copyWith(replacements: list, clearError: true);
+    _scheduleDraftPersist();
+  }
+
+  void clearClientSignature() {
+    state = state.copyWith(clearClientSignature: true, clearError: true);
+    _scheduleDraftPersist();
+  }
+
+  Future<void> saveClientSignatureLocally({required Uint8List pngBytes}) async {
+    if (_readOnly) return;
+    final signedAt = DateTime.now();
+    final signatureBase64 = base64Encode(pngBytes);
+    state = state.copyWith(
+      clientSignature: VisitClientSignatureModel(
+        signedAt: signedAt,
+        syncStatus: TechnicalVisitState.signatureSyncLocalSaved,
+        localPreviewBase64: signatureBase64,
+      ),
+      clearError: true,
+    );
+    await _persistDraft();
+    unawaited(
+      _uploadClientSignatureInBackground(
+        signatureBase64: signatureBase64,
+        signedAtIso: signedAt.toIso8601String(),
+      ),
+    );
+  }
+
+  Future<void> _uploadClientSignatureInBackground({
+    required String signatureBase64,
+    required String signedAtIso,
+  }) async {
+    final current = state.clientSignature ?? const VisitClientSignatureModel();
+    state = state.copyWith(
+      clientSignature: current.copyWith(
+        signedAt: DateTime.tryParse(signedAtIso),
+        syncStatus: TechnicalVisitState.signatureSyncUploading,
+        localPreviewBase64: signatureBase64,
+        clearSyncError: true,
+      ),
+      clearError: true,
+    );
+    unawaited(_persistDraft());
+
+    final userId = (ref.read(authStateProvider).user?.id ?? '').trim();
+    final repo = ref.read(operationsRepositoryProvider);
+    final fileName =
+        'firma-${_isWarrantyPhase() ? 'garantia' : 'levantamiento'}-${DateTime.now().millisecondsSinceEpoch}.png';
+
+    try {
+      final result = await repo.uploadServiceSignatureOrQueue(
+        scope: userId,
+        serviceId: serviceId,
+        signatureBase64: signatureBase64,
+        signedAtIso: signedAtIso,
+        fileName: fileName,
+        mimeType: 'image/png',
+      );
+
+      if (result == null) {
+        state = state.copyWith(
+          clientSignature: current.copyWith(
+            signedAt: DateTime.tryParse(signedAtIso),
+            syncStatus: TechnicalVisitState.signatureSyncPendingUpload,
+            localPreviewBase64: signatureBase64,
+            clearSyncError: true,
+          ),
+        );
+        await _persistDraft();
+        return;
+      }
+
+      state = state.copyWith(
+        clientSignature: VisitClientSignatureModel(
+          fileId: result.fileId,
+          fileUrl: result.fileUrl,
+          signedAt: result.signedAt ?? DateTime.tryParse(signedAtIso),
+          syncStatus: TechnicalVisitState.signatureSyncCompleted,
+        ),
+        clearError: true,
+      );
+      await _persistDraft();
+    } on ApiException catch (e) {
+      state = state.copyWith(
+        clientSignature: current.copyWith(
+          signedAt: DateTime.tryParse(signedAtIso),
+          syncStatus: TechnicalVisitState.signatureSyncPendingUpload,
+          localPreviewBase64: signatureBase64,
+          syncError: e.message,
+        ),
+      );
+      await _persistDraft();
+    } catch (e) {
+      state = state.copyWith(
+        clientSignature: current.copyWith(
+          signedAt: DateTime.tryParse(signedAtIso),
+          syncStatus: TechnicalVisitState.signatureSyncPendingUpload,
+          localPreviewBase64: signatureBase64,
+          syncError: e.toString(),
+        ),
+      );
+      await _persistDraft();
+    }
   }
 
   void removePhotoAt(int idx) {
@@ -360,7 +593,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
         id: id,
         fileName: fileName,
         mimeType: mimeType,
-        caption: 'Levantamiento',
+        caption: _phaseCaption,
         fileSize: bytes.length,
         bytes: bytes,
       );
@@ -394,7 +627,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
         mimeType: mimeType,
         fileSize: bytes.length,
         kind: 'reference_photo',
-        caption: 'Levantamiento',
+        caption: _phaseCaption,
       );
 
       final nextPhotos = [...state.photos, confirmed.fileUrl];
@@ -408,7 +641,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
           id: id,
           fileName: fileName,
           mimeType: mimeType,
-          caption: 'Levantamiento',
+          caption: _phaseCaption,
           fileSize: 0,
           progress: 1,
           status: PendingEvidenceStatus.failed,
@@ -431,7 +664,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
         id: id,
         fileName: fileName,
         mimeType: mimeType,
-        caption: 'Levantamiento',
+        caption: _phaseCaption,
         fileSize: bytes.length,
         bytes: bytes,
       );
@@ -465,7 +698,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
         mimeType: mimeType,
         fileSize: bytes.length,
         kind: 'video_evidence',
-        caption: 'Levantamiento',
+        caption: _phaseCaption,
       );
 
       final nextVideos = [...state.videos, confirmed.fileUrl];
@@ -479,7 +712,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
           id: id,
           fileName: fileName,
           mimeType: mimeType,
-          caption: 'Levantamiento',
+          caption: _phaseCaption,
           fileSize: 0,
           progress: 1,
           status: PendingEvidenceStatus.failed,
@@ -512,8 +745,11 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
         'estimated_products': state.estimatedProducts
             .map((e) => e.toJson())
             .toList(),
+        'replacements': state.replacements.map((e) => e.toJson()).toList(),
         'photos': state.photos,
         'videos': state.videos,
+        if (_clientSignaturePayload() != null)
+          'client_signature': _clientSignaturePayload(),
         'visit_date': DateTime.now().toUtc().toIso8601String(),
       };
 

@@ -32,6 +32,7 @@ import '../presentation/service_pdf_exporter.dart';
 import '../presentation/service_documents_editor_screen.dart';
 import 'technical_service_execution_controller.dart';
 import 'widgets/dynamic_checklist_experience.dart';
+import 'widgets/manage_service_ui.dart';
 import 'widgets/service_closure_card.dart';
 import 'widgets/service_report_pdf_screen.dart';
 import 'widgets/signature_screen.dart';
@@ -51,6 +52,12 @@ class _TechnicalServiceExecutionScreenState
     extends ConsumerState<TechnicalServiceExecutionScreen> {
   final ImagePicker _picker = ImagePicker();
   Uint8List? _signaturePreviewBytes;
+  final GlobalKey _callActionKey = GlobalKey(debugLabel: 'opsTechCallAction');
+  final GlobalKey _orderActionKey = GlobalKey(debugLabel: 'opsTechOrderAction');
+  final GlobalKey _quoteActionKey = GlobalKey(debugLabel: 'opsTechQuoteAction');
+  final GlobalKey _locationActionKey = GlobalKey(
+    debugLabel: 'opsTechLocationAction',
+  );
 
   bool _isInvoicePaid(ServiceModel service) {
     Map<String, String> parseKv(String raw) {
@@ -88,6 +95,37 @@ class _TechnicalServiceExecutionScreenState
     final m = v.month.toString().padLeft(2, '0');
     final y = v.year.toString();
     return '$d/$m/$y';
+  }
+
+  String _money(double? value) {
+    if (value == null) return '';
+    final safe = value.isNaN ? 0.0 : value;
+    return 'RD\$${safe.toStringAsFixed(2)}';
+  }
+
+  String? _infoOrNull(String? raw) {
+    final value = (raw ?? '').trim();
+    if (value.isEmpty || value == '—' || value.toLowerCase() == 'null') {
+      return null;
+    }
+    return value;
+  }
+
+  String _humanizeValue(String raw) {
+    final cleaned = raw
+        .trim()
+        .replaceAll('_', ' ')
+        .replaceAll('-', ' ')
+        .replaceAll(RegExp(r'\s+'), ' ');
+    if (cleaned.isEmpty) return '—';
+    return cleaned
+        .split(' ')
+        .where((part) => part.trim().isNotEmpty)
+        .map((part) {
+          final lower = part.toLowerCase();
+          return '${lower[0].toUpperCase()}${lower.substring(1)}';
+        })
+        .join(' ');
   }
 
   ({String kind, String text})? _parseTechInfoMessage(String raw) {
@@ -493,139 +531,272 @@ class _TechnicalServiceExecutionScreenState
     return sorted.first;
   }
 
+  Future<void> _showCallDialog(ServiceModel service) async {
+    final phone = _infoOrNull(service.customerPhone);
+
+    await showActionDialog<void>(
+      context,
+      anchorKey: _callActionKey,
+      builder: (dialogContext) {
+        return ActionDialog(
+          icon: Icons.call_outlined,
+          title: 'Llamar',
+          subtitle: _infoOrNull(service.customerName),
+          body: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (phone == null)
+                Text(
+                  'No hay un numero de telefono registrado para este cliente.',
+                  style: Theme.of(dialogContext).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(dialogContext).colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                )
+              else ...[
+                InfoRowWidget(label: 'Numero', value: phone),
+                InfoRowWidget(
+                  label: 'Orden',
+                  value: _infoOrNull(service.orderLabel),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            OutlinedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cerrar'),
+            ),
+            FilledButton.icon(
+              onPressed: phone == null
+                  ? null
+                  : () async {
+                      Navigator.of(dialogContext).pop();
+                      await _callClient(service);
+                    },
+              icon: const Icon(Icons.phone_forwarded_rounded),
+              label: const Text('Confirmar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showOrderDialog(ServiceModel service) async {
+    final statusLabel = _serviceStatusOptionFor(_effectiveState(service)).label;
+    final phaseText = phaseLabel(service.currentPhase);
+    final scheduled = service.scheduledStart ?? service.scheduledEnd;
+    final assigned = service.assignments
+        .map((assignment) => assignment.userName.trim())
+        .where((name) => name.isNotEmpty)
+        .join(', ');
+
+    await showActionDialog<void>(
+      context,
+      anchorKey: _orderActionKey,
+      builder: (dialogContext) {
+        return ActionDialog(
+          icon: Icons.receipt_long_outlined,
+          title: 'Orden',
+          subtitle: _infoOrNull(service.orderLabel) ?? 'Sin numero visible',
+          body: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              InfoRowWidget(
+                label: 'Numero',
+                value: _infoOrNull(service.orderLabel),
+              ),
+              InfoRowWidget(
+                label: 'Fecha',
+                value: scheduled == null ? null : _fmtDate(scheduled),
+              ),
+              InfoRowWidget(label: 'Estado', value: statusLabel),
+              InfoRowWidget(label: 'Fase', value: phaseText),
+              InfoRowWidget(label: 'Tecnico', value: _infoOrNull(assigned)),
+              InfoRowWidget(
+                label: 'Servicio',
+                value: _infoOrNull(service.serviceType) == null
+                    ? null
+                    : _humanizeValue(service.serviceType),
+              ),
+            ],
+          ),
+          actions: [
+            OutlinedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cerrar'),
+            ),
+            FilledButton.icon(
+              onPressed: () async {
+                Navigator.of(dialogContext).pop();
+                await _openOrderDetails(service);
+              },
+              icon: const Icon(Icons.open_in_new_rounded),
+              label: const Text('Abrir orden'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _showCotizacionDialog(ServiceModel service) async {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
     final phone = service.customerPhone.trim();
     final futureQuote = phone.isEmpty
         ? Future.value(null)
         : _loadLatestQuote(phone);
 
-    await showDialog<void>(
-      context: context,
+    await showActionDialog<void>(
+      context,
+      anchorKey: _quoteActionKey,
       builder: (dialogContext) {
-        return Dialog(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(18),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            'Cotización',
-                            style: TextStyle(fontWeight: FontWeight.w900),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Cerrar',
-                          onPressed: () => Navigator.pop(dialogContext),
-                          icon: const Icon(Icons.close),
-                        ),
-                      ],
-                    ),
+        return ActionDialog(
+          icon: Icons.request_quote_outlined,
+          title: 'Cotizacion',
+          subtitle: _infoOrNull(service.customerName),
+          body: FutureBuilder<CotizacionModel?>(
+            future: futureQuote,
+            builder: (context, snap) {
+              final quote = snap.data;
+              final theme = Theme.of(context);
+              final cs = theme.colorScheme;
+
+              if (snap.connectionState != ConnectionState.done) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 10),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 10),
+                      Expanded(child: Text('Cargando cotizacion...')),
+                    ],
+                  ),
+                );
+              }
+
+              if (quote == null) {
+                return Text(
+                  phone.isEmpty
+                      ? 'Sin telefono del cliente para consultar cotizaciones.'
+                      : 'No hay cotizaciones registradas para este cliente.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                );
+              }
+
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  InfoRowWidget(
+                    label: 'Fecha',
+                    value: _fmtDate(quote.createdAt),
+                  ),
+                  InfoRowWidget(label: 'Estado', value: 'Registrada'),
+                  InfoRowWidget(label: 'Monto', value: _money(quote.total)),
+                  InfoRowWidget(
+                    label: 'Subtotal',
+                    value: quote.items.isEmpty ? null : _money(quote.subtotal),
+                  ),
+                  InfoRowWidget(
+                    label: 'ITBIS',
+                    value: quote.includeItbis
+                        ? _money(quote.itbisAmount)
+                        : null,
+                  ),
+                  InfoRowWidget(
+                    label: 'Items',
+                    value: quote.items.isEmpty
+                        ? null
+                        : '${quote.items.length} registrados',
+                  ),
+                  InfoRowWidget(
+                    label: 'Nota',
+                    value: _infoOrNull(quote.note),
+                    multiline: true,
+                  ),
+                  if (quote.items.isNotEmpty) ...[
                     const SizedBox(height: 10),
-                    FutureBuilder<CotizacionModel?>(
-                      future: futureQuote,
-                      builder: (context, snap) {
-                        final quote = snap.data;
-                        return Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: cs.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      'Items',
-                                      style: theme.textTheme.titleSmall
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w900,
-                                          ),
-                                    ),
-                                  ),
-                                  if (snap.connectionState !=
-                                      ConnectionState.done)
-                                    const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              if (quote == null)
-                                Text(
-                                  phone.isEmpty
-                                      ? 'Sin teléfono de cliente para buscar cotización.'
-                                      : 'Sin cotizaciones registradas para este cliente.',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: cs.onSurfaceVariant,
-                                  ),
-                                )
-                              else ...[
-                                Text(
-                                  'Última cotización • ${_fmtDate(quote.createdAt)}',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: cs.onSurfaceVariant,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                for (final item in quote.items)
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 4,
-                                    ),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            item.nombre.trim().isEmpty
-                                                ? 'Item'
-                                                : item.nombre.trim(),
-                                            style: theme.textTheme.bodyMedium
-                                                ?.copyWith(
-                                                  fontWeight: FontWeight.w800,
-                                                ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Text(
-                                          'x${item.qty.toStringAsFixed(0)}',
-                                          style: theme.textTheme.bodySmall
-                                              ?.copyWith(
-                                                color: cs.onSurfaceVariant,
-                                                fontWeight: FontWeight.w800,
-                                              ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                              ],
-                            ],
-                          ),
-                        );
-                      },
+                    Text(
+                      'Detalle',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: const Color(0xFF475569),
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
+                    const SizedBox(height: 6),
+                    for (final item in quote.items.take(4))
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                item.nombre.trim().isEmpty
+                                    ? 'Item'
+                                    : item.nombre.trim(),
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              'x${item.qty.toStringAsFixed(0)}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: cs.onSurfaceVariant,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (quote.items.length > 4)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          '+${quote.items.length - 4} items mas',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
                   ],
-                ),
-              ),
-            ),
+                ],
+              );
+            },
           ),
+          actions: [
+            OutlinedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cerrar'),
+            ),
+            FilledButton.icon(
+              onPressed: phone.isEmpty
+                  ? null
+                  : () {
+                      Navigator.of(dialogContext).pop();
+                      final uri = Uri(
+                        path: Routes.cotizacionesHistorial,
+                        queryParameters: {'customerPhone': phone, 'pick': '0'},
+                      );
+                      context.go(uri.toString());
+                    },
+              icon: const Icon(Icons.open_in_new_rounded),
+              label: const Text('Abrir historial'),
+            ),
+          ],
         );
       },
     );
@@ -1465,19 +1636,24 @@ class _TechnicalServiceExecutionScreenState
 
     final currentState = _effectiveState(service);
     final firstName = _firstName(service.customerName);
+    final currentPhaseLabel = phaseLabel(service.currentPhase);
     final statusOption = _serviceStatusOptionFor(currentState);
     final visibleChecklists = _visibleDynamicChecklists(st);
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: user),
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(84),
-        child: TechnicalServiceHeader(
-          clientName: firstName,
-          statusLabel: statusOption.label,
-          statusColor: statusOption.color,
-          onClientPressed: () => showClientOverlay(context, service),
-        ),
+      appBar: CompactAppBar(
+        onBack: () {
+          if (context.canPop()) {
+            context.pop();
+            return;
+          }
+          context.go(Routes.operacionesTecnico);
+        },
+        clientName: firstName,
+        phaseLabel: currentPhaseLabel,
+        statusLabel: statusOption.label,
+        statusColor: statusOption.color,
       ),
       floatingActionButton: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1545,46 +1721,44 @@ class _TechnicalServiceExecutionScreenState
                   TechnicalSectionCard(
                     icon: Icons.flash_on_outlined,
                     title: 'ACCIONES',
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: FilledButton.tonalIcon(
-                                onPressed: () => _callClient(service),
-                                icon: const Icon(Icons.call_outlined),
-                                label: const Text('Llamar'),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: FilledButton.tonalIcon(
-                                onPressed: () => _openLocation(service),
-                                icon: const Icon(Icons.near_me_outlined),
-                                label: const Text('Ubicación'),
-                              ),
-                            ),
-                          ],
+                    child: ActionButtonGrid(
+                      items: [
+                        ActionButtonItem(
+                          anchorKey: _callActionKey,
+                          label: 'Llamar',
+                          caption: _infoOrNull(service.customerPhone) == null
+                              ? 'Sin numero'
+                              : 'Confirmar antes',
+                          icon: Icons.call_outlined,
+                          onTap: () => _showCallDialog(service),
+                          accentColor: const Color(0xFF0F766E),
                         ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: FilledButton.tonalIcon(
-                                onPressed: () => _openOrderDetails(service),
-                                icon: const Icon(Icons.receipt_long_outlined),
-                                label: const Text('Orden'),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: FilledButton.tonalIcon(
-                                onPressed: () => _showCotizacionDialog(service),
-                                icon: const Icon(Icons.request_quote_outlined),
-                                label: const Text('Cotización'),
-                              ),
-                            ),
-                          ],
+                        ActionButtonItem(
+                          anchorKey: _locationActionKey,
+                          label: 'Ubicacion',
+                          caption: 'Accion directa',
+                          icon: Icons.near_me_outlined,
+                          onTap: () => _openLocation(service),
+                          accentColor: const Color(0xFF2563EB),
+                        ),
+                        ActionButtonItem(
+                          anchorKey: _orderActionKey,
+                          label: 'Orden',
+                          caption:
+                              _infoOrNull(service.orderLabel) ?? 'Sin numero',
+                          icon: Icons.receipt_long_outlined,
+                          onTap: () => _showOrderDialog(service),
+                          accentColor: const Color(0xFF7C3AED),
+                        ),
+                        ActionButtonItem(
+                          anchorKey: _quoteActionKey,
+                          label: 'Cotizacion',
+                          caption: _money(service.quotedAmount).isEmpty
+                              ? 'Ver detalle'
+                              : _money(service.quotedAmount),
+                          icon: Icons.request_quote_outlined,
+                          onTap: () => _showCotizacionDialog(service),
+                          accentColor: const Color(0xFFEA580C),
                         ),
                       ],
                     ),

@@ -7,8 +7,9 @@ import '../../../core/widgets/app_drawer.dart';
 import '../application/operations_controller.dart';
 import '../operations_models.dart';
 import '../presentation/operations_back_button.dart';
+import 'garantia_screen.dart';
+import 'levantamiento_screen.dart';
 import 'technical_service_execution_screen.dart';
-import 'technical_visit_screen.dart';
 
 final _serviceForPhaseProvider = FutureProvider.family<ServiceModel, String>((
   ref,
@@ -17,11 +18,25 @@ final _serviceForPhaseProvider = FutureProvider.family<ServiceModel, String>((
   return ref.read(operationsControllerProvider.notifier).getOne(serviceId);
 });
 
-bool _isLevantamientoPhase(String raw) {
+String _normalizePhase(String raw) {
   var v = raw.trim().toLowerCase();
-  if (v.isEmpty) return false;
+  if (v.isEmpty) return '';
   v = v.replaceAll(' ', '_').replaceAll('-', '_');
-  return v == 'levantamiento' || v == 'survey' || v.contains('levantamiento');
+  return v;
+}
+
+bool _isLevantamientoPhase(String raw) {
+  final value = _normalizePhase(raw);
+  return value == 'levantamiento' ||
+      value == 'survey' ||
+      value.contains('levantamiento');
+}
+
+bool _isGarantiaPhase(String raw) {
+  final value = _normalizePhase(raw);
+  return value == 'garantia' ||
+      value == 'warranty' ||
+      value.contains('garantia');
 }
 
 class TechnicalServicePhaseRouterScreen extends ConsumerWidget {
@@ -85,7 +100,10 @@ class TechnicalServicePhaseRouterScreen extends ConsumerWidget {
       ),
       data: (service) {
         if (_isLevantamientoPhase(service.currentPhase)) {
-          return TechnicalVisitScreen(serviceId: serviceId);
+          return LevantamientoScreen(serviceId: serviceId);
+        }
+        if (_isGarantiaPhase(service.currentPhase)) {
+          return GarantiaScreen(serviceId: serviceId);
         }
         return TechnicalServiceExecutionScreen(serviceId: serviceId);
       },

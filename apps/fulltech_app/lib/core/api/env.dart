@@ -4,7 +4,8 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'runtime_env.dart';
 
 class Env {
-  static const String _defaultApiBaseUrl = 'https://api.midominio.com';
+  static const String _defaultApiBaseUrl =
+      'https://fulltech-tienda-fulltechapppwa.gcdndd.easypanel.host';
   static const int _defaultApiTimeoutMs = 15000;
   static const int _minApiTimeoutMs = 1000;
 
