@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -55,7 +56,11 @@ class ServicePdfExporter {
   }
 
   static Future<Uint8List> buildServiceDetailPdfBytes(ServiceModel service) {
-    return _buildPdfBytes(service);
+    return _runSafePdfBuild(
+      documentLabel: 'detalle de servicio',
+      service: service,
+      builder: () => _buildPdfBytes(service),
+    );
   }
 
   static Future<Uint8List> buildInvoicePdfBytes(
@@ -67,14 +72,18 @@ class ServicePdfExporter {
     String? clientSignatureFileUrl,
     DateTime? clientSignedAt,
   }) {
-    return _buildInvoicePdfBytes(
-      service,
-      cotizacion: cotizacion,
-      company: company,
-      clientSignaturePngBytes: clientSignaturePngBytes,
-      clientSignatureFileId: clientSignatureFileId,
-      clientSignatureFileUrl: clientSignatureFileUrl,
-      clientSignedAt: clientSignedAt,
+    return _runSafePdfBuild(
+      documentLabel: 'factura',
+      service: service,
+      builder: () => _buildInvoicePdfBytes(
+        service,
+        cotizacion: cotizacion,
+        company: company,
+        clientSignaturePngBytes: clientSignaturePngBytes,
+        clientSignatureFileId: clientSignatureFileId,
+        clientSignatureFileUrl: clientSignatureFileUrl,
+        clientSignedAt: clientSignedAt,
+      ),
     );
   }
 
@@ -498,6 +507,98 @@ class ServicePdfExporter {
     return Uint8List.fromList(const Base64Decoder().convert(raw));
   }
 
+  static Future<Uint8List> _runSafePdfBuild({
+    required String documentLabel,
+    required ServiceModel service,
+    required FutureOr<Uint8List> Function() builder,
+  }) async {
+    try {
+      final bytes = await builder();
+      if (bytes.isNotEmpty) return bytes;
+    } catch (_) {
+      // Fall back to an error document to keep preview/export flows responsive.
+    }
+
+    return _buildEmergencyPdf(
+      documentLabel: documentLabel,
+      service: service,
+    );
+  }
+
+  static Future<Uint8List> _buildEmergencyPdf({
+    required String documentLabel,
+    required ServiceModel service,
+  }) async {
+    final doc = pw.Document();
+    final now = DateFormat('dd/MM/yyyy HH:mm', 'es').format(DateTime.now());
+    final customer = _safeText(
+      service.customerName,
+      fallback: 'Cliente no disponible',
+    );
+
+    doc.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (_) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              'FULLTECH',
+              style: pw.TextStyle(
+                fontSize: 20,
+                fontWeight: pw.FontWeight.bold,
+                color: _textStrong,
+              ),
+            ),
+            pw.SizedBox(height: 14),
+            pw.Text(
+              'No fue posible generar el PDF completo.',
+              style: pw.TextStyle(
+                fontSize: 16,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+            pw.SizedBox(height: 10),
+            pw.Text(
+              'Se creó una versión de respaldo del $documentLabel para evitar que la vista previa o la exportación fallen.',
+              style: const pw.TextStyle(fontSize: 11),
+            ),
+            pw.SizedBox(height: 18),
+            pw.Text('Orden: ${_safeText(service.orderLabel, fallback: service.id)}'),
+            pw.Text('Cliente: $customer'),
+            pw.Text('Servicio: ${_safeText(service.title, fallback: _serviceTypeLabel(service.serviceType))}'),
+            pw.Text('Emitido: $now'),
+          ],
+        ),
+      ),
+    );
+
+    return doc.save();
+  }
+
+  static String _safeText(String? value, {String fallback = '—'}) {
+    final normalized = (value ?? '').replaceAll(RegExp(r'\s+'), ' ').trim();
+    return normalized.isEmpty ? fallback : normalized;
+  }
+
+  static double _safeFiniteDouble(num? value, {double fallback = 0}) {
+    final safe = value?.toDouble();
+    if (safe == null || safe.isNaN || safe.isInfinite) {
+      return fallback;
+    }
+    return safe;
+  }
+
+  static String _formatMoney(NumberFormat formatter, num? value) {
+    return formatter.format(_safeFiniteDouble(value));
+  }
+
+  static String _formatQty(num? value) {
+    final qty = _safeFiniteDouble(value, fallback: 1);
+    return qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2);
+  }
+
   static WarrantyProductConfigModel? _resolveWarrantyConfig({
     required ServiceModel service,
     required CotizacionModel? cotizacion,
@@ -619,13 +720,14 @@ class ServicePdfExporter {
         : (clientSignatureFileUrl ?? '').trim();
 
     final includeItbis = cotizacion?.includeItbis ?? false;
-    final double itbisRate = cotizacion?.itbisRate ?? 0.18;
-    final double subtotal =
-        cotizacion?.subtotal ?? (service.quotedAmount ?? 0.0);
+    final double itbisRate = _safeFiniteDouble(cotizacion?.itbisRate, fallback: 0.18);
+    final double subtotal = _safeFiniteDouble(
+      cotizacion?.subtotal ?? service.quotedAmount,
+    );
     final double itbisAmount = cotizacion != null
-        ? cotizacion.itbisAmount
-        : (includeItbis ? subtotal * itbisRate : 0.0);
-    final double total = cotizacion?.total ?? (subtotal + itbisAmount);
+      ? _safeFiniteDouble(cotizacion.itbisAmount)
+      : (includeItbis ? subtotal * itbisRate : 0.0);
+    final double total = _safeFiniteDouble(cotizacion?.total, fallback: subtotal + itbisAmount);
 
     final serviceDate = service.completedAt ?? service.scheduledStart;
 
@@ -833,25 +935,23 @@ class ServicePdfExporter {
     required String serviceTitle,
     required double fallbackSubtotal,
   }) {
-    final rows = items.isNotEmpty
+    final List<(String, String, String, String)> rows = items.isNotEmpty
         ? items
               .map(
                 (item) => (
-                  item.nombre.trim().isEmpty
-                      ? 'Producto / servicio'
-                      : item.nombre.trim(),
-                  item.qty.toStringAsFixed(item.qty % 1 == 0 ? 0 : 2),
-                  money.format(item.unitPrice),
-                  money.format(item.total),
+                  _safeText(item.nombre, fallback: 'Producto / servicio'),
+                  _formatQty(item.qty),
+                  _formatMoney(money, item.unitPrice),
+                  _formatMoney(money, item.total),
                 ),
               )
               .toList(growable: false)
         : [
             (
-              serviceTitle.isEmpty ? 'Servicio' : serviceTitle,
+              _safeText(serviceTitle, fallback: 'Servicio'),
               '1',
-              money.format(fallbackSubtotal),
-              money.format(fallbackSubtotal),
+              _formatMoney(money, fallbackSubtotal),
+              _formatMoney(money, fallbackSubtotal),
             ),
           ];
 
@@ -1049,15 +1149,15 @@ class ServicePdfExporter {
                 ),
                 child: pw.Column(
                   children: [
-                    _line('Subtotal', money.format(subtotal), compact: true),
+                    _line('Subtotal', _formatMoney(money, subtotal), compact: true),
                     if (includeItbis)
                       _line(
                         'ITBIS ${(itbisRate * 100).toStringAsFixed(0)}%',
-                        money.format(itbisAmount),
+                        _formatMoney(money, itbisAmount),
                         compact: true,
                       ),
                     if (safeDeposit > 0)
-                      _line('Abono', money.format(safeDeposit), compact: true),
+                      _line('Abono', _formatMoney(money, safeDeposit), compact: true),
                   ],
                 ),
               ),
@@ -1076,7 +1176,7 @@ class ServicePdfExporter {
                   children: [
                     _line(
                       'TOTAL',
-                      money.format(total),
+                      _formatMoney(money, total),
                       highlight: true,
                       prominent: true,
                     ),
@@ -1090,7 +1190,7 @@ class ServicePdfExporter {
                       ),
                       _line(
                         'Balance',
-                        money.format(balance),
+                        _formatMoney(money, balance),
                         highlight: true,
                         prominent: true,
                       ),
@@ -1281,7 +1381,7 @@ class ServicePdfExporter {
                   pw.SizedBox(width: 6),
                   pw.Expanded(
                     child: pw.Text(
-                      entry.value.trim(),
+                      _safeText(entry.value),
                       style: const pw.TextStyle(fontSize: 9.4),
                     ),
                   ),
@@ -1318,7 +1418,7 @@ class ServicePdfExporter {
           ),
           pw.Flexible(
             child: pw.Text(
-              value,
+              _safeText(value),
               textAlign: pw.TextAlign.right,
               style: pw.TextStyle(
                 fontSize: 8.8,
@@ -1341,7 +1441,7 @@ class ServicePdfExporter {
     return pw.Padding(
       padding: const pw.EdgeInsets.symmetric(horizontal: 9, vertical: 9),
       child: pw.Text(
-        text,
+        _safeText(text),
         textAlign: align,
         style: pw.TextStyle(
           fontSize: header ? 9.2 : 9.7,
@@ -1372,7 +1472,7 @@ class ServicePdfExporter {
         children: [
           pw.Expanded(
             child: pw.Text(
-              label,
+              _safeText(label),
               style: pw.TextStyle(
                 fontSize: prominent ? 10.8 : (compact ? 9.2 : 9.8),
                 color: highlight ? _textStrong : _textMuted,
@@ -1383,7 +1483,7 @@ class ServicePdfExporter {
             ),
           ),
           pw.Text(
-            value,
+            _safeText(value),
             style: pw.TextStyle(
               fontSize: prominent ? 14.6 : (compact ? 9.8 : 10.4),
               color: highlight ? _brandBlue : _textStrong,
