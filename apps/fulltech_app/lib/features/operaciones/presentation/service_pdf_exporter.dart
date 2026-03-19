@@ -14,7 +14,12 @@ class ServicePdfExporter {
   static const PdfColor _brandBlue = PdfColors.blue800;
   static const PdfColor _brandBlueSoft = PdfColors.blue50;
   static const PdfColor _textMuted = PdfColors.grey700;
+  static const PdfColor _textStrong = PdfColor.fromInt(0xFF18324A);
   static const PdfColor _lineColor = PdfColor.fromInt(0xFFD7E5F2);
+  static const PdfColor _panelSoft = PdfColor.fromInt(0xFFF7FBFF);
+  static const PdfColor _panelAlt = PdfColor.fromInt(0xFFF1F7FD);
+  static const PdfColor _totalPanel = PdfColor.fromInt(0xFFEAF4FF);
+  static const PdfColor _totalStrongPanel = PdfColor.fromInt(0xFFD7EBFF);
 
   static bool get isSupported {
     if (kIsWeb) return false;
@@ -853,73 +858,137 @@ class ServicePdfExporter {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Text(
-          'Detalle',
-          style: pw.TextStyle(
-            fontSize: 10,
-            fontWeight: pw.FontWeight.bold,
-            color: _brandBlue,
+        pw.Container(
+          padding: const pw.EdgeInsets.fromLTRB(14, 12, 14, 12),
+          decoration: pw.BoxDecoration(
+            color: PdfColors.white,
+            borderRadius: const pw.BorderRadius.all(pw.Radius.circular(16)),
+            border: pw.Border.all(color: _lineColor, width: 0.9),
           ),
-        ),
-        pw.SizedBox(height: 6),
-        pw.Table(
-          border: pw.TableBorder(
-            horizontalInside: pw.BorderSide(
-              color: PdfColor.fromHex('#E7EDF4'),
-              width: 0.6,
-            ),
-            bottom: pw.BorderSide(
-              color: PdfColor.fromHex('#E7EDF4'),
-              width: 0.7,
-            ),
-          ),
-          columnWidths: {
-            0: const pw.FlexColumnWidth(5.4),
-            1: const pw.FixedColumnWidth(48),
-            2: const pw.FixedColumnWidth(76),
-            3: const pw.FixedColumnWidth(82),
-          },
-          children: [
-            pw.TableRow(
-              decoration: pw.BoxDecoration(
-                color: _brandBlue,
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(10)),
-              ),
-              children: [
-                _invoiceTableCell('Descripción', header: true),
-                _invoiceTableCell(
-                  'Cant.',
-                  header: true,
-                  align: pw.TextAlign.right,
-                ),
-                _invoiceTableCell(
-                  'Precio',
-                  header: true,
-                  align: pw.TextAlign.right,
-                ),
-                _invoiceTableCell(
-                  'Total',
-                  header: true,
-                  align: pw.TextAlign.right,
-                ),
-              ],
-            ),
-            ...rows.asMap().entries.map(
-              (entry) => pw.TableRow(
-                decoration: pw.BoxDecoration(
-                  color: entry.key.isEven
-                      ? PdfColors.white
-                      : PdfColor.fromHex('#FAFCFE'),
-                ),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  _invoiceTableCell(entry.value.$1),
-                  _invoiceTableCell(entry.value.$2, align: pw.TextAlign.right),
-                  _invoiceTableCell(entry.value.$3, align: pw.TextAlign.right),
-                  _invoiceTableCell(entry.value.$4, align: pw.TextAlign.right),
+                  pw.Container(
+                    width: 28,
+                    height: 28,
+                    decoration: pw.BoxDecoration(
+                      color: _brandBlueSoft,
+                      borderRadius: const pw.BorderRadius.all(
+                        pw.Radius.circular(8),
+                      ),
+                    ),
+                    alignment: pw.Alignment.center,
+                    child: pw.Text(
+                      'DT',
+                      style: pw.TextStyle(
+                        color: _brandBlue,
+                        fontWeight: pw.FontWeight.bold,
+                        fontSize: 9,
+                      ),
+                    ),
+                  ),
+                  pw.SizedBox(width: 10),
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          'Especificaciones de la factura',
+                          style: pw.TextStyle(
+                            fontSize: 11.2,
+                            fontWeight: pw.FontWeight.bold,
+                            color: _brandBlue,
+                          ),
+                        ),
+                        pw.SizedBox(height: 3),
+                        pw.Text(
+                          'Detalle claro de los productos o servicios incluidos en este documento.',
+                          style: pw.TextStyle(
+                            fontSize: 8.8,
+                            color: _textMuted,
+                            lineSpacing: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
-            ),
-          ],
+              pw.SizedBox(height: 10),
+              pw.Table(
+                border: pw.TableBorder(
+                  horizontalInside: pw.BorderSide(
+                    color: PdfColor.fromHex('#E3ECF5'),
+                    width: 0.7,
+                  ),
+                  bottom: pw.BorderSide(
+                    color: PdfColor.fromHex('#DCE8F2'),
+                    width: 0.8,
+                  ),
+                ),
+                columnWidths: {
+                  0: const pw.FlexColumnWidth(5.4),
+                  1: const pw.FixedColumnWidth(48),
+                  2: const pw.FixedColumnWidth(76),
+                  3: const pw.FixedColumnWidth(82),
+                },
+                children: [
+                  pw.TableRow(
+                    decoration: pw.BoxDecoration(
+                      color: _brandBlue,
+                      borderRadius: const pw.BorderRadius.all(
+                        pw.Radius.circular(12),
+                      ),
+                    ),
+                    children: [
+                      _invoiceTableCell('Descripción', header: true),
+                      _invoiceTableCell(
+                        'Cant.',
+                        header: true,
+                        align: pw.TextAlign.right,
+                      ),
+                      _invoiceTableCell(
+                        'Precio',
+                        header: true,
+                        align: pw.TextAlign.right,
+                      ),
+                      _invoiceTableCell(
+                        'Total',
+                        header: true,
+                        align: pw.TextAlign.right,
+                      ),
+                    ],
+                  ),
+                  ...rows.asMap().entries.map(
+                    (entry) => pw.TableRow(
+                      decoration: pw.BoxDecoration(
+                        color: entry.key.isEven ? _panelSoft : _panelAlt,
+                      ),
+                      children: [
+                        _invoiceTableCell(entry.value.$1),
+                        _invoiceTableCell(
+                          entry.value.$2,
+                          align: pw.TextAlign.right,
+                        ),
+                        _invoiceTableCell(
+                          entry.value.$3,
+                          align: pw.TextAlign.right,
+                        ),
+                        _invoiceTableCell(
+                          entry.value.$4,
+                          align: pw.TextAlign.right,
+                          emphasize: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -940,34 +1009,97 @@ class ServicePdfExporter {
 
     return pw.Align(
       alignment: pw.Alignment.centerRight,
-      child: pw.Container(
-        width: 220,
-        padding: const pw.EdgeInsets.fromLTRB(14, 12, 14, 12),
-        decoration: pw.BoxDecoration(
-          color: PdfColor.fromHex('#F6FAFD'),
-          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(14)),
-          border: pw.Border.all(color: _lineColor, width: 0.9),
-        ),
-        child: pw.Column(
-          children: [
-            _line('Subtotal', money.format(subtotal)),
-            if (includeItbis)
-              _line(
-                'ITBIS ${(itbisRate * 100).toStringAsFixed(0)}%',
-                money.format(itbisAmount),
+      child: pw.Padding(
+        padding: const pw.EdgeInsets.only(top: 12),
+        child: pw.Container(
+          width: 268,
+          padding: const pw.EdgeInsets.fromLTRB(16, 14, 16, 14),
+          decoration: pw.BoxDecoration(
+            color: PdfColors.white,
+            borderRadius: const pw.BorderRadius.all(pw.Radius.circular(18)),
+            border: pw.Border.all(color: _lineColor, width: 1),
+          ),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              pw.Text(
+                'Totales',
+                textAlign: pw.TextAlign.center,
+                style: pw.TextStyle(
+                  fontSize: 11.8,
+                  fontWeight: pw.FontWeight.bold,
+                  color: _brandBlue,
+                  letterSpacing: 0.2,
+                ),
               ),
-            if (safeDeposit > 0) _line('Abono', money.format(safeDeposit)),
-            pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(vertical: 6),
-              child: pw.Container(
-                height: 1,
-                color: PdfColor.fromHex('#DDE7F0'),
+              pw.SizedBox(height: 4),
+              pw.Text(
+                'Resumen económico del documento',
+                textAlign: pw.TextAlign.center,
+                style: pw.TextStyle(fontSize: 8.5, color: _textMuted),
               ),
-            ),
-            _line('TOTAL', money.format(total), highlight: true),
-            if (safeDeposit > 0)
-              _line('Balance', money.format(balance), highlight: true),
-          ],
+              pw.SizedBox(height: 12),
+              pw.Container(
+                padding: const pw.EdgeInsets.fromLTRB(12, 11, 12, 11),
+                decoration: pw.BoxDecoration(
+                  color: _totalPanel,
+                  borderRadius: const pw.BorderRadius.all(
+                    pw.Radius.circular(14),
+                  ),
+                ),
+                child: pw.Column(
+                  children: [
+                    _line('Subtotal', money.format(subtotal), compact: true),
+                    if (includeItbis)
+                      _line(
+                        'ITBIS ${(itbisRate * 100).toStringAsFixed(0)}%',
+                        money.format(itbisAmount),
+                        compact: true,
+                      ),
+                    if (safeDeposit > 0)
+                      _line('Abono', money.format(safeDeposit), compact: true),
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 10),
+              pw.Container(
+                padding: const pw.EdgeInsets.fromLTRB(14, 12, 14, 12),
+                decoration: pw.BoxDecoration(
+                  color: _totalStrongPanel,
+                  borderRadius: const pw.BorderRadius.all(
+                    pw.Radius.circular(16),
+                  ),
+                  border: pw.Border.all(color: _brandBlue, width: 1.1),
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                  children: [
+                    _line(
+                      'TOTAL',
+                      money.format(total),
+                      highlight: true,
+                      prominent: true,
+                    ),
+                    if (safeDeposit > 0) ...[
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.symmetric(vertical: 8),
+                        child: pw.Container(
+                          height: 1,
+                          color: PdfColor.fromInt(0x804D7FB3),
+                        ),
+                      ),
+                      _line(
+                        'Balance',
+                        money.format(balance),
+                        highlight: true,
+                        prominent: true,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1204,30 +1336,46 @@ class ServicePdfExporter {
     String text, {
     pw.TextAlign align = pw.TextAlign.left,
     bool header = false,
+    bool emphasize = false,
   }) {
     return pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      padding: const pw.EdgeInsets.symmetric(horizontal: 9, vertical: 9),
       child: pw.Text(
         text,
         textAlign: align,
         style: pw.TextStyle(
-          fontSize: header ? 9 : 9.2,
-          fontWeight: header ? pw.FontWeight.bold : pw.FontWeight.normal,
-          color: header ? PdfColors.white : PdfColors.black,
+          fontSize: header ? 9.2 : 9.7,
+          fontWeight: header || emphasize
+              ? pw.FontWeight.bold
+              : pw.FontWeight.normal,
+          color: header
+              ? PdfColors.white
+              : emphasize
+              ? _textStrong
+              : PdfColors.black,
         ),
       ),
     );
   }
 
-  static pw.Widget _line(String label, String value, {bool highlight = false}) {
+  static pw.Widget _line(
+    String label,
+    String value, {
+    bool highlight = false,
+    bool compact = false,
+    bool prominent = false,
+  }) {
     return pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(vertical: 2),
+      padding: pw.EdgeInsets.symmetric(vertical: compact ? 3 : 4),
       child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
         children: [
           pw.Expanded(
             child: pw.Text(
               label,
               style: pw.TextStyle(
+                fontSize: prominent ? 10.8 : (compact ? 9.2 : 9.8),
+                color: highlight ? _textStrong : _textMuted,
                 fontWeight: highlight
                     ? pw.FontWeight.bold
                     : pw.FontWeight.normal,
@@ -1237,6 +1385,8 @@ class ServicePdfExporter {
           pw.Text(
             value,
             style: pw.TextStyle(
+              fontSize: prominent ? 14.6 : (compact ? 9.8 : 10.4),
+              color: highlight ? _brandBlue : _textStrong,
               fontWeight: highlight ? pw.FontWeight.bold : pw.FontWeight.normal,
             ),
           ),

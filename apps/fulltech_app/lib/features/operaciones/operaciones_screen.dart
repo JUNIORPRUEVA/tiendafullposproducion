@@ -735,38 +735,59 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     final bottomInset = MediaQuery.paddingOf(context).bottom;
 
     return Padding(
-      padding: EdgeInsets.only(bottom: bottomInset + 88),
+      padding: EdgeInsets.only(bottom: bottomInset + 64),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: scheme.surface.withValues(alpha: 0.98),
-          borderRadius: BorderRadius.circular(20),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              scheme.surface.withValues(alpha: 0.98),
+              Color.alphaBlend(
+                scheme.primary.withValues(alpha: 0.07),
+                scheme.surface,
+              ),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(24),
           border: Border.all(
             color: scheme.outlineVariant.withValues(alpha: 0.45),
           ),
           boxShadow: [
             BoxShadow(
               color: scheme.shadow.withValues(alpha: 0.08),
+              blurRadius: 24,
+              offset: const Offset(0, 12),
+            ),
+            BoxShadow(
+              color: scheme.primary.withValues(alpha: 0.10),
               blurRadius: 18,
-              offset: const Offset(0, 10),
+              offset: const Offset(0, 4),
             ),
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(10),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              IconButton.filledTonal(
+              _MobileOperationsFabButton(
                 tooltip: 'Catálogo',
-                onPressed: _openCatalogoDialog,
+                label: 'Catálogo',
                 icon: const _CatalogoFabIcon(),
+                onPressed: _openCatalogoDialog,
+                accentColor: scheme.primary,
+                delay: const Duration(milliseconds: 0),
               ),
               const SizedBox(height: 8),
-              IconButton.filledTonal(
-                tooltip: 'Ponche',
-                onPressed: _openPoncheDialog,
+              _MobileOperationsFabButton(
+                tooltip: 'Ponchar',
+                label: 'Ponchar',
                 icon: const _PoncheFabIcon(),
+                onPressed: _openPoncheDialog,
+                accentColor: scheme.tertiary,
+                delay: const Duration(milliseconds: 70),
               ),
             ],
           ),
@@ -10253,6 +10274,132 @@ class _CatalogoFabIcon extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _MobileOperationsFabButton extends StatelessWidget {
+  const _MobileOperationsFabButton({
+    required this.tooltip,
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+    required this.accentColor,
+    required this.delay,
+  });
+
+  final String tooltip;
+  final String label;
+  final Widget icon;
+  final VoidCallback onPressed;
+  final Color accentColor;
+  final Duration delay;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final staggerStart = (delay.inMilliseconds / 420).clamp(0.0, 0.75);
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) {
+        final eased = Interval(
+          staggerStart,
+          1,
+          curve: Curves.easeOutCubic,
+        ).transform(value);
+        return Opacity(
+          opacity: eased,
+          child: Transform.translate(
+            offset: Offset(0, (1 - eased) * 10),
+            child: Transform.scale(scale: 0.96 + (0.04 * eased), child: child),
+          ),
+        );
+      },
+      child: Tooltip(
+        message: tooltip,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: BorderRadius.circular(20),
+            child: Ink(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color.alphaBlend(
+                      accentColor.withValues(alpha: 0.14),
+                      scheme.surfaceContainerHighest,
+                    ),
+                    Color.alphaBlend(
+                      accentColor.withValues(alpha: 0.06),
+                      scheme.surface,
+                    ),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: accentColor.withValues(alpha: 0.24)),
+                boxShadow: [
+                  BoxShadow(
+                    color: accentColor.withValues(alpha: 0.12),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 9,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: accentColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: accentColor.withValues(alpha: 0.24),
+                        ),
+                      ),
+                      child: Center(child: icon),
+                    ),
+                    const SizedBox(width: 10),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          label,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.1,
+                          ),
+                        ),
+                        Text(
+                          'Acceso rápido',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
