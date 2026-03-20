@@ -20,12 +20,32 @@ LatLng? parseLatLngFromText(String input) {
     return LatLng(lat, lng);
   }
 
+  LatLng? firstPairMatch(String text, List<RegExp> patterns) {
+    for (final pattern in patterns) {
+      final match = pattern.firstMatch(text);
+      final parsed = fromPair(match?.group(1), match?.group(2));
+      if (parsed != null) return parsed;
+    }
+    return null;
+  }
+
   // 1) Plain "lat,lng" anywhere in the text.
   final pair = RegExp(
     r'(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)',
   ).firstMatch(raw);
   final direct = fromPair(pair?.group(1), pair?.group(2));
   if (direct != null) return direct;
+
+  final regexPatterns = <RegExp>[
+    RegExp(r'@(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:,|$)'),
+    RegExp(r'center=(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:&|$)'),
+    RegExp(r'll=(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:&|$)'),
+    RegExp(r'!3d(-?\d{1,2}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)'),
+    RegExp(r'query=(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:&|$)'),
+    RegExp(r'destination=(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:&|$)'),
+  ];
+  final regexDirect = firstPairMatch(raw, regexPatterns);
+  if (regexDirect != null) return regexDirect;
 
   // 2) Google Maps URLs commonly shared by WhatsApp:
   // - https://maps.google.com/?q=lat,lng
@@ -55,6 +75,16 @@ LatLng? parseLatLngFromText(String input) {
   ).firstMatch(url);
   final fromAt = fromPair(at?.group(1), at?.group(2));
   if (fromAt != null) return fromAt;
+
+  final uri = Uri.tryParse(url);
+  if (uri != null) {
+    for (final entry in uri.queryParameters.entries) {
+      final value = Uri.decodeFull(entry.value).trim();
+      if (value.isEmpty) continue;
+      final nested = parseLatLngFromText(value);
+      if (nested != null) return nested;
+    }
+  }
 
   // 3) geo:lat,lng
   final geo = RegExp(

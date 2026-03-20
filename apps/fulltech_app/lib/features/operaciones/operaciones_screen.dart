@@ -27,11 +27,13 @@ import '../../core/storage/storage_repository.dart';
 import '../../core/storage/storage_models.dart';
 import '../../core/utils/geo_utils.dart';
 import '../../core/utils/external_launcher.dart';
+import '../../core/utils/local_file_image.dart';
 import '../../core/utils/safe_url_launcher.dart';
 import '../../core/utils/string_utils.dart';
 import '../../core/utils/video_preview_controller.dart';
 import '../../core/widgets/app_navigation.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/local_file_image.dart';
 import '../../modules/cotizaciones/data/cotizaciones_repository.dart';
 import '../../modules/cotizaciones/cotizacion_models.dart';
 import '../catalogo/catalogo_screen.dart';
@@ -46,11 +48,13 @@ import 'operations_models.dart' hide ServiceStatus;
 import 'operations_models.dart' as ops show ServiceStatus, parseStatus;
 import 'presentation/service_agenda_card.dart';
 import 'presentation/create_order_form_ui.dart';
+import 'presentation/full_screen_image_viewer.dart';
 import 'presentation/operations_filters.dart';
 import 'presentation/operations_mobile_widgets.dart';
 import 'presentation/operations_permissions.dart';
 import 'presentation/service_actions_sheet.dart';
 import 'presentation/service_location_helpers.dart';
+import 'presentation/map_preview.dart';
 import 'presentation/service_order_detail_widgets.dart';
 import 'presentation/service_pdf_exporter.dart';
 import 'presentation/status_picker_sheet.dart';
@@ -7055,6 +7059,165 @@ class _VideoReferenceViewerState extends State<_VideoReferenceViewer> {
   }
 }
 
+class _LocalReferenceVideoViewer extends StatefulWidget {
+  final PlatformFile file;
+
+  const _LocalReferenceVideoViewer({required this.file});
+
+  @override
+  State<_LocalReferenceVideoViewer> createState() =>
+      _LocalReferenceVideoViewerState();
+}
+
+class _LocalReferenceVideoViewerState
+    extends State<_LocalReferenceVideoViewer> {
+  VideoPlayerController? _controller;
+  Future<void>? _init;
+
+  @override
+  void initState() {
+    super.initState();
+    final controller = createVideoPreviewController(
+      path: widget.file.path,
+      bytes: widget.file.bytes,
+      fileName: widget.file.name,
+    );
+    if (controller == null) return;
+
+    controller.setLooping(false);
+    _controller = controller;
+    _init = controller.initialize().then((_) async {
+      try {
+        await controller.seekTo(const Duration(milliseconds: 1));
+      } catch (_) {
+        // ignore
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final controller = _controller;
+    final init = _init;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text(
+          widget.file.name.trim().isEmpty
+              ? 'Video de referencia'
+              : widget.file.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+      body: SafeArea(
+        child: (controller == null || init == null)
+            ? const Center(
+                child: Text(
+                  'Video inválido',
+                  style: TextStyle(color: Colors.white),
+                ),
+              )
+            : FutureBuilder<void>(
+                future: init,
+                builder: (context, snap) {
+                  if (snap.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  if (snap.hasError || !controller.value.isInitialized) {
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          'No se pudo cargar el video.',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+
+                  final aspect = controller.value.aspectRatio == 0
+                      ? (16 / 9)
+                      : controller.value.aspectRatio;
+
+                  return Stack(
+                    children: [
+                      Positioned.fill(
+                        child: Center(
+                          child: AspectRatio(
+                            aspectRatio: aspect,
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () {
+                                  setState(() {
+                                    if (controller.value.isPlaying) {
+                                      controller.pause();
+                                    } else {
+                                      controller.play();
+                                    }
+                                  });
+                                },
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    VideoPlayer(controller),
+                                    if (!controller.value.isPlaying)
+                                      Container(
+                                        padding: const EdgeInsets.all(14),
+                                        decoration: BoxDecoration(
+                                          color: scheme.surface.withValues(
+                                            alpha: 0.88,
+                                          ),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.play_arrow_rounded,
+                                          size: 34,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: 12,
+                        right: 12,
+                        bottom: 12,
+                        child: VideoProgressIndicator(
+                          controller,
+                          allowScrubbing: true,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+      ),
+    );
+  }
+}
+
 class _PaymentInfo {
   final String status;
   final double? amount;
@@ -8288,6 +8451,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   final _surveyResultCtrl = TextEditingController();
   final _materialsUsedCtrl = TextEditingController();
   final _finalCostCtrl = TextEditingController();
+  final _gpsPointNotifier = ValueNotifier<LatLng?>(null);
+  final _resolvingGpsNotifier = ValueNotifier<bool>(false);
 
   late String _serviceType;
   late String _categoryId;
@@ -8327,9 +8492,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     return '${Routes.cotizaciones}?$q';
   }
 
-  LatLng? _gpsPoint;
   Timer? _gpsResolveDebounce;
-  bool _resolvingGps = false;
   int _gpsResolveSeq = 0;
   List<PlatformFile> _referenceImages = const [];
   PlatformFile? _referenceVideo;
@@ -8352,6 +8515,44 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       return 'La cotizacion debe ser mayor que cero';
     }
     return null;
+  }
+
+  LatLng? get _gpsPoint => _gpsPointNotifier.value;
+  bool get _resolvingGps => _resolvingGpsNotifier.value;
+
+  bool _sameLatLng(LatLng? a, LatLng? b) {
+    if (identical(a, b)) return true;
+    if (a == null || b == null) return false;
+    return a.latitude == b.latitude && a.longitude == b.longitude;
+  }
+
+  void _setGpsPoint(LatLng? value) {
+    if (_sameLatLng(_gpsPointNotifier.value, value)) return;
+    _gpsPointNotifier.value = value;
+  }
+
+  void _setResolvingGps(bool value) {
+    if (_resolvingGpsNotifier.value == value) return;
+    _resolvingGpsNotifier.value = value;
+  }
+
+  T? _safeDropdownValue<T>(
+    T? currentValue,
+    List<DropdownMenuItem<T>> items,
+  ) {
+    for (final item in items) {
+      if (item.value == currentValue) return currentValue;
+    }
+    return null;
+  }
+
+  void _showDeferredSnackBar(String message) {
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      messenger?.showSnackBar(SnackBar(content: Text(message)));
+    });
   }
 
   @override
@@ -8403,6 +8604,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     _surveyResultCtrl.dispose();
     _materialsUsedCtrl.dispose();
     _finalCostCtrl.dispose();
+    _gpsPointNotifier.dispose();
+    _resolvingGpsNotifier.dispose();
     _referenceVideoPreviewCtrl?.dispose();
     super.dispose();
   }
@@ -8501,7 +8704,15 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           .read(operationsRepositoryProvider)
           .getTechnicians(silent: true);
       if (!mounted) return;
-      setState(() => _technicians = items);
+      setState(() {
+        _technicians = items;
+        final hasSelectedTechnician = items.any(
+          (technician) => technician.id == _technicianId,
+        );
+        if (!hasSelectedTechnician) {
+          _technicianId = null;
+        }
+      });
     } catch (_) {
       // Silencioso: el formulario funciona igual sin dropdown.
     } finally {
@@ -8637,30 +8848,28 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     bool showSnackOnFail = false,
   }) async {
     final text = raw.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty) {
+      _setResolvingGps(false);
+      _setGpsPoint(null);
+      return;
+    }
 
     final seq = ++_gpsResolveSeq;
-    if (mounted) {
-      setState(() => _resolvingGps = true);
-    }
+    _setResolvingGps(true);
 
     final point = await _resolveLatLngFromText(text);
 
     if (!mounted) return;
     if (seq != _gpsResolveSeq) return;
 
-    setState(() {
-      _resolvingGps = false;
-      if (point != null) _gpsPoint = point;
-    });
+    _setResolvingGps(false);
+    if (point != null) {
+      _setGpsPoint(point);
+    }
 
     if (point == null && showSnackOnFail) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'No pude detectar coordenadas. Prueba pegar un link que incluya lat,lng (o pega "lat,lng" directamente).',
-          ),
-        ),
+      _showDeferredSnackBar(
+        'No pude detectar coordenadas. Prueba pegar un link que incluya lat,lng (o pega "lat,lng" directamente).',
       );
     }
   }
@@ -8711,8 +8920,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       result = await FilePicker.platform.pickFiles(
         type: FileType.image,
         allowMultiple: true,
-        withReadStream: !kIsWeb,
-        withData: true,
+        withReadStream: false,
+        withData: kIsWeb,
         lockParentWindow: lockParentWindow,
       );
     } catch (_) {
@@ -8729,8 +8938,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
             'heic',
             'heif',
           ],
-          withReadStream: !kIsWeb,
-          withData: true,
+          withReadStream: false,
+          withData: kIsWeb,
           lockParentWindow: lockParentWindow,
         );
       } catch (e) {
@@ -8784,7 +8993,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     try {
       result = await FilePicker.platform.pickFiles(
         type: FileType.video,
-        withReadStream: !kIsWeb,
+        withReadStream: false,
         withData: kIsWeb,
         lockParentWindow: lockParentWindow,
       );
@@ -8801,7 +9010,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
             'webm',
             '3gp',
           ],
-          withReadStream: !kIsWeb,
+          withReadStream: false,
           withData: kIsWeb,
           lockParentWindow: lockParentWindow,
         );
@@ -8825,6 +9034,40 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     } catch (_) {
       // Sheet was likely closed while awaiting the picker.
     }
+  }
+
+  ImageProvider? _referenceImageProvider(PlatformFile file) {
+    final bytes = file.bytes;
+    if (bytes != null && bytes.isNotEmpty) {
+      return MemoryImage(bytes);
+    }
+
+    final path = (file.path ?? '').trim();
+    if (path.isEmpty) return null;
+    return localFileImageProvider(path);
+  }
+
+  void _openReferenceImageFullScreen(PlatformFile file) {
+    final provider = _referenceImageProvider(file);
+    if (provider == null) return;
+
+    FullScreenImageViewer.show(
+      context,
+      image: provider,
+      title: file.name.trim().isEmpty ? 'Foto de referencia' : file.name,
+    );
+  }
+
+  void _openReferenceVideoFullScreen() {
+    final file = _referenceVideo;
+    if (file == null) return;
+
+    Navigator.of(context, rootNavigator: true).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => _LocalReferenceVideoViewer(file: file),
+      ),
+    );
   }
 
   void _removeReferenceImageAt(int index, {StateSetter? setSheetState}) {
@@ -8876,87 +9119,82 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
 
     return Padding(
       padding: const EdgeInsets.only(top: 10),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          child: FutureBuilder<void>(
-            future: init,
-            builder: (context, snap) {
-              final initialized =
-                  snap.connectionState == ConnectionState.done &&
-                  ctrl.value.isInitialized;
-              if (!initialized) {
-                return const SizedBox(
-                  height: 180,
-                  child: Center(
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                );
-              }
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: 186,
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: FutureBuilder<void>(
+              future: init,
+              builder: (context, snap) {
+                final initialized =
+                    snap.connectionState == ConnectionState.done &&
+                    ctrl.value.isInitialized;
+                if (!initialized) {
+                  return const SizedBox(
+                    width: 186,
+                    height: 112,
+                    child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  );
+                }
 
-              final aspect = ctrl.value.aspectRatio == 0
-                  ? (16 / 9)
-                  : ctrl.value.aspectRatio;
+                final aspect = ctrl.value.aspectRatio == 0
+                    ? (16 / 9)
+                    : ctrl.value.aspectRatio;
 
-              return AspectRatio(
-                aspectRatio: aspect,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    VideoPlayer(ctrl),
-                    Positioned.fill(
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: () {
-                            setState(() {
-                              if (ctrl.value.isPlaying) {
-                                ctrl.pause();
-                              } else {
-                                ctrl.play();
-                              }
-                            });
-                          },
-                          child: Center(
-                            child: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.surface.withValues(alpha: 0.85),
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.outline.withValues(alpha: 0.25),
-                                ),
-                              ),
-                              child: Icon(
-                                ctrl.value.isPlaying
-                                    ? Icons.pause_rounded
-                                    : Icons.play_arrow_rounded,
-                                size: 28,
-                              ),
+                return Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: _openReferenceVideoFullScreen,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        AspectRatio(
+                          aspectRatio: aspect,
+                          child: VideoPlayer(ctrl),
+                        ),
+                        Positioned.fill(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.20),
                             ),
                           ),
                         ),
-                      ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.surface.withValues(alpha: 0.86),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.outline.withValues(alpha: 0.25),
+                            ),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.fullscreen_rounded, size: 18),
+                              SizedBox(width: 4),
+                              Text('Abrir'),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: VideoProgressIndicator(
-                        ctrl,
-                        allowScrubbing: true,
-                        padding: const EdgeInsets.all(8),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -8968,11 +9206,11 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     final text = (data?.text ?? '').trim();
     if (text.isEmpty) return;
 
+    _gpsResolveDebounce?.cancel();
     final parsed = parseLatLngFromText(text);
-    setState(() {
-      _gpsCtrl.text = text;
-      _gpsPoint = parsed;
-    });
+    _gpsCtrl.text = text;
+    _setGpsPoint(parsed);
+    _setResolvingGps(false);
 
     if (parsed == null) {
       await _resolveAndSetGpsPoint(text, showSnackOnFail: true);
@@ -8988,8 +9226,51 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
 
     await _resolveAndSetGpsPoint(_gpsCtrl.text, showSnackOnFail: true);
     final resolved = _gpsPoint;
-    if (!mounted || resolved == null) return;
-    _openGpsFullScreen(resolved);
+    if (!mounted) return;
+    if (resolved != null) {
+      _openGpsFullScreen(resolved);
+      return;
+    }
+
+    final raw = _gpsCtrl.text.trim();
+    final info = buildServiceLocationInfo(
+      addressOrText: raw,
+      mapsUrl: _looksLikeHttpUrl(raw) ? raw : null,
+    );
+    if (info.canOpenMaps) {
+      await safeOpenUrl(context, info.mapsUri!, copiedMessage: 'Link copiado');
+      return;
+    }
+
+    _showDeferredSnackBar('No se pudo abrir la ubicación');
+  }
+
+  Future<void> _openGpsDestinationFromInput() async {
+    final point = _gpsPoint ?? parseLatLngFromText(_gpsCtrl.text);
+    if (point != null) {
+      await _openBestNavigation(context, point);
+      return;
+    }
+
+    await _resolveAndSetGpsPoint(_gpsCtrl.text, showSnackOnFail: false);
+    final resolved = _gpsPoint;
+    if (!mounted) return;
+    if (resolved != null) {
+      await _openBestNavigation(context, resolved);
+      return;
+    }
+
+    final raw = _gpsCtrl.text.trim();
+    final info = buildServiceLocationInfo(
+      addressOrText: raw,
+      mapsUrl: _looksLikeHttpUrl(raw) ? raw : null,
+    );
+    if (info.canOpenMaps) {
+      await safeOpenUrl(context, info.mapsUri!, copiedMessage: 'Link copiado');
+      return;
+    }
+
+    _showDeferredSnackBar('No se pudo detectar una ubicación válida');
   }
 
   String? _buildAddressSnapshot() {
@@ -9064,7 +9345,6 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
         final formPadding = isCompact ? 10.0 : (isWide ? 12.0 : 14.0);
         final theme = Theme.of(context);
         final scheme = theme.colorScheme;
-
         final formTheme = theme.copyWith(
           inputDecorationTheme: InputDecorationTheme(
             filled: true,
@@ -9148,29 +9428,201 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           symbol: 'RD\$',
         ).format(value);
 
+        Widget buildLocationFields(Widget addressField) {
+          return ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _gpsCtrl,
+            builder: (context, gpsValue, _) {
+              final gpsText = gpsValue.text.trim();
+              return ValueListenableBuilder<LatLng?>(
+                valueListenable: _gpsPointNotifier,
+                builder: (context, gpsPoint, __) {
+                  return ValueListenableBuilder<bool>(
+                    valueListenable: _resolvingGpsNotifier,
+                    builder: (context, resolvingGps, ___) {
+                      final gpsField = TextFormField(
+                        controller: _gpsCtrl,
+                        decoration: InputDecoration(
+                          border: const OutlineInputBorder(),
+                          labelText: 'Ubicación GPS (WhatsApp/Maps)',
+                          helperText: resolvingGps
+                              ? 'Detectando ubicación desde el link...'
+                              : (gpsPoint == null
+                                    ? 'Pega un link de Google Maps o "lat,lng"'
+                                    : 'Detectado: ${formatLatLng(gpsPoint)}'),
+                          suffixIcon: SizedBox(
+                            width: 96,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  onPressed: _pasteGpsFromClipboard,
+                                  icon: const Icon(
+                                    Icons.content_paste_rounded,
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: gpsText.isEmpty
+                                      ? null
+                                      : _openGpsInApp,
+                                  icon: const Icon(Icons.map_outlined),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        onChanged: (value) {
+                          final text = value.trim();
+                          _gpsResolveDebounce?.cancel();
+                          if (text.isEmpty) {
+                            _setResolvingGps(false);
+                            _setGpsPoint(null);
+                            return;
+                          }
+
+                          final parsed = parseLatLngFromText(text);
+                          _setGpsPoint(parsed);
+                          if (parsed != null) {
+                            _setResolvingGps(false);
+                            return;
+                          }
+
+                          if (!_looksLikeHttpUrl(text)) {
+                            _setResolvingGps(false);
+                            return;
+                          }
+
+                          _gpsResolveDebounce = Timer(
+                            const Duration(milliseconds: 650),
+                            () => _resolveAndSetGpsPoint(text),
+                          );
+                        },
+                      );
+
+                      return Column(
+                        children: [
+                          if (isWide)
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(child: addressField),
+                                const SizedBox(width: 10),
+                                Expanded(child: gpsField),
+                              ],
+                            )
+                          else ...[
+                            addressField,
+                            const SizedBox(height: 10),
+                            gpsField,
+                          ],
+                          if (gpsText.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            _GpsMapPreviewCard(
+                              point: gpsPoint,
+                              mapsUrl: gpsText,
+                              onOpen: () {
+                                unawaited(_openGpsInApp());
+                              },
+                              onNavigate: () {
+                                unawaited(_openGpsDestinationFromInput());
+                              },
+                            ),
+                          ],
+                        ],
+                      );
+                    },
+                  );
+                },
+              );
+            },
+          );
+        }
+
+        final agendaKindItems = const [
+          DropdownMenuItem(value: 'reserva', child: Text('Reserva')),
+          DropdownMenuItem(value: 'instalacion', child: Text('Instalación')),
+          DropdownMenuItem(value: 'mantenimiento', child: Text('Mantenimiento')),
+          DropdownMenuItem(value: 'garantia', child: Text('Garantía')),
+          DropdownMenuItem(
+            value: 'levantamiento',
+            child: Text('Levantamiento'),
+          ),
+        ];
+        final safeAgendaKind =
+            _safeDropdownValue<String>(
+              _normalizeAgendaKindValue(widget.agendaKind),
+              agendaKindItems,
+            ) ??
+            'reserva';
+        final priorityItems = const [
+          DropdownMenuItem(value: 1, child: Text('Alta')),
+          DropdownMenuItem(value: 2, child: Text('Media')),
+          DropdownMenuItem(value: 3, child: Text('Baja')),
+        ];
+        final safePriority =
+            _safeDropdownValue<int>(_priority, priorityItems) ?? 1;
+        final serviceTypeItems = const [
+          DropdownMenuItem(value: 'installation', child: Text('Instalación')),
+          DropdownMenuItem(value: 'maintenance', child: Text('Mantenimiento')),
+          DropdownMenuItem(value: 'warranty', child: Text('Garantía')),
+          DropdownMenuItem(value: 'pos_support', child: Text('Soporte POS')),
+          DropdownMenuItem(value: 'other', child: Text('Otro')),
+        ];
+        final safeServiceType =
+            _safeDropdownValue<String>(_serviceType, serviceTypeItems) ??
+            'installation';
+        final orderStateItems = const [
+          DropdownMenuItem(value: 'pendiente', child: Text('Pendiente')),
+          DropdownMenuItem(value: 'confirmada', child: Text('Confirmada')),
+          DropdownMenuItem(value: 'asignada', child: Text('Asignada')),
+          DropdownMenuItem(value: 'en_camino', child: Text('En camino')),
+          DropdownMenuItem(value: 'en_proceso', child: Text('En proceso')),
+          DropdownMenuItem(value: 'finalizada', child: Text('Finalizada')),
+          DropdownMenuItem(value: 'cancelada', child: Text('Cancelada')),
+          DropdownMenuItem(value: 'reagendada', child: Text('Reagendada')),
+          DropdownMenuItem(value: 'cerrada', child: Text('Cerrada')),
+        ];
+        final safeOrderState =
+            _safeDropdownValue<String>(_orderState, orderStateItems) ??
+            'pendiente';
+        final technicianItems = [
+          const DropdownMenuItem(value: '', child: Text('Sin asignar')),
+          ..._technicians.map(
+            (t) => DropdownMenuItem(value: t.id, child: Text(t.name)),
+          ),
+        ];
+        final safeTechnicianId =
+            _safeDropdownValue<String>(_technicianId ?? '', technicianItems) ??
+            '';
+        final paymentStatusItems = const [
+          DropdownMenuItem(value: 'pendiente', child: Text('Pendiente')),
+          DropdownMenuItem(value: 'pagado', child: Text('Pagado')),
+        ];
+        final safePaymentStatus =
+            _safeDropdownValue<String>(_paymentStatus, paymentStatusItems) ??
+            'pendiente';
+        final paymentMethodItems = const [
+          DropdownMenuItem(value: 'efectivo', child: Text('Efectivo')),
+          DropdownMenuItem(
+            value: 'transferencia',
+            child: Text('Transferencia'),
+          ),
+          DropdownMenuItem(value: 'tarjeta', child: Text('Tarjeta')),
+        ];
+        final safePaymentMethod =
+            _safeDropdownValue<String>(_paymentMethod, paymentMethodItems) ??
+            'efectivo';
+
         final agendaKindPicker = DropdownButtonFormField<String>(
           key: ValueKey(
             'create-kind-${_normalizeAgendaKindValue(widget.agendaKind)}',
           ),
-          initialValue: _normalizeAgendaKindValue(widget.agendaKind),
+          initialValue: safeAgendaKind,
           isExpanded: true,
           decoration: const InputDecoration(
             border: OutlineInputBorder(),
             labelText: 'Fase de orden',
           ),
-          items: const [
-            DropdownMenuItem(value: 'reserva', child: Text('Reserva')),
-            DropdownMenuItem(value: 'instalacion', child: Text('Instalación')),
-            DropdownMenuItem(
-              value: 'mantenimiento',
-              child: Text('Mantenimiento'),
-            ),
-            DropdownMenuItem(value: 'garantia', child: Text('Garantía')),
-            DropdownMenuItem(
-              value: 'levantamiento',
-              child: Text('Levantamiento'),
-            ),
-          ],
+          items: agendaKindItems,
           onChanged: widget.onAgendaKindChanged == null
               ? null
               : (value) {
@@ -9195,17 +9647,13 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
         );
 
         final priorityField = DropdownButtonFormField<int>(
-          initialValue: _priority,
+          initialValue: safePriority,
           isExpanded: true,
           decoration: const InputDecoration(
             border: OutlineInputBorder(),
             labelText: 'Prioridad',
           ),
-          items: const [
-            DropdownMenuItem(value: 1, child: Text('Alta')),
-            DropdownMenuItem(value: 2, child: Text('Media')),
-            DropdownMenuItem(value: 3, child: Text('Baja')),
-          ],
+          items: priorityItems,
           onChanged: (value) {
             if (value != null) {
               setState(() {
@@ -9225,68 +9673,14 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           ),
         );
 
-        final gpsField = TextFormField(
-          controller: _gpsCtrl,
-          decoration: InputDecoration(
-            border: const OutlineInputBorder(),
-            labelText: 'Ubicación GPS (WhatsApp/Maps)',
-            helperText: _resolvingGps
-                ? 'Detectando ubicación desde el link...'
-                : (_gpsPoint == null
-                      ? 'Pega un link de Google Maps o "lat,lng"'
-                      : 'Detectado: ${formatLatLng(_gpsPoint!)}'),
-            suffixIcon: SizedBox(
-              width: 96,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: 'Pegar',
-                    onPressed: _pasteGpsFromClipboard,
-                    icon: const Icon(Icons.content_paste_rounded),
-                  ),
-                  IconButton(
-                    tooltip: 'Ver mapa',
-                    onPressed: _gpsCtrl.text.trim().isEmpty
-                        ? null
-                        : _openGpsInApp,
-                    icon: const Icon(Icons.map_outlined),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          onChanged: (value) {
-            final parsed = parseLatLngFromText(value);
-            setState(() => _gpsPoint = parsed);
-            if (parsed != null) return;
-
-            if (!_looksLikeHttpUrl(value)) return;
-            _gpsResolveDebounce?.cancel();
-            _gpsResolveDebounce = Timer(
-              const Duration(milliseconds: 650),
-              () => _resolveAndSetGpsPoint(value),
-            );
-          },
-        );
-
         final serviceTypeField = DropdownButtonFormField<String>(
-          initialValue: _serviceType,
+          initialValue: safeServiceType,
           isExpanded: true,
           decoration: const InputDecoration(
             border: OutlineInputBorder(),
             labelText: 'Tipo de servicio',
           ),
-          items: const [
-            DropdownMenuItem(value: 'installation', child: Text('Instalación')),
-            DropdownMenuItem(
-              value: 'maintenance',
-              child: Text('Mantenimiento'),
-            ),
-            DropdownMenuItem(value: 'warranty', child: Text('Garantía')),
-            DropdownMenuItem(value: 'pos_support', child: Text('Soporte POS')),
-            DropdownMenuItem(value: 'other', child: Text('Otro')),
-          ],
+          items: serviceTypeItems,
           onChanged: (value) {
             if (value == null) return;
             setState(() {
@@ -9329,30 +9723,20 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
 
         final orderStateField = DropdownButtonFormField<String>(
           key: ValueKey('orderState-$_orderState'),
-          initialValue: _orderState,
+          initialValue: safeOrderState,
           isExpanded: true,
           decoration: const InputDecoration(
             border: OutlineInputBorder(),
             labelText: 'Estado (auto)',
             helperText: 'Se calcula automáticamente al asignar técnico.',
           ),
-          items: const [
-            DropdownMenuItem(value: 'pendiente', child: Text('Pendiente')),
-            DropdownMenuItem(value: 'confirmada', child: Text('Confirmada')),
-            DropdownMenuItem(value: 'asignada', child: Text('Asignada')),
-            DropdownMenuItem(value: 'en_camino', child: Text('En camino')),
-            DropdownMenuItem(value: 'en_proceso', child: Text('En proceso')),
-            DropdownMenuItem(value: 'finalizada', child: Text('Finalizada')),
-            DropdownMenuItem(value: 'cancelada', child: Text('Cancelada')),
-            DropdownMenuItem(value: 'reagendada', child: Text('Reagendada')),
-            DropdownMenuItem(value: 'cerrada', child: Text('Cerrada')),
-          ],
+          items: orderStateItems,
           onChanged: null,
         );
 
         final technicianField = DropdownButtonFormField<String>(
           key: ValueKey('technician-${_technicianId ?? ''}'),
-          initialValue: _technicianId ?? '',
+          initialValue: safeTechnicianId,
           isExpanded: true,
           decoration: InputDecoration(
             border: const OutlineInputBorder(),
@@ -9363,12 +9747,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                       ? 'No tienes técnicos registrados. Puedes guardar sin asignar.'
                       : null),
           ),
-          items: [
-            const DropdownMenuItem(value: '', child: Text('Sin asignar')),
-            ..._technicians.map(
-              (t) => DropdownMenuItem(value: t.id, child: Text(t.name)),
-            ),
-          ],
+          items: technicianItems,
           onChanged: _loadingTechnicians
               ? null
               : (value) {
@@ -9819,31 +10198,52 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                                 ),
                                 child: Stack(
                                   children: [
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(14),
-                                      child: Container(
-                                        width: 96,
-                                        height: 96,
-                                        decoration: BoxDecoration(
-                                          color: scheme.surfaceContainerHighest,
-                                          border: Border.all(
-                                            color: scheme.outline.withValues(
-                                              alpha: 0.25,
+                                    Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        onTap: () =>
+                                            _openReferenceImageFullScreen(f),
+                                        borderRadius: BorderRadius.circular(14),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                            14,
+                                          ),
+                                          child: Container(
+                                            width: 76,
+                                            height: 76,
+                                            decoration: BoxDecoration(
+                                              color: scheme
+                                                  .surfaceContainerHighest,
+                                              border: Border.all(
+                                                color: scheme.outline
+                                                    .withValues(alpha: 0.25),
+                                              ),
                                             ),
+                                            child:
+                                                (f.bytes != null &&
+                                                    f.bytes!.isNotEmpty)
+                                                ? Image.memory(
+                                                    f.bytes!,
+                                                    fit: BoxFit.cover,
+                                                  )
+                                                : ((f.path ?? '')
+                                                      .trim()
+                                                      .isNotEmpty)
+                                                ? localFileImage(
+                                                    path: f.path!.trim(),
+                                                    fit: BoxFit.cover,
+                                                  )
+                                                : Center(
+                                                    child: Icon(
+                                                      Icons.image_outlined,
+                                                      color: scheme.onSurface
+                                                          .withValues(
+                                                            alpha: 0.65,
+                                                          ),
+                                                    ),
+                                                  ),
                                           ),
                                         ),
-                                        child: (f.bytes != null)
-                                            ? Image.memory(
-                                                f.bytes!,
-                                                fit: BoxFit.cover,
-                                              )
-                                            : Center(
-                                                child: Icon(
-                                                  Icons.image_outlined,
-                                                  color: scheme.onSurface
-                                                      .withValues(alpha: 0.65),
-                                                ),
-                                              ),
                                       ),
                                     ),
                                     Positioned(
@@ -9901,7 +10301,6 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                               ),
                             ),
                             IconButton(
-                              tooltip: 'Quitar video',
                               onPressed: () {
                                 setState(() => _referenceVideo = null);
                                 _clearReferenceVideoPreview();
@@ -9921,40 +10320,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                   icon: Icons.place_outlined,
                   subtitle:
                       'Completa la dirección y el enlace GPS para que el técnico llegue con precisión.',
-                  child: Column(
-                    children: [
-                      if (isWide)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(child: addressField),
-                            const SizedBox(width: 10),
-                            Expanded(child: gpsField),
-                          ],
-                        )
-                      else ...[
-                        addressField,
-                        const SizedBox(height: 10),
-                        gpsField,
-                      ],
-                      if (_gpsPoint != null) ...[
-                        const SizedBox(height: 12),
-                        _GpsMapPreviewCard(
-                          point: _gpsPoint!,
-                          onOpen: () {
-                            final point = _gpsPoint;
-                            if (point == null) return;
-                            _openGpsFullScreen(point);
-                          },
-                          onNavigate: () {
-                            final point = _gpsPoint;
-                            if (point == null) return;
-                            _openBestNavigation(context, point);
-                          },
-                        ),
-                      ],
-                    ],
-                  ),
+                  child: buildLocationFields(addressField),
                 ),
                 const SizedBox(height: 12),
                 CreateOrderSection(
@@ -10041,21 +10407,12 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                         ),
                       const SizedBox(height: 10),
                       DropdownButtonFormField<String>(
-                        initialValue: _paymentStatus,
+                        initialValue: safePaymentStatus,
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
                           labelText: 'Estado de pago',
                         ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'pendiente',
-                            child: Text('Pendiente'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'pagado',
-                            child: Text('Pagado'),
-                          ),
-                        ],
+                        items: paymentStatusItems,
                         onChanged: (value) {
                           final next = (value ?? 'pendiente')
                               .trim()
@@ -10091,25 +10448,12 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                           ),
                           const SizedBox(height: 10),
                           DropdownButtonFormField<String>(
-                            initialValue: _paymentMethod,
+                            initialValue: safePaymentMethod,
                             decoration: const InputDecoration(
                               border: OutlineInputBorder(),
                               labelText: 'Método de pago',
                             ),
-                            items: const [
-                              DropdownMenuItem(
-                                value: 'efectivo',
-                                child: Text('Efectivo'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'transferencia',
-                                child: Text('Transferencia'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'tarjeta',
-                                child: Text('Tarjeta'),
-                              ),
-                            ],
+                            items: paymentMethodItems,
                             onChanged: (value) {
                               setState(
                                 () => _paymentMethod = (value ?? 'efectivo')
@@ -10147,25 +10491,12 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                               const SizedBox(width: 10),
                               Expanded(
                                 child: DropdownButtonFormField<String>(
-                                  initialValue: _paymentMethod,
+                                  initialValue: safePaymentMethod,
                                   decoration: const InputDecoration(
                                     border: OutlineInputBorder(),
                                     labelText: 'Método de pago',
                                   ),
-                                  items: const [
-                                    DropdownMenuItem(
-                                      value: 'efectivo',
-                                      child: Text('Efectivo'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'transferencia',
-                                      child: Text('Transferencia'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'tarjeta',
-                                      child: Text('Tarjeta'),
-                                    ),
-                                  ],
+                                  items: paymentMethodItems,
                                   onChanged: (value) {
                                     setState(
                                       () =>
@@ -10769,17 +11100,17 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     try {
       final gpsText = _gpsCtrl.text.trim();
       if (gpsText.isNotEmpty && _gpsPoint == null && !_resolvingGps) {
-        setState(() => _resolvingGps = true);
+        _setResolvingGps(true);
         try {
           final point = await _resolveLatLngFromText(gpsText);
           if (!mounted) return;
-          setState(() {
-            _resolvingGps = false;
-            if (point != null) _gpsPoint = point;
-          });
+          _setResolvingGps(false);
+          if (point != null) {
+            _setGpsPoint(point);
+          }
         } catch (_) {
           if (!mounted) return;
-          setState(() => _resolvingGps = false);
+          _setResolvingGps(false);
         }
       }
 
@@ -10829,7 +11160,9 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       _referenceTextCtrl.clear();
       _addressCtrl.clear();
       _gpsCtrl.clear();
-      _gpsPoint = null;
+      _gpsResolveDebounce?.cancel();
+      _setGpsPoint(null);
+      _setResolvingGps(false);
       _referenceImages = const [];
       _referenceVideo = null;
       _orderState = 'pendiente';
@@ -11293,12 +11626,14 @@ class _PoncheFabIcon extends StatelessWidget {
 }
 
 class _GpsMapPreviewCard extends StatelessWidget {
-  final LatLng point;
+  final LatLng? point;
+  final String? mapsUrl;
   final VoidCallback onOpen;
   final VoidCallback onNavigate;
 
   const _GpsMapPreviewCard({
     required this.point,
+    required this.mapsUrl,
     required this.onOpen,
     required this.onNavigate,
   });
@@ -11309,101 +11644,110 @@ class _GpsMapPreviewCard extends StatelessWidget {
     final scheme = theme.colorScheme;
 
     return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onOpen,
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SizedBox(
-                height: 170,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: IgnorePointer(
-                    ignoring: true,
-                    child: FlutterMap(
-                      options: MapOptions(
-                        initialCenter: point,
-                        initialZoom: 15,
-                        interactionOptions: const InteractionOptions(
-                          flags: InteractiveFlag.none,
-                        ),
-                      ),
-                      children: [
-                        TileLayer(
-                          urlTemplate:
-                              'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                          userAgentPackageName: 'fulltech_app',
-                          tileProvider: NetworkTileProvider(),
-                        ),
-                        MarkerLayer(
-                          markers: [
-                            Marker(
-                              width: 50,
-                              height: 50,
-                              point: point,
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.location_on,
-                                    color: scheme.onSurface.withValues(
-                                      alpha: 0.35,
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              height: 170,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: point != null
+                    ? InkWell(
+                        onTap: onOpen,
+                        child: IgnorePointer(
+                          ignoring: true,
+                          child: FlutterMap(
+                            options: MapOptions(
+                              initialCenter: point!,
+                              initialZoom: 15,
+                              interactionOptions: const InteractionOptions(
+                                flags: InteractiveFlag.none,
+                              ),
+                            ),
+                            children: [
+                              TileLayer(
+                                urlTemplate:
+                                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                userAgentPackageName: 'fulltech_app',
+                                tileProvider: NetworkTileProvider(),
+                              ),
+                              MarkerLayer(
+                                markers: [
+                                  Marker(
+                                    width: 50,
+                                    height: 50,
+                                    point: point!,
+                                    child: Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.location_on,
+                                          color: scheme.onSurface.withValues(
+                                            alpha: 0.35,
+                                          ),
+                                          size: 50,
+                                        ),
+                                        Icon(
+                                          Icons.location_on,
+                                          color: scheme.primary,
+                                          size: 46,
+                                        ),
+                                      ],
                                     ),
-                                    size: 50,
-                                  ),
-                                  Icon(
-                                    Icons.location_on,
-                                    color: scheme.primary,
-                                    size: 46,
                                   ),
                                 ],
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ],
+                      )
+                    : MapPreview(mapsUrl: (mapsUrl ?? '').trim(), height: 170),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(
+                  point != null ? Icons.open_in_full : Icons.link_rounded,
+                  size: 16,
+                  color: scheme.onSurface.withValues(alpha: 0.70),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    point != null
+                        ? 'Ver mapa en pantalla completa'
+                        : 'Ubicación detectada desde el enlace',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: scheme.onSurface.withValues(alpha: 0.80),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(
-                    Icons.open_in_full,
-                    size: 16,
-                    color: scheme.onSurface.withValues(alpha: 0.70),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Ver mapa en pantalla completa',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: scheme.onSurface.withValues(alpha: 0.80),
-                      ),
-                    ),
-                  ),
-                  FilledButton.tonalIcon(
-                    onPressed: onNavigate,
-                    icon: const Icon(Icons.directions_outlined, size: 18),
-                    label: const Text('Ir'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                formatLatLng(point),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: scheme.onSurface.withValues(alpha: 0.65),
+                FilledButton.tonalIcon(
+                  onPressed: onNavigate,
+                  icon: const Icon(Icons.directions_outlined, size: 18),
+                  label: const Text('Ir'),
                 ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              point != null
+                  ? formatLatLng(point!)
+                  : ((mapsUrl ?? '').trim().isEmpty
+                        ? 'Ubicación disponible'
+                        : (mapsUrl ?? '').trim()),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: scheme.onSurface.withValues(alpha: 0.65),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

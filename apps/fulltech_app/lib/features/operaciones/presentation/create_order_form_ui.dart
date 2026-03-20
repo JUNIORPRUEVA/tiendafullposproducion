@@ -22,95 +22,96 @@ class CreateOrderModalShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final canShowTooltip = Overlay.maybeOf(context, rootOverlay: true) != null;
 
-    return Column(
-      children: [
-        DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                scheme.surface,
-                scheme.surface,
-                scheme.primary.withValues(alpha: 0.05),
-              ],
+    return Material(
+      color: scheme.surface,
+      child: Column(
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  scheme.surface,
+                  scheme.surface,
+                  scheme.primary.withValues(alpha: 0.05),
+                ],
+              ),
+              border: Border(
+                bottom: BorderSide(
+                  color: scheme.outlineVariant.withValues(alpha: 0.45),
+                ),
+              ),
             ),
-            border: Border(
-              bottom: BorderSide(
-                color: scheme.outlineVariant.withValues(alpha: 0.45),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (showGrip)
+                    Align(
+                      child: Container(
+                        width: 44,
+                        height: 5,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: scheme.outlineVariant.withValues(alpha: 0.8),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                    ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                            if ((subtitle ?? '').trim().isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                subtitle!,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: scheme.onSurfaceVariant,
+                                  height: 1.3,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      IconButton(
+                        onPressed: onClose,
+                        icon: const Icon(Icons.close_rounded),
+                        style: IconButton.styleFrom(
+                          foregroundColor: scheme.onSurface,
+                          backgroundColor: scheme.surfaceContainerHighest
+                              .withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (headerAccessory != null) ...[
+                    const SizedBox(height: 12),
+                    headerAccessory!,
+                  ],
+                ],
               ),
             ),
           ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (showGrip)
-                  Align(
-                    child: Container(
-                      width: 44,
-                      height: 5,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      decoration: BoxDecoration(
-                        color: scheme.outlineVariant.withValues(alpha: 0.8),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            title,
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                          if ((subtitle ?? '').trim().isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              subtitle!,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: scheme.onSurfaceVariant,
-                                height: 1.3,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    IconButton(
-                      tooltip: canShowTooltip ? 'Cerrar' : null,
-                      onPressed: onClose,
-                      icon: const Icon(Icons.close_rounded),
-                      style: IconButton.styleFrom(
-                        foregroundColor: scheme.onSurface,
-                        backgroundColor: scheme.surfaceContainerHighest
-                            .withValues(alpha: 0.7),
-                      ),
-                    ),
-                  ],
-                ),
-                if (headerAccessory != null) ...[
-                  const SizedBox(height: 12),
-                  headerAccessory!,
-                ],
-              ],
-            ),
-          ),
-        ),
-        Expanded(child: child),
-      ],
+          Expanded(child: child),
+        ],
+      ),
     );
   }
 }

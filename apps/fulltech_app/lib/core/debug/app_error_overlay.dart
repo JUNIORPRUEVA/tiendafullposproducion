@@ -76,12 +76,10 @@ class AppErrorOverlay extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Detalles',
                     onPressed: () => _showDetails(context, msg),
                     icon: Icon(Icons.bug_report, color: scheme.onErrorContainer),
                   ),
                   IconButton(
-                    tooltip: 'Cerrar',
                     onPressed: AppErrorReporter.instance.clear,
                     icon: Icon(Icons.close, color: scheme.onErrorContainer),
                   ),
