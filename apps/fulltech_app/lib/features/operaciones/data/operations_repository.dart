@@ -1216,15 +1216,53 @@ class OperationsRepository {
 
   Future<ServiceModel> updateService({
     required String serviceId,
+    String? serviceType,
+    String? categoryId,
+    String? category,
+    int? priority,
+    String? title,
     String? description,
+    double? quotedAmount,
+    double? depositAmount,
     String? addressSnapshot,
+    String? warrantyParentServiceId,
+    String? surveyResult,
+    String? materialsUsed,
+    double? finalCost,
+    String? orderType,
+    String? orderState,
+    String? technicianId,
+    List<String>? tags,
   }) async {
     try {
       final payload = <String, dynamic>{
+        if (serviceType != null && serviceType.trim().isNotEmpty)
+          'serviceType': serviceType.trim(),
+        if (categoryId != null && categoryId.trim().isNotEmpty)
+          'categoryId': categoryId.trim(),
+        if (category != null && category.trim().isNotEmpty)
+          'category': category.trim(),
+        if (priority != null) 'priority': priority,
+        if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
         if (description != null && description.trim().isNotEmpty)
           'description': description.trim(),
+        if (quotedAmount != null) 'quotedAmount': quotedAmount,
+        if (depositAmount != null) 'depositAmount': depositAmount,
         if (addressSnapshot != null && addressSnapshot.trim().isNotEmpty)
           'addressSnapshot': addressSnapshot.trim(),
+        if (warrantyParentServiceId != null &&
+            warrantyParentServiceId.trim().isNotEmpty)
+          'warrantyParentServiceId': warrantyParentServiceId.trim(),
+        if (surveyResult != null) 'surveyResult': surveyResult,
+        if (materialsUsed != null) 'materialsUsed': materialsUsed,
+        if (finalCost != null) 'finalCost': finalCost,
+        if (orderType != null && orderType.trim().isNotEmpty)
+          'orderType': orderType.trim(),
+        if (orderState != null && orderState.trim().isNotEmpty)
+          'orderState': orderState.trim(),
+        if (technicianId != null && technicianId.trim().isNotEmpty)
+          'technicianId': technicianId.trim(),
+        if (tags != null) 'tags': tags,
       };
 
       if (payload.isEmpty) {

@@ -58,7 +58,7 @@ class OperationsAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String? photoUrl;
 
   @override
-  Size get preferredSize => const Size.fromHeight(56);
+  Size get preferredSize => const Size.fromHeight(60);
 
   @override
   Widget build(BuildContext context) {
@@ -68,39 +68,76 @@ class OperationsAppBar extends StatelessWidget implements PreferredSizeWidget {
     return AppBar(
       automaticallyImplyLeading: false,
       elevation: 0,
-      titleSpacing: 4,
+      titleSpacing: 0,
+      leadingWidth: 52,
       toolbarHeight: preferredSize.height,
       flexibleSpace: DecoratedBox(
-        decoration: BoxDecoration(gradient: gradient),
+        decoration: BoxDecoration(
+          gradient: gradient,
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x140F172A),
+              blurRadius: 16,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
       ),
       leading: Builder(
         builder: (context) {
-          return IconButton(
-            tooltip: 'Menú',
-            onPressed: Scaffold.of(context).openDrawer,
-            icon: const Icon(Icons.menu_rounded),
-            style: IconButton.styleFrom(
-              foregroundColor: scheme.onPrimary,
-              backgroundColor: Colors.white.withValues(alpha: 0.12),
+          return Padding(
+            padding: const EdgeInsets.only(left: 8),
+            child: IconButton(
+              tooltip: 'Menú',
+              onPressed: Scaffold.of(context).openDrawer,
+              icon: const Icon(Icons.menu_rounded, size: 20),
+              style: IconButton.styleFrom(
+                foregroundColor: scheme.onPrimary,
+                backgroundColor: Colors.white.withValues(alpha: 0.14),
+                minimumSize: const Size(38, 38),
+                maximumSize: const Size(38, 38),
+                padding: EdgeInsets.zero,
+              ),
             ),
           );
         },
       ),
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            'Operaciones',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleSmall?.copyWith(
-              color: scheme.onPrimary,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -0.2,
+      title: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'Operaciones',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: scheme.onPrimary,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5,
+                height: 0.95,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 2),
+            Text(
+              'Ordenes de servicio',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.onPrimary.withValues(alpha: 0.76),
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.15,
+                height: 1,
+              ),
+            ),
+          ],
+        ),
       ),
       actions: [
         IconButton(
@@ -108,20 +145,22 @@ class OperationsAppBar extends StatelessWidget implements PreferredSizeWidget {
           onPressed: onOpenQuickCreate,
           icon: const Icon(Icons.add_task_rounded),
           style: IconButton.styleFrom(
-            minimumSize: const Size(36, 36),
+            minimumSize: const Size(34, 34),
             foregroundColor: scheme.onPrimary,
-            backgroundColor: Colors.white.withValues(alpha: 0.12),
+            backgroundColor: Colors.white.withValues(alpha: 0.14),
+            padding: EdgeInsets.zero,
           ),
         ),
-        const SizedBox(width: 1),
+        const SizedBox(width: 2),
         IconButton(
           tooltip: 'Mapa clientes',
           onPressed: onOpenMap,
           icon: const Icon(Icons.map_outlined),
           style: IconButton.styleFrom(
-            minimumSize: const Size(36, 36),
+            minimumSize: const Size(34, 34),
             foregroundColor: scheme.onPrimary,
-            backgroundColor: Colors.white.withValues(alpha: 0.12),
+            backgroundColor: Colors.white.withValues(alpha: 0.14),
+            padding: EdgeInsets.zero,
           ),
         ),
         PopupMenuButton<_OperationsMenuAction>(
@@ -450,12 +489,14 @@ class ActionRow extends StatelessWidget {
     super.key,
     required this.onView,
     required this.onChangeState,
+    this.onChangePhase,
     this.onChat,
     this.onCall,
   });
 
   final VoidCallback onView;
   final Future<void> Function() onChangeState;
+  final VoidCallback? onChangePhase;
   final VoidCallback? onChat;
   final VoidCallback? onCall;
 
@@ -498,6 +539,26 @@ class ActionRow extends StatelessWidget {
             label: const Text('Estado'),
           ),
         ),
+        if (onChangePhase != null) ...[
+          const SizedBox(width: 6),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: onChangePhase,
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(34),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                ),
+              ),
+              icon: const Icon(Icons.flag_outlined, size: 15),
+              label: const Text('Fase'),
+            ),
+          ),
+        ],
         if (onChat != null) ...[
           const SizedBox(width: 6),
           _ActionIconButton(
@@ -678,6 +739,7 @@ class OrderCard extends StatelessWidget {
             ActionRow(
               onView: onView,
               onChangeState: onChangeState,
+              onChangePhase: onChangePhase,
               onChat: onChat,
               onCall: onCall,
             ),

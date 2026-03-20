@@ -21,6 +21,11 @@ class OperationsPermissions {
     return 'Solo creador o admin';
   }
 
+  bool get canChangeAdminPhase => canOperate;
+
+  String? get changeAdminPhaseDeniedReason =>
+      canChangeAdminPhase ? null : operateDeniedReason;
+
   bool get isAssignedTechnician {
     if (!isTechnician) return false;
     if (_userId.isEmpty) return false;

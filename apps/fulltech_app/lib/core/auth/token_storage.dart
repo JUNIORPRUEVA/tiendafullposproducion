@@ -8,6 +8,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../debug/trace_log.dart';
 import '../models/user_model.dart';
 
+class TokenStorageLaunchSnapshot {
+  final bool hasSessionHint;
+  final UserModel? user;
+
+  const TokenStorageLaunchSnapshot({required this.hasSessionHint, this.user});
+
+  const TokenStorageLaunchSnapshot.empty() : this(hasSessionHint: false);
+
+  bool get canRestoreSession => hasSessionHint && user != null;
+}
+
 class TokenStorage {
   static const _accessTokenKey = 'accessToken';
   static const _refreshTokenKey = 'refreshToken';
@@ -33,8 +44,10 @@ class TokenStorage {
         defaultTargetPlatform == TargetPlatform.macOS;
   }
 
-  Duration get _prefsTimeout => _isDesktop ? const Duration(seconds: 6) : const Duration(seconds: 2);
-  Duration get _secureTimeout => _isDesktop ? const Duration(seconds: 6) : const Duration(seconds: 2);
+  Duration get _prefsTimeout =>
+      _isDesktop ? const Duration(seconds: 6) : const Duration(seconds: 2);
+  Duration get _secureTimeout =>
+      _isDesktop ? const Duration(seconds: 6) : const Duration(seconds: 2);
 
   bool _prefsBroken = false;
 
@@ -213,6 +226,47 @@ class TokenStorage {
     return null;
   }
 
+  Future<TokenStorageLaunchSnapshot> readFastLaunchSnapshot({
+    Duration timeout = const Duration(milliseconds: 180),
+  }) async {
+    if ((_memoryAccessToken?.isNotEmpty ?? false) &&
+        _memoryUserSnapshot != null) {
+      return TokenStorageLaunchSnapshot(
+        hasSessionHint: true,
+        user: _memoryUserSnapshot,
+      );
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance().timeout(timeout);
+      final accessToken =
+          _memoryAccessToken ?? prefs.getString(_accessTokenKey);
+      final user =
+          _memoryUserSnapshot ??
+          _parseLaunchUserSnapshot(prefs.getString(_userSnapshotKey));
+
+      if (accessToken != null && accessToken.isNotEmpty) {
+        _memoryAccessToken = accessToken;
+      }
+      if (user != null) {
+        _memoryUserSnapshot = user;
+      }
+
+      return TokenStorageLaunchSnapshot(
+        hasSessionHint: accessToken != null && accessToken.isNotEmpty,
+        user: user,
+      );
+    } catch (e, st) {
+      TraceLog.log(
+        'TokenStorage',
+        'readFastLaunchSnapshot() fallback to empty',
+        error: e,
+        stackTrace: st,
+      );
+      return const TokenStorageLaunchSnapshot.empty();
+    }
+  }
+
   Future<void> clearTokens() async {
     final seq = TraceLog.nextSeq();
     TraceLog.log('TokenStorage', 'clearTokens() start', seq: seq);
@@ -389,5 +443,17 @@ class TokenStorage {
       'TokenStorage',
       'Removed corrupted user snapshot from $source',
     );
+  }
+
+  UserModel? _parseLaunchUserSnapshot(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      return UserModel.fromJson(decoded.cast<String, dynamic>());
+    } catch (_) {
+      return null;
+    }
   }
 }

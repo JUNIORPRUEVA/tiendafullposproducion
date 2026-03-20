@@ -18,11 +18,16 @@ import 'core/startup/app_startup_controller.dart';
 import 'core/ai_assistant/presentation/widgets/global_ai_assistant_entry_point.dart';
 import 'core/widgets/fulltech_global_background.dart';
 import 'features/operaciones/application/operations_prefetch_provider.dart';
+import 'features/contabilidad/contabilidad_init.dart';
 
 Future<void> main() async {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      await ensureContabilidadLocale(
+        locale: PlatformDispatcher.instance.locale.toString(),
+      );
+      final authLaunchSnapshot = await loadAuthLaunchSnapshot();
 
       FlutterError.onError = (details) {
         FlutterError.presentError(details);
@@ -35,7 +40,14 @@ Future<void> main() async {
       };
 
       _initializeDesktopSqlite();
-      runApp(const ProviderScope(child: AppBootstrap()));
+      runApp(
+        ProviderScope(
+          overrides: [
+            authLaunchSnapshotProvider.overrideWithValue(authLaunchSnapshot),
+          ],
+          child: const AppBootstrap(),
+        ),
+      );
     },
     (error, stack) {
       AppErrorReporter.instance.record(error, stack, context: 'Zone');

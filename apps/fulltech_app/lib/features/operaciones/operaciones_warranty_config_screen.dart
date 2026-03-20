@@ -123,7 +123,7 @@ class _OperacionesWarrantyConfigScreenState
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       DropdownButtonFormField<String>(
-                        value: _findCategory(categories, categoryId)?.id,
+                        initialValue: _findCategory(categories, categoryId)?.id,
                         decoration: const InputDecoration(
                           labelText: 'Categoría',
                         ),
@@ -177,7 +177,7 @@ class _OperacionesWarrantyConfigScreenState
                                 DropdownButtonFormField<
                                   WarrantyDurationUnitModel
                                 >(
-                                  value: durationUnit,
+                                  initialValue: durationUnit,
                                   decoration: const InputDecoration(
                                     labelText: 'Unidad',
                                   ),
@@ -300,12 +300,14 @@ class _OperacionesWarrantyConfigScreenState
                       }
                       if (!mounted) return;
                       setState(() => _saving = false);
+                      if (!dialogContext.mounted) return;
                       Navigator.of(dialogContext).pop(true);
                     } on ApiException catch (error) {
                       if (!mounted) return;
                       setState(() => _saving = false);
+                      if (!dialogContext.mounted) return;
                       await AppFeedback.showError(
-                        context,
+                        dialogContext,
                         error.message,
                         fallbackContext: dialogContext,
                         scope: 'WarrantyConfigScreen',
@@ -313,8 +315,9 @@ class _OperacionesWarrantyConfigScreenState
                     } catch (error) {
                       if (!mounted) return;
                       setState(() => _saving = false);
+                      if (!dialogContext.mounted) return;
                       await AppFeedback.showError(
-                        context,
+                        dialogContext,
                         '$error',
                         fallbackContext: dialogContext,
                         scope: 'WarrantyConfigScreen',
@@ -458,7 +461,7 @@ class _OperacionesWarrantyConfigScreenState
                         const SizedBox(width: 12),
                         Expanded(
                           child: DropdownButtonFormField<String>(
-                            value: _findCategory(
+                            initialValue: _findCategory(
                               categories,
                               _selectedCategoryId,
                             )?.id,

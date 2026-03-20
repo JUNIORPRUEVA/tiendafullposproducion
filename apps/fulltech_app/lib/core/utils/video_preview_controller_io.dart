@@ -1,9 +1,14 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:video_player/video_player.dart';
 
-VideoPlayerController? createVideoPreviewControllerFromPath(String path) {
-  final p = path.trim();
+VideoPlayerController? createVideoPreviewController({
+  String? path,
+  Uint8List? bytes,
+  String? fileName,
+}) {
+  final p = (path ?? '').trim();
   if (p.isEmpty) return null;
 
   final uri = Uri.tryParse(p);

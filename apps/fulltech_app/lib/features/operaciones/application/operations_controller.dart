@@ -227,12 +227,130 @@ class OperationsController extends StateNotifier<OperationsState> {
 
   void applyRealtimeService(ServiceModel service) {
     final before = state.services;
-    if (before.isEmpty) return;
     final index = before.indexWhere((s) => s.id == service.id);
-    if (index < 0) return;
+    final matches = _matchesCurrentFilters(service);
+
+    if (!matches) {
+      if (index < 0) return;
+      final next = [...before]..removeAt(index);
+      state = state.copyWith(services: next);
+      return;
+    }
+
     final next = [...before];
-    next[index] = service;
+    if (index >= 0) {
+      next[index] = service;
+    } else {
+      next.insert(0, service);
+    }
+    next.sort(_sortServicesForRealtime);
     state = state.copyWith(services: next);
+  }
+
+  bool _matchesCurrentFilters(ServiceModel service) {
+    String norm(String? value) => (value ?? '').trim().toLowerCase();
+
+    bool same(String? left, String? right) {
+      final a = norm(left);
+      final b = norm(right);
+      if (a.isEmpty || b.isEmpty) return false;
+      return a == b;
+    }
+
+    final statusFilter = norm(state.statusFilter);
+    if (statusFilter.isNotEmpty) {
+      final candidates = <String>{
+        norm(service.status),
+        norm(service.currentPhase),
+        norm(service.adminPhase),
+        norm(service.adminStatus),
+        norm(service.orderState),
+      }..remove('');
+      if (!candidates.contains(statusFilter)) return false;
+    }
+
+    if (state.typeFilter != null &&
+        !same(service.serviceType, state.typeFilter)) {
+      return false;
+    }
+
+    if (state.orderTypeFilter != null &&
+        !same(service.orderType, state.orderTypeFilter)) {
+      return false;
+    }
+
+    final orderStateFilter = norm(state.orderStateFilter);
+    if (orderStateFilter.isNotEmpty) {
+      final candidates = <String>{
+        norm(service.orderState),
+        norm(service.adminStatus),
+        norm(service.status),
+      }..remove('');
+      if (!candidates.contains(orderStateFilter)) return false;
+    }
+
+    final technicianFilter = norm(state.technicianIdFilter);
+    if (technicianFilter.isNotEmpty) {
+      final assignedIds = <String>{
+        norm(service.technicianId),
+        ...service.assignments.map((a) => norm(a.userId)),
+      }..remove('');
+      if (!assignedIds.contains(technicianFilter)) return false;
+    }
+
+    if (state.priorityFilter != null &&
+        service.priority != state.priorityFilter) {
+      return false;
+    }
+
+    final customerFilter = norm(state.customerIdFilter);
+    if (customerFilter.isNotEmpty &&
+        !same(service.customerId, customerFilter)) {
+      return false;
+    }
+
+    final query = norm(state.search);
+    if (query.isNotEmpty) {
+      final haystack = [
+        service.orderLabel,
+        service.title,
+        service.description,
+        service.customerName,
+        service.customerPhone,
+        service.customerAddress,
+        service.category,
+        service.categoryName ?? '',
+        service.serviceType,
+        service.orderType,
+        service.orderState,
+        service.adminStatus ?? '',
+        service.currentPhase,
+      ].map(norm).join(' ');
+      if (!haystack.contains(query)) return false;
+    }
+
+    final pivot =
+        service.scheduledStart ?? service.createdAt ?? service.completedAt;
+    final from = state.from;
+    if (from != null && pivot != null && pivot.isBefore(from)) return false;
+    final to = state.to;
+    if (to != null && pivot != null && pivot.isAfter(to)) return false;
+
+    return true;
+  }
+
+  int _sortServicesForRealtime(ServiceModel a, ServiceModel b) {
+    final ad =
+        a.createdAt ??
+        a.scheduledStart ??
+        a.completedAt ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+    final bd =
+        b.createdAt ??
+        b.scheduledStart ??
+        b.completedAt ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+    return bd.compareTo(ad);
   }
 
   Future<void> setSearch(String value) async {
@@ -319,20 +437,54 @@ class OperationsController extends StateNotifier<OperationsState> {
       return cached;
     }
 
-    return repo.getServiceAndCache(cacheScope: cacheScope, id: id, silent: true);
+    return repo.getServiceAndCache(
+      cacheScope: cacheScope,
+      id: id,
+      silent: true,
+    );
   }
 
   Future<ServiceModel> updateService({
     required String serviceId,
+    String? serviceType,
+    String? categoryId,
+    String? category,
+    int? priority,
+    String? title,
     String? description,
+    double? quotedAmount,
+    double? depositAmount,
     String? addressSnapshot,
+    String? warrantyParentServiceId,
+    String? surveyResult,
+    String? materialsUsed,
+    double? finalCost,
+    String? orderType,
+    String? orderState,
+    String? technicianId,
+    List<String>? tags,
   }) async {
     final updated = await ref
         .read(operationsRepositoryProvider)
         .updateService(
           serviceId: serviceId,
+          serviceType: serviceType,
+          categoryId: categoryId,
+          category: category,
+          priority: priority,
+          title: title,
           description: description,
+          quotedAmount: quotedAmount,
+          depositAmount: depositAmount,
           addressSnapshot: addressSnapshot,
+          warrantyParentServiceId: warrantyParentServiceId,
+          surveyResult: surveyResult,
+          materialsUsed: materialsUsed,
+          finalCost: finalCost,
+          orderType: orderType,
+          orderState: orderState,
+          technicianId: technicianId,
+          tags: tags,
         );
     await load();
     return updated;
@@ -431,15 +583,20 @@ class OperationsController extends StateNotifier<OperationsState> {
 
     final adminStatus = normalizeAdminStatus(orderState);
     final hasTech = (technicianId ?? '').trim().isNotEmpty;
-    final effectiveAdminStatus = adminStatus ?? (hasTech ? 'asignada' : 'pendiente');
-    final legacyOrderState = legacyOrderStateForAdminStatus(effectiveAdminStatus);
+    final effectiveAdminStatus =
+        adminStatus ?? (hasTech ? 'asignada' : 'pendiente');
+    final legacyOrderState = legacyOrderStateForAdminStatus(
+      effectiveAdminStatus,
+    );
 
     final normalizedType = (orderType ?? 'reserva').trim().toLowerCase();
     final effectiveAdminPhase = normalizedType == 'reserva'
-      ? 'reserva'
-      : 'programacion';
+        ? 'reserva'
+        : 'programacion';
 
-    final service = await ref.read(operationsRepositoryProvider).createService(
+    final service = await ref
+        .read(operationsRepositoryProvider)
+        .createService(
           customerId: customerId,
           serviceType: serviceType,
           categoryId: categoryId,
@@ -484,7 +641,9 @@ class OperationsController extends StateNotifier<OperationsState> {
     final index = before.indexWhere((s) => s.id == id);
 
     if (index < 0) {
-      await ref.read(operationsRepositoryProvider).changeAdminStatus(
+      await ref
+          .read(operationsRepositoryProvider)
+          .changeAdminStatus(
             serviceId: id,
             adminStatus: next,
             message: message,
@@ -504,7 +663,11 @@ class OperationsController extends StateNotifier<OperationsState> {
     try {
       final updated = await ref
           .read(operationsRepositoryProvider)
-          .changeAdminStatus(serviceId: id, adminStatus: next, message: message);
+          .changeAdminStatus(
+            serviceId: id,
+            adminStatus: next,
+            message: message,
+          );
 
       final after = [...state.services];
       final idx = after.indexWhere((s) => s.id == id);
@@ -534,11 +697,9 @@ class OperationsController extends StateNotifier<OperationsState> {
     final index = before.indexWhere((s) => s.id == id);
 
     if (index < 0) {
-      final updated = await ref.read(operationsRepositoryProvider).changeAdminPhase(
-            serviceId: id,
-            adminPhase: next,
-            message: message,
-          );
+      final updated = await ref
+          .read(operationsRepositoryProvider)
+          .changeAdminPhase(serviceId: id, adminPhase: next, message: message);
       await load();
       return updated;
     }
@@ -552,11 +713,9 @@ class OperationsController extends StateNotifier<OperationsState> {
     state = state.copyWith(services: optimisticList);
 
     try {
-      final updated = await ref.read(operationsRepositoryProvider).changeAdminPhase(
-            serviceId: id,
-            adminPhase: next,
-            message: message,
-          );
+      final updated = await ref
+          .read(operationsRepositoryProvider)
+          .changeAdminPhase(serviceId: id, adminPhase: next, message: message);
 
       final after = [...state.services];
       final idx = after.indexWhere((s) => s.id == id);

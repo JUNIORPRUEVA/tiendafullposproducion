@@ -9,6 +9,7 @@ Future<T?> showAnchoredCompactPanel<T>(
   double maxWidth = 440,
   double maxHeightFactor = 0.5,
   EdgeInsets margin = const EdgeInsets.all(12),
+  double verticalOffset = 0,
 }) {
   final media = MediaQuery.of(context);
   final screenSize = media.size;
@@ -26,7 +27,7 @@ Future<T?> showAnchoredCompactPanel<T>(
     screenSize.height - margin.vertical - viewInsets.bottom,
   );
   final panelMaxHeight = (availableHeight * maxHeightFactor)
-      .clamp(260.0, 520.0)
+      .clamp(260.0, availableHeight)
       .toDouble();
 
   final rawLeft = anchorRect == null
@@ -38,11 +39,11 @@ Future<T?> showAnchoredCompactPanel<T>(
   );
 
   final belowTop = anchorRect == null
-      ? screenSize.height * 0.16
-      : anchorRect.bottom + 10;
+      ? screenSize.height * 0.20 + verticalOffset
+      : anchorRect.bottom + 10 + verticalOffset;
   final aboveTop = anchorRect == null
       ? belowTop
-      : anchorRect.top - panelMaxHeight - 10;
+      : anchorRect.top - panelMaxHeight - 10 + verticalOffset;
   final canOpenBelow =
       belowTop + panelMaxHeight <=
       screenSize.height - viewInsets.bottom - margin.bottom;
@@ -156,23 +157,23 @@ class CompactFilterPanelFrame extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 8, 6),
+                padding: const EdgeInsets.fromLTRB(12, 10, 8, 4),
                 child: Row(
                   children: [
                     Container(
-                      width: 32,
-                      height: 32,
+                      width: 30,
+                      height: 30,
                       decoration: BoxDecoration(
                         color: scheme.primary.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(11),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                       child: Icon(
                         Icons.tune_rounded,
-                        size: 18,
+                        size: 17,
                         color: scheme.primary,
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         title,
@@ -197,7 +198,7 @@ class CompactFilterPanelFrame extends StatelessWidget {
               ),
               Flexible(child: child),
               Container(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.92),
                   border: Border(
@@ -212,7 +213,7 @@ class CompactFilterPanelFrame extends StatelessWidget {
                       child: OutlinedButton(
                         onPressed: canClear ? onClear : null,
                         style: OutlinedButton.styleFrom(
-                          minimumSize: const Size.fromHeight(40),
+                          minimumSize: const Size.fromHeight(36),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
                           ),
@@ -225,7 +226,7 @@ class CompactFilterPanelFrame extends StatelessWidget {
                       child: FilledButton(
                         onPressed: onApply,
                         style: FilledButton.styleFrom(
-                          minimumSize: const Size.fromHeight(40),
+                          minimumSize: const Size.fromHeight(36),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
                           ),
@@ -259,7 +260,7 @@ class CompactFilterSection extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
       decoration: BoxDecoration(
         color: const Color(0xFFFCFDFE),
         borderRadius: BorderRadius.circular(18),
@@ -275,7 +276,7 @@ class CompactFilterSection extends StatelessWidget {
               color: const Color(0xFF1D344F),
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           child,
         ],
       ),
@@ -309,19 +310,19 @@ class CompactFilterSelectorTile extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
           child: Row(
             children: [
               Container(
-                width: 34,
-                height: 34,
+                width: 32,
+                height: 32,
                 decoration: BoxDecoration(
                   color: scheme.primary.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(11),
                 ),
-                child: Icon(icon, size: 18, color: scheme.primary),
+                child: Icon(icon, size: 17, color: scheme.primary),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -333,7 +334,7 @@ class CompactFilterSelectorTile extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 1),
                     Text(
                       value,
                       maxLines: 1,

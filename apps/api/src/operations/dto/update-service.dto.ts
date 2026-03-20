@@ -64,6 +64,24 @@ export class UpdateServiceDto {
   addressSnapshot?: string;
 
   @IsOptional()
+  @IsUUID()
+  warrantyParentServiceId?: string;
+
+  @IsOptional()
+  @IsString()
+  surveyResult?: string;
+
+  @IsOptional()
+  @IsString()
+  materialsUsed?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  finalCost?: number;
+
+  @IsOptional()
   @IsIn(orderTypes)
   orderType?: (typeof orderTypes)[number];
 

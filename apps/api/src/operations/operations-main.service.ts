@@ -1205,6 +1205,53 @@ export class OperationsService {
       throw new BadRequestException('La categoría es requerida');
     }
 
+    let warrantyParentServiceId: string | undefined = undefined;
+    if (dto.warrantyParentServiceId !== undefined) {
+      const parentId = dto.warrantyParentServiceId.trim();
+      if (parentId) {
+        const parent = await this.prisma.service.findFirst({
+          where: { id: parentId, isDeleted: false },
+          select: { id: true },
+        });
+        if (!parent) throw new BadRequestException('Servicio relacionado inválido');
+        warrantyParentServiceId = parent.id;
+      }
+    }
+
+    const currentOrderExtras =
+      service.orderExtras && typeof service.orderExtras === 'object'
+        ? { ...(service.orderExtras as Record<string, unknown>) }
+        : {};
+    const nextOrderExtras = { ...currentOrderExtras };
+    let touchesOrderExtras = false;
+
+    if (dto.surveyResult !== undefined) {
+      touchesOrderExtras = true;
+      const value = dto.surveyResult.trim();
+      if (value.isEmpty) {
+        delete nextOrderExtras.surveyResult;
+      } else {
+        nextOrderExtras.surveyResult = value;
+      }
+    }
+
+    if (dto.materialsUsed !== undefined) {
+      touchesOrderExtras = true;
+      const value = dto.materialsUsed.trim();
+      if (value.isEmpty) {
+        delete nextOrderExtras.materialsUsed;
+      } else {
+        nextOrderExtras.materialsUsed = value;
+      }
+    }
+
+    if (dto.finalCost !== undefined) {
+      touchesOrderExtras = true;
+      nextOrderExtras.finalCost = dto.finalCost;
+    }
+
+    const hasOrderExtras = Object.keys(nextOrderExtras).length > 0;
+
     const data: Prisma.ServiceUpdateInput = {
       ...(dto.serviceType ? { serviceType: this.parseType(dto.serviceType) } : {}),
       ...(category
@@ -1221,12 +1268,22 @@ export class OperationsService {
       ...(dto.addressSnapshot !== undefined
         ? { addressSnapshot: dto.addressSnapshot?.trim() || null }
         : {}),
+      ...(touchesOrderExtras
+        ? {
+            orderExtras: hasOrderExtras
+              ? (nextOrderExtras as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
+          }
+        : {}),
       ...(dto.orderType ? { orderType: this.parseOrderType(dto.orderType) } : {}),
       ...(dto.orderState ? { orderState: this.parseOrderState(dto.orderState) } : {}),
       ...(technicianId !== undefined
         ? technicianId
           ? { technician: { connect: { id: technicianId } } }
           : { technician: { disconnect: true } }
+        : {}),
+      ...(warrantyParentServiceId !== undefined
+        ? { warrantyParent: { connect: { id: warrantyParentServiceId } } }
         : {}),
       ...(dto.tags ? { tags: dto.tags } : {}),
     };
@@ -1249,7 +1306,10 @@ export class OperationsService {
         dto.description !== undefined ||
         dto.quotedAmount !== undefined ||
         dto.addressSnapshot !== undefined ||
-        dto.technicianId !== undefined;
+        dto.technicianId !== undefined ||
+        dto.surveyResult !== undefined ||
+        dto.materialsUsed !== undefined ||
+        dto.finalCost !== undefined;
       if (touchesClosing) {
         void this.serviceClosing.refreshDraftIfPending({ serviceId: id, triggeredByUserId: user.id }).catch(() => {
           // ignore

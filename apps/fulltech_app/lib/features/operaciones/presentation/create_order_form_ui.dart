@@ -22,6 +22,7 @@ class CreateOrderModalShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final canShowTooltip = Overlay.maybeOf(context, rootOverlay: true) != null;
 
     return Column(
       children: [
@@ -89,7 +90,7 @@ class CreateOrderModalShell extends StatelessWidget {
                     ),
                     const SizedBox(width: 12),
                     IconButton(
-                      tooltip: 'Cerrar',
+                      tooltip: canShowTooltip ? 'Cerrar' : null,
                       onPressed: onClose,
                       icon: const Icon(Icons.close_rounded),
                       style: IconButton.styleFrom(

@@ -371,6 +371,8 @@ class ServiceModel {
   final double? quotedAmount;
   final double? depositAmount;
   final double? finalCost;
+  final String? surveyResult;
+  final String? materialsUsed;
   final List<String> tags;
   final DateTime? createdAt;
   final DateTime? scheduledStart;
@@ -420,6 +422,8 @@ class ServiceModel {
     this.quotedAmount,
     this.depositAmount,
     this.finalCost,
+    this.surveyResult,
+    this.materialsUsed,
     this.createdAt,
     this.scheduledStart,
     this.scheduledEnd,
@@ -453,6 +457,8 @@ class ServiceModel {
     double? quotedAmount,
     double? depositAmount,
     double? finalCost,
+    String? surveyResult,
+    String? materialsUsed,
     List<String>? tags,
     DateTime? createdAt,
     DateTime? scheduledStart,
@@ -490,6 +496,8 @@ class ServiceModel {
       quotedAmount: quotedAmount ?? this.quotedAmount,
       depositAmount: depositAmount ?? this.depositAmount,
       finalCost: finalCost ?? this.finalCost,
+      surveyResult: surveyResult ?? this.surveyResult,
+      materialsUsed: materialsUsed ?? this.materialsUsed,
       tags: tags ?? this.tags,
       createdAt: createdAt ?? this.createdAt,
       scheduledStart: scheduledStart ?? this.scheduledStart,
@@ -534,6 +542,13 @@ class ServiceModel {
         return parseMoney(raw['finalCost']);
       }
       return null;
+    }
+
+    String? parseOrderExtraString(dynamic raw, String key) {
+      if (raw is! Map) return null;
+      final value = raw[key];
+      final text = (value ?? '').toString().trim();
+      return text.isEmpty ? null : text;
     }
 
     List<String> parseStringList(dynamic raw) {
@@ -583,6 +598,11 @@ class ServiceModel {
       quotedAmount: parseMoney(json['quotedAmount']),
       depositAmount: parseMoney(json['depositAmount']),
       finalCost: parseFinalCost(json['orderExtras']),
+      surveyResult: parseOrderExtraString(json['orderExtras'], 'surveyResult'),
+      materialsUsed: parseOrderExtraString(
+        json['orderExtras'],
+        'materialsUsed',
+      ),
       tags: parseStringList(json['tags']),
       createdAt: json['createdAt'] == null
           ? null

@@ -105,11 +105,48 @@ class TechOperationsController extends StateNotifier<TechOperationsState> {
 
   void applyRealtimeService(ServiceModel service) {
     final before = state.services;
-    if (before.isEmpty) return;
     final index = before.indexWhere((s) => s.id == service.id);
-    if (index < 0) return;
+    final belongs = _belongsToCurrentList(service);
+
+    if (!belongs) {
+      if (index < 0) return;
+      final next = [...before]..removeAt(index);
+      state = state.copyWith(services: next);
+      return;
+    }
+
     final next = [...before];
-    next[index] = service;
+    if (index >= 0) {
+      next[index] = service;
+    } else {
+      next.insert(0, service);
+    }
+    next.sort((a, b) {
+      final ad =
+          a.createdAt ??
+          a.scheduledStart ??
+          a.completedAt ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final bd =
+          b.createdAt ??
+          b.scheduledStart ??
+          b.completedAt ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      return bd.compareTo(ad);
+    });
     state = state.copyWith(services: next);
+  }
+
+  bool _belongsToCurrentList(ServiceModel service) {
+    final user = ref.read(authStateProvider).user;
+    final role = (user?.role ?? '').trim().toLowerCase();
+    final userId = (user?.id ?? '').trim();
+
+    if (role != 'tecnico' || userId.isEmpty) return true;
+
+    if ((service.technicianId ?? '').trim() == userId) return true;
+    return service.assignments.any(
+      (assignment) => assignment.userId.trim() == userId,
+    );
   }
 }

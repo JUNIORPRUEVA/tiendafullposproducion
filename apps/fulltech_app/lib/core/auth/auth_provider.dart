@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'auth_repository.dart';
+import 'token_storage.dart';
 import '../debug/trace_log.dart';
 import '../models/user_model.dart';
 import '../utils/is_flutter_test.dart';
@@ -50,20 +51,19 @@ final authStateProvider = StateNotifierProvider<AuthController, AuthState>((
   return AuthController(ref);
 });
 
+final authLaunchSnapshotProvider = Provider<TokenStorageLaunchSnapshot>((ref) {
+  return const TokenStorageLaunchSnapshot.empty();
+});
+
+Future<TokenStorageLaunchSnapshot> loadAuthLaunchSnapshot() {
+  return TokenStorage().readFastLaunchSnapshot();
+}
+
 class AuthController extends StateNotifier<AuthState> {
   final Ref ref;
 
   AuthController(this.ref)
-    : super(
-        AuthState(
-          initialized: false,
-          isAuthenticated: false,
-          user: null,
-          loading: false,
-          restoringSession: false,
-          hasSessionHint: false,
-        ),
-      ) {
+    : super(_buildInitialAuthState(ref.read(authLaunchSnapshotProvider))) {
     _bootstrap();
   }
 
@@ -143,7 +143,9 @@ class AuthController extends StateNotifier<AuthState> {
     TraceLog.log('Auth', '_verifySession() start', seq: seq);
 
     try {
-      final result = await ref.read(authRepositoryProvider).verifySession();
+      final result = await ref
+          .read(authRepositoryProvider)
+          .verifySession(silent: true);
       if (!mounted) return;
 
       switch (result.status) {
@@ -245,4 +247,16 @@ class AuthController extends StateNotifier<AuthState> {
       hasSessionHint: true,
     );
   }
+}
+
+AuthState _buildInitialAuthState(TokenStorageLaunchSnapshot snapshot) {
+  final canRestoreSession = snapshot.canRestoreSession;
+  return AuthState(
+    initialized: true,
+    isAuthenticated: canRestoreSession,
+    user: canRestoreSession ? snapshot.user : null,
+    loading: false,
+    restoringSession: canRestoreSession,
+    hasSessionHint: snapshot.hasSessionHint,
+  );
 }

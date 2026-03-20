@@ -218,7 +218,7 @@ class AuthRepository {
     }
   }
 
-  Future<UserModel?> getMeOrNull() async {
+  Future<UserModel?> getMeOrNull({bool silent = false}) async {
     // Widget tests (smoke test) should not block on secure storage/network.
     // Those calls can hang in tests and leave pending timeout timers.
     // Note: `bool.fromEnvironment('FLUTTER_TEST')` would require --dart-define;
@@ -232,7 +232,7 @@ class AuthRepository {
       if (token == null) return null;
       try {
         final res = await _dio
-            .get(ApiRoutes.usersMe)
+            .get(ApiRoutes.usersMe, options: Options(extra: {'silent': silent}))
             .timeout(_bootstrapTimeout);
         final user = UserModel.fromJson(
           (res.data as Map).cast<String, dynamic>(),
@@ -242,10 +242,13 @@ class AuthRepository {
       } on DioException catch (e) {
         // Si expira, intenta refresh y reintenta
         if (e.response?.statusCode == 401) {
-          final refreshed = await _refreshAndSave();
+          final refreshed = await _refreshAndSave(silent: silent);
           if (refreshed) {
             final res = await _dio
-                .get(ApiRoutes.usersMe)
+                .get(
+                  ApiRoutes.usersMe,
+                  options: Options(extra: {'silent': silent}),
+                )
                 .timeout(_bootstrapTimeout);
             final user = UserModel.fromJson(
               (res.data as Map).cast<String, dynamic>(),
@@ -267,7 +270,7 @@ class AuthRepository {
     }
   }
 
-  Future<SessionVerificationResult> verifySession() async {
+  Future<SessionVerificationResult> verifySession({bool silent = false}) async {
     if (isFlutterTest) {
       return const SessionVerificationResult.invalid();
     }
@@ -278,7 +281,7 @@ class AuthRepository {
     }
 
     try {
-      final user = await getMeOrNull();
+      final user = await getMeOrNull(silent: silent);
       if (user != null) {
         return SessionVerificationResult.authenticated(user);
       }
@@ -307,13 +310,14 @@ class AuthRepository {
     }
   }
 
-  Future<bool> _refreshAndSave() async {
+  Future<bool> _refreshAndSave({bool silent = false}) async {
     final refresh = await _storage.getRefreshToken();
     if (refresh == null || refresh.isEmpty) return false;
     try {
       final res = await _dio.post(
         ApiRoutes.refresh,
         data: {'refreshToken': refresh},
+        options: Options(extra: {'silent': silent}),
       );
       final access = res.data['accessToken'] as String?;
       final newRefresh = res.data['refreshToken'] as String?;

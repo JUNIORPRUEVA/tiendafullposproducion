@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/auth/presentation/login_screen.dart';
-import '../../features/splash/splash_screen.dart';
 import '../../features/home/home_shell.dart';
 import '../../features/user/profile_screen.dart';
 import '../../features/user/users_screen.dart';
@@ -57,14 +56,10 @@ final routerProvider = Provider<GoRouter>((ref) {
   final routeObserver = ref.watch(appRouteObserverProvider);
 
   return GoRouter(
-    initialLocation: Routes.splash,
+    initialLocation: Routes.operaciones,
     refreshListenable: refresh,
     observers: [routeObserver],
     routes: [
-      GoRoute(
-        path: Routes.splash,
-        builder: (context, state) => const SplashScreen(),
-      ),
       GoRoute(
         path: Routes.login,
         builder: (context, state) => const LoginScreen(),
@@ -247,21 +242,11 @@ final routerProvider = Provider<GoRouter>((ref) {
     ],
     redirect: (context, state) {
       final auth = ref.read(authStateProvider);
-      final initialized = auth.initialized;
       final isAuth = auth.isAuthenticated;
       final role = auth.user?.appRole ?? AppRole.unknown;
       final loc = state.uri.toString();
       final path = state.uri.path;
       final isAuthRoute = path == Routes.login;
-      final isSplash = path == Routes.splash;
-
-      if (!initialized) {
-        return isSplash ? null : Routes.splash;
-      }
-
-      if (isSplash) {
-        return isAuth ? Routes.operaciones : Routes.login;
-      }
 
       if (!isAuth) {
         return isAuthRoute ? null : Routes.login;

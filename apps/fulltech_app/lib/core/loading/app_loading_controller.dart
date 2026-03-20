@@ -26,12 +26,14 @@ final appLoadingProvider =
 
 class AppLoadingController extends StateNotifier<AppLoadingState> {
   static const Duration _showDelay = Duration(milliseconds: 220);
+  static const Duration _startupGracePeriod = Duration(seconds: 2);
   static const Duration _staleRequestTimeout = Duration(seconds: 30);
   static const Duration _cleanupInterval = Duration(seconds: 5);
 
   Timer? _showTimer;
   Timer? _cleanupTimer;
   final Map<String, DateTime> _activeRequests = {};
+  final DateTime _startedAt = DateTime.now();
   int _requestSequence = 0;
 
   AppLoadingController() : super(AppLoadingState.initial());
@@ -103,7 +105,7 @@ class AppLoadingController extends StateNotifier<AppLoadingState> {
 
     if (state.count == 0 && !state.visible) {
       _showTimer?.cancel();
-      _showTimer = Timer(_showDelay, () {
+      _showTimer = Timer(_nextShowDelay(), () {
         if (mounted && _activeRequests.isNotEmpty) {
           state = state.copyWith(count: _activeRequests.length, visible: true);
         }
@@ -113,6 +115,14 @@ class AppLoadingController extends StateNotifier<AppLoadingState> {
     if (state.count != nextCount) {
       state = state.copyWith(count: nextCount);
     }
+  }
+
+  Duration _nextShowDelay() {
+    final elapsed = DateTime.now().difference(_startedAt);
+    if (elapsed >= _startupGracePeriod) return _showDelay;
+
+    final remainingGrace = _startupGracePeriod - elapsed;
+    return remainingGrace > _showDelay ? remainingGrace : _showDelay;
   }
 
   @override

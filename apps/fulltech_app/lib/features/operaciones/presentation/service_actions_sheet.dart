@@ -222,6 +222,10 @@ class ServiceActionsSheet {
             changeAdminPhase != null && canChangeAdminPhase;
 
         final phaseSubtitle = phaseLabel(service.currentPhase);
+        final adminPhaseRaw = (service.adminPhase ?? '').trim();
+        final adminPhaseSubtitle = adminPhaseRaw.isEmpty
+            ? '—'
+            : adminPhaseLabel(adminPhaseRaw);
 
         return SafeArea(
           child: ConstrainedBox(
@@ -264,46 +268,51 @@ class ServiceActionsSheet {
                 ),
                 item(
                   icon: Icons.flag_outlined,
-                  title: 'Cambiar fase',
+                  title: 'Cambiar fase operativa',
                   subtitle: 'Actual: $phaseSubtitle',
-                  enabled:
-                      canChangeAdminPhaseEffective || canChangePhaseEffective,
-                  disabledReason: canChangePhaseEffective
+                  enabled: canChangePhaseEffective,
+                  disabledReason:
+                      changePhaseDeniedReason ?? 'Solo creador o admin',
+                  onTap: !canChangePhaseEffective
                       ? null
-                      : (canChangeAdminPhaseEffective
-                            ? null
-                            : (changePhaseDeniedReason ??
-                                  changeAdminPhaseDeniedReason ??
-                                  'Solo creador o admin')),
-                  onTap: () async {
-                    if (canChangePhaseEffective) {
-                      final draft = await _pickServicePhaseWithScheduleAndNote(
-                        context,
-                        current: service.currentPhase,
-                        initialScheduledAt: service.scheduledStart,
-                      );
-                      if (draft == null) return;
-                      final next = (draft['phase'] ?? '').trim();
-                      final scheduledAtRaw = (draft['scheduledAt'] ?? '')
-                          .trim();
-                      if (next.isEmpty) return;
-                      final scheduledAt = DateTime.tryParse(scheduledAtRaw);
-                      if (scheduledAt == null) return;
-                      await closeAnd(
-                        () => changePhase(next, scheduledAt, draft['note']),
-                      );
-                      return;
-                    }
-
-                    if (!canChangeAdminPhaseEffective) return;
-                    final current = (service.adminPhase ?? 'reserva').trim();
-                    final next = await pickAdminPhase(
-                      context,
-                      current: current,
-                    );
-                    if (next == null) return;
-                    await closeAnd(() => changeAdminPhase(next));
-                  },
+                      : () async {
+                          final draft =
+                              await _pickServicePhaseWithScheduleAndNote(
+                                context,
+                                current: service.currentPhase,
+                                initialScheduledAt: service.scheduledStart,
+                              );
+                          if (draft == null) return;
+                          final next = (draft['phase'] ?? '').trim();
+                          final scheduledAtRaw = (draft['scheduledAt'] ?? '')
+                              .trim();
+                          if (next.isEmpty) return;
+                          final scheduledAt = DateTime.tryParse(scheduledAtRaw);
+                          if (scheduledAt == null) return;
+                          await closeAnd(
+                            () => changePhase(next, scheduledAt, draft['note']),
+                          );
+                        },
+                ),
+                item(
+                  icon: Icons.account_tree_outlined,
+                  title: 'Cambiar fase administrativa',
+                  subtitle: 'Actual: $adminPhaseSubtitle',
+                  enabled: canChangeAdminPhaseEffective,
+                  disabledReason:
+                      changeAdminPhaseDeniedReason ?? 'No autorizado',
+                  onTap: !canChangeAdminPhaseEffective
+                      ? null
+                      : () async {
+                          final current = (service.adminPhase ?? 'reserva')
+                              .trim();
+                          final next = await pickAdminPhase(
+                            context,
+                            current: current,
+                          );
+                          if (next == null) return;
+                          await closeAnd(() => changeAdminPhase(next));
+                        },
                 ),
                 item(
                   icon: Icons.location_on_outlined,
@@ -472,13 +481,10 @@ class ServiceActionsSheet {
   }
 
   static const _servicePhases = <String>[
-    'reserva',
     'levantamiento',
     'instalacion',
     'mantenimiento',
     'garantia',
-    'finalizado',
-    'cancelado',
   ];
 
   static Future<DateTime?> _pickDateTime(
@@ -518,148 +524,210 @@ class ServiceActionsSheet {
 
     return showModalBottomSheet<Map<String, String?>>(
       context: context,
-      showDragHandle: true,
+      showDragHandle: false,
       isScrollControlled: true,
       builder: (context) {
-        final initialPhase = _servicePhases.contains(normalized)
-            ? normalized
+        final phaseOptions = _servicePhases
+            .where((phase) => phase != normalized)
+            .toList(growable: false);
+        final initialPhase = phaseOptions.isNotEmpty
+            ? phaseOptions.first
             : _servicePhases.first;
         var selected = initialPhase;
         DateTime? scheduledAt = initialScheduledAt;
 
         return StatefulBuilder(
           builder: (context, setState) {
-            return RadioGroup<String>(
-              groupValue: selected,
-              onChanged: (value) {
-                if (value == null) return;
-                setState(() => selected = value);
-              },
-              child: SafeArea(
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    bottom: MediaQuery.viewInsetsOf(context).bottom,
+            final theme = Theme.of(context);
+            final scheme = theme.colorScheme;
+            const titleColor = Color(0xFF10233F);
+            const bodyColor = Color(0xFF5B6B82);
+            const outlineColor = Color(0xFFD9E7F5);
+            const surfaceColor = Color(0xFFFFFFFF);
+            const softSurfaceColor = Color(0xFFF4F9FF);
+            const accentSoftColor = Color(0xFFE0F2FE);
+            const accentMidColor = Color(0xFFBAE6FD);
+            const accentStrongColor = Color(0xFF0B6BDE);
+            final formattedSchedule = scheduledAt == null
+                ? 'Seleccionar fecha y hora'
+                : '${MaterialLocalizations.of(context).formatCompactDate(scheduledAt!)} · ${TimeOfDay.fromDateTime(scheduledAt!).format(context)}';
+
+            Widget phaseCard(String phase) {
+              final isSelected = selected == phase;
+              return InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: () => setState(() => selected = phase),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
                   ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    gradient: isSelected
+                        ? const LinearGradient(
+                            colors: [accentSoftColor, Color(0xFFDDF1FF)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          )
+                        : const LinearGradient(
+                            colors: [surfaceColor, softSurfaceColor],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                    border: Border.all(
+                      color: isSelected ? accentMidColor : outlineColor,
+                    ),
+                    boxShadow: isSelected
+                        ? const [
+                            BoxShadow(
+                              color: Color(0x140B6BDE),
+                              blurRadius: 14,
+                              offset: Offset(0, 8),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Row(
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
-                        child: Row(
-                          children: [
-                            const Expanded(
-                              child: Text(
-                                'Cambiar fase',
-                                style: TextStyle(fontWeight: FontWeight.w900),
-                              ),
-                            ),
-                            Text(
-                              phaseLabel(normalized),
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurface
-                                        .withValues(alpha: 0.70),
-                                  ),
-                            ),
-                          ],
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: isSelected
+                              ? accentStrongColor.withValues(alpha: 0.12)
+                              : const Color(0xFFEAF3FF),
+                        ),
+                        child: Icon(
+                          isSelected
+                              ? Icons.flag_rounded
+                              : Icons.outlined_flag_rounded,
+                          size: 16,
+                          color: isSelected ? accentStrongColor : bodyColor,
                         ),
                       ),
-                      const Divider(height: 1),
-                      Flexible(
-                        child: ListView(
-                          shrinkWrap: true,
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          phaseLabel(phase),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: titleColor,
+                            height: 1.1,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 12,
+                  right: 12,
+                  top: 8,
+                  bottom: MediaQuery.viewInsetsOf(context).bottom + 12,
+                ),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(28),
+                    gradient: const LinearGradient(
+                      colors: [
+                        Color(0xFFF8FBFF),
+                        Color(0xFFEAF4FF),
+                        Color(0xFFFFFFFF),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    border: Border.all(color: outlineColor),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x120F172A),
+                        blurRadius: 28,
+                        offset: Offset(0, 16),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: accentMidColor,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            for (final p in _servicePhases)
-                              RadioListTile<String>(
-                                value: p,
-                                title: Text(phaseLabel(p)),
-                              ),
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(12),
-                                onTap: () async {
-                                  final picked = await _pickDateTime(
-                                    context,
-                                    initial: scheduledAt,
-                                  );
-                                  if (!context.mounted) return;
-                                  if (picked == null) return;
-                                  setState(() => scheduledAt = picked);
-                                },
-                                child: InputDecorator(
-                                  decoration: const InputDecoration(
-                                    labelText: 'Fecha y hora (opcional)',
-                                    border: OutlineInputBorder(),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          scheduledAt == null
-                                              ? 'Seleccionar…'
-                                              : MaterialLocalizations.of(
-                                                          context,
-                                                        )
-                                                        .formatFullDate(
-                                                          scheduledAt!,
-                                                        )
-                                                        .toString()
-                                                        .replaceAll(',', '') +
-                                                    '  ' +
-                                                    TimeOfDay.fromDateTime(
-                                                      scheduledAt!,
-                                                    ).format(context),
-                                        ),
-                                      ),
-                                      const Icon(Icons.schedule_outlined),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-                              child: TextField(
-                                controller: noteCtrl,
-                                minLines: 2,
-                                maxLines: 4,
-                                decoration: const InputDecoration(
-                                  labelText: 'Nota (opcional)',
-                                  border: OutlineInputBorder(),
-                                ),
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                              child: Row(
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Expanded(
-                                    child: OutlinedButton(
-                                      onPressed: () => Navigator.pop(context),
-                                      child: const Text('Cancelar'),
+                                  Text(
+                                    'Cambiar fase operativa',
+                                    style: theme.textTheme.titleMedium
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w900,
+                                          color: titleColor,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Selecciona la siguiente etapa y agenda el movimiento.',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: bodyColor,
+                                      height: 1.15,
                                     ),
                                   ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: FilledButton(
-                                      onPressed: scheduledAt == null
-                                          ? null
-                                          : () {
-                                              final note = noteCtrl.text.trim();
-                                              Navigator.pop(context, {
-                                                'phase': selected,
-                                                'scheduledAt': scheduledAt!
-                                                    .toIso8601String(),
-                                                'note': note.isEmpty
-                                                    ? null
-                                                    : note,
-                                              });
-                                            },
-                                      child: const Text('Aplicar'),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(16),
+                                color: accentSoftColor,
+                                border: Border.all(color: accentMidColor),
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    'Actual',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: bodyColor,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    phaseLabel(normalized),
+                                    style: theme.textTheme.labelLarge?.copyWith(
+                                      color: accentStrongColor,
+                                      fontWeight: FontWeight.w900,
                                     ),
                                   ),
                                 ],
@@ -667,8 +735,185 @@ class ServiceActionsSheet {
                             ),
                           ],
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 14),
+                        GridView.builder(
+                          shrinkWrap: true,
+                          itemCount: phaseOptions.length,
+                          physics: const NeverScrollableScrollPhysics(),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                mainAxisSpacing: 10,
+                                crossAxisSpacing: 10,
+                                mainAxisExtent: 60,
+                              ),
+                          itemBuilder: (context, index) {
+                            return phaseCard(phaseOptions[index]);
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        InkWell(
+                          borderRadius: BorderRadius.circular(18),
+                          onTap: () async {
+                            final picked = await _pickDateTime(
+                              context,
+                              initial: scheduledAt,
+                            );
+                            if (!context.mounted) return;
+                            if (picked == null) return;
+                            setState(() => scheduledAt = picked);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(18),
+                              color: softSurfaceColor,
+                              border: Border.all(color: outlineColor),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 34,
+                                  height: 34,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    color: accentSoftColor,
+                                  ),
+                                  child: Icon(
+                                    Icons.schedule_rounded,
+                                    color: accentStrongColor,
+                                    size: 18,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'Fecha y hora',
+                                        style: theme.textTheme.labelMedium
+                                            ?.copyWith(
+                                              color: bodyColor,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        formattedSchedule,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                              color: titleColor,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: bodyColor,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: noteCtrl,
+                          minLines: 2,
+                          maxLines: 2,
+                          style: const TextStyle(color: titleColor),
+                          decoration: InputDecoration(
+                            labelText: 'Nota opcional',
+                            labelStyle: const TextStyle(color: bodyColor),
+                            hintText: 'Agrega un detalle breve para el cambio.',
+                            hintStyle: const TextStyle(
+                              color: Color(0xFF94A3B8),
+                            ),
+                            filled: true,
+                            fillColor: softSurfaceColor,
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(18),
+                              borderSide: const BorderSide(color: outlineColor),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(18),
+                              borderSide: const BorderSide(color: outlineColor),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(18),
+                              borderSide: BorderSide(
+                                color: accentStrongColor.withValues(
+                                  alpha: 0.70,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.pop(context),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: titleColor,
+                                  side: const BorderSide(color: outlineColor),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                child: const Text('Cancelar'),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: scheduledAt == null
+                                    ? null
+                                    : () {
+                                        final note = noteCtrl.text.trim();
+                                        Navigator.pop(context, {
+                                          'phase': selected,
+                                          'scheduledAt': scheduledAt!
+                                              .toIso8601String(),
+                                          'note': note.isEmpty ? null : note,
+                                        });
+                                      },
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: scheme.primary,
+                                  foregroundColor: scheme.onPrimary,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                child: const Text('Aplicar'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
