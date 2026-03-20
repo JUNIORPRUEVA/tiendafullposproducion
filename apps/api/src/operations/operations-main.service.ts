@@ -1228,7 +1228,7 @@ export class OperationsService {
     if (dto.surveyResult !== undefined) {
       touchesOrderExtras = true;
       const value = dto.surveyResult.trim();
-      if (value.isEmpty) {
+      if (value.length === 0) {
         delete nextOrderExtras.surveyResult;
       } else {
         nextOrderExtras.surveyResult = value;
@@ -1238,7 +1238,7 @@ export class OperationsService {
     if (dto.materialsUsed !== undefined) {
       touchesOrderExtras = true;
       const value = dto.materialsUsed.trim();
-      if (value.isEmpty) {
+      if (value.length === 0) {
         delete nextOrderExtras.materialsUsed;
       } else {
         nextOrderExtras.materialsUsed = value;
