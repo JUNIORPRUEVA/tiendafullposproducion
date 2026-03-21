@@ -144,6 +144,13 @@ export class OperationsController {
     return this.operations.update(user, id, dto);
   }
 
+  @Patch('ordenes/:id')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  updateOrderAlias(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateServiceDto) {
+    const user = req.user as { id: string; role: Role };
+    return this.operations.update(user, id, dto);
+  }
+
   @Patch('services/:id/status')
   @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
   changeStatus(@Req() req: Request, @Param('id') id: string, @Body() dto: ChangeServiceStatusDto) {

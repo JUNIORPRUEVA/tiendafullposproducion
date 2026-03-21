@@ -115,13 +115,29 @@ final operationsControllerProvider =
       return OperationsController(ref);
     });
 
+final ordersProvider = Provider<List<ServiceModel>>((ref) {
+  return ref.watch(
+    operationsControllerProvider.select((state) => state.services),
+  );
+});
+
+final ordersLoadingProvider = Provider<bool>((ref) {
+  return ref.watch(
+    operationsControllerProvider.select(
+      (state) => state.loading || state.refreshing,
+    ),
+  );
+});
+
+final ordersErrorProvider = Provider<String?>((ref) {
+  return ref.watch(operationsControllerProvider.select((state) => state.error));
+});
+
 final serviceProvider = FutureProvider.family<ServiceModel, String>((
   ref,
   serviceId,
 ) async {
-  final services = ref.watch(
-    operationsControllerProvider.select((state) => state.services),
-  );
+  final services = ref.watch(ordersProvider);
 
   for (final service in services) {
     if (service.id == serviceId) return service;
@@ -326,8 +342,12 @@ class OperationsController extends StateNotifier<OperationsState> {
 
     final statusFilter = norm(state.statusFilter);
     if (statusFilter.isNotEmpty) {
-      final candidates = <String>{norm(service.status), norm(service.phase)}
-        ..remove('');
+      final candidates = <String>{
+        norm(effectiveServiceStatusKey(service)),
+        norm(effectiveServicePhaseKey(service)),
+        norm(service.status),
+        norm(service.phase),
+      }..remove('');
       if (!candidates.contains(statusFilter)) return false;
     }
 
@@ -343,7 +363,11 @@ class OperationsController extends StateNotifier<OperationsState> {
 
     final orderStateFilter = norm(state.orderStateFilter);
     if (orderStateFilter.isNotEmpty) {
-      final candidates = <String>{norm(service.status)}..remove('');
+      final candidates = <String>{
+        norm(effectiveServiceStatusKey(service)),
+        norm(service.orderState),
+        norm(service.status),
+      }..remove('');
       if (!candidates.contains(orderStateFilter)) return false;
     }
 
@@ -378,9 +402,11 @@ class OperationsController extends StateNotifier<OperationsState> {
         service.customerAddress,
         service.category,
         service.categoryName ?? '',
-        service.phase,
+        effectiveServicePhaseKey(service),
         service.serviceType,
         service.orderType,
+        effectiveServiceStatusKey(service),
+        service.phase,
         service.status,
       ].map(norm).join(' ');
       if (!haystack.contains(query)) return false;
@@ -482,9 +508,11 @@ class OperationsController extends StateNotifier<OperationsState> {
     await load();
   }
 
-  Future<ServiceModel> getOne(String id) async {
-    for (final service in state.services) {
-      if (service.id == id) return service;
+  Future<ServiceModel> getOne(String id, {bool preferCache = true}) async {
+    if (preferCache) {
+      for (final service in state.services) {
+        if (service.id == id) return service;
+      }
     }
 
     final repo = ref.read(operationsRepositoryProvider);
@@ -494,12 +522,17 @@ class OperationsController extends StateNotifier<OperationsState> {
       return repo.getService(id);
     }
 
-    final cached = await repo.getCachedService(cacheScope: cacheScope, id: id);
-    if (cached != null) {
-      unawaited(
-        repo.getServiceAndCache(cacheScope: cacheScope, id: id, silent: true),
+    if (preferCache) {
+      final cached = await repo.getCachedService(
+        cacheScope: cacheScope,
+        id: id,
       );
-      return cached;
+      if (cached != null) {
+        unawaited(
+          repo.getServiceAndCache(cacheScope: cacheScope, id: id, silent: true),
+        );
+        return cached;
+      }
     }
 
     return repo.getServiceAndCache(
@@ -515,8 +548,86 @@ class OperationsController extends StateNotifier<OperationsState> {
     ref.invalidate(serviceProvider(trimmed));
   }
 
+  void _commitServiceSnapshot(ServiceModel service) {
+    applyRealtimeService(service);
+    _invalidateServiceDetail(service.id);
+  }
+
+  void _scheduleGlobalRefresh() {
+    unawaited(load());
+  }
+
+  String? _normalizeAdminStatus(String? raw) {
+    final value = normalizeOperationsKey(raw ?? '');
+    if (value.isEmpty) return null;
+
+    switch (value) {
+      case 'pendiente':
+      case 'confirmada':
+      case 'asignada':
+      case 'en_camino':
+      case 'en_proceso':
+      case 'finalizada':
+      case 'reagendada':
+      case 'cancelada':
+      case 'cerrada':
+        return value;
+      case 'pending':
+      case 'reserved':
+      case 'survey':
+      case 'scheduled':
+        return 'pendiente';
+      case 'confirmed':
+        return 'confirmada';
+      case 'assigned':
+        return 'asignada';
+      case 'in_progress':
+      case 'warranty':
+        return 'en_proceso';
+      case 'finalized':
+      case 'completed':
+        return 'finalizada';
+      case 'closed':
+        return 'cerrada';
+      case 'cancelled':
+        return 'cancelada';
+      case 'rescheduled':
+        return 'reagendada';
+      default:
+        return null;
+    }
+  }
+
+  String? _legacyOrderStateForAdminStatus(String? raw) {
+    final value = _normalizeAdminStatus(raw);
+    switch (value) {
+      case 'pendiente':
+        return 'pending';
+      case 'confirmada':
+        return 'confirmed';
+      case 'asignada':
+      case 'en_camino':
+        return 'assigned';
+      case 'en_proceso':
+        return 'in_progress';
+      case 'finalizada':
+      case 'cerrada':
+        return 'finalized';
+      case 'cancelada':
+        return 'cancelled';
+      case 'reagendada':
+        return 'rescheduled';
+      default:
+        return null;
+    }
+  }
+
   Future<ServiceModel> updateService({
     required String serviceId,
+    String? phase,
+    DateTime? scheduledAt,
+    String? note,
+    String? status,
     String? serviceType,
     String? categoryId,
     String? category,
@@ -532,6 +643,8 @@ class OperationsController extends StateNotifier<OperationsState> {
     double? finalCost,
     String? orderType,
     String? orderState,
+    String? adminPhase,
+    String? adminStatus,
     String? technicianId,
     List<String>? tags,
   }) async {
@@ -539,6 +652,10 @@ class OperationsController extends StateNotifier<OperationsState> {
         .read(operationsRepositoryProvider)
         .updateService(
           serviceId: serviceId,
+          phase: phase,
+          scheduledAt: scheduledAt,
+          note: note,
+          status: status,
           serviceType: serviceType,
           categoryId: categoryId,
           category: category,
@@ -554,11 +671,13 @@ class OperationsController extends StateNotifier<OperationsState> {
           finalCost: finalCost,
           orderType: orderType,
           orderState: orderState,
+          adminPhase: adminPhase,
+          adminStatus: adminStatus,
           technicianId: technicianId,
           tags: tags,
         );
-    _invalidateServiceDetail(serviceId);
-    await load();
+    _commitServiceSnapshot(updated);
+    _scheduleGlobalRefresh();
     return updated;
   }
 
@@ -696,11 +815,17 @@ class OperationsController extends StateNotifier<OperationsState> {
   }
 
   Future<void> changeStatus(String id, String status, {String? message}) async {
-    await ref
+    final nextAdminStatus = _normalizeAdminStatus(status);
+    final nextOrderState = _legacyOrderStateForAdminStatus(status);
+    final updated = await ref
         .read(operationsRepositoryProvider)
-        .changeStatus(serviceId: id, status: status, message: message);
-    _invalidateServiceDetail(id);
-    await load();
+        .updateService(
+          serviceId: id,
+          adminStatus: nextAdminStatus ?? status,
+          orderState: nextOrderState,
+        );
+    _commitServiceSnapshot(updated);
+    _scheduleGlobalRefresh();
   }
 
   Future<void> changeOrderStateOptimistic(
@@ -713,23 +838,29 @@ class OperationsController extends StateNotifier<OperationsState> {
 
     final before = state.services;
     final index = before.indexWhere((s) => s.id == id);
+    final nextAdminStatus = _normalizeAdminStatus(next) ?? next;
+    final nextOrderState = _legacyOrderStateForAdminStatus(next);
 
     if (index < 0) {
-      await ref
+      final updated = await ref
           .read(operationsRepositoryProvider)
-          .changeAdminStatus(
+          .updateService(
             serviceId: id,
-            adminStatus: next,
-            message: message,
+            adminStatus: nextAdminStatus,
+            orderState: nextOrderState,
           );
-      await load();
+      _commitServiceSnapshot(updated);
+      _scheduleGlobalRefresh();
       return;
     }
 
     final current = before[index];
-    if (current.status.trim().toLowerCase() == next) return;
+    if (effectiveServiceStatusKey(current) == nextAdminStatus) return;
 
-    final optimistic = current.copyWith(status: next);
+    final optimistic = current.copyWith(
+      adminStatus: nextAdminStatus,
+      orderState: nextOrderState ?? current.orderState,
+    );
     final optimisticList = [...before];
     optimisticList[index] = optimistic;
     state = state.copyWith(services: optimisticList);
@@ -737,21 +868,13 @@ class OperationsController extends StateNotifier<OperationsState> {
     try {
       final updated = await ref
           .read(operationsRepositoryProvider)
-          .changeAdminStatus(
+          .updateService(
             serviceId: id,
-            adminStatus: next,
-            message: message,
+            adminStatus: nextAdminStatus,
+            orderState: nextOrderState,
           );
-
-      final after = [...state.services];
-      final idx = after.indexWhere((s) => s.id == id);
-      if (idx >= 0) {
-        after[idx] = updated;
-        state = state.copyWith(services: after);
-      } else {
-        await load();
-      }
-      _invalidateServiceDetail(id);
+      _commitServiceSnapshot(updated);
+      _scheduleGlobalRefresh();
     } catch (e) {
       state = state.copyWith(services: before);
       rethrow;
@@ -774,8 +897,9 @@ class OperationsController extends StateNotifier<OperationsState> {
     if (index < 0) {
       final updated = await ref
           .read(operationsRepositoryProvider)
-          .changeAdminPhase(serviceId: id, adminPhase: next, message: message);
-      await load();
+          .updateService(serviceId: id, adminPhase: next);
+      _commitServiceSnapshot(updated);
+      _scheduleGlobalRefresh();
       return updated;
     }
 
@@ -790,16 +914,9 @@ class OperationsController extends StateNotifier<OperationsState> {
     try {
       final updated = await ref
           .read(operationsRepositoryProvider)
-          .changeAdminPhase(serviceId: id, adminPhase: next, message: message);
-
-      final after = [...state.services];
-      final idx = after.indexWhere((s) => s.id == id);
-      if (idx >= 0) {
-        after[idx] = updated;
-        state = state.copyWith(services: after);
-      }
-      _invalidateServiceDetail(id);
-      await load();
+          .updateService(serviceId: id, adminPhase: next);
+      _commitServiceSnapshot(updated);
+      _scheduleGlobalRefresh();
       return updated;
     } catch (e) {
       state = state.copyWith(services: before);
@@ -824,13 +941,14 @@ class OperationsController extends StateNotifier<OperationsState> {
     if (index < 0) {
       final updated = await ref
           .read(operationsRepositoryProvider)
-          .changePhase(
+          .updateService(
             serviceId: id,
             phase: next,
             scheduledAt: scheduledAt,
             note: note,
           );
-      await load();
+      _commitServiceSnapshot(updated.copyWith(scheduledStart: scheduledAt));
+      _scheduleGlobalRefresh();
       return updated;
     }
 
@@ -839,6 +957,8 @@ class OperationsController extends StateNotifier<OperationsState> {
 
     final optimistic = current.copyWith(
       phase: next,
+      currentPhase: next,
+      orderType: next,
       scheduledStart: scheduledAt,
     );
     final optimisticList = [...before];
@@ -848,23 +968,14 @@ class OperationsController extends StateNotifier<OperationsState> {
     try {
       final updated = await ref
           .read(operationsRepositoryProvider)
-          .changePhase(
+          .updateService(
             serviceId: id,
             phase: next,
             scheduledAt: scheduledAt,
             note: note,
           );
-
-      final after = [...state.services];
-      final idx = after.indexWhere((s) => s.id == id);
-      if (idx >= 0) {
-        after[idx] = updated;
-        state = state.copyWith(services: after);
-      }
-      _invalidateServiceDetail(id);
-
-      // Ensure filters/counters reflect the new schedule.
-      await load();
+      _commitServiceSnapshot(updated.copyWith(scheduledStart: scheduledAt));
+      _scheduleGlobalRefresh();
       return updated;
     } catch (e) {
       state = state.copyWith(services: before);
@@ -878,27 +989,28 @@ class OperationsController extends StateNotifier<OperationsState> {
     DateTime end, {
     String? message,
   }) async {
-    await ref
+    final updated = await ref
         .read(operationsRepositoryProvider)
         .schedule(serviceId: id, start: start, end: end, message: message);
-    _invalidateServiceDetail(id);
-    await load();
+    _commitServiceSnapshot(updated);
+    _scheduleGlobalRefresh();
   }
 
   Future<void> assign(String id, List<Map<String, String>> assignments) async {
-    await ref
+    final updated = await ref
         .read(operationsRepositoryProvider)
         .assign(serviceId: id, assignments: assignments);
-    _invalidateServiceDetail(id);
-    await load();
+    _commitServiceSnapshot(updated);
+    _scheduleGlobalRefresh();
   }
 
   Future<void> addNote(String id, String message) async {
     await ref
         .read(operationsRepositoryProvider)
         .addUpdate(serviceId: id, type: 'note', message: message);
-    _invalidateServiceDetail(id);
-    await load();
+    final updated = await getOne(id, preferCache: false);
+    _commitServiceSnapshot(updated);
+    _scheduleGlobalRefresh();
   }
 
   Future<void> toggleStep(String id, String stepId, bool done) async {
@@ -910,8 +1022,9 @@ class OperationsController extends StateNotifier<OperationsState> {
           stepId: stepId,
           stepDone: done,
         );
-    _invalidateServiceDetail(id);
-    await load();
+    final updated = await getOne(id, preferCache: false);
+    _commitServiceSnapshot(updated);
+    _scheduleGlobalRefresh();
   }
 
   Future<void> createWarranty(
@@ -919,19 +1032,20 @@ class OperationsController extends StateNotifier<OperationsState> {
     String? title,
     String? description,
   }) async {
-    await ref
+    final updated = await ref
         .read(operationsRepositoryProvider)
         .createWarranty(serviceId: id, title: title, description: description);
-    _invalidateServiceDetail(id);
-    await load();
+    _commitServiceSnapshot(updated);
+    _scheduleGlobalRefresh();
   }
 
   Future<void> uploadEvidence(String id, PlatformFile file) async {
     await ref
         .read(operationsRepositoryProvider)
         .uploadEvidence(serviceId: id, file: file);
-    _invalidateServiceDetail(id);
-    await load();
+    final updated = await getOne(id, preferCache: false);
+    _commitServiceSnapshot(updated);
+    _scheduleGlobalRefresh();
   }
 
   Future<void> deleteService(String id) async {

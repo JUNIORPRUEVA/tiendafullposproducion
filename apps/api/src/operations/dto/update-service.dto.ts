@@ -18,6 +18,24 @@ const orderStates = ['pending', 'confirmed', 'assigned', 'in_progress', 'finaliz
 
 export class UpdateServiceDto {
   @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  phase?: string;
+
+  @IsOptional()
+  @IsString()
+  scheduledAt?: string;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  status?: string;
+
+  @IsOptional()
   @IsIn(serviceTypes)
   serviceType?: (typeof serviceTypes)[number];
 
@@ -88,6 +106,16 @@ export class UpdateServiceDto {
   @IsOptional()
   @IsIn(orderStates)
   orderState?: (typeof orderStates)[number];
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  adminPhase?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  adminStatus?: string;
 
   @IsOptional()
   @IsUUID()

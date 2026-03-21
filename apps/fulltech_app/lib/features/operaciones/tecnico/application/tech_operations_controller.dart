@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/auth/auth_provider.dart';
-import '../../data/operations_repository.dart';
+import '../../application/operations_controller.dart';
 import '../../operations_models.dart';
 
 class TechOperationsState {
@@ -38,103 +38,61 @@ final techOperationsControllerProvider =
 
 class TechOperationsController extends StateNotifier<TechOperationsState> {
   final Ref ref;
-  int _loadSeq = 0;
 
   TechOperationsController(this.ref) : super(const TechOperationsState()) {
-    load();
+    ref.listen<OperationsState>(
+      operationsControllerProvider,
+      (_, next) => _syncFromSharedState(next),
+      fireImmediately: true,
+    );
+    ref.listen<AuthState>(
+      authStateProvider,
+      (_, __) => _syncFromSharedState(ref.read(operationsControllerProvider)),
+    );
   }
 
   Future<void> load({bool silent = false}) async {
-    final seq = ++_loadSeq;
-
-    final repo = ref.read(operationsRepositoryProvider);
-    final user = ref.read(authStateProvider).user;
-    final role = (user?.role ?? '').trim().toLowerCase();
-    final userId = (user?.id ?? '').trim();
-
-    final techFilterId = (role == 'tecnico' && userId.isNotEmpty)
-        ? userId
-        : null;
-
-    final cacheScope = userId;
-    final techKey = techFilterId ?? 'all';
-
-    try {
-      final cached = await repo.getCachedTechServices(
-        cacheScope: cacheScope,
-        techKey: techKey,
-      );
-
-      final hasCached = cached != null && cached.isNotEmpty;
-      if (!silent) {
-        state = state.copyWith(
-          loading: !hasCached && state.services.isEmpty,
-          clearError: true,
-          services: cached ?? state.services,
-        );
-      } else if (hasCached && state.services.isEmpty) {
-        state = state.copyWith(
-          loading: false,
-          clearError: true,
-          services: cached,
-        );
-      }
-
-      unawaited(() async {
-        try {
-          final fresh = await repo.listTechServicesAndCache(
-            cacheScope: cacheScope,
-            techKey: techKey,
-            technicianId: techFilterId,
-            assignedTo: techFilterId,
-            silent: true,
-          );
-          if (!mounted || seq != _loadSeq) return;
-          state = state.copyWith(loading: false, services: fresh);
-        } catch (e) {
-          if (!mounted || seq != _loadSeq) return;
-          state = state.copyWith(loading: false, error: e.toString());
-        }
-      }());
-    } catch (e) {
-      state = state.copyWith(loading: false, error: e.toString());
+    if (silent) {
+      await ref.read(operationsControllerProvider.notifier).refresh();
+      return;
     }
+    state = state.copyWith(loading: true, clearError: true);
+    await ref.read(operationsControllerProvider.notifier).refresh();
   }
 
   Future<void> refresh({bool silent = false}) => load(silent: silent);
 
   void applyRealtimeService(ServiceModel service) {
-    final before = state.services;
-    final index = before.indexWhere((s) => s.id == service.id);
-    final belongs = _belongsToCurrentList(service);
+    final shared = ref.read(operationsControllerProvider);
+    _syncFromSharedState(
+      shared.copyWith(services: _mergeSnapshot(shared.services, service)),
+    );
+  }
 
-    if (!belongs) {
-      if (index < 0) return;
-      final next = [...before]..removeAt(index);
-      state = state.copyWith(services: next);
-      return;
-    }
+  void _syncFromSharedState(OperationsState shared) {
+    final filtered = shared.services
+        .where(_belongsToCurrentList)
+        .toList(growable: false);
+    state = state.copyWith(
+      loading: shared.loading || shared.refreshing,
+      error: shared.error,
+      services: filtered,
+      clearError: shared.error == null,
+    );
+  }
 
-    final next = [...before];
+  List<ServiceModel> _mergeSnapshot(
+    List<ServiceModel> services,
+    ServiceModel next,
+  ) {
+    final index = services.indexWhere((item) => item.id == next.id);
+    final merged = [...services];
     if (index >= 0) {
-      next[index] = service;
+      merged[index] = next;
     } else {
-      next.insert(0, service);
+      merged.insert(0, next);
     }
-    next.sort((a, b) {
-      final ad =
-          a.createdAt ??
-          a.scheduledStart ??
-          a.completedAt ??
-          DateTime.fromMillisecondsSinceEpoch(0);
-      final bd =
-          b.createdAt ??
-          b.scheduledStart ??
-          b.completedAt ??
-          DateTime.fromMillisecondsSinceEpoch(0);
-      return bd.compareTo(ad);
-    });
-    state = state.copyWith(services: next);
+    return merged;
   }
 
   bool _belongsToCurrentList(ServiceModel service) {

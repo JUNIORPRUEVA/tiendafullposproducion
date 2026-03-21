@@ -129,7 +129,10 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
   final String serviceId;
 
   final LocalJsonCache _cache = LocalJsonCache();
-  Timer? _saveDebounce;
+  Timer? _draftPersistDebounce;
+  Timer? _autoSaveDebounce;
+  int _changeVersion = 0;
+  int _lastSavedVersion = 0;
 
   TechnicalVisitController(this.ref, this.serviceId)
     : super(const TechnicalVisitState()) {
@@ -138,7 +141,8 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
 
   @override
   void dispose() {
-    _saveDebounce?.cancel();
+    _draftPersistDebounce?.cancel();
+    _autoSaveDebounce?.cancel();
     super.dispose();
   }
 
@@ -398,21 +402,37 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
     });
   }
 
+  bool get _shouldAutoSaveRemotely => !_isWarrantyPhase();
+
   void _scheduleDraftPersist() {
-    _saveDebounce?.cancel();
-    _saveDebounce = Timer(const Duration(milliseconds: 350), () {
+    _draftPersistDebounce?.cancel();
+    _draftPersistDebounce = Timer(const Duration(milliseconds: 350), () {
       unawaited(_persistDraft());
     });
   }
 
+  void _scheduleRemoteAutoSave() {
+    if (!_shouldAutoSaveRemotely || _readOnly) return;
+    _autoSaveDebounce?.cancel();
+    _autoSaveDebounce = Timer(const Duration(milliseconds: 900), () {
+      unawaited(save());
+    });
+  }
+
+  void _markDirtyAndScheduleSave() {
+    _changeVersion += 1;
+    _scheduleDraftPersist();
+    _scheduleRemoteAutoSave();
+  }
+
   void setReportDescription(String v) {
     state = state.copyWith(reportDescription: v, clearError: true);
-    _scheduleDraftPersist();
+    _markDirtyAndScheduleSave();
   }
 
   void setInstallationNotes(String v) {
     state = state.copyWith(installationNotes: v, clearError: true);
-    _scheduleDraftPersist();
+    _markDirtyAndScheduleSave();
   }
 
   void setNotes(String value) {
@@ -421,7 +441,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
       installationNotes: value,
       clearError: true,
     );
-    _scheduleDraftPersist();
+    _markDirtyAndScheduleSave();
   }
 
   void addEstimatedProduct(EstimatedProductItemModel item) {
@@ -432,7 +452,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
     final list = [...state.estimatedProducts];
     list.add(EstimatedProductItemModel(name: name, quantity: qty));
     state = state.copyWith(estimatedProducts: list, clearError: true);
-    _scheduleDraftPersist();
+    _markDirtyAndScheduleSave();
   }
 
   void removeEstimatedProductAt(int idx) {
@@ -440,7 +460,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
     if (idx < 0 || idx >= list.length) return;
     list.removeAt(idx);
     state = state.copyWith(estimatedProducts: list, clearError: true);
-    _scheduleDraftPersist();
+    _markDirtyAndScheduleSave();
   }
 
   void addReplacement(String description) {
@@ -451,7 +471,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
       ReplacementItemModel(description: value),
     ];
     state = state.copyWith(replacements: list, clearError: true);
-    _scheduleDraftPersist();
+    _markDirtyAndScheduleSave();
   }
 
   void removeReplacementAt(int idx) {
@@ -459,12 +479,12 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
     if (idx < 0 || idx >= list.length) return;
     list.removeAt(idx);
     state = state.copyWith(replacements: list, clearError: true);
-    _scheduleDraftPersist();
+    _markDirtyAndScheduleSave();
   }
 
   void clearClientSignature() {
     state = state.copyWith(clearClientSignature: true, clearError: true);
-    _scheduleDraftPersist();
+    _markDirtyAndScheduleSave();
   }
 
   Future<void> saveClientSignatureLocally({required Uint8List pngBytes}) async {
@@ -479,7 +499,9 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
       ),
       clearError: true,
     );
+    _changeVersion += 1;
     await _persistDraft();
+    _scheduleRemoteAutoSave();
     unawaited(
       _uploadClientSignatureInBackground(
         signatureBase64: signatureBase64,
@@ -571,7 +593,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
     if (idx < 0 || idx >= list.length) return;
     list.removeAt(idx);
     state = state.copyWith(photos: list, clearError: true);
-    _scheduleDraftPersist();
+    _markDirtyAndScheduleSave();
   }
 
   void removeVideoAt(int idx) {
@@ -579,7 +601,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
     if (idx < 0 || idx >= list.length) return;
     list.removeAt(idx);
     state = state.copyWith(videos: list, clearError: true);
-    _scheduleDraftPersist();
+    _markDirtyAndScheduleSave();
   }
 
   void _upsertPending(PendingEvidenceUpload next) {
@@ -668,6 +690,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
 
       final nextPhotos = [...state.photos, confirmed.fileUrl];
       state = state.copyWith(photos: nextPhotos, clearError: true);
+      _changeVersion += 1;
       _removePending(id);
       await _reloadSharedServiceSnapshot(source: 'technical_visit_photo');
       await _persistDraft();
@@ -740,6 +763,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
 
       final nextVideos = [...state.videos, confirmed.fileUrl];
       state = state.copyWith(videos: nextVideos, clearError: true);
+      _changeVersion += 1;
       _removePending(id);
       await _reloadSharedServiceSnapshot(source: 'technical_visit_video');
       await _persistDraft();
@@ -771,6 +795,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
       return;
     }
 
+    final saveVersion = _changeVersion;
     state = state.copyWith(saving: true, clearError: true);
 
     try {
@@ -813,12 +838,22 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
             ? 'Levantamiento guardado localmente. Se sincronizará en segundo plano.'
             : null,
       );
+      _lastSavedVersion = saveVersion;
       await _reloadSharedServiceSnapshot(source: 'technical_visit_save');
       await _persistDraft();
+      if (_changeVersion > _lastSavedVersion) {
+        _scheduleRemoteAutoSave();
+      }
     } on ApiException catch (e) {
       state = state.copyWith(saving: false, error: e.message);
+      if (_changeVersion > _lastSavedVersion) {
+        _scheduleRemoteAutoSave();
+      }
     } catch (e) {
       state = state.copyWith(saving: false, error: e.toString());
+      if (_changeVersion > _lastSavedVersion) {
+        _scheduleRemoteAutoSave();
+      }
     }
   }
 }

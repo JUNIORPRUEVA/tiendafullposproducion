@@ -238,14 +238,16 @@ class MapPreview extends StatelessWidget {
       );
     }
 
+    final fallbackPreview = _buildPlaceholder(
+      context,
+      isActionable: target != null,
+      target: target,
+    );
+
     Future<Widget> resolvedPreview() async {
       final point = await _resolveLatLngFromUrl(raw);
       if (point == null) {
-        return _buildPlaceholder(
-          context,
-          isActionable: target != null,
-          target: target,
-        );
+        return fallbackPreview;
       }
       return MapPreviewCard(
         latitude: point.latitude,
@@ -259,11 +261,7 @@ class MapPreview extends StatelessWidget {
         uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
 
     if (!shouldResolve) {
-      return _buildPlaceholder(
-        context,
-        isActionable: target != null,
-        target: target,
-      );
+      return fallbackPreview;
     }
 
     return FutureBuilder<Widget>(
@@ -271,11 +269,7 @@ class MapPreview extends StatelessWidget {
       builder: (context, snapshot) {
         final resolved = snapshot.data;
         if (resolved != null && resolved is! SizedBox) return resolved;
-        return _buildPlaceholder(
-          context,
-          isActionable: target != null,
-          target: target,
-        );
+        return fallbackPreview;
       },
     );
   }

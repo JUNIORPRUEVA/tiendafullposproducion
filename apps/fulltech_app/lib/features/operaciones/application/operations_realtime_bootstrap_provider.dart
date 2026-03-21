@@ -7,7 +7,6 @@ import '../../../core/realtime/operations_realtime_service.dart';
 import '../data/operations_repository.dart';
 import '../operations_models.dart';
 import 'operations_controller.dart';
-import '../tecnico/application/tech_operations_controller.dart';
 
 final operationsRealtimeBootstrapProvider = Provider<void>((ref) {
   final realtime = ref.read(operationsRealtimeServiceProvider);
@@ -35,11 +34,6 @@ final operationsRealtimeBootstrapProvider = Provider<void>((ref) {
     refreshDebounce?.cancel();
     refreshDebounce = Timer(const Duration(milliseconds: 650), () {
       unawaited(ref.read(operationsControllerProvider.notifier).refresh());
-      unawaited(
-        ref
-            .read(techOperationsControllerProvider.notifier)
-            .refresh(silent: true),
-      );
     });
   }
 
@@ -66,9 +60,6 @@ final operationsRealtimeBootstrapProvider = Provider<void>((ref) {
         // Instant UI update when the item is already present.
         ref
             .read(operationsControllerProvider.notifier)
-            .applyRealtimeService(service);
-        ref
-            .read(techOperationsControllerProvider.notifier)
             .applyRealtimeService(service);
         ref.invalidate(serviceProvider(service.id));
       } catch (_) {

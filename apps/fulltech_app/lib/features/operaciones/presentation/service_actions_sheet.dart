@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/routing/routes.dart';
 import '../operations_models.dart';
 import 'service_pdf_exporter.dart';
+import 'status_picker_sheet.dart';
 
 class ServiceActionsSheet {
   static const adminPhases = <String>[
@@ -226,6 +227,11 @@ class ServiceActionsSheet {
         final adminPhaseSubtitle = adminPhaseRaw.isEmpty
             ? '—'
             : adminPhaseLabel(adminPhaseRaw);
+        final currentStatus = effectiveServiceStatusKey(service);
+        final currentPhase = effectiveServicePhaseKey(service);
+        final canCreateWarrantyNow =
+            currentPhase != 'levantamiento' &&
+            (currentStatus == 'finalizada' || currentStatus == 'cerrada');
 
         return SafeArea(
           child: ConstrainedBox(
@@ -257,10 +263,10 @@ class ServiceActionsSheet {
                   onTap: !canChangeStatus
                       ? null
                       : () async {
-                          final next = await _pickServiceStatus(
+                          final next = await StatusPickerSheet.show(
                             context,
-                            current: service.status,
-                            allowed: allowedStatusTargets,
+                            current: currentStatus,
+                            allowedStates: allowedStatusTargets.toSet(),
                           );
                           if (next == null) return;
                           await closeAnd(() => onChangeStatus(next));
@@ -376,7 +382,7 @@ class ServiceActionsSheet {
                   disabledReason: operateDeniedReason,
                   onTap: () => closeAnd(onUploadEvidence),
                 ),
-                (service.status == 'completed' || service.status == 'closed')
+                canCreateWarrantyNow
                     ? item(
                         icon: Icons.verified_outlined,
                         title: 'Crear garantía',
@@ -444,40 +450,6 @@ class ServiceActionsSheet {
         );
       },
     );
-  }
-
-  static const _serviceStatuses = <String>[
-    'reserved',
-    'survey',
-    'scheduled',
-    'in_progress',
-    'completed',
-    'warranty',
-    'closed',
-    'cancelled',
-  ];
-
-  static String _serviceStatusLabel(String raw) {
-    switch (raw) {
-      case 'reserved':
-        return 'Reserva';
-      case 'survey':
-        return 'Levantamiento';
-      case 'scheduled':
-        return 'Agendado';
-      case 'in_progress':
-        return 'En proceso';
-      case 'completed':
-        return 'Finalizado';
-      case 'warranty':
-        return 'Garantía';
-      case 'closed':
-        return 'Cerrado';
-      case 'cancelled':
-        return 'Cancelado';
-      default:
-        return raw;
-    }
   }
 
   static const _servicePhases = <String>[
@@ -922,70 +894,6 @@ class ServiceActionsSheet {
         );
       },
     ).whenComplete(noteCtrl.dispose);
-  }
-
-  static Future<String?> _pickServiceStatus(
-    BuildContext context, {
-    required String current,
-    required List<String> allowed,
-  }) {
-    final normalized = current.trim().toLowerCase();
-    final allowedSet = allowed.map((e) => e.trim().toLowerCase()).toSet();
-
-    return showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
-                child: Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Cambiar estado',
-                        style: TextStyle(fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                    Text(
-                      _serviceStatusLabel(normalized),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withValues(alpha: 0.70),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
-                    for (final s in _serviceStatuses)
-                      ListTile(
-                        title: Text(_serviceStatusLabel(s)),
-                        trailing: s == normalized
-                            ? const Icon(Icons.check_rounded)
-                            : null,
-                        enabled: allowedSet.contains(s),
-                        onTap: allowedSet.contains(s)
-                            ? () => Navigator.pop(context, s)
-                            : null,
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
   }
 
   static Future<String?> _askReason(BuildContext context) async {

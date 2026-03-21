@@ -341,6 +341,22 @@ class OperationsRepository {
   TechnicalVisitModel? _parseTechnicalVisitResponseMap(
     Map<String, dynamic> raw,
   ) {
+    for (final key in const [
+      'survey',
+      'visit',
+      'technicalVisit',
+      'item',
+      'data',
+    ]) {
+      final nested = raw[key];
+      if (nested is Map) {
+        final candidate = nested.cast<String, dynamic>();
+        if (_looksLikeTechnicalVisitPayload(candidate)) {
+          return TechnicalVisitModel.fromJson(candidate);
+        }
+      }
+    }
+
     final surveyRaw = raw['survey'];
     if (surveyRaw is Map) {
       final survey = surveyRaw.cast<String, dynamic>();
@@ -931,6 +947,20 @@ class OperationsRepository {
     return fallback;
   }
 
+  void _logEndpointFailure({
+    required String method,
+    required String path,
+    required Object error,
+    StackTrace? stackTrace,
+  }) {
+    final endpoint = '${method.toUpperCase()} ${_dio.options.baseUrl}$path';
+    debugPrint('[operaciones] request_failed endpoint=$endpoint error=$error');
+    if (stackTrace != null) {
+      debugPrint(stackTrace.toString());
+    }
+    TraceLog.log('OpsRepo', 'request_failed endpoint=$endpoint', error: error);
+  }
+
   String _formatDioError(DioException e, String fallback) {
     return ApiErrorMapper.fromDio(
       e,
@@ -1389,6 +1419,10 @@ class OperationsRepository {
 
   Future<ServiceModel> updateService({
     required String serviceId,
+    String? phase,
+    DateTime? scheduledAt,
+    String? note,
+    String? status,
     String? serviceType,
     String? categoryId,
     String? category,
@@ -1404,11 +1438,17 @@ class OperationsRepository {
     double? finalCost,
     String? orderType,
     String? orderState,
+    String? adminPhase,
+    String? adminStatus,
     String? technicianId,
     List<String>? tags,
   }) async {
     try {
       final payload = <String, dynamic>{
+        if (phase != null && phase.trim().isNotEmpty) 'phase': phase.trim(),
+        if (scheduledAt != null) 'scheduledAt': scheduledAt.toIso8601String(),
+        if (note != null) 'note': note,
+        if (status != null && status.trim().isNotEmpty) 'status': status.trim(),
         if (serviceType != null && serviceType.trim().isNotEmpty)
           'serviceType': serviceType.trim(),
         if (categoryId != null && categoryId.trim().isNotEmpty)
@@ -1433,6 +1473,10 @@ class OperationsRepository {
           'orderType': orderType.trim(),
         if (orderState != null && orderState.trim().isNotEmpty)
           'orderState': orderState.trim(),
+        if (adminPhase != null && adminPhase.trim().isNotEmpty)
+          'adminPhase': adminPhase.trim(),
+        if (adminStatus != null && adminStatus.trim().isNotEmpty)
+          'adminStatus': adminStatus.trim(),
         if (technicianId != null && technicianId.trim().isNotEmpty)
           'technicianId': technicianId.trim(),
         if (tags != null) 'tags': tags,
@@ -1442,12 +1486,32 @@ class OperationsRepository {
         throw ApiException('No hay cambios para guardar', 400);
       }
 
+      final nextPhase = (payload['phase'] ?? '').toString().trim();
+      if (nextPhase.isNotEmpty) {
+        TraceLog.log(
+          'OpsRepo',
+          'Updating fase=$nextPhase serviceId=$serviceId',
+        );
+      }
+
       final res = await _dio.patch(
-        ApiRoutes.serviceDetail(serviceId),
+        ApiRoutes.orderDetail(serviceId),
         data: payload,
       );
+      if (nextPhase.isNotEmpty) {
+        TraceLog.log(
+          'OpsRepo',
+          'Update response received serviceId=$serviceId phase=$nextPhase',
+        );
+      }
       return ServiceModel.fromJson((res.data as Map).cast<String, dynamic>());
-    } on DioException catch (e) {
+    } on DioException catch (e, st) {
+      _logEndpointFailure(
+        method: 'PATCH',
+        path: ApiRoutes.orderDetail(serviceId),
+        error: e,
+        stackTrace: st,
+      );
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo actualizar el servicio'),
         e.response?.statusCode,
@@ -1760,7 +1824,13 @@ class OperationsRepository {
         },
       );
       return ServiceModel.fromJson((res.data as Map).cast<String, dynamic>());
-    } on DioException catch (e) {
+    } on DioException catch (e, st) {
+      _logEndpointFailure(
+        method: 'PATCH',
+        path: ApiRoutes.serviceSchedule(serviceId),
+        error: e,
+        stackTrace: st,
+      );
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo agendar el servicio'),
         e.response?.statusCode,
@@ -1778,7 +1848,13 @@ class OperationsRepository {
         data: {'assignments': assignments},
       );
       return ServiceModel.fromJson((res.data as Map).cast<String, dynamic>());
-    } on DioException catch (e) {
+    } on DioException catch (e, st) {
+      _logEndpointFailure(
+        method: 'POST',
+        path: ApiRoutes.serviceAssign(serviceId),
+        error: e,
+        stackTrace: st,
+      );
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo asignar técnicos'),
         e.response?.statusCode,
@@ -1803,7 +1879,13 @@ class OperationsRepository {
           if (stepDone != null) 'stepDone': stepDone,
         },
       );
-    } on DioException catch (e) {
+    } on DioException catch (e, st) {
+      _logEndpointFailure(
+        method: 'POST',
+        path: ApiRoutes.serviceUpdate(serviceId),
+        error: e,
+        stackTrace: st,
+      );
       throw ApiException(
         _formatDioError(e, 'No se pudo guardar actualización'),
         e.response?.statusCode,
@@ -2547,7 +2629,13 @@ class OperationsRepository {
 
       final form = FormData.fromMap({'file': multipart});
       await _dio.post(ApiRoutes.serviceFiles(serviceId), data: form);
-    } on DioException catch (e) {
+    } on DioException catch (e, st) {
+      _logEndpointFailure(
+        method: 'POST',
+        path: ApiRoutes.serviceFiles(serviceId),
+        error: e,
+        stackTrace: st,
+      );
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo subir evidencia'),
         e.response?.statusCode,
@@ -2793,7 +2881,13 @@ class OperationsRepository {
         ),
       );
       return _parseTechnicalVisitResponse(res.data);
-    } on DioException catch (e) {
+    } on DioException catch (e, st) {
+      _logEndpointFailure(
+        method: 'GET',
+        path: ApiRoutes.technicalVisitByOrder(orderId),
+        error: e,
+        stackTrace: st,
+      );
       final code = e.response?.statusCode;
       if (code == 404) return null;
       if (code == 401) {
@@ -2803,7 +2897,13 @@ class OperationsRepository {
         _extractMessage(e.response?.data, 'No se pudo cargar el levantamiento'),
         code,
       );
-    } on FormatException {
+    } on FormatException catch (e, st) {
+      _logEndpointFailure(
+        method: 'GET',
+        path: ApiRoutes.technicalVisitByOrder(orderId),
+        error: e,
+        stackTrace: st,
+      );
       throw ApiException(
         'Respuesta inválida del servidor al cargar el levantamiento',
       );
@@ -2824,7 +2924,13 @@ class OperationsRepository {
         throw const FormatException('Missing technical visit survey');
       }
       return visit;
-    } on DioException catch (e) {
+    } on DioException catch (e, st) {
+      _logEndpointFailure(
+        method: 'POST',
+        path: ApiRoutes.technicalVisits,
+        error: e,
+        stackTrace: st,
+      );
       if (e.response?.statusCode == 401) {
         throw ApiException('No autorizado. Inicia sesión nuevamente.', 401);
       }
@@ -2832,7 +2938,13 @@ class OperationsRepository {
         _extractMessage(e.response?.data, 'No se pudo crear el levantamiento'),
         e.response?.statusCode,
       );
-    } on FormatException {
+    } on FormatException catch (e, st) {
+      _logEndpointFailure(
+        method: 'POST',
+        path: ApiRoutes.technicalVisits,
+        error: e,
+        stackTrace: st,
+      );
       throw ApiException(
         'Respuesta inválida del servidor al crear el levantamiento',
       );
@@ -2854,7 +2966,13 @@ class OperationsRepository {
         throw const FormatException('Missing technical visit survey');
       }
       return visit;
-    } on DioException catch (e) {
+    } on DioException catch (e, st) {
+      _logEndpointFailure(
+        method: 'PATCH',
+        path: ApiRoutes.technicalVisitDetail(id),
+        error: e,
+        stackTrace: st,
+      );
       if (e.response?.statusCode == 401) {
         throw ApiException('No autorizado. Inicia sesión nuevamente.', 401);
       }
@@ -2865,7 +2983,13 @@ class OperationsRepository {
         ),
         e.response?.statusCode,
       );
-    } on FormatException {
+    } on FormatException catch (e, st) {
+      _logEndpointFailure(
+        method: 'PATCH',
+        path: ApiRoutes.technicalVisitDetail(id),
+        error: e,
+        stackTrace: st,
+      );
       throw ApiException(
         'Respuesta inválida del servidor al actualizar el levantamiento',
       );

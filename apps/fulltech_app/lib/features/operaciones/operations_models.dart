@@ -176,8 +176,6 @@ String canonicalServicePhaseFromJson(Map<String, dynamic> json) {
     (json['currentPhase'] ?? '').toString(),
     (json['orderType'] ?? '').toString(),
     (json['serviceType'] ?? '').toString(),
-    (json['title'] ?? '').toString(),
-    (json['description'] ?? '').toString(),
   ];
 
   for (final candidate in candidates) {
@@ -196,9 +194,9 @@ String canonicalServicePhaseFromJson(Map<String, dynamic> json) {
 
 String canonicalServiceStatusFromJson(Map<String, dynamic> json) {
   final candidates = <String>[
-    (json['status'] ?? '').toString(),
     (json['adminStatus'] ?? '').toString(),
     (json['orderState'] ?? '').toString(),
+    (json['status'] ?? '').toString(),
   ];
 
   for (final candidate in candidates) {
@@ -212,11 +210,9 @@ String canonicalServiceStatusFromJson(Map<String, dynamic> json) {
 String effectiveServicePhaseKey(ServiceModel service) {
   final candidates = <String>[
     service.phase,
-    service.orderType,
     service.currentPhase,
+    service.orderType,
     service.serviceType,
-    service.title,
-    service.description,
   ];
 
   for (final candidate in candidates) {
@@ -246,9 +242,9 @@ String effectiveServicePhaseLabel(ServiceModel service) {
 
 String effectiveServiceStatusKey(ServiceModel service) {
   final candidates = <String>[
-    service.status,
     service.adminStatus ?? '',
     service.orderState,
+    service.status,
   ];
 
   for (final candidate in candidates) {
@@ -779,24 +775,12 @@ class ServiceModel {
     List<ServiceUpdateModel>? updates,
     ServiceClosingSummaryModel? closing,
   }) {
-    final nextPhase =
-        phase ??
-        currentPhase ??
-        (orderType == null ? null : _canonicalPhaseKey(orderType)) ??
-        this.phase;
-    final nextStatus =
-        status ??
-        adminStatus ??
-        (orderState == null ? null : _canonicalStatusKey(orderState)) ??
-        this.status;
-    final nextOrderType =
-        orderType ??
-        ((phase != null || currentPhase != null) ? nextPhase : this.orderType);
-    final nextOrderState =
-        orderState ??
-        ((status != null || adminStatus != null)
-            ? nextStatus
-            : this.orderState);
+    final nextPhase = phase ?? currentPhase ?? this.phase;
+    final nextCurrentPhase = currentPhase ?? phase ?? this.currentPhase;
+    final nextStatus = status ?? this.status;
+    final nextAdminStatus = adminStatus ?? this.adminStatus;
+    final nextOrderType = orderType ?? this.orderType;
+    final nextOrderState = orderState ?? this.orderState;
 
     return ServiceModel(
       id: id,
@@ -809,11 +793,11 @@ class ServiceModel {
       categoryName: categoryName ?? this.categoryName,
       phase: nextPhase,
       status: nextStatus,
-      currentPhase: nextPhase,
+      currentPhase: nextCurrentPhase,
       orderType: nextOrderType,
       orderState: nextOrderState,
       adminPhase: adminPhase ?? this.adminPhase,
-      adminStatus: nextStatus,
+      adminStatus: nextAdminStatus,
       technicianId: technicianId ?? this.technicianId,
       priority: priority ?? this.priority,
       quotedAmount: quotedAmount ?? this.quotedAmount,
@@ -898,7 +882,11 @@ class ServiceModel {
       ServiceFileModel.fromJson,
     );
     final phase = canonicalServicePhaseFromJson(json);
+    final currentPhase = (json['currentPhase'] ?? '').toString().trim();
+    final rawOrderType = (json['orderType'] ?? '').toString().trim();
     final status = canonicalServiceStatusFromJson(json);
+    final rawAdminStatus = (json['adminStatus'] ?? '').toString().trim();
+    final rawOrderState = (json['orderState'] ?? '').toString().trim();
 
     return ServiceModel(
       id: (json['id'] ?? '').toString(),
@@ -911,13 +899,13 @@ class ServiceModel {
       categoryName: json['categoryName']?.toString(),
       phase: phase,
       status: status,
-      currentPhase: phase,
-      orderType: (json['orderType'] ?? 'reserva').toString(),
-      orderState: (json['orderState'] ?? status).toString(),
+      currentPhase: currentPhase.isEmpty ? phase : currentPhase,
+      orderType: rawOrderType.isEmpty ? phase : rawOrderType,
+      orderState: rawOrderState.isEmpty ? status : rawOrderState,
       adminPhase: json['adminPhase'] == null
           ? null
           : (json['adminPhase'] ?? '').toString(),
-      adminStatus: status,
+      adminStatus: rawAdminStatus.isEmpty ? status : rawAdminStatus,
       technicianId: json['technicianId'] == null
           ? null
           : (json['technicianId'] ?? '').toString(),

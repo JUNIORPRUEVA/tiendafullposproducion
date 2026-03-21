@@ -1252,7 +1252,41 @@ export class OperationsService {
 
     const hasOrderExtras = Object.keys(nextOrderExtras).length > 0;
 
+    const nextPhase = dto.phase !== undefined ? this.parsePhase(dto.phase) : undefined;
+    const nextOrderType = dto.orderType
+      ? this.parseOrderType(dto.orderType)
+      : nextPhase !== undefined
+      ? this.orderTypeFromPhase(nextPhase)
+      : undefined;
+    const nextStatus = dto.status !== undefined ? this.parseStatus(dto.status) : undefined;
+    const nextAdminPhase = dto.adminPhase !== undefined ? this.parseAdminPhase(dto.adminPhase) : undefined;
+    const nextOrderState = dto.orderState !== undefined ? this.parseOrderState(dto.orderState) : undefined;
+    const nextAdminStatus = dto.adminStatus !== undefined ? this.parseAdminStatus(dto.adminStatus) : undefined;
+    const scheduledAt = dto.scheduledAt ? new Date(dto.scheduledAt) : undefined;
+    const resolvedOrderState =
+      nextOrderState ?? (nextAdminStatus ? this.orderStateFromAdminStatus(nextAdminStatus) : undefined);
+    const resolvedAdminStatus =
+      nextAdminStatus ?? (nextOrderState ? this.adminStatusFromOrderState(nextOrderState) : undefined);
+    const resolvedPhase = nextPhase ?? service.currentPhase ?? undefined;
+    const resolvedLegacyStatus =
+      nextStatus ?? this.statusFromPhaseAndAdminStatus(resolvedPhase, resolvedAdminStatus);
+
+    if (nextPhase !== undefined) {
+      this.logger.log(`Updating fase: ${this.toApiPhase(nextPhase)} for service ${id}`);
+    }
+    if (scheduledAt && Number.isNaN(scheduledAt.getTime())) {
+      throw new BadRequestException('scheduledAt inválido');
+    }
+
+    const durationMs =
+      service.scheduledStart && service.scheduledEnd
+        ? Math.max(15 * 60 * 1000, service.scheduledEnd.getTime() - service.scheduledStart.getTime())
+        : 60 * 60 * 1000;
+    const nextScheduledEnd = scheduledAt ? new Date(scheduledAt.getTime() + durationMs) : undefined;
+
     const data: Prisma.ServiceUpdateInput = {
+      ...(nextPhase !== undefined ? { currentPhase: nextPhase } : {}),
+      ...(scheduledAt ? { scheduledStart: scheduledAt, scheduledEnd: nextScheduledEnd } : {}),
       ...(dto.serviceType ? { serviceType: this.parseType(dto.serviceType) } : {}),
       ...(category
         ? {
@@ -1275,8 +1309,11 @@ export class OperationsService {
               : Prisma.JsonNull,
           }
         : {}),
-      ...(dto.orderType ? { orderType: this.parseOrderType(dto.orderType) } : {}),
-      ...(dto.orderState ? { orderState: this.parseOrderState(dto.orderState) } : {}),
+      ...(resolvedLegacyStatus !== undefined ? { status: resolvedLegacyStatus } : {}),
+      ...(nextOrderType !== undefined ? { orderType: nextOrderType } : {}),
+      ...(resolvedOrderState !== undefined ? { orderState: resolvedOrderState } : {}),
+      ...(nextAdminPhase !== undefined ? { adminPhase: nextAdminPhase } : {}),
+      ...(resolvedAdminStatus !== undefined ? { adminStatus: resolvedAdminStatus } : {}),
       ...(technicianId !== undefined
         ? technicianId
           ? { technician: { connect: { id: technicianId } } }
@@ -1297,6 +1334,19 @@ export class OperationsService {
       data,
       include: this.serviceInclude(),
     });
+
+    if (nextPhase !== undefined) {
+      await this.prisma.servicePhaseHistory.create({
+        data: {
+          serviceId: id,
+          phase: nextPhase,
+          note: dto.note?.trim() || null,
+          changedByUserId: user.id,
+          fromPhase: service.currentPhase,
+          toPhase: nextPhase,
+        },
+      });
+    }
 
     // Best-effort: keep invoice/guarantee drafts in sync while pending.
     try {
@@ -2869,11 +2919,10 @@ export class OperationsService {
 
   private deriveClientPhase(service: any): string {
     const candidates = [
+      service?.phase,
       service?.orderType ? this.toApiOrderType(service.orderType) : '',
       service?.currentPhase ? this.toApiPhase(service.currentPhase) : '',
       service?.serviceType ? this.toApiType(service.serviceType) : '',
-      service?.title,
-      service?.description,
     ];
 
     for (const candidate of candidates) {
@@ -2947,6 +2996,40 @@ export class OperationsService {
     return 'pendiente';
   }
 
+  private statusFromPhaseAndAdminStatus(
+    phase: ServicePhaseType | undefined,
+    adminStatus: AdminOrderStatus | undefined,
+  ): ServiceStatus | undefined {
+    if (adminStatus) {
+      switch (adminStatus) {
+        case AdminOrderStatus.EN_PROCESO:
+          return ServiceStatus.IN_PROGRESS;
+        case AdminOrderStatus.FINALIZADA:
+          return ServiceStatus.COMPLETED;
+        case AdminOrderStatus.CERRADA:
+          return ServiceStatus.CLOSED;
+        case AdminOrderStatus.CANCELADA:
+          return ServiceStatus.CANCELLED;
+        default:
+          break;
+      }
+    }
+
+    switch (phase) {
+      case ServicePhaseType.RESERVA:
+        return ServiceStatus.RESERVED;
+      case ServicePhaseType.LEVANTAMIENTO:
+        return ServiceStatus.SURVEY;
+      case ServicePhaseType.GARANTIA:
+        return ServiceStatus.WARRANTY;
+      case ServicePhaseType.INSTALACION:
+      case ServicePhaseType.MANTENIMIENTO:
+        return ServiceStatus.SCHEDULED;
+      default:
+        return undefined;
+    }
+  }
+
   private normalizeService(service: any) {
     const orderNumber =
       typeof service?.orderNumber === 'string' && service.orderNumber.trim()
@@ -2991,11 +3074,11 @@ export class OperationsService {
       phase,
       serviceType: this.toApiType(service.serviceType),
       status,
-      currentPhase: phase,
+      currentPhase: service.currentPhase ? this.toApiPhase(service.currentPhase) : phase,
       orderType: service.orderType ? this.toApiOrderType(service.orderType) : 'reserva',
       orderState: service.orderState ? this.toApiOrderState(service.orderState) : 'pending',
       adminPhase: service.adminPhase ? this.toApiAdminPhase(service.adminPhase) : null,
-      adminStatus: status,
+      adminStatus: service.adminStatus ? this.toApiAdminStatus(service.adminStatus) : status,
       assignments: (service.assignments ?? []).map((item: any) => ({
         ...item,
         role: this.toApiAssignRole(item.role),
@@ -3088,6 +3171,19 @@ export class OperationsService {
       warranty: ServiceStatus.WARRANTY,
       closed: ServiceStatus.CLOSED,
       cancelled: ServiceStatus.CANCELLED,
+      pendiente: ServiceStatus.SCHEDULED,
+      confirmada: ServiceStatus.SCHEDULED,
+      asignada: ServiceStatus.SCHEDULED,
+      en_camino: ServiceStatus.SCHEDULED,
+      reagendada: ServiceStatus.SCHEDULED,
+      finalizada: ServiceStatus.COMPLETED,
+      cerrada: ServiceStatus.CLOSED,
+      cancelada: ServiceStatus.CANCELLED,
+      pending: ServiceStatus.SCHEDULED,
+      confirmed: ServiceStatus.SCHEDULED,
+      assigned: ServiceStatus.SCHEDULED,
+      finalized: ServiceStatus.COMPLETED,
+      rescheduled: ServiceStatus.SCHEDULED,
     };
     const parsed = map[key];
     if (!parsed) throw new BadRequestException('Estado inválido');
@@ -3143,6 +3239,15 @@ export class OperationsService {
       finalized: OrderState.FINALIZED,
       cancelled: OrderState.CANCELLED,
       rescheduled: OrderState.RESCHEDULED,
+      pendiente: OrderState.PENDING,
+      confirmada: OrderState.CONFIRMED,
+      asignada: OrderState.ASSIGNED,
+      en_camino: OrderState.ASSIGNED,
+      en_proceso: OrderState.IN_PROGRESS,
+      finalizada: OrderState.FINALIZED,
+      cerrada: OrderState.FINALIZED,
+      cancelada: OrderState.CANCELLED,
+      reagendada: OrderState.RESCHEDULED,
     };
     const parsed = map[key];
     if (!parsed) throw new BadRequestException('Estado de orden inválido');
@@ -3178,10 +3283,81 @@ export class OperationsService {
       reagendada: AdminOrderStatus.REAGENDADA,
       cancelada: AdminOrderStatus.CANCELADA,
       cerrada: AdminOrderStatus.CERRADA,
+      pending: AdminOrderStatus.PENDIENTE,
+      confirmed: AdminOrderStatus.CONFIRMADA,
+      assigned: AdminOrderStatus.ASIGNADA,
+      in_progress: AdminOrderStatus.EN_PROCESO,
+      finalized: AdminOrderStatus.FINALIZADA,
+      cancelled: AdminOrderStatus.CANCELADA,
+      rescheduled: AdminOrderStatus.REAGENDADA,
+      reserved: AdminOrderStatus.PENDIENTE,
+      survey: AdminOrderStatus.PENDIENTE,
+      scheduled: AdminOrderStatus.PENDIENTE,
+      completed: AdminOrderStatus.FINALIZADA,
+      warranty: AdminOrderStatus.EN_PROCESO,
+      closed: AdminOrderStatus.CERRADA,
     };
     const parsed = map[key];
     if (!parsed) throw new BadRequestException('Estado administrativo inválido');
     return parsed;
+  }
+
+  private orderTypeFromPhase(phase: ServicePhaseType): OrderType {
+    switch (phase) {
+      case ServicePhaseType.LEVANTAMIENTO:
+        return OrderType.LEVANTAMIENTO;
+      case ServicePhaseType.INSTALACION:
+        return OrderType.INSTALACION;
+      case ServicePhaseType.MANTENIMIENTO:
+        return OrderType.MANTENIMIENTO;
+      case ServicePhaseType.GARANTIA:
+        return OrderType.GARANTIA;
+      case ServicePhaseType.RESERVA:
+      default:
+        return OrderType.RESERVA;
+    }
+  }
+
+  private orderStateFromAdminStatus(value: AdminOrderStatus): OrderState {
+    switch (value) {
+      case AdminOrderStatus.CONFIRMADA:
+        return OrderState.CONFIRMED;
+      case AdminOrderStatus.ASIGNADA:
+      case AdminOrderStatus.EN_CAMINO:
+        return OrderState.ASSIGNED;
+      case AdminOrderStatus.EN_PROCESO:
+        return OrderState.IN_PROGRESS;
+      case AdminOrderStatus.FINALIZADA:
+      case AdminOrderStatus.CERRADA:
+        return OrderState.FINALIZED;
+      case AdminOrderStatus.CANCELADA:
+        return OrderState.CANCELLED;
+      case AdminOrderStatus.REAGENDADA:
+        return OrderState.RESCHEDULED;
+      case AdminOrderStatus.PENDIENTE:
+      default:
+        return OrderState.PENDING;
+    }
+  }
+
+  private adminStatusFromOrderState(value: OrderState): AdminOrderStatus {
+    switch (value) {
+      case OrderState.CONFIRMED:
+        return AdminOrderStatus.CONFIRMADA;
+      case OrderState.ASSIGNED:
+        return AdminOrderStatus.ASIGNADA;
+      case OrderState.IN_PROGRESS:
+        return AdminOrderStatus.EN_PROCESO;
+      case OrderState.FINALIZED:
+        return AdminOrderStatus.FINALIZADA;
+      case OrderState.CANCELLED:
+        return AdminOrderStatus.CANCELADA;
+      case OrderState.RESCHEDULED:
+        return AdminOrderStatus.REAGENDADA;
+      case OrderState.PENDING:
+      default:
+        return AdminOrderStatus.PENDIENTE;
+    }
   }
 
   private parseAssignRole(value: string): ServiceAssignmentRole {

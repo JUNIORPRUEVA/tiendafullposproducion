@@ -54,19 +54,33 @@ class OperationsPermissions {
       canCritical ? null : 'Solo creador o admin';
 
   static const _flow = <String, List<String>>{
-    'reserved': ['survey', 'cancelled'],
-    'survey': ['scheduled', 'cancelled'],
-    'scheduled': ['in_progress', 'cancelled'],
-    'in_progress': ['completed', 'warranty', 'cancelled'],
-    'completed': ['warranty', 'closed'],
-    'warranty': ['in_progress', 'closed'],
-    'closed': [],
-    'cancelled': [],
+    'pendiente': [
+      'confirmada',
+      'asignada',
+      'en_camino',
+      'en_proceso',
+      'reagendada',
+      'cancelada',
+    ],
+    'confirmada': [
+      'asignada',
+      'en_camino',
+      'en_proceso',
+      'reagendada',
+      'cancelada',
+    ],
+    'asignada': ['en_camino', 'en_proceso', 'reagendada', 'cancelada'],
+    'en_camino': ['en_proceso', 'reagendada', 'cancelada'],
+    'en_proceso': ['finalizada', 'cancelada'],
+    'finalizada': ['cerrada', 'reagendada'],
+    'reagendada': ['confirmada', 'asignada', 'en_camino', 'cancelada'],
+    'cerrada': [],
+    'cancelada': [],
   };
 
   bool canTransition(String from, String to) {
-    final cur = from.trim().toLowerCase();
-    final next = to.trim().toLowerCase();
+    final cur = normalizeOperationsKey(from);
+    final next = normalizeOperationsKey(to);
     if (cur == next) return true;
 
     final allowed = _flow[cur];
@@ -74,13 +88,13 @@ class OperationsPermissions {
     if (!allowed.contains(next)) return false;
 
     // Regla extra: cancelar solo crítico.
-    if (next == 'cancelled') return canCancel;
+    if (next == 'cancelada') return canCancel;
 
     return canOperate;
   }
 
   List<String> allowedNextStatuses() {
-    final cur = service.status.trim().toLowerCase();
+    final cur = effectiveServiceStatusKey(service);
     final allowed = _flow[cur] ?? const <String>[];
     return allowed.where((next) => canTransition(cur, next)).toList();
   }

@@ -570,8 +570,7 @@ class _TechnicalPhaseFormScreenState
                                     final uri = Uri(
                                       path: Routes.cotizacionesHistorial,
                                       queryParameters: {
-                                        'customerPhone':
-                                            service!.customerPhone,
+                                        'customerPhone': service!.customerPhone,
                                         'pick': '0',
                                       },
                                     );
@@ -683,26 +682,61 @@ class _TechnicalPhaseFormScreenState
             color: Colors.white,
             border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
           ),
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: state.saving ? null : () => _save(finalize: false),
-                  icon: const Icon(Icons.save_outlined),
-                  label: const Text('Guardar'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: state.saving ? null : () => _save(finalize: true),
-                  icon: const Icon(Icons.task_alt_outlined),
-                  label: Text(
-                    _isWarranty
-                        ? 'Finalizar garantía'
-                        : 'Finalizar levantamiento',
+              Row(
+                children: [
+                  Icon(
+                    state.saving ? Icons.sync : Icons.cloud_done_outlined,
+                    size: 18,
+                    color: state.saving
+                        ? const Color(0xFF0B6BDE)
+                        : const Color(0xFF0F766E),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      state.saving
+                          ? 'Guardando cambios automaticamente...'
+                          : _isWarranty
+                          ? 'Guardado manual disponible.'
+                          : 'Guardado automatico activo. Tambien puedes guardar manualmente.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF475569),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: state.saving
+                          ? null
+                          : () => _save(finalize: false),
+                      icon: const Icon(Icons.save_outlined),
+                      label: Text(_isWarranty ? 'Guardar' : 'Guardar ahora'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: state.saving
+                          ? null
+                          : () => _save(finalize: true),
+                      icon: const Icon(Icons.task_alt_outlined),
+                      label: Text(
+                        _isWarranty
+                            ? 'Finalizar garantía'
+                            : 'Finalizar levantamiento',
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

@@ -44,7 +44,6 @@ import 'application/operations_controller.dart';
 import 'application/operations_metadata_providers.dart';
 import 'data/operations_repository.dart';
 import 'operations_models.dart' hide ServiceStatus;
-import 'operations_models.dart' as ops show ServiceStatus, parseStatus;
 import 'presentation/service_agenda_card.dart';
 import 'presentation/create_order_form_ui.dart';
 import 'presentation/full_screen_image_viewer.dart';
@@ -1519,65 +1518,10 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
   }
 
   Future<void> _changeStatusWithConfirm(ServiceModel service) async {
-    final statuses = const [
-      'reserved',
-      'survey',
-      'scheduled',
-      'in_progress',
-      'completed',
-      'warranty',
-      'closed',
-      'cancelled',
-    ];
-
-    String label(String raw) {
-      switch (raw) {
-        case 'reserved':
-          return 'Reserva';
-        case 'survey':
-          return 'Levantamiento';
-        case 'scheduled':
-          return 'Servicio (agendado)';
-        case 'in_progress':
-          return 'Servicio (en proceso)';
-        case 'warranty':
-          return 'Garantía';
-        case 'completed':
-          return 'Finalizado';
-        case 'closed':
-          return 'Cerrado';
-        case 'cancelled':
-          return 'Cancelado';
-        default:
-          return raw;
-      }
-    }
-
-    final picked = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        return SimpleDialog(
-          title: const Text('Cambiar estado'),
-          children: statuses
-              .map(
-                (s) => SimpleDialogOption(
-                  onPressed: () => Navigator.pop(context, s),
-                  child: Row(
-                    children: [
-                      Expanded(child: Text(label(s))),
-                      if (s == service.status)
-                        const Icon(Icons.check_rounded, size: 18),
-                    ],
-                  ),
-                ),
-              )
-              .toList(),
-        );
-      },
-    );
-
+    final current = effectiveServiceStatusKey(service);
+    final picked = await StatusPickerSheet.show(context, current: current);
     if (!mounted || picked == null) return;
-    if (picked == service.status) return;
+    if (normalizeOperationsKey(picked) == current) return;
 
     final ok = await showDialog<bool>(
       context: context,
@@ -1585,7 +1529,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
         return AlertDialog(
           title: const Text('Confirmar cambio'),
           content: Text(
-            'Vas a cambiar el estado de "${label(service.status)}" a "${label(picked)}".\n\n¿Seguro que deseas hacerlo?',
+            'Vas a cambiar el estado de "${effectiveServiceStatusLabel(service)}" a "${StatusPickerSheet.label(picked)}".\n\n¿Seguro que deseas hacerlo?',
           ),
           actions: [
             TextButton(
@@ -1605,7 +1549,9 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     await _changeStatus(service.id, picked);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Estado cambiado a ${label(picked)}')),
+      SnackBar(
+        content: Text('Estado cambiado a ${StatusPickerSheet.label(picked)}'),
+      ),
     );
   }
 
@@ -2434,26 +2380,15 @@ class _OperacionesAgendaScreenState
     extends ConsumerState<OperacionesAgendaScreen> {
   // ignore: unused_element
   String _statusLabel(String raw) {
-    switch (raw) {
-      case 'reserved':
-        return 'Sin etapa';
-      case 'survey':
-        return 'Levantamiento';
-      case 'scheduled':
-        return 'Agendado';
-      case 'in_progress':
-        return 'En proceso';
-      case 'warranty':
-        return 'Garantía';
-      case 'completed':
-        return 'Finalizado';
-      case 'closed':
-        return 'Cerrado';
-      case 'cancelled':
-        return 'Cancelado';
-      default:
-        return raw;
-    }
+    if (raw == 'reserved') return 'Sin etapa';
+    if (raw == 'survey') return 'Levantamiento';
+    if (raw == 'scheduled') return 'Agendado';
+    if (raw == 'in_progress') return 'En proceso';
+    if (raw == 'warranty') return 'Garantía';
+    if (raw == 'completed') return 'Finalizado';
+    if (raw == 'closed') return 'Cerrado';
+    if (raw == 'cancelled') return 'Cancelado';
+    return raw;
   }
 
   // ignore: unused_element
@@ -2468,10 +2403,6 @@ class _OperacionesAgendaScreenState
       default:
         return raw;
     }
-  }
-
-  String _categoryLabel(String raw) {
-    return localizedServiceCategoryLabel(raw);
   }
 
   void _applyOptimisticServiceRefresh(ServiceModel service) {
@@ -2530,65 +2461,10 @@ class _OperacionesAgendaScreenState
   }
 
   Future<void> _changeStatusWithConfirm(ServiceModel service) async {
-    final statuses = const [
-      'reserved',
-      'survey',
-      'scheduled',
-      'in_progress',
-      'completed',
-      'warranty',
-      'closed',
-      'cancelled',
-    ];
-
-    String label(String raw) {
-      switch (raw) {
-        case 'reserved':
-          return 'Reserva';
-        case 'survey':
-          return 'Levantamiento';
-        case 'scheduled':
-          return 'Servicio (agendado)';
-        case 'in_progress':
-          return 'Servicio (en proceso)';
-        case 'warranty':
-          return 'Garantía';
-        case 'completed':
-          return 'Finalizado';
-        case 'closed':
-          return 'Cerrado';
-        case 'cancelled':
-          return 'Cancelado';
-        default:
-          return raw;
-      }
-    }
-
-    final picked = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        return SimpleDialog(
-          title: const Text('Cambiar estado'),
-          children: statuses
-              .map(
-                (s) => SimpleDialogOption(
-                  onPressed: () => Navigator.pop(context, s),
-                  child: Row(
-                    children: [
-                      Expanded(child: Text(label(s))),
-                      if (s == service.status)
-                        const Icon(Icons.check_rounded, size: 18),
-                    ],
-                  ),
-                ),
-              )
-              .toList(),
-        );
-      },
-    );
-
+    final current = effectiveServiceStatusKey(service);
+    final picked = await StatusPickerSheet.show(context, current: current);
     if (!mounted || picked == null) return;
-    if (picked == service.status) return;
+    if (normalizeOperationsKey(picked) == current) return;
 
     final ok = await showDialog<bool>(
       context: context,
@@ -2596,7 +2472,7 @@ class _OperacionesAgendaScreenState
         return AlertDialog(
           title: const Text('Confirmar cambio'),
           content: Text(
-            'Vas a cambiar el estado de "${label(service.status)}" a "${label(picked)}".\n\n¿Seguro que deseas hacerlo?',
+            'Vas a cambiar el estado de "${effectiveServiceStatusLabel(service)}" a "${StatusPickerSheet.label(picked)}".\n\n¿Seguro que deseas hacerlo?',
           ),
           actions: [
             TextButton(
@@ -2616,7 +2492,9 @@ class _OperacionesAgendaScreenState
     await _changeStatus(service.id, picked);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Estado cambiado a ${label(picked)}')),
+      SnackBar(
+        content: Text('Estado cambiado a ${StatusPickerSheet.label(picked)}'),
+      ),
     );
   }
 
@@ -3047,7 +2925,7 @@ class _OperacionesAgendaScreenState
                                   ],
                                 ),
                                 subtitle: Text(
-                                  '$dateText · ${service.status} · ${_effectiveServiceKindLabel(service)} · P${service.priority}',
+                                  '$dateText · ${effectiveServiceStatusLabel(service)} · ${_effectiveServiceKindLabel(service)} · P${service.priority}',
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -3151,7 +3029,9 @@ class _OperacionesAgendaScreenState
                   else
                     ...scheduled.map((service) {
                       final typeText = _effectiveServiceKindLabel(service);
-                      final categoryText = _categoryLabel(service.category);
+                      final categoryText = effectiveServiceCategoryLabel(
+                        service,
+                      );
                       final address = service.customerAddress.trim();
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 8),
@@ -4420,10 +4300,6 @@ class _PanelOptionsState extends State<_PanelOptions> {
     }
   }
 
-  String _categoryLabel(String raw) {
-    return localizedServiceCategoryLabel(raw);
-  }
-
   // ignore: unused_element
   String _techLabel(ServiceModel s) {
     if (s.assignments.isEmpty) return 'Sin asignar';
@@ -4511,31 +4387,6 @@ class _PanelOptionsState extends State<_PanelOptions> {
     }
 
     bool isCancelledByAdmin(String st) => st == 'cancelada';
-
-    bool isPendingByLegacy(ops.ServiceStatus st) {
-      switch (st) {
-        case ops.ServiceStatus.reserved:
-        case ops.ServiceStatus.survey:
-        case ops.ServiceStatus.scheduled:
-        case ops.ServiceStatus.warranty:
-          return true;
-        default:
-          return false;
-      }
-    }
-
-    bool isInProgressByLegacy(ops.ServiceStatus st) =>
-        st == ops.ServiceStatus.inProgress;
-
-    bool isCompletedByLegacy(ops.ServiceStatus st) {
-      switch (st) {
-        case ops.ServiceStatus.completed:
-        case ops.ServiceStatus.closed:
-          return true;
-        default:
-          return false;
-      }
-    }
 
     final query = widget.searchCtrl.text.trim().toLowerCase();
     bool matchesQuery(ServiceModel s) {
@@ -5119,7 +4970,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
 
   Widget _buildServiceAgendaTile(ServiceModel s) {
     final type = _effectiveServiceKindLabel(s);
-    final category = _categoryLabel(s.category);
+    final category = effectiveServiceCategoryLabel(s);
     final subtitle = category.isEmpty ? type : '$type · $category';
     final tech = _techLabel(s);
 
@@ -5151,11 +5002,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
                 if (!mounted || draft == null) return;
 
                 final next = (draft['phase'] ?? '').trim();
-                final scheduledAtRaw = (draft['scheduledAt'] ?? '').trim();
                 if (next.isEmpty) return;
-
-                final scheduledAt = DateTime.tryParse(scheduledAtRaw);
-                if (scheduledAt == null) return;
 
                 final missing = _missingPhaseRequirements(s, next);
                 if (missing.isNotEmpty) {
@@ -5164,6 +5011,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
                     phase: next,
                     data: _PhaseValidationPromptData(missing: missing),
                     canEdit: canEdit,
+                    actionLabel: 'Editar datos',
                   );
                   if (!mounted) return;
                   if (goEdit) {
@@ -5171,6 +5019,10 @@ class _PanelOptionsState extends State<_PanelOptions> {
                   }
                   return;
                 }
+
+                final scheduledAtRaw = (draft['scheduledAt'] ?? '').trim();
+                final scheduledAt = DateTime.tryParse(scheduledAtRaw);
+                if (scheduledAt == null) return;
 
                 try {
                   await widget.onChangePhase(
@@ -5941,33 +5793,6 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     );
   }
 
-  String _statusLabel(String raw) {
-    switch (raw) {
-      case 'reserved':
-        return 'Reserva';
-      case 'survey':
-        return 'Levantamiento';
-      case 'scheduled':
-        return 'Servicio (agendado)';
-      case 'in_progress':
-        return 'Servicio (en proceso)';
-      case 'warranty':
-        return 'Garantía';
-      case 'completed':
-        return 'Finalizado';
-      case 'closed':
-        return 'Cerrado';
-      case 'cancelled':
-        return 'Cancelado';
-      default:
-        return raw;
-    }
-  }
-
-  String _categoryLabel(String raw) {
-    return localizedServiceCategoryLabel(raw);
-  }
-
   String _orderTypeLabel(String raw) {
     switch (raw.trim().toLowerCase()) {
       case 'reserva':
@@ -5986,37 +5811,39 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     }
   }
 
-  ({Color background, Color foreground}) _orderStateTone(String raw) {
-    switch (normalizeOperationsKey(raw)) {
-      case 'pending':
-      case 'pendiente':
+  ({Color background, Color foreground}) _orderStateTone(String state) {
+    switch (state.trim().toLowerCase()) {
+      case 'finalizada':
+      case 'completed':
+      case 'cerrada':
+      case 'closed':
         return (
-          background: const Color(0xFFFFF1DB),
-          foreground: const Color(0xFF9A5800),
+          background: const Color(0xFFE7F6EC),
+          foreground: const Color(0xFF157347),
         );
-      case 'en_camino':
-      case 'in_progress':
       case 'en_proceso':
+      case 'in_progress':
+      case 'en_camino':
         return (
           background: const Color(0xFFE9F5FF),
           foreground: const Color(0xFF145DA0),
         );
-      case 'completed':
-      case 'finalizado':
-      case 'finalizada':
-      case 'closed':
-      case 'cerrado':
-      case 'cerrada':
-        return (
-          background: const Color(0xFFE8F7EE),
-          foreground: const Color(0xFF18794E),
-        );
-      case 'cancelled':
-      case 'cancelado':
       case 'cancelada':
+      case 'cancelled':
         return (
           background: const Color(0xFFFCE8E8),
           foreground: const Color(0xFFB42318),
+        );
+      case 'asignada':
+      case 'agendada':
+      case 'reagendada':
+      case 'confirmada':
+      case 'scheduled':
+      case 'survey':
+      case 'reserved':
+        return (
+          background: const Color(0xFFFFF1DB),
+          foreground: const Color(0xFF9A5800),
         );
       default:
         return (
@@ -6238,7 +6065,8 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     bool closePanel = true,
   }) async {
     final service = _service;
-    if (targetStatus == service.status) return;
+    final currentStatus = effectiveServiceStatusKey(service);
+    if (normalizeOperationsKey(targetStatus) == currentStatus) return;
 
     final ok = await showDialog<bool>(
       context: context,
@@ -6246,7 +6074,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         return AlertDialog(
           title: const Text('Confirmar cambio'),
           content: Text(
-            'Vas a cambiar la etapa de "${_statusLabel(service.status)}" a "${_statusLabel(targetStatus)}".\n\n¿Seguro que deseas hacerlo?',
+            'Vas a cambiar el estado de "${effectiveServiceStatusLabel(service)}" a "${StatusPickerSheet.label(targetStatus)}".\n\n¿Seguro que deseas hacerlo?',
           ),
           actions: [
             TextButton(
@@ -6267,12 +6095,10 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     await widget.onChangeStatus(targetStatus);
     if (!mounted) return;
 
-    setState(() {
-      _service = _service.copyWith(status: targetStatus);
-    });
-
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Etapa: ${_statusLabel(targetStatus)}')),
+      SnackBar(
+        content: Text('Estado: ${StatusPickerSheet.label(targetStatus)}'),
+      ),
     );
 
     if (closePanel) {
@@ -6438,7 +6264,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     final allowedStatusTargets = perms.allowedNextStatuses();
 
     final typeText = _effectiveServiceKindLabel(service);
-    final categoryText = _categoryLabel(service.category);
+    final categoryText = effectiveServiceCategoryLabel(service);
     final descText = service.description.trim();
     final customerName = service.customerName.trim().isEmpty
         ? 'Cliente'
@@ -6686,6 +6512,8 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
 
     final statusTone = _orderStateTone(statusChipValue);
     final canOpenQuote = customerPhone.isNotEmpty;
+    final isLevantamiento =
+        effectiveServicePhaseKey(service) == 'levantamiento';
 
     final visibleUpdates = service.updates
         .where(_isVisibleActivity)
@@ -6777,16 +6605,18 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
           label: 'Costo final',
           value: money(service.finalCost),
         ),
-      OrderInfoItem(
-        icon: Icons.receipt_long_outlined,
-        label: 'Factura',
-        value: invoiceStatus(),
-      ),
-      OrderInfoItem(
-        icon: Icons.verified_outlined,
-        label: 'Garantía',
-        value: warrantyStatus(),
-      ),
+      if (!isLevantamiento)
+        OrderInfoItem(
+          icon: Icons.receipt_long_outlined,
+          label: 'Factura',
+          value: invoiceStatus(),
+        ),
+      if (!isLevantamiento)
+        OrderInfoItem(
+          icon: Icons.verified_outlined,
+          label: 'Garantía',
+          value: warrantyStatus(),
+        ),
       OrderInfoItem(
         icon: Icons.draw_outlined,
         label: 'Firma cliente',
@@ -6912,8 +6742,8 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
             canCall: customerPhone.isNotEmpty,
             canOpenLocation: location.canOpenMaps,
             canOpenQuote: canOpenQuote,
-            canOpenInvoice: true,
-            canOpenWarranty: true,
+            canOpenInvoice: !isLevantamiento,
+            canOpenWarranty: !isLevantamiento,
             onSelected: handleHeaderAction,
           ),
         ),
@@ -6935,31 +6765,33 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
           items: primaryInfoItems,
         ),
         const SizedBox(height: 12),
-        OrderDocumentsSection(
-          items: [
-            OrderDocumentActionItem(
-              icon: Icons.receipt_long_outlined,
-              title: 'Factura',
-              status: invoiceStatus(),
-              caption:
-                  'Abre la factura final si existe; si no, genera una versión actualizada con los datos del servicio.',
-              onPressed: () {
-                unawaited(_onInvoicePressed(service));
-              },
-            ),
-            OrderDocumentActionItem(
-              icon: Icons.verified_outlined,
-              title: 'Carta de garantía',
-              status: warrantyStatus(),
-              caption:
-                  'Abre la carta final guardada o genera la vista actual desde la información de la orden.',
-              onPressed: () {
-                unawaited(_onWarrantyPressed(service));
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
+        if (!isLevantamiento) ...[
+          OrderDocumentsSection(
+            items: [
+              OrderDocumentActionItem(
+                icon: Icons.receipt_long_outlined,
+                title: 'Factura',
+                status: invoiceStatus(),
+                caption:
+                    'Abre la factura final si existe; si no, genera una versión actualizada con los datos del servicio.',
+                onPressed: () {
+                  unawaited(_onInvoicePressed(service));
+                },
+              ),
+              OrderDocumentActionItem(
+                icon: Icons.verified_outlined,
+                title: 'Carta de garantía',
+                status: warrantyStatus(),
+                caption:
+                    'Abre la carta final guardada o genera la vista actual desde la información de la orden.',
+                onPressed: () {
+                  unawaited(_onWarrantyPressed(service));
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+        ],
         FutureBuilder<ServiceExecutionBundleModel>(
           future: executionBundleFuture,
           builder: (context, snapshot) {
@@ -7764,19 +7596,6 @@ class OperacionesHistorialBodyState
     }
   }
 
-  String _statusLabel(String raw) {
-    switch (raw) {
-      case 'completed':
-        return 'Finalizada';
-      case 'closed':
-        return 'Cerrada';
-      case 'cancelled':
-        return 'Cancelada';
-      default:
-        return raw;
-    }
-  }
-
   // ignore: unused_element
   String _typeLabel(String raw) {
     switch (raw) {
@@ -7795,29 +7614,29 @@ class OperacionesHistorialBodyState
     }
   }
 
-  IconData _typeIcon(String raw) {
-    switch (raw) {
-      case 'installation':
-        return Icons.handyman_outlined;
-      case 'maintenance':
-        return Icons.build_circle_outlined;
-      case 'warranty':
-        return Icons.verified_outlined;
-      case 'pos_support':
-        return Icons.point_of_sale_outlined;
-      default:
-        return Icons.work_outline;
-    }
-  }
-
-  DateTime? _lastUpdateAt(ServiceModel s) {
-    final dates = s.updates
-        .map((u) => u.createdAt)
+  DateTime? _lastUpdateAt(ServiceModel service) {
+    final dates = service.updates
+        .map((update) => update.createdAt)
         .whereType<DateTime>()
         .toList();
     if (dates.isEmpty) return null;
     dates.sort();
     return dates.last;
+  }
+
+  IconData _typeIcon(String phaseKey) {
+    switch (phaseKey.trim().toLowerCase()) {
+      case 'instalacion':
+        return Icons.bolt_rounded;
+      case 'mantenimiento':
+        return Icons.tune_rounded;
+      case 'levantamiento':
+        return Icons.rule_folder_rounded;
+      case 'garantia':
+        return Icons.workspace_premium_rounded;
+      default:
+        return Icons.work_outline;
+    }
   }
 
   Future<void> _openDetail(ServiceModel service) async {
@@ -7868,7 +7687,11 @@ class OperacionesHistorialBodyState
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    _pill(context, 'Estado', _statusLabel(service.status)),
+                    _pill(
+                      context,
+                      'Estado',
+                      effectiveServiceStatusLabel(service),
+                    ),
                     _pill(context, 'Tipo', _effectiveServiceKindLabel(service)),
                     _pill(context, 'Prioridad', 'P${service.priority}'),
                     if (service.isSeguro) _pill(context, 'SEGURO', 'Sí'),
@@ -7983,7 +7806,11 @@ class OperacionesHistorialBodyState
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _pill(context, 'Estado', _statusLabel(service.status)),
+                      _pill(
+                        context,
+                        'Estado',
+                        effectiveServiceStatusLabel(service),
+                      ),
                       _pill(
                         context,
                         'Tipo',
@@ -8192,14 +8019,14 @@ class OperacionesHistorialBodyState
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Card(
                   child: ListTile(
-                    leading: Icon(_typeIcon(service.serviceType)),
+                    leading: Icon(_typeIcon(effectiveServicePhaseKey(service))),
                     title: Text(
                       '${service.customerName} · ${service.title}',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                     subtitle: Text(
-                      '${_statusLabel(service.status)} · ${_effectiveServiceKindLabel(service)} · P${service.priority}\nÚltimo: $dateText',
+                      '${effectiveServiceStatusLabel(service)} · ${_effectiveServiceKindLabel(service)} · P${service.priority}\nÚltimo: $dateText',
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -8298,7 +8125,7 @@ class _AgendaTab extends StatelessWidget {
           ...scheduled.map((service) {
             final techs = service.assignments.map((a) => a.userName).join(', ');
             final subtitle =
-                '${dateFormat.format(service.scheduledStart!)} · ${service.status}\n'
+                '${dateFormat.format(service.scheduledStart!)} · ${effectiveServiceStatusLabel(service)}\n'
                 '${techs.isEmpty ? 'Sin técnicos' : techs}'
                 '${isCompact ? '\n${_effectiveServiceKindLabel(service)} · P${service.priority}' : ''}';
             return Padding(
@@ -8562,7 +8389,7 @@ class _AgendaTab extends StatelessWidget {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 subtitle: Text(
-                                  '$dateText · ${service.status} · ${_effectiveServiceKindLabel(service)} · P${service.priority}',
+                                  '$dateText · ${effectiveServiceStatusLabel(service)} · ${_effectiveServiceKindLabel(service)} · P${service.priority}',
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -9458,34 +9285,6 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     }
 
     _showDeferredSnackBar('No se pudo abrir la ubicación');
-  }
-
-  Future<void> _openGpsDestinationFromInput() async {
-    final point = _gpsPoint ?? parseLatLngFromText(_gpsCtrl.text);
-    if (point != null) {
-      await _openBestNavigation(context, point);
-      return;
-    }
-
-    await _resolveAndSetGpsPoint(_gpsCtrl.text, showSnackOnFail: false);
-    final resolved = _gpsPoint;
-    if (!mounted) return;
-    if (resolved != null) {
-      await _openBestNavigation(context, resolved);
-      return;
-    }
-
-    final raw = _gpsCtrl.text.trim();
-    final info = buildServiceLocationInfo(
-      addressOrText: raw,
-      mapsUrl: _looksLikeHttpUrl(raw) ? raw : null,
-    );
-    if (info.canOpenMaps) {
-      await safeOpenUrl(context, info.mapsUri!, copiedMessage: 'Link copiado');
-      return;
-    }
-
-    _showDeferredSnackBar('No se pudo detectar una ubicación válida');
   }
 
   String? _buildAddressSnapshot() {
