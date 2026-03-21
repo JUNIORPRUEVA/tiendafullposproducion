@@ -10,7 +10,9 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/cache/fulltech_cache_manager.dart';
 import '../../core/models/product_model.dart';
 import '../../core/realtime/catalog_realtime_service.dart';
+import '../../core/routing/app_navigator.dart';
 import '../../core/routing/app_route_observer.dart';
+import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/product_network_image.dart';
 import '../clientes/cliente_model.dart';
@@ -363,6 +365,10 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
 
     return Scaffold(
       appBar: AppBar(
+        leading: AppNavigator.maybeBackButton(
+          context,
+          fallbackRoute: Routes.ventas,
+        ),
         title: const Text('Registrar Venta'),
         actions: isWide
             ? [

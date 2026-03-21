@@ -184,7 +184,7 @@ class OperacionesFinalizadosBodyState
   }
 
   Future<void> _openQuickDetail(ServiceModel service) async {
-    final df = DateFormat('dd/MM/yyyy HH:mm', 'es');
+    final df = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
     final techs = service.assignments.map((a) => a.userName).toList();
 
     await showModalBottomSheet<void>(
@@ -357,7 +357,10 @@ class OperacionesFinalizadosBodyState
               final completedAt = service.completedAt;
               final dateText = completedAt == null
                   ? 'Sin fecha de finalización'
-                  : DateFormat('dd/MM/yyyy HH:mm', 'es').format(completedAt);
+                  : DateFormat(
+                      'dd/MM/yyyy h:mm a',
+                      'es_DO',
+                    ).format(completedAt);
 
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -132,15 +133,28 @@ class _MyAppState extends ConsumerState<MyApp> {
     return MaterialApp.router(
       title: 'FullTech',
       debugShowCheckedModeBanner: false,
+      locale: const Locale('es', 'DO'),
+      supportedLocales: const [Locale('es', 'DO'), Locale('es')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       theme: AppTheme.light,
       routerConfig: router,
       builder: (context, child) {
+        final effectiveChild = child == null
+            ? null
+            : MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(alwaysUse24HourFormat: false),
+                child: child,
+              );
+
         return Stack(
           children: [
             FulltechGlobalBackground(
               enableBlurEffects: _backgroundStartupStarted,
             ),
-            if (child != null) GlobalAiAssistantEntryPoint(child: child),
+            if (effectiveChild != null)
+              GlobalAiAssistantEntryPoint(child: effectiveChild),
             const AppLoadingOverlay(),
             const AppErrorOverlay(),
           ],

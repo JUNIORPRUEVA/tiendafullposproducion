@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../features/operaciones/data/operations_repository.dart';
@@ -103,7 +104,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
 
   String _formatDate(DateTime? value) {
     if (value == null) return '—';
-    final fmt = DateFormat('yyyy-MM-dd HH:mm');
+    final fmt = DateFormat('yyyy-MM-dd h:mm a', 'es_DO');
     return fmt.format(value.toLocal());
   }
 
@@ -209,7 +210,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                 if ((item.customerPhone ?? '').trim().isNotEmpty)
                   Text('Teléfono: ${item.customerPhone}'),
                 Text(
-                  'Fecha: ${DateFormat('dd/MM/yyyy HH:mm').format(item.createdAt)}',
+                  'Fecha: ${DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(item.createdAt)}',
                 ),
                 if (item.note.trim().isNotEmpty) ...[
                   const SizedBox(height: 6),
@@ -295,7 +296,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                 children: [
                   _detailLine(
                     'Fecha',
-                    DateFormat('dd/MM/yyyy HH:mm').format(saleDate),
+                    DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(saleDate),
                   ),
                   _detailLine('Cliente', sale.customerName ?? 'Sin cliente'),
                   _detailLine(
@@ -479,6 +480,10 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: user),
       appBar: AppBar(
+        leading: AppNavigator.maybeBackButton(
+          context,
+          fallbackRoute: Routes.clientes,
+        ),
         title: const Text('Detalle del cliente'),
         actions: [
           IconButton(

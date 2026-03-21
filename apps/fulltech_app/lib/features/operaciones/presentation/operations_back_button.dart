@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+
+import '../../../core/routing/app_navigator.dart';
 
 class OperationsBackButton extends StatelessWidget {
   final String fallbackRoute;
@@ -13,17 +14,11 @@ class OperationsBackButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: tooltip,
-      icon: const Icon(Icons.arrow_back_rounded),
-      onPressed: () {
-        final router = GoRouter.of(context);
-        if (router.canPop()) {
-          router.pop();
-          return;
-        }
-        context.go(fallbackRoute);
-      },
-    );
+    return AppNavigator.maybeBackButton(
+          context,
+          fallbackRoute: fallbackRoute,
+          tooltip: tooltip,
+        ) ??
+        const SizedBox.shrink();
   }
 }

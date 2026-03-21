@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../routing/app_navigator.dart';
+
 class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final Widget? titleWidget;
@@ -21,7 +23,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final scaffold = Scaffold.maybeOf(context);
-    final canPop = Navigator.of(context).canPop();
+    final backButton = AppNavigator.maybeBackButton(context);
     final hasDrawer = scaffold?.hasDrawer ?? false;
 
     final resolvedActions = <Widget>[
@@ -30,9 +32,9 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     ];
 
     return AppBar(
-      leading: canPop
-          ? null
-          : (onMenuPressed != null || hasDrawer)
+      leading:
+          backButton ??
+          ((onMenuPressed != null || hasDrawer)
               ? IconButton(
                   tooltip: 'Menú',
                   onPressed:
@@ -42,7 +44,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
                       },
                   icon: const Icon(Icons.menu_rounded),
                 )
-              : null,
+              : null),
       title:
           titleWidget ??
           Row(

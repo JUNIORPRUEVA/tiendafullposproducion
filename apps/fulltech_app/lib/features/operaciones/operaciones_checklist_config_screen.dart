@@ -18,38 +18,8 @@ const _allowedChecklistPhaseCodes = <String>{
   'levantamiento',
 };
 
-String _checklistCategoryLabelFromRaw(String raw) {
-  switch (raw.trim().toLowerCase()) {
-    case 'cameras':
-      return 'Cámaras';
-    case 'gate_motor':
-      return 'Motores de portones';
-    case 'alarm':
-      return 'Alarma';
-    case 'electric_fence':
-      return 'Cerco eléctrico';
-    case 'intercom':
-      return 'Intercom';
-    case 'pos':
-      return 'Punto de ventas';
-    default:
-      return raw.trim();
-  }
-}
-
 String _checklistCategoryDisplayName(ServiceChecklistCategoryModel category) {
-  final normalizedName = _checklistCategoryLabelFromRaw(category.name);
-  final normalizedCode = _checklistCategoryLabelFromRaw(category.code);
-  final normalizedId = _checklistCategoryLabelFromRaw(category.id);
-  if (normalizedName != category.name.trim() || category.name.trim().isEmpty) {
-    if (normalizedName.isNotEmpty) return normalizedName;
-  }
-  if (category.name.trim().contains('_')) {
-    if (normalizedCode.isNotEmpty) return normalizedCode;
-  }
-  if (normalizedCode != category.code.trim()) return normalizedCode;
-  if (normalizedId != category.id.trim()) return normalizedId;
-  return category.name.trim();
+  return category.displayName;
 }
 
 class OperacionesChecklistConfigScreen extends ConsumerStatefulWidget {
@@ -885,9 +855,7 @@ class _OperacionesChecklistConfigScreenState
   Widget build(BuildContext context) {
     final categoriesValue = ref.watch(categoriesProvider);
     final phasesValue = ref.watch(servicePhasesProvider);
-    final metadataDiagnostics = ref.watch(
-      checklistMetadataDiagnosticsProvider,
-    );
+    final metadataDiagnostics = ref.watch(checklistMetadataDiagnosticsProvider);
     final categories = categoriesValue.maybeWhen(
       data: (items) => items,
       orElse: () => const <ServiceChecklistCategoryModel>[],
@@ -917,14 +885,14 @@ class _OperacionesChecklistConfigScreenState
         .firstWhere((item) => item?.id == _selectedPhaseId, orElse: () => null);
     final metadataLoading = categoriesValue.isLoading || phasesValue.isLoading;
     final metadataError =
-      metadataDiagnostics.categoriesError ??
-      metadataDiagnostics.phasesError ??
-      categoriesValue.whenOrNull(
-        error: (error, _) => error is ApiException ? error : null,
-      ) ??
-      phasesValue.whenOrNull(
-        error: (error, _) => error is ApiException ? error : null,
-      );
+        metadataDiagnostics.categoriesError ??
+        metadataDiagnostics.phasesError ??
+        categoriesValue.whenOrNull(
+          error: (error, _) => error is ApiException ? error : null,
+        ) ??
+        phasesValue.whenOrNull(
+          error: (error, _) => error is ApiException ? error : null,
+        );
     final hasSelection = selectedCategory != null && selectedPhase != null;
     final isDesktop = MediaQuery.of(context).size.width >= 900;
     final availableTypes = hasSelection

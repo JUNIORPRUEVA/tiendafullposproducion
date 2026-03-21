@@ -131,7 +131,13 @@ class _OperacionesWarrantyConfigScreenState
                             .map(
                               (category) => DropdownMenuItem<String>(
                                 value: category.id,
-                                child: Text(category.name),
+                                child: Text(
+                                  localizedServiceCategoryLabel(
+                                    category.code.trim().isNotEmpty
+                                        ? category.code
+                                        : category.name,
+                                  ),
+                                ),
                               ),
                             )
                             .toList(growable: false),
@@ -476,7 +482,13 @@ class _OperacionesWarrantyConfigScreenState
                               ...categories.map(
                                 (category) => DropdownMenuItem<String>(
                                   value: category.id,
-                                  child: Text(category.name),
+                                  child: Text(
+                                    localizedServiceCategoryLabel(
+                                      category.code.trim().isNotEmpty
+                                          ? category.code
+                                          : category.name,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ],

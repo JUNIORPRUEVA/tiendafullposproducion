@@ -39,6 +39,8 @@ final aiAssistantControllerProvider =
       return AiAssistantController(ref.watch(aiAssistantServiceProvider));
     });
 
+final hideGlobalAiAssistantEntryPointProvider = Provider<bool>((ref) => false);
+
 final desktopAiAssistantPanelOpenProvider = StateProvider<bool>((ref) => false);
 
 class AiAssistantController extends StateNotifier<AiAssistantState> {

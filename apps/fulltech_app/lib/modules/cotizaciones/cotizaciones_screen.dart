@@ -1883,7 +1883,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                   icon: const Icon(Icons.add_box_outlined),
                 ),
                 Text(
-                  DateFormat('dd/MM HH:mm').format(DateTime.now()),
+                  DateFormat('dd/MM h:mm a', 'es_DO').format(DateTime.now()),
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],

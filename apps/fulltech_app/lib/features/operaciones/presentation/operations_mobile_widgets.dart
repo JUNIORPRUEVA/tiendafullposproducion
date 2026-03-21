@@ -31,29 +31,21 @@ class OperationsFilterChipData {
   });
 }
 
-enum _OperationsMenuAction { checklist, rules }
-
 class OperationsAppBar extends StatelessWidget implements PreferredSizeWidget {
   const OperationsAppBar({
     super.key,
     required this.gradient,
-    required this.canManageChecklist,
     required this.onOpenQuickCreate,
     required this.onOpenMap,
-    required this.onOpenRules,
     required this.onOpenProfile,
     this.userName,
     this.photoUrl,
-    this.onOpenChecklist,
   });
 
   final Gradient gradient;
-  final bool canManageChecklist;
-  final VoidCallback onOpenQuickCreate;
-  final VoidCallback onOpenMap;
-  final VoidCallback onOpenRules;
-  final VoidCallback onOpenProfile;
-  final VoidCallback? onOpenChecklist;
+  final ValueChanged<BuildContext> onOpenQuickCreate;
+  final ValueChanged<BuildContext> onOpenMap;
+  final ValueChanged<BuildContext> onOpenProfile;
   final String? userName;
   final String? photoUrl;
 
@@ -142,7 +134,7 @@ class OperationsAppBar extends StatelessWidget implements PreferredSizeWidget {
       actions: [
         IconButton(
           tooltip: 'Nueva orden',
-          onPressed: onOpenQuickCreate,
+          onPressed: () => onOpenQuickCreate(context),
           icon: const Icon(Icons.add_task_rounded),
           style: IconButton.styleFrom(
             minimumSize: const Size(34, 34),
@@ -154,7 +146,7 @@ class OperationsAppBar extends StatelessWidget implements PreferredSizeWidget {
         const SizedBox(width: 2),
         IconButton(
           tooltip: 'Mapa clientes',
-          onPressed: onOpenMap,
+          onPressed: () => onOpenMap(context),
           icon: const Icon(Icons.map_outlined),
           style: IconButton.styleFrom(
             minimumSize: const Size(34, 34),
@@ -163,52 +155,12 @@ class OperationsAppBar extends StatelessWidget implements PreferredSizeWidget {
             padding: EdgeInsets.zero,
           ),
         ),
-        PopupMenuButton<_OperationsMenuAction>(
-          tooltip: 'Acciones',
-          onSelected: (value) {
-            switch (value) {
-              case _OperationsMenuAction.checklist:
-                onOpenChecklist?.call();
-                break;
-              case _OperationsMenuAction.rules:
-                onOpenRules();
-                break;
-            }
-          },
-          itemBuilder: (context) {
-            return [
-              if (canManageChecklist)
-                const PopupMenuItem<_OperationsMenuAction>(
-                  value: _OperationsMenuAction.checklist,
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.checklist_rtl_outlined),
-                    title: Text('Checklist'),
-                  ),
-                ),
-              const PopupMenuItem<_OperationsMenuAction>(
-                value: _OperationsMenuAction.rules,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.rule_folder_outlined),
-                  title: Text('Reglas'),
-                ),
-              ),
-            ];
-          },
-          icon: const Icon(Icons.more_horiz_rounded),
-          style: IconButton.styleFrom(
-            minimumSize: const Size(36, 36),
-            foregroundColor: scheme.onPrimary,
-            backgroundColor: Colors.white.withValues(alpha: 0.12),
-          ),
-        ),
         Padding(
           padding: const EdgeInsets.only(left: 1, right: 6),
           child: _ProfileAvatar(
             userName: userName,
             photoUrl: photoUrl,
-            onTap: onOpenProfile,
+            onTap: () => onOpenProfile(context),
           ),
         ),
       ],
@@ -562,7 +514,7 @@ class ActionRow extends StatelessWidget {
         if (onChat != null) ...[
           const SizedBox(width: 6),
           _ActionIconButton(
-            tooltip: 'Chat',
+            tooltip: 'WhatsApp',
             icon: Icons.chat_bubble_outline_rounded,
             onPressed: onChat!,
           ),

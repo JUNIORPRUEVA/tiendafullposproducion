@@ -1,0 +1,41 @@
+[√] Flutter (Channel stable, 3.38.3, on Microsoft Windows [Versi¢n 10.0.19045.6466], locale es-ES) [42,9s]
+    • Flutter version 3.38.3 on channel stable at C:\src\flutter
+    • Upstream repository https://github.com/flutter/flutter.git
+    • Framework revision 19074d12f7 (4 months ago), 2025-11-20 17:53:13 -0500
+    • Engine revision 13e658725d
+    • Dart version 3.10.1
+    • DevTools version 2.51.1
+    • Feature flags: enable-web, enable-linux-desktop, enable-macos-desktop, enable-windows-desktop, enable-android, enable-ios, cli-animations, enable-native-assets, omit-legacy-version-file, enable-lldb-debugging
+
+[☠] Windows Version (the doctor check crashed)
+    X Due to an error, the doctor check did not complete. If the error message below is not helpful, please let us know about this issue at https://github.com/flutter/flutter/issues.
+    X Exception: Windows Version exceeded maximum allowed duration of 0:04:30.000000
+    • 
+
+[√] Android toolchain - develop for Android devices (Android SDK version 36.1.0) [80,5s]
+    • Android SDK at C:\Users\PC\AppData\Local\Android\sdk
+    • Emulator version 36.2.12.0 (build_id 14214601) (CL:N/A)
+    • Platform android-36, build-tools 36.1.0
+    • Java binary at: C:\Program Files\Eclipse Adoptium\jdk-17.0.18.8-hotspot\bin\java
+      This JDK is specified by the JAVA_HOME environment variable.
+      To manually set the JDK path, use: `flutter config --jdk-dir="path/to/jdk"`.
+    • Java version OpenJDK Runtime Environment Temurin-17.0.18+8 (build 17.0.18+8)
+    • All Android licenses accepted.
+
+[√] Chrome - develop for the web [14,1s]
+    • Chrome at C:\Program Files\Google\Chrome\Application\chrome.exe
+
+[√] Visual Studio - develop Windows apps (Visual Studio Community 2026 18.0.2) [14,1s]
+    • Visual Studio at C:\Program Files\Microsoft Visual Studio\18\Community
+    • Visual Studio Community 2026 version 18.0.11222.15
+    • Windows 10 SDK version 10.0.26100.0
+
+[√] Connected device (3 available) [25,4s]
+    • Windows (desktop) • windows • windows-x64    • Microsoft Windows [Versi¢n 10.0.19045.6466]
+    • Chrome (web)      • chrome  • web-javascript • Google Chrome 146.0.7680.80
+    • Edge (web)        • edge    • web-javascript • Microsoft Edge 145.0.3800.97
+
+[√] Network resources [6,0s]
+    • All expected network resources are available.
+
+! Doctor found issues in 1 category.

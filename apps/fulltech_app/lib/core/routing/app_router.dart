@@ -34,6 +34,7 @@ import '../../modules/cotizaciones/cotizaciones_screen.dart';
 import '../../modules/ventas/mis_ventas_screen.dart';
 import '../../modules/ventas/registrar_venta_screen.dart';
 import '../../modules/horarios/horarios_screen.dart';
+import '../ai_assistant/application/ai_assistant_controller.dart';
 import '../auth/auth_provider.dart';
 import '../auth/app_permissions.dart';
 import '../auth/app_role.dart';
@@ -54,6 +55,15 @@ final _routerRefreshProvider = Provider<_RouterRefreshNotifier>((ref) {
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ref.watch(_routerRefreshProvider);
   final routeObserver = ref.watch(appRouteObserverProvider);
+
+  Widget hideGlobalAiAssistant(Widget child) {
+    return ProviderScope(
+      overrides: [
+        hideGlobalAiAssistantEntryPointProvider.overrideWithValue(true),
+      ],
+      child: child,
+    );
+  }
 
   return GoRouter(
     initialLocation: Routes.operaciones,
@@ -113,24 +123,30 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: Routes.operaciones,
-            builder: (context, state) => const OperacionesScreen(),
+            builder: (context, state) =>
+                hideGlobalAiAssistant(const OperacionesScreen()),
           ),
           GoRoute(
             path: Routes.operacionesTecnico,
-            builder: (context, state) => const OperacionesTecnicoScreen(),
+            builder: (context, state) =>
+                hideGlobalAiAssistant(const OperacionesTecnicoScreen()),
           ),
           GoRoute(
             path: Routes.operacionesTecnicoDetalle,
             builder: (context, state) {
               final id = state.pathParameters['id'] ?? '';
-              return TechnicalServicePhaseRouterScreen(serviceId: id);
+              return hideGlobalAiAssistant(
+                TechnicalServicePhaseRouterScreen(serviceId: id),
+              );
             },
           ),
           GoRoute(
             path: Routes.operacionesTecnicoOrden,
             builder: (context, state) {
               final id = state.pathParameters['id'] ?? '';
-              return ServiceOrderDetailScreen(serviceId: id);
+              return hideGlobalAiAssistant(
+                ServiceOrderDetailScreen(serviceId: id),
+              );
             },
           ),
           GoRoute(
@@ -139,25 +155,28 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: Routes.operacionesAgenda,
-            builder: (context, state) => const OperacionesAgendaScreen(),
+            builder: (context, state) =>
+                hideGlobalAiAssistant(const OperacionesAgendaScreen()),
           ),
           GoRoute(
             path: Routes.operacionesMapaClientes,
-            builder: (context, state) => const OperacionesMapaClientesScreen(),
+            builder: (context, state) =>
+                hideGlobalAiAssistant(const OperacionesMapaClientesScreen()),
           ),
           GoRoute(
             path: Routes.operacionesReglas,
-            builder: (context, state) => const OperacionesReglasScreen(),
+            builder: (context, state) =>
+                hideGlobalAiAssistant(const OperacionesReglasScreen()),
           ),
           GoRoute(
             path: Routes.operacionesChecklistConfig,
             builder: (context, state) =>
-                const OperacionesChecklistConfigScreen(),
+                hideGlobalAiAssistant(const OperacionesChecklistConfigScreen()),
           ),
           GoRoute(
             path: Routes.operacionesWarrantyConfig,
             builder: (context, state) =>
-                const OperacionesWarrantyConfigScreen(),
+                hideGlobalAiAssistant(const OperacionesWarrantyConfigScreen()),
           ),
           GoRoute(
             path: Routes.catalogo,

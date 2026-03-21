@@ -35,7 +35,7 @@ Future<Uint8List> buildDepositOrderPdf({
 }) async {
   final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ');
   final dateFmt = DateFormat('dd/MM/yyyy');
-  final dateTimeFmt = DateFormat('dd/MM/yyyy HH:mm');
+  final dateTimeFmt = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
 
   final doc = pw.Document(
     title: 'Carta de Depósito Bancario',
@@ -120,8 +120,14 @@ Future<Uint8List> buildDepositOrderPdf({
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.stretch,
               children: [
-                _totalLine('Efectivo disponible', money.format(data.totalAvailableCash)),
-                _totalLine('Fondo fijo en caja', money.format(data.reserveInCash)),
+                _totalLine(
+                  'Efectivo disponible',
+                  money.format(data.totalAvailableCash),
+                ),
+                _totalLine(
+                  'Fondo fijo en caja',
+                  money.format(data.reserveInCash),
+                ),
                 pw.Divider(height: 10),
                 _totalLine(
                   'Total a depositar',

@@ -166,7 +166,7 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
                 if ((item.customerPhone ?? '').trim().isNotEmpty)
                   Text('Teléfono: ${item.customerPhone}'),
                 Text(
-                  'Fecha: ${DateFormat('dd/MM/yyyy HH:mm').format(item.createdAt)}',
+                  'Fecha: ${DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(item.createdAt)}',
                 ),
                 if (item.note.trim().isNotEmpty) ...[
                   const SizedBox(height: 6),
@@ -252,7 +252,7 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
                 children: [
                   _detailLine(
                     'Fecha',
-                    DateFormat('dd/MM/yyyy HH:mm').format(saleDate),
+                    DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(saleDate),
                   ),
                   _detailLine('Cliente', sale.customerName ?? 'Sin cliente'),
                   _detailLine(
@@ -545,7 +545,7 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
 
   String _formatDateTime(DateTime? value) {
     if (value == null) return '—';
-    return DateFormat('yyyy-MM-dd HH:mm').format(value.toLocal());
+    return DateFormat('yyyy-MM-dd h:mm a', 'es_DO').format(value.toLocal());
   }
 
   IconData _iconForEventType(String type) {
@@ -1557,7 +1557,8 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
 
                   return ListView.separated(
                     padding: const EdgeInsets.fromLTRB(12, 10, 12, 90),
-                    itemCount: state.items.length +
+                    itemCount:
+                        state.items.length +
                         ((state.refreshing || state.saving) ? 1 : 0),
                     separatorBuilder: (_, __) => const SizedBox(height: 3),
                     itemBuilder: (context, index) {
@@ -1570,8 +1571,9 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
                         );
                       }
 
-                      final dataIndex =
-                          (state.refreshing || state.saving) ? index - 1 : index;
+                      final dataIndex = (state.refreshing || state.saving)
+                          ? index - 1
+                          : index;
                       final cliente = state.items[dataIndex];
                       return Align(
                         alignment: Alignment.center,

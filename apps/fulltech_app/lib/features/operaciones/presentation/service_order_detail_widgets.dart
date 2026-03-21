@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../operations_models.dart';
 import 'photo_preview.dart';
 
-enum OrderActionsMenuAction { call, location, quote, invoice, others }
+enum OrderActionsMenuAction { call, location, quote, invoice, warranty, others }
 
 class OrderInfoItem {
   final IconData icon;
@@ -36,6 +36,22 @@ class OrderEvidenceItem {
     this.meta,
     this.isImage = false,
     this.isVideo = false,
+  });
+}
+
+class OrderDocumentActionItem {
+  final IconData icon;
+  final String title;
+  final String status;
+  final String caption;
+  final VoidCallback onPressed;
+
+  const OrderDocumentActionItem({
+    required this.icon,
+    required this.title,
+    required this.status,
+    required this.caption,
+    required this.onPressed,
   });
 }
 
@@ -175,6 +191,7 @@ class OrderActionsMenu extends StatelessWidget {
   final bool canOpenLocation;
   final bool canOpenQuote;
   final bool canOpenInvoice;
+  final bool canOpenWarranty;
   final Future<void> Function(OrderActionsMenuAction action) onSelected;
 
   const OrderActionsMenu({
@@ -183,6 +200,7 @@ class OrderActionsMenu extends StatelessWidget {
     required this.canOpenLocation,
     required this.canOpenQuote,
     required this.canOpenInvoice,
+    required this.canOpenWarranty,
     required this.onSelected,
   });
 
@@ -219,6 +237,14 @@ class OrderActionsMenu extends StatelessWidget {
           child: _ActionMenuRow(
             icon: Icons.receipt_long_outlined,
             label: 'Factura',
+          ),
+        ),
+      if (canOpenWarranty)
+        const PopupMenuItem(
+          value: OrderActionsMenuAction.warranty,
+          child: _ActionMenuRow(
+            icon: Icons.verified_outlined,
+            label: 'Carta',
           ),
         ),
       const PopupMenuDivider(),
@@ -408,6 +434,47 @@ class EvidenceGallery extends StatelessWidget {
             ],
           ],
         ],
+      ),
+    );
+  }
+}
+
+class OrderDocumentsSection extends StatelessWidget {
+  final List<OrderDocumentActionItem> items;
+
+  const OrderDocumentsSection({
+    super.key,
+    required this.items,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    return _DetailSurface(
+      title: 'Documentos y cierre',
+      icon: Icons.folder_copy_outlined,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          final columns = width >= 760 ? 2 : 1;
+          final spacing = 10.0;
+          final tileWidth = columns == 1
+              ? width
+              : (width - ((columns - 1) * spacing)) / columns;
+
+          return Wrap(
+            spacing: spacing,
+            runSpacing: spacing,
+            children: [
+              for (final item in items)
+                SizedBox(
+                  width: tileWidth,
+                  child: _DocumentActionTile(item: item),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -833,6 +900,84 @@ class _InfoPanel extends StatelessWidget {
                   ),
                 ],
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DocumentActionTile extends StatelessWidget {
+  final OrderDocumentActionItem item;
+
+  const _DocumentActionTile({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBFF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFDCE7F3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF2FF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(item.icon, size: 20, color: const Color(0xFF0C63CE)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.title,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: const Color(0xFF10233F),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      item.status,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: const Color(0xFF16324E),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            item.caption,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: const Color(0xFF5B7088),
+              height: 1.3,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.tonalIcon(
+              onPressed: item.onPressed,
+              icon: const Icon(Icons.open_in_new_outlined),
+              label: const Text('Abrir'),
             ),
           ),
         ],

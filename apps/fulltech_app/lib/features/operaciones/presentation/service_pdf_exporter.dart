@@ -112,7 +112,7 @@ class ServicePdfExporter {
     final serviceDate =
         service.completedAt ?? service.scheduledStart ?? DateTime.now();
     final dfDate = DateFormat('dd/MM/yyyy', 'es');
-    final dateTimeFmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
+    final dateTimeFmt = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
     final items = cotizacion?.items ?? const <CotizacionItem>[];
     final resolvedWarranty = _resolveWarrantyConfig(
       service: service,
@@ -519,10 +519,7 @@ class ServicePdfExporter {
       // Fall back to an error document to keep preview/export flows responsive.
     }
 
-    return _buildEmergencyPdf(
-      documentLabel: documentLabel,
-      service: service,
-    );
+    return _buildEmergencyPdf(documentLabel: documentLabel, service: service);
   }
 
   static Future<Uint8List> _buildEmergencyPdf({
@@ -530,7 +527,7 @@ class ServicePdfExporter {
     required ServiceModel service,
   }) async {
     final doc = pw.Document();
-    final now = DateFormat('dd/MM/yyyy HH:mm', 'es').format(DateTime.now());
+    final now = DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(DateTime.now());
     final customer = _safeText(
       service.customerName,
       fallback: 'Cliente no disponible',
@@ -554,10 +551,7 @@ class ServicePdfExporter {
             pw.SizedBox(height: 14),
             pw.Text(
               'No fue posible generar el PDF completo.',
-              style: pw.TextStyle(
-                fontSize: 16,
-                fontWeight: pw.FontWeight.bold,
-              ),
+              style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
             ),
             pw.SizedBox(height: 10),
             pw.Text(
@@ -565,9 +559,13 @@ class ServicePdfExporter {
               style: const pw.TextStyle(fontSize: 11),
             ),
             pw.SizedBox(height: 18),
-            pw.Text('Orden: ${_safeText(service.orderLabel, fallback: service.id)}'),
+            pw.Text(
+              'Orden: ${_safeText(service.orderLabel, fallback: service.id)}',
+            ),
             pw.Text('Cliente: $customer'),
-            pw.Text('Servicio: ${_safeText(service.title, fallback: _serviceTypeLabel(service.serviceType))}'),
+            pw.Text(
+              'Servicio: ${_safeText(service.title, fallback: _serviceTypeLabel(service.serviceType))}',
+            ),
             pw.Text('Emitido: $now'),
           ],
         ),
@@ -665,7 +663,7 @@ class ServicePdfExporter {
     DateTime? clientSignedAt,
   }) async {
     final money = NumberFormat.currency(locale: 'es_DO', symbol: '\$');
-    final dateFmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
+    final dateFmt = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
     final dateOnlyFmt = DateFormat('dd/MM/yyyy', 'es');
 
     final now = DateTime.now();
@@ -693,7 +691,7 @@ class ServicePdfExporter {
     final phone = quotePhone.isNotEmpty ? quotePhone : servicePhone;
 
     final titleType = _serviceTypeLabel(service.serviceType);
-    final category = _categoryLabel(service.category);
+    final category = service.categoryLabel;
     final documentType = titleType.toLowerCase().contains('venta')
         ? 'Venta'
         : 'Servicio';
@@ -720,14 +718,20 @@ class ServicePdfExporter {
         : (clientSignatureFileUrl ?? '').trim();
 
     final includeItbis = cotizacion?.includeItbis ?? false;
-    final double itbisRate = _safeFiniteDouble(cotizacion?.itbisRate, fallback: 0.18);
+    final double itbisRate = _safeFiniteDouble(
+      cotizacion?.itbisRate,
+      fallback: 0.18,
+    );
     final double subtotal = _safeFiniteDouble(
       cotizacion?.subtotal ?? service.quotedAmount,
     );
     final double itbisAmount = cotizacion != null
-      ? _safeFiniteDouble(cotizacion.itbisAmount)
-      : (includeItbis ? subtotal * itbisRate : 0.0);
-    final double total = _safeFiniteDouble(cotizacion?.total, fallback: subtotal + itbisAmount);
+        ? _safeFiniteDouble(cotizacion.itbisAmount)
+        : (includeItbis ? subtotal * itbisRate : 0.0);
+    final double total = _safeFiniteDouble(
+      cotizacion?.total,
+      fallback: subtotal + itbisAmount,
+    );
 
     final serviceDate = service.completedAt ?? service.scheduledStart;
 
@@ -1146,7 +1150,11 @@ class ServicePdfExporter {
                 ),
                 child: pw.Column(
                   children: [
-                    _line('Subtotal', _formatMoney(money, subtotal), compact: true),
+                    _line(
+                      'Subtotal',
+                      _formatMoney(money, subtotal),
+                      compact: true,
+                    ),
                     if (includeItbis)
                       _line(
                         'ITBIS ${(itbisRate * 100).toStringAsFixed(0)}%',
@@ -1154,7 +1162,11 @@ class ServicePdfExporter {
                         compact: true,
                       ),
                     if (safeDeposit > 0)
-                      _line('Abono', _formatMoney(money, safeDeposit), compact: true),
+                      _line(
+                        'Abono',
+                        _formatMoney(money, safeDeposit),
+                        compact: true,
+                      ),
                   ],
                 ),
               ),
@@ -1524,27 +1536,12 @@ class ServicePdfExporter {
   }
 
   static String _categoryLabel(String raw) {
-    switch (raw.trim().toLowerCase()) {
-      case 'cameras':
-        return 'Cámaras';
-      case 'gate_motor':
-        return 'Motores de puertones';
-      case 'alarm':
-        return 'Alarma';
-      case 'electric_fence':
-        return 'Cerco eléctrico';
-      case 'intercom':
-        return 'Intercom';
-      case 'pos':
-        return 'Punto de ventas';
-      default:
-        return raw.trim().isEmpty ? 'General' : raw.trim();
-    }
+    return localizedServiceCategoryLabel(raw);
   }
 
   static Future<Uint8List> _buildPdfBytes(ServiceModel service) async {
     final now = DateTime.now();
-    final df = DateFormat('dd/MM/yyyy HH:mm', 'es');
+    final df = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
 
     final titleType = _serviceTypeLabel(service.serviceType);
     final category = _categoryLabel(service.category);

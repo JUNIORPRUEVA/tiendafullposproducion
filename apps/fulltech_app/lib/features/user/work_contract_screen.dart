@@ -321,7 +321,7 @@ class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
                               Expanded(
                                 child: Text(
                                   isSigned
-                                      ? 'Firmado el ${DateFormat('dd/MM/yyyy HH:mm').format(signedAt)}'
+                                      ? 'Firmado el ${DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(signedAt)}'
                                       : 'Firma obligatoria',
                                   style: Theme.of(context).textTheme.titleSmall
                                       ?.copyWith(fontWeight: FontWeight.w700),

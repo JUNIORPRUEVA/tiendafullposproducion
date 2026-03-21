@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:validators/validators.dart' as validators;
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/routing/app_navigator.dart';
+import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import 'application/clientes_controller.dart';
 import 'cliente_model.dart';
@@ -48,7 +50,9 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
     if (!_isEdit) return;
     setState(() => _loadingInitial = true);
     try {
-      final cliente = await ref.read(clientesControllerProvider.notifier).getById(widget.clienteId!);
+      final cliente = await ref
+          .read(clientesControllerProvider.notifier)
+          .getById(widget.clienteId!);
       _cliente = cliente;
       _nombreCtrl.text = cliente.nombre;
       _telefonoCtrl.text = cliente.telefono;
@@ -57,7 +61,9 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se pudo cargar el cliente para edición')),
+        const SnackBar(
+          content: Text('No se pudo cargar el cliente para edición'),
+        ),
       );
     } finally {
       if (mounted) setState(() => _loadingInitial = false);
@@ -68,7 +74,9 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     try {
-      await ref.read(clientesControllerProvider.notifier).saveCliente(
+      await ref
+          .read(clientesControllerProvider.notifier)
+          .saveCliente(
             id: _cliente?.id,
             nombre: _nombreCtrl.text,
             telefono: _telefonoCtrl.text,
@@ -77,14 +85,16 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
           );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_isEdit ? 'Cliente actualizado' : 'Cliente creado')),
+        SnackBar(
+          content: Text(_isEdit ? 'Cliente actualizado' : 'Cliente creado'),
+        ),
       );
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
@@ -96,6 +106,10 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: user),
       appBar: AppBar(
+        leading: AppNavigator.maybeBackButton(
+          context,
+          fallbackRoute: Routes.clientes,
+        ),
         title: Text(_isEdit ? 'Editar cliente' : 'Nuevo cliente'),
       ),
       body: _loadingInitial
@@ -117,7 +131,9 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
                         validator: (value) {
                           final text = (value ?? '').trim();
                           if (text.isEmpty) return 'El nombre es obligatorio';
-                          if (text.length < 2) return 'Ingresa un nombre válido';
+                          if (text.length < 2) {
+                            return 'Ingresa un nombre válido';
+                          }
                           return null;
                         },
                       ),
@@ -132,10 +148,17 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
                         validator: (value) {
                           final text = (value ?? '').trim();
                           if (text.isEmpty) return 'El teléfono es obligatorio';
-                          final sanitized = text.replaceAll(RegExp(r'[^0-9+]'), '');
-                          if (sanitized.length < 7) return 'Teléfono demasiado corto';
+                          final sanitized = text.replaceAll(
+                            RegExp(r'[^0-9+]'),
+                            '',
+                          );
+                          if (sanitized.length < 7) {
+                            return 'Teléfono demasiado corto';
+                          }
                           final allowed = RegExp(r'^[0-9+()\-\s]+$');
-                          if (!allowed.hasMatch(text)) return 'Formato de teléfono inválido';
+                          if (!allowed.hasMatch(text)) {
+                            return 'Formato de teléfono inválido';
+                          }
                           return null;
                         },
                       ),
@@ -159,7 +182,9 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
                         validator: (value) {
                           final text = (value ?? '').trim();
                           if (text.isEmpty) return null;
-                          if (!validators.isEmail(text)) return 'Correo inválido';
+                          if (!validators.isEmail(text)) {
+                            return 'Correo inválido';
+                          }
                           return null;
                         },
                       ),
@@ -168,7 +193,9 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
                         children: [
                           Expanded(
                             child: OutlinedButton(
-                              onPressed: state.saving ? null : () => Navigator.pop(context),
+                              onPressed: state.saving
+                                  ? null
+                                  : () => Navigator.pop(context),
                               child: const Text('Cancelar'),
                             ),
                           ),
@@ -180,7 +207,9 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
                                   ? const SizedBox(
                                       width: 18,
                                       height: 18,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
                                     )
                                   : const Icon(Icons.save_outlined),
                               label: const Text('Guardar'),

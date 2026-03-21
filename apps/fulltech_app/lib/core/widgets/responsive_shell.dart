@@ -10,6 +10,7 @@ import '../auth/auth_provider.dart';
 import '../location/location_tracker_provider.dart';
 import '../models/user_model.dart';
 import '../routing/routes.dart';
+import '../utils/date_time_formatters.dart';
 import 'app_navigation.dart';
 
 Color _desktopSidebarBaseColor(ThemeData theme) {
@@ -163,7 +164,7 @@ class DesktopShellFooter extends ConsumerWidget {
       initialData: now,
       builder: (context, snapshot) {
         final dateTime = snapshot.data ?? DateTime.now();
-        final timeText = DateFormat('HH:mm').format(dateTime);
+        final timeText = formatRdTime(dateTime);
 
         return Container(
           height: 52,
@@ -209,8 +210,9 @@ class DesktopShellFooter extends ConsumerWidget {
                         .read(aiAssistantControllerProvider.notifier)
                         .setContext(ctx);
                     ref
-                        .read(desktopAiAssistantPanelOpenProvider.notifier)
-                        .state = !open;
+                            .read(desktopAiAssistantPanelOpenProvider.notifier)
+                            .state =
+                        !open;
                   },
                 ),
               ],
@@ -796,8 +798,8 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
     final iconColor = selected ? onBase : onBase.withValues(alpha: 0.88);
 
     final hoverBg = selected
-      ? _desktopSidebarHoverColor(theme)
-      : onBase.withValues(alpha: 0.08);
+        ? _desktopSidebarHoverColor(theme)
+        : onBase.withValues(alpha: 0.08);
 
     final effectiveBg = background;
 

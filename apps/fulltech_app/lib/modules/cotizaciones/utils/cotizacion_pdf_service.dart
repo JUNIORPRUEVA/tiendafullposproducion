@@ -14,7 +14,7 @@ Future<Uint8List> buildCotizacionPdf({
   CompanySettings? company,
 }) async {
   final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
-  final dateFmt = DateFormat('dd/MM/yyyy HH:mm');
+  final dateFmt = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
 
   final doc = pw.Document(title: 'Cotización', author: 'FullTech');
 

@@ -19,6 +19,18 @@ ServiceLocationInfo buildServiceLocationInfo({
   final address = addressOrText.trim();
   final maps = (mapsUrl ?? '').trim();
 
+  String? extractGpsTextFromSnapshot(String text) {
+    for (final line in text.split('\n')) {
+      final value = line.trim();
+      if (value.isEmpty) continue;
+      if (value.toLowerCase().startsWith('gps:')) {
+        final gpsValue = value.substring(4).trim();
+        if (gpsValue.isNotEmpty) return gpsValue;
+      }
+    }
+    return null;
+  }
+
   String bestLabelFromText(String text) {
     String? gps;
     String? maps;
@@ -28,11 +40,14 @@ ServiceLocationInfo buildServiceLocationInfo({
 
       final lower = v.toLowerCase();
       if (lower.startsWith('gps:')) {
-        gps = v;
+        gps = v.substring(4).trim();
         continue;
       }
       if (lower.startsWith('maps:')) {
-        maps = v;
+        maps = v.substring(5).trim();
+        continue;
+      }
+      if (RegExp(r'https?://\S+', caseSensitive: false).hasMatch(v)) {
         continue;
       }
 
@@ -41,8 +56,8 @@ ServiceLocationInfo buildServiceLocationInfo({
     }
 
     // Fallbacks when the snapshot only contains GPS/MAPS.
-    if (gps != null) return gps;
-    if (maps != null) return maps;
+    if (gps != null && gps.isNotEmpty) return gps;
+    if (maps != null && maps.isNotEmpty) return 'Ubicación vía GPS';
     return 'Ubicación disponible';
   }
 
@@ -77,47 +92,38 @@ ServiceLocationInfo buildServiceLocationInfo({
     return Uri.parse('https://www.google.com/maps/search/?api=1&query=$q');
   }
 
+  final gpsText = extractGpsTextFromSnapshot(address);
+  final parsedPoint =
+      latLng ??
+      (gpsText == null ? null : parseLatLngFromText(gpsText)) ??
+      parseLatLngFromText(address);
+  final locationLabel = bestLabelFromText(address);
+
+  if (parsedPoint != null) {
+    return ServiceLocationInfo(
+      label: locationLabel,
+      mapsUri: uriFromLatLng(parsedPoint),
+    );
+  }
+
   // 1) Explicit maps URL.
   if (maps.isNotEmpty) {
     final parsed = Uri.tryParse(maps);
     if (parsed != null) {
-      return ServiceLocationInfo(
-        label: bestLabelFromText(address),
-        mapsUri: parsed,
-      );
+      return ServiceLocationInfo(label: locationLabel, mapsUri: parsed);
     }
   }
 
   // 1b) Embedded URL (e.g. "MAPS: https://..." inside address snapshot).
   final embedded = extractMapsUriFromText(address);
   if (embedded != null) {
-    return ServiceLocationInfo(
-      label: bestLabelFromText(address),
-      mapsUri: embedded,
-    );
-  }
-
-  // 2) Explicit lat/lng.
-  if (latLng != null) {
-    return ServiceLocationInfo(
-      label: 'Ubicación disponible',
-      mapsUri: uriFromLatLng(latLng),
-    );
-  }
-
-  // 3) Try to extract lat/lng from text (address field sometimes contains maps links).
-  final parsedPoint = parseLatLngFromText(address);
-  if (parsedPoint != null) {
-    return ServiceLocationInfo(
-      label: 'Ubicación disponible',
-      mapsUri: uriFromLatLng(parsedPoint),
-    );
+    return ServiceLocationInfo(label: locationLabel, mapsUri: embedded);
   }
 
   // 4) Plain address.
   if (address.isNotEmpty) {
     return ServiceLocationInfo(
-      label: bestLabelFromText(address),
+      label: locationLabel,
       mapsUri: uriFromAddress(address),
     );
   }

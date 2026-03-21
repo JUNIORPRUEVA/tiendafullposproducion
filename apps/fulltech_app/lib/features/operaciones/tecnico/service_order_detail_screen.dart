@@ -13,14 +13,29 @@ import '../data/operations_repository.dart';
 import '../operations_models.dart';
 import '../presentation/service_location_helpers.dart';
 import 'presentation/tech_operations_filters.dart';
+import 'technical_visit_models.dart';
 import 'widgets/service_order_detail_components.dart';
 
-final _serviceDetailProvider = FutureProvider.family<ServiceModel, String>((
-  ref,
-  serviceId,
-) async {
-  return ref.read(operationsControllerProvider.notifier).getOne(serviceId);
-});
+class _ServiceDetailBundle {
+  final ServiceModel service;
+  final TechnicalVisitModel? visit;
+
+  const _ServiceDetailBundle({required this.service, required this.visit});
+}
+
+final _serviceDetailProvider =
+    FutureProvider.family<_ServiceDetailBundle, String>((ref, serviceId) async {
+      final repo = ref.read(operationsRepositoryProvider);
+      final serviceFuture = ref
+          .read(operationsControllerProvider.notifier)
+          .getOne(serviceId);
+      final visitFuture = repo.getTechnicalVisitByOrder(serviceId);
+      final results = await Future.wait<dynamic>([serviceFuture, visitFuture]);
+      return _ServiceDetailBundle(
+        service: results[0] as ServiceModel,
+        visit: results[1] as TechnicalVisitModel?,
+      );
+    });
 
 final _serviceHistoryProvider =
     FutureProvider.family<List<ServiceModel>, ServiceModel>((
@@ -53,6 +68,109 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
   final String serviceId;
 
   const ServiceOrderDetailScreen({super.key, required this.serviceId});
+
+  String _evidenceIdentity(String url) {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return '';
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null) {
+      final queryIndex = trimmed.indexOf('?');
+      return (queryIndex >= 0 ? trimmed.substring(0, queryIndex) : trimmed)
+          .toLowerCase();
+    }
+    return uri.replace(query: '', fragment: '').toString().toLowerCase();
+  }
+
+  String _inferImageMimeType(String url) {
+    final lower = _evidenceIdentity(url);
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    return 'image/jpeg';
+  }
+
+  ServiceFileModel _visitEvidenceFile({
+    required String id,
+    required String url,
+    required String fileType,
+    required String mimeType,
+    required String? caption,
+    required DateTime? createdAt,
+  }) {
+    return ServiceFileModel(
+      id: id,
+      fileUrl: url,
+      fileType: fileType,
+      mimeType: mimeType,
+      caption: caption,
+      createdAt: createdAt,
+    );
+  }
+
+  List<ServiceFileModel> _mergeEvidenceFiles(
+    ServiceModel service,
+    TechnicalVisitModel? visit,
+  ) {
+    final merged = <ServiceFileModel>[...service.files];
+    final identities = service.files
+        .map((file) => _evidenceIdentity(file.fileUrl))
+        .where((value) => value.isNotEmpty)
+        .toSet();
+
+    void addVisitUrl({
+      required String url,
+      required String fileType,
+      required String mimeType,
+      required int index,
+    }) {
+      final trimmed = url.trim();
+      final identity = _evidenceIdentity(trimmed);
+      if (trimmed.isEmpty ||
+          identity.isEmpty ||
+          identities.contains(identity)) {
+        return;
+      }
+      identities.add(identity);
+      merged.add(
+        _visitEvidenceFile(
+          id: '${visit?.id ?? service.id}-$fileType-$index',
+          url: trimmed,
+          fileType: fileType,
+          mimeType: mimeType,
+          caption: visit?.reportDescription.trim().isEmpty ?? true
+              ? null
+              : visit!.reportDescription.trim(),
+          createdAt: visit?.updatedAt ?? visit?.visitDate ?? visit?.createdAt,
+        ),
+      );
+    }
+
+    final visitPhotos = visit?.photos ?? const <String>[];
+    for (var i = 0; i < visitPhotos.length; i++) {
+      addVisitUrl(
+        url: visitPhotos[i],
+        fileType: 'reference_photo',
+        mimeType: _inferImageMimeType(visitPhotos[i]),
+        index: i,
+      );
+    }
+
+    final visitVideos = visit?.videos ?? const <String>[];
+    for (var i = 0; i < visitVideos.length; i++) {
+      addVisitUrl(
+        url: visitVideos[i],
+        fileType: 'video_evidence',
+        mimeType: 'video/mp4',
+        index: i,
+      );
+    }
+
+    merged.sort((a, b) {
+      final left = a.createdAt?.millisecondsSinceEpoch ?? 0;
+      final right = b.createdAt?.millisecondsSinceEpoch ?? 0;
+      return right.compareTo(left);
+    });
+    return merged;
+  }
 
   String _fmtDate(DateTime? dt) {
     if (dt == null) return '';
@@ -199,7 +317,7 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
       }
     }
 
-    address ??= raw.trim().isEmpty ? '—' : raw.trim();
+    address ??= '—';
     return (
       address: address,
       reference: references.isEmpty ? '—' : references.join(' · '),
@@ -475,17 +593,6 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
         ),
       );
     }
-    if (_hasText(snapshot.mapsText) && snapshot.mapsText != '—') {
-      if (rows.isNotEmpty) rows.add(const SizedBox(height: 8));
-      rows.add(
-        InfoRow(
-          label: 'Maps',
-          value: snapshot.mapsText,
-          icon: Icons.link_rounded,
-          multiline: true,
-        ),
-      );
-    }
     return rows;
   }
 
@@ -539,7 +646,9 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
           ),
         );
       },
-      data: (service) {
+      data: (bundle) {
+        final service = bundle.service;
+        final mergedFiles = _mergeEvidenceFiles(service, bundle.visit);
         final assigned = service.assignments
             .map((a) => a.userName.trim())
             .where((s) => s.isNotEmpty)
@@ -555,19 +664,17 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
         final phone = service.customerPhone.trim();
         final canOpenQuote = phone.isNotEmpty;
 
-        final addressLabel = snapshot.address == '—'
-            ? (location.label.trim().isEmpty ? '—' : location.label)
-            : snapshot.address;
+        final addressLabel = snapshot.address;
 
         final historyAsync = ref.watch(_serviceHistoryProvider(service));
 
-        final images = service.files
+        final images = mergedFiles
             .where(_isLikelyImage)
             .toList(growable: false);
-        final videos = service.files
+        final videos = mergedFiles
             .where(_isLikelyVideo)
             .toList(growable: false);
-        final otherFiles = service.files
+        final otherFiles = mergedFiles
             .where((f) => !(_isLikelyImage(f) || _isLikelyVideo(f)))
             .toList(growable: false);
 

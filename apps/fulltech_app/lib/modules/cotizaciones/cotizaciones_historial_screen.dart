@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/routing/app_navigator.dart';
+import '../../core/routing/routes.dart';
 import 'cotizacion_models.dart';
 import 'data/cotizaciones_repository.dart';
 
@@ -47,7 +49,9 @@ class _CotizacionesHistorialScreenState
     });
     final repo = ref.read(cotizacionesRepositoryProvider);
     try {
-      final cached = await repo.getCachedList(customerPhone: widget.customerPhone);
+      final cached = await repo.getCachedList(
+        customerPhone: widget.customerPhone,
+      );
       if (!mounted) return;
       if (cached.isNotEmpty) {
         setState(() {
@@ -92,8 +96,12 @@ class _CotizacionesHistorialScreenState
         }
       }
 
-      found ??= await ref.read(cotizacionesRepositoryProvider).getCachedById(id);
-      found ??= await ref.read(cotizacionesRepositoryProvider).getByIdAndCache(id);
+      found ??= await ref
+          .read(cotizacionesRepositoryProvider)
+          .getCachedById(id);
+      found ??= await ref
+          .read(cotizacionesRepositoryProvider)
+          .getByIdAndCache(id);
       if (!mounted) return;
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -147,7 +155,7 @@ class _CotizacionesHistorialScreenState
                 if ((item.customerPhone ?? '').trim().isNotEmpty)
                   Text('Teléfono: ${item.customerPhone}'),
                 Text(
-                  'Fecha: ${DateFormat('dd/MM/yyyy HH:mm').format(item.createdAt)}',
+                  'Fecha: ${DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(item.createdAt)}',
                 ),
                 if (item.note.trim().isNotEmpty) ...[
                   const SizedBox(height: 6),
@@ -223,6 +231,10 @@ class _CotizacionesHistorialScreenState
 
     return Scaffold(
       appBar: AppBar(
+        leading: AppNavigator.maybeBackButton(
+          context,
+          fallbackRoute: Routes.cotizaciones,
+        ),
         title: Text(
           phone.isEmpty ? 'Historial cotizaciones' : 'Cotizaciones · $phone',
         ),
@@ -275,7 +287,10 @@ class _CotizacionesHistorialScreenState
                               ),
                             ),
                             Text(
-                              DateFormat('dd/MM HH:mm').format(item.createdAt),
+                              DateFormat(
+                                'dd/MM h:mm a',
+                                'es_DO',
+                              ).format(item.createdAt),
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ],

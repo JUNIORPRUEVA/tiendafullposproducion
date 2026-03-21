@@ -677,7 +677,8 @@ class _TecnicoSalidasScreenState extends ConsumerState<TecnicoSalidasScreen> {
                           departure.fecha == null
                               ? null
                               : DateFormat(
-                                  'dd/MM/yyyy HH:mm',
+                                  'dd/MM/yyyy h:mm a',
+                                  'es_DO',
                                 ).format(departure.fecha!.toLocal()),
                         ].whereType<String>().join(' · '),
                       ),

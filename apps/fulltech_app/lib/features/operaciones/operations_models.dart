@@ -95,25 +95,84 @@ String phaseLabel(dynamic raw) {
   value = value.replaceAll(' ', '_').replaceAll('-', '_');
 
   switch (value) {
+    case 'reserved':
     case 'reserva':
       return 'Reserva';
+    case 'survey':
     case 'levantamiento':
       return 'Levantamiento';
+    case 'installation':
     case 'instalacion':
       return 'Instalación';
+    case 'maintenance':
     case 'mantenimiento':
       return 'Mantenimiento';
+    case 'warranty':
     case 'garantia':
       return 'Garantía';
+    case 'completed':
     case 'finalizado':
     case 'finalizada':
       return 'Finalizado';
+    case 'cancelled':
+    case 'canceled':
     case 'cancelado':
     case 'cancelada':
       return 'Cancelado';
     default:
       return value;
   }
+}
+
+String localizedServiceCategoryLabel(String raw) {
+  final trimmed = raw.trim();
+  if (trimmed.isEmpty) return 'General';
+
+  var value = trimmed.toLowerCase();
+  value = value
+      .replaceAll('á', 'a')
+      .replaceAll('é', 'e')
+      .replaceAll('í', 'i')
+      .replaceAll('ó', 'o')
+      .replaceAll('ú', 'u')
+      .replaceAll('ñ', 'n');
+  value = value.replaceAll(' ', '_').replaceAll('-', '_');
+
+  switch (value) {
+    case 'cameras':
+      return 'Cámaras';
+    case 'gate_motor':
+      return 'Motores de portón';
+    case 'alarm':
+      return 'Alarma';
+    case 'electric_fence':
+      return 'Cerco eléctrico';
+    case 'intercom':
+      return 'Intercom';
+    case 'pos':
+    case 'point_of_sale':
+    case 'punto_de_ventas':
+      return 'Punto de ventas';
+    case 'general':
+      return 'General';
+    default:
+      return trimmed;
+  }
+}
+
+String localizedServiceCategoryFromParts({
+  String? categoryName,
+  String? categoryCode,
+  String? fallbackCategory,
+}) {
+  final candidates = [categoryName, categoryCode, fallbackCategory];
+  for (final candidate in candidates) {
+    final text = (candidate ?? '').trim();
+    if (text.isEmpty) continue;
+    final translated = localizedServiceCategoryLabel(text);
+    if (translated.isNotEmpty) return translated;
+  }
+  return 'General';
 }
 
 String adminPhaseLabel(dynamic raw) {
@@ -436,6 +495,14 @@ class ServiceModel {
     final idTrim = id.trim();
     if (idTrim.length >= 8) return idTrim.substring(0, 8);
     return idTrim;
+  }
+
+  String get categoryLabel {
+    return localizedServiceCategoryFromParts(
+      categoryName: categoryName,
+      categoryCode: category,
+      fallbackCategory: category,
+    );
   }
 
   ServiceModel copyWith({
@@ -800,6 +867,14 @@ class ServiceChecklistCategoryModel {
       id: (json['id'] ?? '').toString(),
       name: (json['name'] ?? '').toString(),
       code: (json['code'] ?? '').toString(),
+    );
+  }
+
+  String get displayName {
+    return localizedServiceCategoryFromParts(
+      categoryName: name,
+      categoryCode: code,
+      fallbackCategory: id,
     );
   }
 }

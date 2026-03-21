@@ -94,7 +94,7 @@ class ServiceHeaderCard extends StatelessWidget {
 
     final workMeta = [
       if (service.serviceType.trim().isNotEmpty) service.serviceType.trim(),
-      if (service.category.trim().isNotEmpty) service.category.trim(),
+      if (service.categoryLabel.trim().isNotEmpty) service.categoryLabel.trim(),
     ].join(' · ');
 
     final scheduledLabel = service.scheduledStart != null
@@ -886,12 +886,12 @@ class _PendingEvidenceTile extends StatelessWidget {
 
     final isFailed = item.status == PendingEvidenceStatus.failed;
     final borderColor = isFailed
-      ? cs.error.withValues(alpha: 0.60)
-      : cs.primary.withValues(alpha: 0.35);
+        ? cs.error.withValues(alpha: 0.60)
+        : cs.primary.withValues(alpha: 0.35);
     final badgeLabel = isFailed ? 'FALLÓ' : 'SUBIENDO';
     final badgeIcon = isFailed
-      ? Icons.error_outline
-      : Icons.cloud_upload_outlined;
+        ? Icons.error_outline
+        : Icons.cloud_upload_outlined;
 
     return Ink(
       decoration: BoxDecoration(
@@ -908,10 +908,7 @@ class _PendingEvidenceTile extends StatelessWidget {
             Positioned(
               top: 8,
               left: 8,
-              child: _TypeBadge(
-                icon: badgeIcon,
-                label: badgeLabel,
-              ),
+              child: _TypeBadge(icon: badgeIcon, label: badgeLabel),
             ),
             Positioned(
               left: 10,

@@ -15,7 +15,6 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/auth/auth_provider.dart';
-import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_repository.dart';
 import '../../core/company/company_settings_model.dart';
 import '../../core/company/company_settings_repository.dart';
@@ -150,6 +149,63 @@ String _normalizeAgendaKindValue(
   final normalized = (rawValue ?? '').trim().toLowerCase();
   if (_agendaKindOptions.contains(normalized)) return normalized;
   return fallback;
+}
+
+String _agendaKindLabel(String? rawValue) {
+  return switch (_normalizeAgendaKindValue(rawValue)) {
+    'reserva' => 'Reserva',
+    'instalacion' => 'Instalación',
+    'garantia' => 'Garantía',
+    'levantamiento' => 'Levantamiento',
+    _ => 'Mantenimiento',
+  };
+}
+
+String _serviceTypeForAgendaKind(
+  String? rawValue, {
+  String fallback = 'maintenance',
+}) {
+  return switch (_normalizeAgendaKindValue(rawValue, fallback: fallback)) {
+    'instalacion' => 'installation',
+    'garantia' => 'warranty',
+    'levantamiento' => fallback,
+    'reserva' => fallback,
+    _ => 'maintenance',
+  };
+}
+
+String _effectiveServiceKindLabel(ServiceModel service) {
+  final orderType = _normalizeAgendaKindValue(
+    service.orderType,
+    fallback: service.orderType.trim().toLowerCase().isEmpty
+        ? 'mantenimiento'
+        : service.orderType.trim().toLowerCase(),
+  );
+  if (_agendaKindOptions.contains(orderType)) {
+    return _agendaKindLabel(orderType);
+  }
+
+  final phase = service.currentPhase.trim().toLowerCase();
+  if (_agendaKindOptions.contains(phase)) {
+    return _agendaKindLabel(phase);
+  }
+
+  switch (service.serviceType.trim().toLowerCase()) {
+    case 'installation':
+      return 'Instalación';
+    case 'warranty':
+      return 'Garantía';
+    case 'pos_support':
+      return 'Soporte POS';
+    case 'other':
+      return 'Servicio';
+    default:
+      return 'Mantenimiento';
+  }
+}
+
+String _serviceCategoryDropdownLabel(ServiceChecklistCategoryModel item) {
+  return item.displayName;
 }
 
 class _SignatureBundle {
@@ -404,6 +460,7 @@ class _OperationsServiceDetailPage extends StatelessWidget {
 class _FullServiceOrderEditResult {
   const _FullServiceOrderEditResult({
     required this.serviceType,
+    required this.orderType,
     required this.categoryId,
     required this.categoryCode,
     required this.categoryName,
@@ -423,6 +480,7 @@ class _FullServiceOrderEditResult {
   });
 
   final String serviceType;
+  final String orderType;
   final String? categoryId;
   final String categoryCode;
   final String categoryName;
@@ -439,21 +497,6 @@ class _FullServiceOrderEditResult {
   final double? quotedAmount;
   final double? depositAmount;
   final List<String> tags;
-}
-
-String _fullEditServiceTypeLabel(String raw) {
-  switch (raw.trim().toLowerCase()) {
-    case 'installation':
-      return 'Instalación';
-    case 'maintenance':
-      return 'Mantenimiento';
-    case 'warranty':
-      return 'Garantía';
-    case 'pos_support':
-      return 'POS soporte';
-    default:
-      return 'Otro';
-  }
 }
 
 Future<_FullServiceOrderEditResult?> _showOperationsServiceFullEditForm(
@@ -576,6 +619,7 @@ class _OperationsServiceFullEditFormState
   final _finalCostCtrl = TextEditingController();
 
   late String _serviceType;
+  late String _orderType;
   late String _categoryId;
   late int _priority;
   late String _orderState;
@@ -588,16 +632,34 @@ class _OperationsServiceFullEditFormState
   ServiceModel get service => widget.service;
 
   bool get _isLevantamientoPhase {
-    final phase = service.currentPhase.trim().toLowerCase();
-    return phase == 'levantamiento' || phase.contains('levantamiento');
+    return _normalizedOrderType == 'levantamiento';
   }
+
+  bool get _isWarrantyOrder => _normalizedOrderType == 'garantia';
+
+  bool get _usesExecutionFields =>
+      _normalizedOrderType == 'mantenimiento' ||
+      _normalizedOrderType == 'instalacion';
+
+  String get _normalizedOrderType => _normalizeAgendaKindValue(
+    _orderType,
+    fallback: service.currentPhase.trim().toLowerCase().isEmpty
+        ? 'mantenimiento'
+        : service.currentPhase.trim().toLowerCase(),
+  );
 
   @override
   void initState() {
     super.initState();
     final address = _extractEditableServiceAddress(service.customerAddress);
+    _orderType = _normalizeAgendaKindValue(
+      service.orderType,
+      fallback: service.currentPhase.trim().toLowerCase().isEmpty
+          ? 'mantenimiento'
+          : service.currentPhase.trim().toLowerCase(),
+    );
     _serviceType = service.serviceType.trim().isEmpty
-        ? 'maintenance'
+        ? _serviceTypeForAgendaKind(_orderType)
         : service.serviceType;
     _categoryId = service.categoryId ?? '';
     _priority = service.priority;
@@ -746,12 +808,13 @@ class _OperationsServiceFullEditFormState
 
     final result = _FullServiceOrderEditResult(
       serviceType: _serviceType,
+      orderType: _orderType,
       categoryId: _categoryIdForSubmit(selectedCategory),
       categoryCode: selectedCategory.code,
-      categoryName: selectedCategory.name,
+      categoryName: selectedCategory.displayName,
       priority: _priority,
       title:
-          '${_fullEditServiceTypeLabel(_serviceType)} · ${selectedCategory.name}',
+          '${_agendaKindLabel(_orderType)} · ${selectedCategory.displayName}',
       description: description.isEmpty ? 'Sin nota' : description,
       addressSnapshot: snapshot,
       orderState: _orderState,
@@ -839,6 +902,48 @@ class _OperationsServiceFullEditFormState
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<String>(
+                        initialValue: _orderType,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Fase de orden',
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'instalacion',
+                            child: Text('Instalacion'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'mantenimiento',
+                            child: Text('Mantenimiento'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'garantia',
+                            child: Text('Garantia'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'levantamiento',
+                            child: Text('Levantamiento'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'reserva',
+                            child: Text('Reserva'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          if (value == null || value.trim().isEmpty) return;
+                          setState(() {
+                            _orderType = value;
+                            _serviceType = _serviceTypeForAgendaKind(
+                              value,
+                              fallback: _serviceType,
+                            );
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
                         initialValue: _serviceType,
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
@@ -883,7 +988,7 @@ class _OperationsServiceFullEditFormState
                           for (final item in categories)
                             DropdownMenuItem(
                               value: item.id,
-                              child: Text(item.name),
+                              child: Text(_serviceCategoryDropdownLabel(item)),
                             ),
                         ],
                         onChanged: _loadingCategories
@@ -1082,41 +1187,49 @@ class _OperationsServiceFullEditFormState
             ),
           ),
           const SizedBox(height: 12),
-          if (_isLevantamientoPhase) ...[
+          if (_isWarrantyOrder ||
+              _isLevantamientoPhase ||
+              _usesExecutionFields) ...[
             CreateOrderSection(
-              title: 'Datos de levantamiento',
+              title: 'Datos por fase',
               icon: Icons.assignment_outlined,
               subtitle:
-                  'Estos datos solo aplican cuando la orden esta en fase de levantamiento.',
+                  'Estos campos se adaptan a la fase seleccionada para la orden.',
               child: Column(
                 children: [
-                  TextFormField(
-                    controller: _relatedServiceCtrl,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      labelText: 'Servicio relacionado',
+                  if (_isWarrantyOrder)
+                    TextFormField(
+                      controller: _relatedServiceCtrl,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Servicio relacionado',
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: _surveyResultCtrl,
-                    minLines: 2,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      labelText: 'Resultado de levantamiento',
+                  if (_isLevantamientoPhase) ...[
+                    if (_isWarrantyOrder) const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _surveyResultCtrl,
+                      minLines: 2,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Resultado de levantamiento',
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: _materialsUsedCtrl,
-                    minLines: 2,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      labelText: 'Materiales usados',
+                  ],
+                  if (_usesExecutionFields) ...[
+                    if (_isWarrantyOrder || _isLevantamientoPhase)
+                      const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _materialsUsedCtrl,
+                      minLines: 2,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Materiales usados',
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -1178,13 +1291,6 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     debugLabel: 'operationsDesktopFilterButton',
   );
   String? _lastAppliedDeepLinkKey;
-
-  bool _canManageDynamicChecklist(AuthState authState) {
-    final role = authState.user?.appRole;
-    return role == AppRole.admin ||
-        role == AppRole.asistente ||
-        role == AppRole.vendedor;
-  }
 
   Future<void> _openQuickCreateFromAppBar() async {
     const title = 'Crear orden de servicio';
@@ -1492,16 +1598,11 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
         colors: [gradientTop, gradientMid, gradientBottom],
         stops: const [0.0, 0.55, 1.0],
       ),
-      canManageChecklist: _canManageDynamicChecklist(authState),
       userName: authState.user?.nombreCompleto,
       photoUrl: authState.user?.fotoPersonalUrl,
-      onOpenQuickCreate: _openQuickCreateFromAppBar,
-      onOpenMap: () => context.push(Routes.operacionesMapaClientes),
-      onOpenRules: () => context.go(Routes.operacionesReglas),
-      onOpenChecklist: _canManageDynamicChecklist(authState)
-          ? () => context.push(Routes.operacionesChecklistConfig)
-          : null,
-      onOpenProfile: () => context.go(Routes.profile),
+      onOpenQuickCreate: (_) => _openQuickCreateFromAppBar(),
+      onOpenMap: (_) => context.push(Routes.operacionesMapaClientes),
+      onOpenProfile: (_) => context.go(Routes.profile),
     );
   }
 
@@ -1567,20 +1668,6 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
         ],
       ),
       actions: [
-        if (_canManageDynamicChecklist(authState)) ...[
-          FilledButton.tonalIcon(
-            onPressed: () => context.push(Routes.operacionesChecklistConfig),
-            icon: const Icon(Icons.checklist_rtl_outlined),
-            label: const Text('Checklist'),
-          ),
-          const SizedBox(width: 8),
-        ],
-        FilledButton.tonalIcon(
-          onPressed: () => context.go(Routes.operacionesReglas),
-          icon: const Icon(Icons.rule_folder_outlined),
-          label: const Text('Reglas'),
-        ),
-        const SizedBox(width: 8),
         FilledButton.icon(
           onPressed: _openQuickCreateFromAppBar,
           icon: const Icon(Icons.add_circle_outline),
@@ -1649,7 +1736,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
     final bottomInset = MediaQuery.paddingOf(context).bottom;
 
     return Padding(
-      padding: EdgeInsets.only(bottom: bottomInset + 64),
+      padding: EdgeInsets.only(bottom: bottomInset + 8),
       child: DecoratedBox(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -1663,7 +1750,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
               ),
             ],
           ),
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: scheme.outlineVariant.withValues(alpha: 0.45),
           ),
@@ -1681,7 +1768,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -1693,7 +1780,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
                 accentColor: scheme.primary,
                 delay: const Duration(milliseconds: 0),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               _MobileOperationsFabButton(
                 tooltip: 'Ponchar',
                 icon: const _PoncheFabIcon(),
@@ -1850,6 +1937,7 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
           .updateService(
             serviceId: service.id,
             serviceType: result.serviceType,
+            orderType: result.orderType,
             categoryId: result.categoryId,
             category: result.categoryCode,
             priority: result.priority,
@@ -1975,9 +2063,6 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
           orderState: draft.orderState,
           technicianId: draft.technicianId,
           warrantyParentServiceId: draft.relatedServiceId,
-          surveyResult: draft.surveyResult,
-          materialsUsed: draft.materialsUsed,
-          finalCost: draft.finalCost,
           tags: draft.tags,
         );
   }
@@ -2314,6 +2399,7 @@ class _OperacionesAgendaScreenState
     }
   }
 
+  // ignore: unused_element
   String _serviceTypeLabel(String raw) {
     switch (raw) {
       case 'installation':
@@ -2328,22 +2414,7 @@ class _OperacionesAgendaScreenState
   }
 
   String _categoryLabel(String raw) {
-    switch (raw.trim().toLowerCase()) {
-      case 'cameras':
-        return 'Cámaras';
-      case 'gate_motor':
-        return 'Motores de puertones';
-      case 'alarm':
-        return 'Alarma';
-      case 'electric_fence':
-        return 'Cerco eléctrico';
-      case 'intercom':
-        return 'Intercom';
-      case 'pos':
-        return 'Punto de ventas';
-      default:
-        return raw.trim().isEmpty ? 'General' : raw.trim();
-    }
+    return localizedServiceCategoryLabel(raw);
   }
 
   void _applyOptimisticServiceRefresh(ServiceModel service) {
@@ -2623,9 +2694,6 @@ class _OperacionesAgendaScreenState
             orderState: draft.orderState,
             technicianId: draft.technicianId,
             warrantyParentServiceId: draft.relatedServiceId,
-            surveyResult: draft.surveyResult,
-            materialsUsed: draft.materialsUsed,
-            finalCost: draft.finalCost,
             tags: draft.tags,
           );
       _applyOptimisticServiceRefresh(created);
@@ -2711,9 +2779,6 @@ class _OperacionesAgendaScreenState
             orderState: draft.orderState,
             technicianId: draft.technicianId,
             warrantyParentServiceId: draft.relatedServiceId,
-            surveyResult: draft.surveyResult,
-            materialsUsed: draft.materialsUsed,
-            finalCost: draft.finalCost,
             tags: draft.tags,
           );
       _applyOptimisticServiceRefresh(created);
@@ -2861,7 +2926,7 @@ class _OperacionesAgendaScreenState
       return bd.compareTo(ad);
     });
 
-    final df = DateFormat('dd/MM/yyyy HH:mm', 'es');
+    final df = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
 
     await showDialog<void>(
       context: context,
@@ -2925,7 +2990,7 @@ class _OperacionesAgendaScreenState
                                   ],
                                 ),
                                 subtitle: Text(
-                                  '$dateText · ${service.status} · ${service.serviceType} · P${service.priority}',
+                                  '$dateText · ${service.status} · ${_effectiveServiceKindLabel(service)} · P${service.priority}',
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -3028,7 +3093,7 @@ class _OperacionesAgendaScreenState
                     )
                   else
                     ...scheduled.map((service) {
-                      final typeText = _serviceTypeLabel(service.serviceType);
+                      final typeText = _effectiveServiceKindLabel(service);
                       final categoryText = _categoryLabel(service.category);
                       final address = service.customerAddress.trim();
                       return Padding(
@@ -4285,6 +4350,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
     }
   }
 
+  // ignore: unused_element
   String _typeLabel(String raw) {
     switch (raw) {
       case 'installation':
@@ -4301,22 +4367,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
   }
 
   String _categoryLabel(String raw) {
-    switch (raw.trim().toLowerCase()) {
-      case 'cameras':
-        return 'Cámaras';
-      case 'gate_motor':
-        return 'Motores de puertones';
-      case 'alarm':
-        return 'Alarma';
-      case 'electric_fence':
-        return 'Cerco eléctrico';
-      case 'intercom':
-        return 'Intercom';
-      case 'pos':
-        return 'Punto de ventas';
-      default:
-        return raw.trim().isEmpty ? 'General' : raw.trim();
-    }
+    return localizedServiceCategoryLabel(raw);
   }
 
   // ignore: unused_element
@@ -5058,7 +5109,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
   }
 
   Widget _buildServiceAgendaTile(ServiceModel s) {
-    final type = _typeLabel(s.serviceType);
+    final type = _effectiveServiceKindLabel(s);
     final category = _categoryLabel(s.category);
     final subtitle = category.isEmpty ? type : '$type · $category';
     final tech = _techLabel(s);
@@ -5066,7 +5117,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
     final scheduled = s.scheduledStart;
     final scheduledText = scheduled == null
         ? null
-        : DateFormat('EEE dd/MM HH:mm', 'es').format(scheduled);
+        : DateFormat('EEE dd/MM h:mm a', 'es_DO').format(scheduled);
 
     final perms = OperationsPermissions(user: widget.currentUser, service: s);
     final canChangePhase = perms.canChangePhase;
@@ -5489,6 +5540,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
   String? _phaseHistoryError;
 
   Future<List<ServiceMediaModel>>? _referenceMediaFuture;
+  Future<ServiceExecutionBundleModel>? _executionBundleFuture;
   String? _lastReferenceText;
 
   @override
@@ -5497,6 +5549,8 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     _service = widget.service;
     _loadPhaseHistory();
     _primeReferenceFuture(widget.service);
+    _primeExecutionBundle(widget.service);
+    unawaited(_refreshServiceDetail());
   }
 
   @override
@@ -5509,6 +5563,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
       _phaseHistoryLoading = false;
       _loadPhaseHistory();
       _primeReferenceFuture(widget.service);
+      _primeExecutionBundle(widget.service);
     }
   }
 
@@ -5518,10 +5573,39 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     _referenceMediaFuture = _loadReferenceMedia(service.id);
   }
 
+  void _primeExecutionBundle(ServiceModel service) {
+    _executionBundleFuture = _loadExecutionBundle(service.id);
+  }
+
+  Future<void> _refreshServiceDetail({bool silent = true}) async {
+    try {
+      final fresh = await ref
+          .read(operationsRepositoryProvider)
+          .getService(widget.service.id);
+      if (!mounted) return;
+      setState(() {
+        _service = fresh;
+        _primeReferenceFuture(fresh);
+        _primeExecutionBundle(fresh);
+      });
+    } catch (e) {
+      if (silent || !mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e is ApiException ? e.message : '$e')),
+      );
+    }
+  }
+
   Future<List<ServiceMediaModel>> _loadReferenceMedia(String serviceId) {
     return ref
         .read(storageRepositoryProvider)
         .listByService(serviceId: serviceId);
+  }
+
+  Future<ServiceExecutionBundleModel> _loadExecutionBundle(String serviceId) {
+    return ref
+        .read(operationsRepositoryProvider)
+        .getExecutionReport(serviceId: serviceId);
   }
 
   String? _extractLatestReferenceText(ServiceModel service) {
@@ -5544,6 +5628,11 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     if (kind.contains('video')) return true;
     final url = media.fileUrl.trim().toLowerCase();
     return url.endsWith('.mp4') || url.contains('.mp4?');
+  }
+
+  bool _isEvidenceMedia(ServiceMediaModel media) {
+    final kind = (media.kind ?? '').trim().toLowerCase();
+    return kind == 'evidence_final' || kind == 'video_evidence';
   }
 
   Future<void> _openReferenceViewer(ServiceMediaModel media) async {
@@ -5832,6 +5921,57 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     );
   }
 
+  Future<void> _onWarrantyPressed(ServiceModel service) async {
+    final custom = _findLatestFileByType(service, 'service_warranty_custom');
+    if (await _tryOpenStoredPdf(
+      fileName: 'Carta-Garantia-${service.orderLabel}.pdf',
+      file: custom,
+    )) {
+      return;
+    }
+
+    final warrantyFile = _findClosingFile(
+      service,
+      service.closing?.warrantyFinalFileId,
+    );
+    if (await _tryOpenStoredPdf(
+      fileName: 'Carta-Garantia-${service.orderLabel}.pdf',
+      file: warrantyFile,
+    )) {
+      return;
+    }
+
+    CotizacionModel? quote;
+    try {
+      final phone = service.customerPhone.trim();
+      quote = phone.isEmpty ? null : await _loadLatestQuote(phone);
+    } catch (_) {
+      quote = null;
+    }
+
+    CompanySettings? company;
+    try {
+      company = await ref.read(companySettingsProvider.future);
+    } catch (_) {
+      company = null;
+    }
+
+    final sig = await _loadSignatureBundle(service);
+
+    await _openPdfBytesPreview(
+      fileName: 'Carta-Garantia-${service.orderLabel}.pdf',
+      loadBytes: () => ServicePdfExporter.buildWarrantyLetterBytes(
+        service,
+        cotizacion: quote,
+        company: company,
+        clientSignaturePngBytes: sig.bytes,
+        clientSignatureFileId: sig.fileId,
+        clientSignatureFileUrl: sig.fileUrl,
+        clientSignedAt: sig.signedAt,
+      ),
+    );
+  }
+
   String _statusLabel(String raw) {
     switch (raw) {
       case 'reserved':
@@ -5855,36 +5995,8 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     }
   }
 
-  String _serviceTypeLabel(String raw) {
-    switch (raw) {
-      case 'installation':
-        return 'Instalación';
-      case 'maintenance':
-        return 'Servicio técnico';
-      case 'warranty':
-        return 'Garantía';
-      default:
-        return raw;
-    }
-  }
-
   String _categoryLabel(String raw) {
-    switch (raw.trim().toLowerCase()) {
-      case 'cameras':
-        return 'Cámaras';
-      case 'gate_motor':
-        return 'Motores de puertones';
-      case 'alarm':
-        return 'Alarma';
-      case 'electric_fence':
-        return 'Cerco eléctrico';
-      case 'intercom':
-        return 'Intercom';
-      case 'pos':
-        return 'Punto de ventas';
-      default:
-        return raw.trim().isEmpty ? 'General' : raw.trim();
-    }
+    return localizedServiceCategoryLabel(raw);
   }
 
   String _orderTypeLabel(String raw) {
@@ -5983,13 +6095,129 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
 
   bool _isVisibleEvidenceFile(ServiceFileModel file) {
     final type = file.fileType.trim().toLowerCase();
+    final mime = (file.mimeType ?? type).trim().toLowerCase();
     if (type.isEmpty) return true;
     if (type.contains('invoice') ||
         type.contains('warranty') ||
+        mime.contains('pdf') ||
         type.contains('signature')) {
       return false;
     }
     return true;
+  }
+
+  List<OrderInfoItem> _phaseSpecificItems(
+    ServiceModel service,
+    ServiceExecutionBundleModel? bundle,
+    DateFormat dateFormat,
+  ) {
+    final items = <OrderInfoItem>[];
+    final normalizedOrderType = _normalizeAgendaKindValue(
+      service.orderType,
+      fallback: service.currentPhase.trim().toLowerCase().isEmpty
+          ? 'mantenimiento'
+          : service.currentPhase.trim().toLowerCase(),
+    );
+
+    if ((service.surveyResult ?? '').trim().isNotEmpty) {
+      items.add(
+        OrderInfoItem(
+          icon: Icons.rule_folder_outlined,
+          label: 'Resultado de levantamiento',
+          value: service.surveyResult!.trim(),
+        ),
+      );
+    }
+
+    if ((service.materialsUsed ?? '').trim().isNotEmpty) {
+      items.add(
+        OrderInfoItem(
+          icon: Icons.inventory_2_outlined,
+          label: normalizedOrderType == 'instalacion'
+              ? 'Materiales usados'
+              : 'Trabajo y materiales',
+          value: service.materialsUsed!.trim(),
+        ),
+      );
+    }
+
+    if (service.finalCost != null) {
+      items.add(
+        OrderInfoItem(
+          icon: Icons.price_check_outlined,
+          label: 'Costo final de ejecución',
+          value: 'RD\$${service.finalCost!.toStringAsFixed(2)}',
+        ),
+      );
+    }
+
+    final report = bundle?.report;
+    if (report != null) {
+      if (report.arrivedAt != null) {
+        items.add(
+          OrderInfoItem(
+            icon: Icons.login_outlined,
+            label: 'Llegada técnica',
+            value: dateFormat.format(report.arrivedAt!),
+          ),
+        );
+      }
+      if (report.startedAt != null) {
+        items.add(
+          OrderInfoItem(
+            icon: Icons.play_circle_outline,
+            label: 'Inicio técnico',
+            value: dateFormat.format(report.startedAt!),
+          ),
+        );
+      }
+      if (report.finishedAt != null) {
+        items.add(
+          OrderInfoItem(
+            icon: Icons.task_alt_outlined,
+            label: 'Fin técnico',
+            value: dateFormat.format(report.finishedAt!),
+          ),
+        );
+      }
+      if ((report.notes ?? '').trim().isNotEmpty) {
+        items.add(
+          OrderInfoItem(
+            icon: Icons.sticky_note_2_outlined,
+            label: 'Notas del técnico',
+            value: report.notes!.trim(),
+          ),
+        );
+      }
+
+      final phaseSpecificData =
+          report.phaseSpecificData ?? const <String, dynamic>{};
+      const phaseFieldLabels = <String, String>{
+        'equipmentInstalled': 'Equipos instalados',
+        'cableMetersUsed': 'Metros de cable usados',
+        'maintenancePerformed': 'Mantenimiento realizado',
+        'equipmentCondition': 'Condición de equipos',
+        'failureDetected': 'Falla detectada',
+        'partsReplaced': 'Piezas reemplazadas',
+        'equipmentRequired': 'Equipos requeridos',
+        'estimatedMaterials': 'Materiales estimados',
+      };
+
+      for (final entry in phaseSpecificData.entries) {
+        if (entry.key == 'clientSignature') continue;
+        final value = (entry.value ?? '').toString().trim();
+        if (value.isEmpty) continue;
+        items.add(
+          OrderInfoItem(
+            icon: Icons.assignment_turned_in_outlined,
+            label: phaseFieldLabels[entry.key] ?? entry.key,
+            value: value,
+          ),
+        );
+      }
+    }
+
+    return items;
   }
 
   String _serviceFileTypeLabel(ServiceFileModel file) {
@@ -6222,7 +6450,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         break;
       }
     }
-    final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
+    final dateFormat = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
 
     final auth = ref.watch(authStateProvider);
     final user = auth.user;
@@ -6233,7 +6461,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     final canEdit = perms.canCritical;
     final allowedStatusTargets = perms.allowedNextStatuses();
 
-    final typeText = _serviceTypeLabel(service.serviceType);
+    final typeText = _effectiveServiceKindLabel(service);
     final categoryText = _categoryLabel(service.category);
     final descText = service.description.trim();
     final customerName = service.customerName.trim().isEmpty
@@ -6269,6 +6497,8 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     final statusChipValue = _effectiveOrderState(service);
 
     final location = buildServiceLocationInfo(addressOrText: addressText);
+    final executionBundleFuture =
+        _executionBundleFuture ?? _loadExecutionBundle(service.id);
 
     Future<void> editFlow() async {
       final messenger = ScaffoldMessenger.of(context);
@@ -6289,6 +6519,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
             .updateService(
               serviceId: service.id,
               serviceType: result.serviceType,
+              orderType: result.orderType,
               categoryId: result.categoryId,
               category: result.categoryCode,
               priority: result.priority,
@@ -6453,7 +6684,6 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         onChangeStatus: (status) => _setStatusWithConfirm(status),
         onPickSchedule: () => _pickScheduleFlow(service),
         onAssignTechs: _assignTechsFlow,
-        onUploadEvidence: widget.onUploadEvidence,
         onCreateWarranty: widget.onCreateWarranty,
         onDelete: () => _deleteWithConfirm(service),
         onAddNote: (message) async {
@@ -6469,6 +6699,10 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
           messenger.showSnackBar(
             const SnackBar(content: Text('Marcado como pendiente')),
           );
+        },
+        onUploadEvidence: () async {
+          await widget.onUploadEvidence();
+          await _refreshServiceDetail(silent: false);
         },
       );
     }
@@ -6674,6 +6908,9 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         case OrderActionsMenuAction.invoice:
           await _onInvoicePressed(service);
           return;
+        case OrderActionsMenuAction.warranty:
+          await _onWarrantyPressed(service);
+          return;
         case OrderActionsMenuAction.others:
           await openActions();
           return;
@@ -6699,6 +6936,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
             canOpenLocation: location.canOpenMaps,
             canOpenQuote: canOpenQuote,
             canOpenInvoice: true,
+            canOpenWarranty: true,
             onSelected: handleHeaderAction,
           ),
         ),
@@ -6720,12 +6958,65 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
           items: primaryInfoItems,
         ),
         const SizedBox(height: 12),
+        OrderDocumentsSection(
+          items: [
+            OrderDocumentActionItem(
+              icon: Icons.receipt_long_outlined,
+              title: 'Factura',
+              status: invoiceStatus(),
+              caption:
+                  'Abre la factura final si existe; si no, genera una versión actualizada con los datos del servicio.',
+              onPressed: () {
+                unawaited(_onInvoicePressed(service));
+              },
+            ),
+            OrderDocumentActionItem(
+              icon: Icons.verified_outlined,
+              title: 'Carta de garantía',
+              status: warrantyStatus(),
+              caption:
+                  'Abre la carta final guardada o genera la vista actual desde la información de la orden.',
+              onPressed: () {
+                unawaited(_onWarrantyPressed(service));
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        FutureBuilder<ServiceExecutionBundleModel>(
+          future: executionBundleFuture,
+          builder: (context, snapshot) {
+            final items = _phaseSpecificItems(
+              service,
+              snapshot.data,
+              dateFormat,
+            );
+            if (items.isEmpty) {
+              return const SizedBox.shrink();
+            }
+
+            return Column(
+              children: [
+                OrderInfoSection(
+                  title: 'Detalles según fase y ejecución',
+                  icon: Icons.fact_check_outlined,
+                  items: items,
+                ),
+                const SizedBox(height: 12),
+              ],
+            );
+          },
+        ),
         FutureBuilder<List<ServiceMediaModel>>(
           future: _referenceMediaFuture,
           builder: (context, snap) {
             final visibleFiles = service.files
                 .where(_isVisibleEvidenceFile)
                 .toList(growable: false);
+            final visibleFileIds = visibleFiles
+                .map((file) => file.id.trim())
+                .where((id) => id.isNotEmpty)
+                .toSet();
             final fileItems = visibleFiles
                 .map(
                   (file) => OrderEvidenceItem(
@@ -6743,49 +7034,39 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                 .toList(growable: false);
 
             final allMedia = snap.data ?? const <ServiceMediaModel>[];
-            final filteredMedia =
-                (referenceText == null || referenceText.trim().isEmpty)
-                ? const <ServiceMediaModel>[]
-                : allMedia
-                      .where((media) {
-                        final caption = (media.caption ?? '').trim();
-                        if (caption != referenceText.trim()) return false;
-                        final kind = (media.kind ?? '').trim().toLowerCase();
-                        return kind == 'evidence_final' ||
-                            kind == 'video_evidence';
-                      })
-                      .toList(growable: false);
-            final referenceItems = filteredMedia
+            final storageEvidence = allMedia
+                .where(_isEvidenceMedia)
+                .where((media) => !visibleFileIds.contains(media.id.trim()))
+                .toList(growable: false);
+            final storageItems = storageEvidence
                 .map(
                   (media) => OrderEvidenceItem(
-                    id: 'ref:${media.id}',
+                    id: 'media:${media.id}',
                     title: (media.originalFileName ?? '').trim().isEmpty
-                        ? (media.fileType.trim().isEmpty
-                              ? 'Referencia'
-                              : media.fileType.trim())
+                        ? (_looksLikeVideoMedia(media) ? 'Video' : 'Evidencia')
                         : media.originalFileName!.trim(),
                     url: media.fileUrl,
                     typeLabel: _looksLikeVideoMedia(media)
                         ? 'Video'
-                        : 'Referencia',
+                        : 'Evidencia',
                     meta: media.createdAt == null
-                        ? 'Referencia del cliente'
-                        : 'Referencia · ${dateFormat.format(media.createdAt!)}',
+                        ? 'Evidencia adjunta'
+                        : 'Evidencia · ${dateFormat.format(media.createdAt!)}',
                     isImage: !_looksLikeVideoMedia(media),
                     isVideo: _looksLikeVideoMedia(media),
                   ),
                 )
                 .toList(growable: false);
 
-            final evidenceItems = [...fileItems, ...referenceItems];
+            final evidenceItems = [...fileItems, ...storageItems];
 
             return EvidenceGallery(
               referenceText: referenceText,
               items: evidenceItems,
               onOpenItem: (item) async {
-                if (item.id.startsWith('ref:')) {
-                  final mediaId = item.id.substring(4);
-                  final media = filteredMedia
+                if (item.id.startsWith('media:')) {
+                  final mediaId = item.id.substring(6);
+                  final media = storageEvidence
                       .where((m) => m.id == mediaId)
                       .firstOrNull;
                   if (media != null) {
@@ -7323,21 +7604,22 @@ Future<void> _postCreateUploadReferences({
   PlatformFile? video,
 }) async {
   final text = referenceText.trim();
-  if (text.isEmpty) {
-    throw ApiException('El texto de referencia es requerido', 400);
-  }
+  final hasMedia = images.isNotEmpty || video != null;
+  if (text.isEmpty && !hasMedia) return;
 
-  // Guardar texto siempre, aunque no haya medios.
-  try {
-    await ref
-        .read(operationsRepositoryProvider)
-        .addUpdate(
-          serviceId: serviceId,
-          type: 'note',
-          message: _buildReferenceNote(text),
-        );
-  } catch (_) {
-    // No bloquea la creación.
+  if (text.isNotEmpty) {
+    // Guardar texto cuando exista, aunque no haya medios.
+    try {
+      await ref
+          .read(operationsRepositoryProvider)
+          .addUpdate(
+            serviceId: serviceId,
+            type: 'note',
+            message: _buildReferenceNote(text),
+          );
+    } catch (_) {
+      // No bloquea la creación.
+    }
   }
 
   for (final img in images) {
@@ -7555,6 +7837,7 @@ class OperacionesHistorialBodyState
     }
   }
 
+  // ignore: unused_element
   String _typeLabel(String raw) {
     switch (raw) {
       case 'installation':
@@ -7599,7 +7882,7 @@ class OperacionesHistorialBodyState
 
   Future<void> _openDetail(ServiceModel service) async {
     final theme = Theme.of(context);
-    final df = DateFormat('dd/MM/yyyy HH:mm', 'es');
+    final df = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
     final updates = [...service.updates]
       ..sort((a, b) {
         final ad = a.createdAt;
@@ -7646,7 +7929,7 @@ class OperacionesHistorialBodyState
                   runSpacing: 8,
                   children: [
                     _pill(context, 'Estado', _statusLabel(service.status)),
-                    _pill(context, 'Tipo', _typeLabel(service.serviceType)),
+                    _pill(context, 'Tipo', _effectiveServiceKindLabel(service)),
                     _pill(context, 'Prioridad', 'P${service.priority}'),
                     if (service.isSeguro) _pill(context, 'SEGURO', 'Sí'),
                     _pill(context, 'Último', () {
@@ -7761,7 +8044,11 @@ class OperacionesHistorialBodyState
                     runSpacing: 8,
                     children: [
                       _pill(context, 'Estado', _statusLabel(service.status)),
-                      _pill(context, 'Tipo', _typeLabel(service.serviceType)),
+                      _pill(
+                        context,
+                        'Tipo',
+                        _effectiveServiceKindLabel(service),
+                      ),
                       _pill(context, 'Prioridad', 'P${service.priority}'),
                       if (service.isSeguro) _pill(context, 'SEGURO', 'Sí'),
                       _pill(context, 'Último', () {
@@ -7876,7 +8163,7 @@ class OperacionesHistorialBodyState
             return haystack.contains(query);
           }).toList();
 
-    final df = DateFormat('dd/MM/yyyy HH:mm', 'es');
+    final df = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
 
     return RefreshIndicator(
       onRefresh: _load,
@@ -7972,7 +8259,7 @@ class OperacionesHistorialBodyState
                       overflow: TextOverflow.ellipsis,
                     ),
                     subtitle: Text(
-                      '${_statusLabel(service.status)} · ${_typeLabel(service.serviceType)} · P${service.priority}\nÚltimo: $dateText',
+                      '${_statusLabel(service.status)} · ${_effectiveServiceKindLabel(service)} · P${service.priority}\nÚltimo: $dateText',
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -8006,7 +8293,7 @@ class _AgendaTab extends StatelessWidget {
     final scheduled =
         services.where((item) => item.scheduledStart != null).toList()
           ..sort((a, b) => a.scheduledStart!.compareTo(b.scheduledStart!));
-    final dateFormat = DateFormat('EEE dd/MM HH:mm', 'es');
+    final dateFormat = DateFormat('EEE dd/MM h:mm a', 'es_DO');
     final isCompact = MediaQuery.sizeOf(context).width < 420;
 
     Widget headerCard() {
@@ -8073,7 +8360,7 @@ class _AgendaTab extends StatelessWidget {
             final subtitle =
                 '${dateFormat.format(service.scheduledStart!)} · ${service.status}\n'
                 '${techs.isEmpty ? 'Sin técnicos' : techs}'
-                '${isCompact ? '\n${service.serviceType} · P${service.priority}' : ''}';
+                '${isCompact ? '\n${_effectiveServiceKindLabel(service)} · P${service.priority}' : ''}';
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Card(
@@ -8106,7 +8393,7 @@ class _AgendaTab extends StatelessWidget {
                       : Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text(service.serviceType),
+                            Text(_effectiveServiceKindLabel(service)),
                             Text('P${service.priority}'),
                           ],
                         ),
@@ -8281,7 +8568,7 @@ class _AgendaTab extends StatelessWidget {
       return bd.compareTo(ad);
     });
 
-    final df = DateFormat('dd/MM/yyyy HH:mm', 'es');
+    final df = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
 
     await showDialog<void>(
       context: context,
@@ -8335,7 +8622,7 @@ class _AgendaTab extends StatelessWidget {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 subtitle: Text(
-                                  '$dateText · ${service.status} · ${service.serviceType} · P${service.priority}',
+                                  '$dateText · ${service.status} · ${_effectiveServiceKindLabel(service)} · P${service.priority}',
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -8373,9 +8660,6 @@ class _CreateServiceDraft {
   final String orderState;
   final String? technicianId;
   final String? relatedServiceId;
-  final String? surveyResult;
-  final String? materialsUsed;
-  final double? finalCost;
   final double? quotedAmount;
   final double? depositAmount;
   final String? paymentNote;
@@ -8397,9 +8681,6 @@ class _CreateServiceDraft {
     this.technicianId,
     this.addressSnapshot,
     this.relatedServiceId,
-    this.surveyResult,
-    this.materialsUsed,
-    this.finalCost,
     this.quotedAmount,
     this.depositAmount,
     this.paymentNote,
@@ -8448,9 +8729,6 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
   final _depositCtrl = TextEditingController();
   final _paidAmountCtrl = TextEditingController();
   final _relatedServiceCtrl = TextEditingController();
-  final _surveyResultCtrl = TextEditingController();
-  final _materialsUsedCtrl = TextEditingController();
-  final _finalCostCtrl = TextEditingController();
   final _gpsPointNotifier = ValueNotifier<LatLng?>(null);
   final _resolvingGpsNotifier = ValueNotifier<bool>(false);
 
@@ -8536,10 +8814,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     _resolvingGpsNotifier.value = value;
   }
 
-  T? _safeDropdownValue<T>(
-    T? currentValue,
-    List<DropdownMenuItem<T>> items,
-  ) {
+  T? _safeDropdownValue<T>(T? currentValue, List<DropdownMenuItem<T>> items) {
     for (final item in items) {
       if (item.value == currentValue) return currentValue;
     }
@@ -8601,9 +8876,6 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     _depositCtrl.dispose();
     _paidAmountCtrl.dispose();
     _relatedServiceCtrl.dispose();
-    _surveyResultCtrl.dispose();
-    _materialsUsedCtrl.dispose();
-    _finalCostCtrl.dispose();
     _gpsPointNotifier.dispose();
     _resolvingGpsNotifier.dispose();
     _referenceVideoPreviewCtrl?.dispose();
@@ -8693,6 +8965,9 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
     setState(() {
       _orderState = nextState;
       _priority = nextPriority;
+      if (!widget.showServiceTypeField || kindChanged) {
+        _serviceType = _serviceTypeForAgendaKind(lower, fallback: _serviceType);
+      }
     });
   }
 
@@ -9456,9 +9731,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                               children: [
                                 IconButton(
                                   onPressed: _pasteGpsFromClipboard,
-                                  icon: const Icon(
-                                    Icons.content_paste_rounded,
-                                  ),
+                                  icon: const Icon(Icons.content_paste_rounded),
                                 ),
                                 IconButton(
                                   onPressed: gpsText.isEmpty
@@ -9540,7 +9813,10 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
         final agendaKindItems = const [
           DropdownMenuItem(value: 'reserva', child: Text('Reserva')),
           DropdownMenuItem(value: 'instalacion', child: Text('Instalación')),
-          DropdownMenuItem(value: 'mantenimiento', child: Text('Mantenimiento')),
+          DropdownMenuItem(
+            value: 'mantenimiento',
+            child: Text('Mantenimiento'),
+          ),
           DropdownMenuItem(value: 'garantia', child: Text('Garantía')),
           DropdownMenuItem(
             value: 'levantamiento',
@@ -9708,8 +9984,10 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           ),
           items: safeCategories
               .map(
-                (item) =>
-                    DropdownMenuItem(value: item.id, child: Text(item.name)),
+                (item) => DropdownMenuItem(
+                  value: item.id,
+                  child: Text(_serviceCategoryDropdownLabel(item)),
+                ),
               )
               .toList(growable: false),
           validator: (_) {
@@ -9907,7 +10185,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                                     ? (_hasCotizaciones
                                           ? 'Selecciona una cotización existente o crea una nueva para completar el precio vendido.'
                                           : 'Este cliente todavía no tiene cotizaciones guardadas.')
-                                    : 'Seleccionada: ${money(_selectedCotizacion!.total)} · ${DateFormat('dd/MM/yyyy HH:mm').format(_selectedCotizacion!.createdAt)}',
+                                    : 'Seleccionada: ${money(_selectedCotizacion!.total)} · ${DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(_selectedCotizacion!.createdAt)}',
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: scheme.onSurfaceVariant,
                                   height: 1.25,
@@ -10066,49 +10344,6 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                               ],
                             );
                           }
-                          if (kind == 'levantamiento') {
-                            return Column(
-                              children: [
-                                const SizedBox(height: 10),
-                                TextFormField(
-                                  controller: _surveyResultCtrl,
-                                  minLines: 2,
-                                  maxLines: 4,
-                                  decoration: const InputDecoration(
-                                    border: OutlineInputBorder(),
-                                    labelText:
-                                        'Resultado del levantamiento (opcional)',
-                                  ),
-                                ),
-                              ],
-                            );
-                          }
-                          if (kind == 'servicio') {
-                            return Column(
-                              children: [
-                                const SizedBox(height: 10),
-                                TextFormField(
-                                  controller: _materialsUsedCtrl,
-                                  decoration: const InputDecoration(
-                                    border: OutlineInputBorder(),
-                                    labelText: 'Material usado (opcional)',
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                TextFormField(
-                                  controller: _finalCostCtrl,
-                                  keyboardType:
-                                      const TextInputType.numberWithOptions(
-                                        decimal: true,
-                                      ),
-                                  decoration: const InputDecoration(
-                                    border: OutlineInputBorder(),
-                                    labelText: 'Costo final (opcional)',
-                                  ),
-                                ),
-                              ],
-                            );
-                          }
                           return const SizedBox.shrink();
                         },
                       ),
@@ -10128,15 +10363,11 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                         controller: _referenceTextCtrl,
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
-                          labelText: 'Texto de referencia (obligatorio)',
+                          labelText: 'Texto de referencia (opcional)',
                           helperText:
                               'Ej: “Casa azul, portón negro, al lado del colmado”.',
                         ),
-                        validator: (value) {
-                          final v = (value ?? '').trim();
-                          if (v.isEmpty) return 'Requerido';
-                          return null;
-                        },
+                        validator: (_) => null,
                       ),
                       const SizedBox(height: 12),
                       Wrap(
@@ -10598,7 +10829,10 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
 
     setState(() {
       _reservationAt = next;
-      _reservationDateCtrl.text = DateFormat('dd/MM/yyyy HH:mm').format(next);
+      _reservationDateCtrl.text = DateFormat(
+        'dd/MM/yyyy h:mm a',
+        'es_DO',
+      ).format(next);
     });
   }
 
@@ -10730,7 +10964,8 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                                     ),
                                     subtitle: Text(
                                       DateFormat(
-                                        'dd/MM/yyyy HH:mm',
+                                        'dd/MM/yyyy h:mm a',
+                                        'es_DO',
                                       ).format(item.createdAt),
                                     ),
                                     trailing: const Icon(
@@ -11115,7 +11350,7 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       }
 
       final title =
-          '${_serviceTypeLabel(_serviceType)} · ${selectedCategory.name}';
+          '${widget.showServiceTypeField ? _serviceTypeLabel(_serviceType) : _agendaKindLabel(widget.agendaKind)} · ${selectedCategory.displayName}';
       final note = _descriptionCtrl.text.trim();
       final description = note.isEmpty ? 'Sin nota' : note;
       final reservationAt = _reservationAt;
@@ -11136,13 +11371,6 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           relatedServiceId: _relatedServiceCtrl.text.trim().isEmpty
               ? null
               : _relatedServiceCtrl.text.trim(),
-          surveyResult: _surveyResultCtrl.text.trim().isEmpty
-              ? null
-              : _surveyResultCtrl.text.trim(),
-          materialsUsed: _materialsUsedCtrl.text.trim().isEmpty
-              ? null
-              : _materialsUsedCtrl.text.trim(),
-          finalCost: double.tryParse(_finalCostCtrl.text.trim()),
           quotedAmount: quoted,
           depositAmount: deposit,
           paymentNote: paymentNote,
@@ -11169,9 +11397,6 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
       _technicianId = null;
       _priorityTouched = false;
       _relatedServiceCtrl.clear();
-      _surveyResultCtrl.clear();
-      _materialsUsedCtrl.clear();
-      _finalCostCtrl.clear();
       _quotedCtrl.clear();
       _depositCtrl.clear();
       _paidAmountCtrl.clear();
@@ -11531,10 +11756,10 @@ class _MobileOperationsFabButton extends StatelessWidget {
           color: Colors.transparent,
           child: InkWell(
             onTap: onPressed,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(16),
             child: Ink(
-              width: 58,
-              height: 58,
+              width: 50,
+              height: 50,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
@@ -11550,7 +11775,7 @@ class _MobileOperationsFabButton extends StatelessWidget {
                     ),
                   ],
                 ),
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: accentColor.withValues(alpha: 0.24)),
                 boxShadow: [
                   BoxShadow(
@@ -11562,11 +11787,11 @@ class _MobileOperationsFabButton extends StatelessWidget {
               ),
               child: Center(
                 child: Container(
-                  width: 42,
-                  height: 42,
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
                     color: accentColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: accentColor.withValues(alpha: 0.24),
                     ),

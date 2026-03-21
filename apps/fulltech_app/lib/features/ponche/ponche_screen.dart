@@ -249,7 +249,8 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
                                 title: Text(punch.type.label),
                                 subtitle: Text(
                                   DateFormat(
-                                    'dd/MM/yyyy · hh:mm a',
+                                    'dd/MM/yyyy · h:mm a',
+                                    'es_DO',
                                   ).format(punch.timestamp.toLocal()),
                                 ),
                               ),
@@ -278,7 +279,7 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
         _attendanceFuture = _loadAttendanceDetail();
       });
       if (!mounted) return;
-      final time = DateFormat('hh:mm a').format(punch.timestamp.toLocal());
+      final time = DateFormat('h:mm a', 'es_DO').format(punch.timestamp.toLocal());
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Ponche "${type.label}" registrado a las $time'),
@@ -381,10 +382,10 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
             : (workedToday / expectedToday).clamp(0.0, 1.0);
         final entryText = todayDay?.entry == null
             ? 'Pendiente'
-            : DateFormat('hh:mm a').format(todayDay!.entry!.toLocal());
+            : DateFormat('h:mm a', 'es_DO').format(todayDay!.entry!.toLocal());
         final exitText = todayDay?.exit == null
             ? 'Pendiente'
-            : DateFormat('hh:mm a').format(todayDay!.exit!.toLocal());
+            : DateFormat('h:mm a', 'es_DO').format(todayDay!.exit!.toLocal());
         final compliance = (filteredDays.isEmpty || totals.workedMinutes <= 0)
             ? 0.0
             : (totals.workedMinutes /
@@ -563,7 +564,8 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
         : statusColor;
     final lastStamp = lastPunch != null
         ? DateFormat(
-            'dd/MM/yyyy · hh:mm a',
+            'dd/MM/yyyy · h:mm a',
+            'es_DO',
           ).format(lastPunch.timestamp.toLocal())
         : null;
     final lastLabel = lastPunch != null
@@ -1041,10 +1043,10 @@ class _AttendanceDayCard extends StatelessWidget {
         : DateFormat('dd/MM/yyyy').format(DateTime.parse(day.date));
     final entryText = day.entry == null
         ? '---'
-        : DateFormat('hh:mm a').format(day.entry!.toLocal());
+        : DateFormat('h:mm a', 'es_DO').format(day.entry!.toLocal());
     final exitText = day.exit == null
         ? '---'
-        : DateFormat('hh:mm a').format(day.exit!.toLocal());
+        : DateFormat('h:mm a', 'es_DO').format(day.exit!.toLocal());
     final label = day.balanceMinutes > 0
         ? 'A favor'
         : day.balanceMinutes < 0
@@ -1183,7 +1185,7 @@ class _PunchHeaderSection extends StatelessWidget {
     final dateText = dateParts.length >= 3
         ? '${dateParts[0]} ${dateParts[1][0].toUpperCase()}${dateParts[1].substring(1)} ${dateParts[2]}'
         : rawDateText;
-    final timeText = DateFormat('HH:mm').format(now);
+    final timeText = DateFormat('h:mm a', 'es_DO').format(now);
     final recentPunch = lastPunch;
 
     return Container(
@@ -1259,7 +1261,7 @@ class _PunchHeaderSection extends StatelessWidget {
 
           final lastPunchText = recentPunch == null
               ? 'Sin registro reciente'
-              : 'Último: ${recentPunch.type.label} · ${DateFormat('dd/MM · HH:mm').format(recentPunch.timestamp.toLocal())}';
+              : 'Último: ${recentPunch.type.label} · ${DateFormat('dd/MM · h:mm a', 'es_DO').format(recentPunch.timestamp.toLocal())}';
 
           final right = Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -1627,19 +1629,19 @@ class _PunchActionPanel extends StatelessWidget {
                 label: 'Último registro',
                 value: recentPunch == null
                     ? 'Sin datos'
-                    : '${recentPunch.type.label} · ${DateFormat('hh:mm a').format(recentPunch.timestamp.toLocal())}',
+                    : '${recentPunch.type.label} · ${DateFormat('h:mm a', 'es_DO').format(recentPunch.timestamp.toLocal())}',
               ),
               _PunchMiniMetric(
                 label: 'Entrada de hoy',
                 value: today?.entry == null
                     ? 'Pendiente'
-                    : DateFormat('hh:mm a').format(today!.entry!.toLocal()),
+                    : DateFormat('h:mm a', 'es_DO').format(today!.entry!.toLocal()),
               ),
               _PunchMiniMetric(
                 label: 'Salida de hoy',
                 value: today?.exit == null
                     ? 'Pendiente'
-                    : DateFormat('hh:mm a').format(today!.exit!.toLocal()),
+                    : DateFormat('h:mm a', 'es_DO').format(today!.exit!.toLocal()),
               ),
             ],
           ),
@@ -1792,7 +1794,8 @@ class _PunchRecentActivityPanel extends StatelessWidget {
                 title: Text(punch.type.label),
                 subtitle: Text(
                   DateFormat(
-                    'dd/MM/yyyy · hh:mm a',
+                    'dd/MM/yyyy · h:mm a',
+                    'es_DO',
                   ).format(punch.timestamp.toLocal()),
                 ),
               ),
@@ -1995,7 +1998,7 @@ class _PunchHistoryRow extends StatelessWidget {
             child: Text(
               day.entry == null
                   ? 'Pendiente'
-                  : DateFormat('hh:mm a').format(day.entry!.toLocal()),
+                  : DateFormat('h:mm a', 'es_DO').format(day.entry!.toLocal()),
             ),
           ),
           Expanded(
@@ -2003,7 +2006,7 @@ class _PunchHistoryRow extends StatelessWidget {
             child: Text(
               day.exit == null
                   ? 'Pendiente'
-                  : DateFormat('hh:mm a').format(day.exit!.toLocal()),
+                  : DateFormat('h:mm a', 'es_DO').format(day.exit!.toLocal()),
             ),
           ),
           Expanded(

@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../auth/auth_provider.dart';
+import '../../../routing/app_router.dart';
+import '../../../routing/routes.dart';
+import '../../../widgets/app_navigation.dart';
 import '../../application/ai_assistant_controller.dart';
 import '../../domain/models/ai_chat_context.dart';
 import '../ai_chat_context_resolver.dart';
@@ -19,7 +22,11 @@ class GlobalAiAssistantEntryPoint extends ConsumerWidget {
     final auth = ref.watch(authStateProvider);
     if (!auth.isAuthenticated) return child;
 
-    final location = _safeLocation(context);
+    final hiddenByScreen = ref.watch(hideGlobalAiAssistantEntryPointProvider);
+    if (hiddenByScreen) return child;
+
+    final router = ref.watch(routerProvider);
+    final location = _safeLocation(context, router);
     if (_shouldHideEntryPoint(location)) return child;
 
     final isDesktop = MediaQuery.sizeOf(context).width >= 900;
@@ -103,30 +110,20 @@ class GlobalAiAssistantEntryPoint extends ConsumerWidget {
 
   bool _shouldHideEntryPoint(String location) {
     final normalized = location.trim();
-    final uri = Uri.tryParse(normalized) ?? Uri(path: normalized);
-    final path = uri.path.trim().toLowerCase();
-
-    if (path.startsWith('/operaciones')) return true;
-    return false;
+    final path = (Uri.tryParse(normalized)?.path ?? normalized).trim();
+    return path == Routes.operaciones ||
+        path.startsWith('${Routes.operaciones}/');
   }
 
   AiChatContext _buildAssistantContext(BuildContext context) {
-    final location = _safeLocation(context);
+    final location = safeCurrentLocation(context);
     return buildAiChatContextFromLocation(location);
   }
 
-  String _safeLocation(BuildContext context) {
-    try {
-      return GoRouterState.of(context).uri.toString();
-    } catch (_) {
-      // Not always available from a global wrapper.
-    }
-
-    try {
-      return GoRouter.of(context).routeInformationProvider.value.uri.toString();
-    } catch (_) {
-      return '';
-    }
+  String _safeLocation(BuildContext context, GoRouter router) {
+    final fromRouter = router.routeInformationProvider.value.uri.toString();
+    if (fromRouter.trim().isNotEmpty) return fromRouter;
+    return safeCurrentLocation(context);
   }
 
   void _openAssistant(

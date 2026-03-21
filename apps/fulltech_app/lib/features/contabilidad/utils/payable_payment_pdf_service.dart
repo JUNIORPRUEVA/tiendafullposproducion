@@ -33,7 +33,7 @@ Future<Uint8List> buildPayableReceiptPdf({
   final pdf = pw.Document();
   final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ');
   final dateFmt = DateFormat('dd/MM/yyyy');
-  final nowFmt = DateFormat('dd/MM/yyyy HH:mm');
+  final nowFmt = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
 
   final sorted = [...data.payments]
     ..sort((a, b) => a.paidAt.compareTo(b.paidAt));
@@ -77,7 +77,9 @@ Future<Uint8List> buildPayableReceiptPdf({
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Text('Servicio: ${data.serviceTitle}'),
-              pw.Text('Beneficiario: ${data.providerName} (${data.providerKind.label})'),
+              pw.Text(
+                'Beneficiario: ${data.providerName} (${data.providerKind.label})',
+              ),
               pw.Text(
                 'Período: ${dateFmt.format(data.periodFrom)} - ${dateFmt.format(data.periodTo)}',
               ),

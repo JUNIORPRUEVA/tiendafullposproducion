@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/routing/app_navigator.dart';
+import '../../core/widgets/app_navigation.dart';
 import '../../core/widgets/responsive_shell.dart';
 
 /// ShellRoute wrapper.
@@ -19,6 +21,20 @@ class HomeShell extends ConsumerStatefulWidget {
 class _HomeShellState extends ConsumerState<HomeShell> {
   @override
   Widget build(BuildContext context) {
-    return ResponsiveShell(child: widget.child);
+    final isDesktop =
+        MediaQuery.sizeOf(context).width >= kDesktopShellBreakpoint;
+
+    if (isDesktop) {
+      return ResponsiveShell(child: widget.child);
+    }
+
+    return PopScope<void>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        await AppNavigator.handleSystemBack(context);
+      },
+      child: ResponsiveShell(child: widget.child),
+    );
   }
 }

@@ -47,9 +47,21 @@ class ServiceAgendaCard extends StatelessWidget {
     final phone = service.customerPhone.trim();
     if (phone.isEmpty) return;
 
-    final digits = phone.replaceAll(RegExp(r'[^0-9+]'), '');
-    final uri = Uri.parse('https://wa.me/$digits');
-    await safeOpenUrl(context, uri, copiedMessage: 'Link copiado');
+    final digits = _normalizeWhatsAppNumber(phone);
+    if (digits.isEmpty) return;
+
+    final customerName = service.customerName.trim().isEmpty
+        ? 'cliente'
+        : service.customerName.trim();
+    final message = 'Hola $customerName, soy ';
+    final uri = Uri.parse(
+      'https://wa.me/$digits?text=${Uri.encodeComponent(message)}',
+    );
+    await safeOpenUrl(
+      context,
+      uri,
+      copiedMessage: 'Enlace de WhatsApp copiado',
+    );
   }
 
   Future<void> _callPhone(BuildContext context) async {
@@ -58,6 +70,40 @@ class ServiceAgendaCard extends StatelessWidget {
     final digits = phone.replaceAll(RegExp(r'[^0-9+]'), '');
     final uri = Uri(scheme: 'tel', path: digits);
     await safeOpenUrl(context, uri, copiedMessage: 'Link copiado');
+  }
+
+  String _normalizeWhatsAppNumber(String raw) {
+    var input = raw.trim();
+    if (input.isEmpty) return '';
+
+    final waMeMatch = RegExp(
+      r'wa\.me/([0-9]+)',
+      caseSensitive: false,
+    ).firstMatch(input);
+    if (waMeMatch != null) {
+      input = waMeMatch.group(1) ?? input;
+    }
+
+    input = input.replaceAll(
+      RegExp(r'(@c\.us|@s\.whatsapp\.net)$', caseSensitive: false),
+      '',
+    );
+
+    var digits = input.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return '';
+
+    if (digits.startsWith('00')) {
+      digits = digits.replaceFirst(RegExp(r'^00+'), '');
+      if (digits.isEmpty) return '';
+    }
+
+    final isDominicanLocal =
+        digits.length == 10 && RegExp(r'^(809|829|849)').hasMatch(digits);
+    if (isDominicanLocal) return '1$digits';
+
+    if (digits.length == 11 && digits.startsWith('1')) return digits;
+
+    return digits;
   }
 
   String? _firstPhotoUrlOrPath() {

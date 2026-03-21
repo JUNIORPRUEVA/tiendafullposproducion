@@ -96,14 +96,6 @@ String normalizeTechKey(String raw) {
   return value.replaceAll(' ', '_').replaceAll('-', '_');
 }
 
-String _firstNonEmpty(List<String?> values) {
-  for (final value in values) {
-    final trimmed = (value ?? '').trim();
-    if (trimmed.isNotEmpty) return trimmed;
-  }
-  return '';
-}
-
 String techOrderStatusLabel(TechOrderStatusFilter filter) {
   switch (filter) {
     case TechOrderStatusFilter.pending:
@@ -177,32 +169,7 @@ Color techOrderPhaseColor(TechOrderPhaseFilter filter) {
 }
 
 String techServiceCategoryLabel(ServiceModel service) {
-  final raw = _firstNonEmpty([service.categoryName, service.category]);
-  final key = normalizeTechKey(raw);
-
-  switch (key) {
-    case 'cameras':
-    case 'camara':
-    case 'camaras':
-      return 'Cámaras';
-    case 'gate_motor':
-    case 'motor_puerton':
-    case 'motores_puertones':
-      return 'Motor de portón';
-    case 'alarm':
-    case 'alarma':
-      return 'Alarma';
-    case 'electric_fence':
-    case 'cerco_electrico':
-      return 'Cerco eléctrico';
-    case 'intercom':
-    case 'intercomunicador':
-      return 'Intercomunicador';
-    case 'pos':
-      return 'POS';
-    default:
-      return raw;
-  }
+  return service.categoryLabel;
 }
 
 TechOrderPhaseFilter? techOrderPhaseFrom(ServiceModel service) {

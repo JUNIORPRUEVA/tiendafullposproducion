@@ -25,12 +25,7 @@ class CierresDiariosScreen extends ConsumerStatefulWidget {
 }
 
 class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
-  static const _bankOptions = <String>[
-    'POPULAR',
-    'BANRESERVAS',
-    'BHD',
-    'OTRO',
-  ];
+  static const _bankOptions = <String>['POPULAR', 'BANRESERVAS', 'BHD', 'OTRO'];
 
   static const _categoryAccount = <CloseType, String>{
     CloseType.pos: '841360753',
@@ -102,8 +97,10 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       });
     }
 
-    ref.listen<CierresDiariosState>(cierresDiariosControllerProvider,
-        (previous, next) {
+    ref.listen<CierresDiariosState>(cierresDiariosControllerProvider, (
+      previous,
+      next,
+    ) {
       final prevId = previous?.editingClose?.id;
       final nextEdit = next.editingClose;
       if (nextEdit != null && nextEdit.id != prevId) {
@@ -121,7 +118,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
         foregroundColor: Colors.white,
       ),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
-        floatingActionButton: canUseModule
+      floatingActionButton: canUseModule
           ? _buildDepositFab(context, depositEval)
           : null,
       body: !canUseModule
@@ -153,9 +150,12 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                   SizedBox(
                     height: 48,
                     child: OutlinedButton.icon(
-                      onPressed: () => _openHistoryDialog(context, state.closes),
+                      onPressed: () =>
+                          _openHistoryDialog(context, state.closes),
                       icon: const Icon(Icons.history),
-                      label: Text('Historial de ventas (${state.closes.length})'),
+                      label: Text(
+                        'Historial de ventas (${state.closes.length})',
+                      ),
                     ),
                   ),
                 ],
@@ -175,8 +175,9 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
 
     return FloatingActionButton.extended(
       onPressed: () => _openDepositPanel(context, depositEval),
-      backgroundColor:
-          depositEval.eligible ? Theme.of(context).colorScheme.error : AppTheme.primaryColor,
+      backgroundColor: depositEval.eligible
+          ? Theme.of(context).colorScheme.error
+          : AppTheme.primaryColor,
       foregroundColor: Colors.white,
       icon: Icon(
         depositEval.eligible
@@ -206,10 +207,9 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
             children: [
               Text(
                 'Orden automática de depósito',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleLarge
-                    ?.copyWith(fontWeight: FontWeight.w800),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 8),
               Text(
@@ -282,29 +282,31 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                                   closesCountByType: {
                                     'CAPSULAS':
                                         eval.countByType[CloseType.capsulas] ??
-                                            0,
-                                    'POS':
-                                        eval.countByType[CloseType.pos] ?? 0,
+                                        0,
+                                    'POS': eval.countByType[CloseType.pos] ?? 0,
                                     'TIENDA':
                                         eval.countByType[CloseType.tienda] ?? 0,
                                   },
                                   depositByType: {
                                     'CAPSULAS':
-                                        eval.depositByType[CloseType.capsulas] ??
-                                            0,
+                                        eval.depositByType[CloseType
+                                            .capsulas] ??
+                                        0,
                                     'POS':
                                         eval.depositByType[CloseType.pos] ?? 0,
                                     'TIENDA':
-                                        eval.depositByType[CloseType.tienda] ?? 0,
+                                        eval.depositByType[CloseType.tienda] ??
+                                        0,
                                   },
                                   accountByType: {
                                     'CAPSULAS':
                                         _categoryAccount[CloseType.capsulas] ??
-                                            '',
+                                        '',
                                     'POS':
                                         _categoryAccount[CloseType.pos] ?? '',
                                     'TIENDA':
-                                        _categoryAccount[CloseType.tienda] ?? '',
+                                        _categoryAccount[CloseType.tienda] ??
+                                        '',
                                   },
                                 );
                           } catch (e) {
@@ -487,8 +489,10 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
               decoration: const InputDecoration(labelText: 'Categoría activa'),
               child: Text(
                 _type.label,
-                style:
-                    const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
               ),
             ),
             const SizedBox(height: 10),
@@ -507,7 +511,9 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                     },
               borderRadius: BorderRadius.circular(12),
               child: InputDecorator(
-                decoration: const InputDecoration(labelText: 'Fecha del cierre'),
+                decoration: const InputDecoration(
+                  labelText: 'Fecha del cierre',
+                ),
                 child: Text(_dateOnly(_date)),
               ),
             ),
@@ -537,9 +543,9 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                         vertical: 8,
                       ),
                       decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerHighest,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
                         borderRadius: const BorderRadius.only(
                           topLeft: Radius.circular(10),
                           topRight: Radius.circular(10),
@@ -664,8 +670,9 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : Icon(editing ? Icons.save_outlined : Icons.add_circle),
-                label:
-                    Text(editing ? 'Guardar cambios' : 'Guardar cierre en nube'),
+                label: Text(
+                  editing ? 'Guardar cambios' : 'Guardar cierre en nube',
+                ),
               ),
             ),
           ],
@@ -720,7 +727,8 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
   void _resetForm() {
     setState(() {
       _editingId = null;
-      _type = ref.read(cierresDiariosControllerProvider).typeFilter ??
+      _type =
+          ref.read(cierresDiariosControllerProvider).typeFilter ??
           CloseType.capsulas;
       _date = DateTime.now();
       _cashCtrl.text = '0';
@@ -792,14 +800,22 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       byTypeCash[close.type] = (byTypeCash[close.type] ?? 0) + netCash;
     }
 
-    final totalCash = byTypeCash.values.fold<double>(0, (sum, item) => sum + item);
-    final depositable = (totalCash - _cashReserve).clamp(0, double.infinity).toDouble();
+    final totalCash = byTypeCash.values.fold<double>(
+      0,
+      (sum, item) => sum + item,
+    );
+    final depositable = (totalCash - _cashReserve)
+        .clamp(0, double.infinity)
+        .toDouble();
 
     final reasons = <String>[];
-    final countCondition = CloseType.values
-        .every((type) => (byTypeCount[type] ?? 0) >= 2);
+    final countCondition = CloseType.values.every(
+      (type) => (byTypeCount[type] ?? 0) >= 2,
+    );
     if (!countCondition) {
-      reasons.add('Se requieren al menos 2 cierres por categoría en los últimos 2 días.');
+      reasons.add(
+        'Se requieren al menos 2 cierres por categoría en los últimos 2 días.',
+      );
     }
     if (totalCash < _minTotalForDeposit) {
       reasons.add(
@@ -807,10 +823,13 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       );
     }
     if (depositable <= 0) {
-      reasons.add('No hay monto disponible para depositar después del fondo en caja.');
+      reasons.add(
+        'No hay monto disponible para depositar después del fondo en caja.',
+      );
     }
 
-    final eligible = countCondition && totalCash >= _minTotalForDeposit && depositable > 0;
+    final eligible =
+        countCondition && totalCash >= _minTotalForDeposit && depositable > 0;
 
     final depositByType = {
       CloseType.capsulas: 0.0,
@@ -837,8 +856,9 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
           final maxType = positive
               .reduce((a, b) => a.value >= b.value ? a : b)
               .key;
-          depositByType[maxType] =
-              double.parse(((depositByType[maxType] ?? 0) + delta).toStringAsFixed(2));
+          depositByType[maxType] = double.parse(
+            ((depositByType[maxType] ?? 0) + delta).toStringAsFixed(2),
+          );
         }
       }
     }
@@ -909,7 +929,10 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
 
             return Dialog(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 920, maxHeight: 650),
+                constraints: const BoxConstraints(
+                  maxWidth: 920,
+                  maxHeight: 650,
+                ),
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -1045,14 +1068,17 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                       if (filtered.isEmpty)
                         const Expanded(
                           child: Center(
-                            child: Text('No hay cierres para el filtro seleccionado.'),
+                            child: Text(
+                              'No hay cierres para el filtro seleccionado.',
+                            ),
                           ),
                         )
                       else
                         Expanded(
                           child: ListView.separated(
                             itemCount: filtered.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
                             itemBuilder: (context, index) {
                               return _HistoryCloseTile(close: filtered[index]);
                             },
@@ -1193,7 +1219,10 @@ class _HistoryCloseTile extends StatelessWidget {
             runSpacing: 10,
             children: [
               _MoneyPill(label: 'Efectivo', value: money.format(close.cash)),
-              _MoneyPill(label: 'Transferencia', value: money.format(close.transfer)),
+              _MoneyPill(
+                label: 'Transferencia',
+                value: money.format(close.transfer),
+              ),
               _MoneyPill(label: 'Tarjeta', value: money.format(close.card)),
               _MoneyPill(label: 'Gastos', value: money.format(close.expenses)),
               _MoneyPill(
@@ -1207,14 +1236,14 @@ class _HistoryCloseTile extends StatelessWidget {
             Text(
               'Banco: ${_humanBank(transferBank)} · Monto: ${money.format(close.transfer)}',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.primaryColor,
-                  ),
+                fontWeight: FontWeight.w700,
+                color: AppTheme.primaryColor,
+              ),
             ),
           ],
           const SizedBox(height: 8),
           Text(
-            'Creado por: ${close.createdByName ?? close.createdById ?? 'N/D'} · ${DateFormat('dd/MM/yyyy HH:mm').format(close.createdAt)}',
+            'Creado por: ${close.createdByName ?? close.createdById ?? 'N/D'} · ${DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(close.createdAt)}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],

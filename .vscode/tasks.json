@@ -35,6 +35,13 @@
 			"command": "Set-Location \"c:\\Users\\PC\\Desktop\\FULLTECH\\apps\\fulltech_app\"; flutter build apk --release",
 			"isBackground": false,
 			"group": "build"
+		},
+		{
+			"label": "build-fulltech-apk-direct",
+			"type": "shell",
+			"command": "Set-Location \"c:\\Users\\PC\\Desktop\\FULLTECH\\apps\\fulltech_app\"; flutter build apk --release",
+			"isBackground": false,
+			"group": "build"
 		}
 	]
 }
