@@ -112,7 +112,19 @@ class GlobalAiAssistantEntryPoint extends ConsumerWidget {
     final normalized = location.trim();
     final path = (Uri.tryParse(normalized)?.path ?? normalized).trim();
     return path == Routes.operaciones ||
-        path.startsWith('${Routes.operaciones}/');
+        path.startsWith('${Routes.operaciones}/') ||
+        path == Routes.operacionesTecnico ||
+        path.startsWith('${Routes.operacionesTecnico}/') ||
+        path == Routes.operacionesAgenda ||
+        path.startsWith('${Routes.operacionesAgenda}/') ||
+        path == Routes.operacionesMapaClientes ||
+        path.startsWith('${Routes.operacionesMapaClientes}/') ||
+        path == Routes.operacionesReglas ||
+        path.startsWith('${Routes.operacionesReglas}/') ||
+        path == Routes.operacionesChecklistConfig ||
+        path.startsWith('${Routes.operacionesChecklistConfig}/') ||
+        path == Routes.operacionesWarrantyConfig ||
+        path.startsWith('${Routes.operacionesWarrantyConfig}/');
   }
 
   AiChatContext _buildAssistantContext(BuildContext context) {

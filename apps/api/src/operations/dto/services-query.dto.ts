@@ -2,9 +2,38 @@ import { Transform, Type } from 'class-transformer';
 import { IsDateString, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
 const serviceStatuses = ['reserved', 'survey', 'scheduled', 'in_progress', 'completed', 'warranty', 'closed', 'cancelled'] as const;
-const serviceTypes = ['installation', 'maintenance', 'warranty', 'pos_support', 'other'] as const;
+const serviceTypes = [
+  'installation',
+  'maintenance',
+  'warranty',
+  'pos_support',
+  'other',
+  'instalacion',
+  'mantenimiento',
+  'garantia',
+  'levantamiento',
+  'reserva',
+  'survey',
+] as const;
 const orderTypes = ['reserva', 'servicio', 'levantamiento', 'garantia', 'mantenimiento', 'instalacion'] as const;
-const orderStates = ['pending', 'confirmed', 'assigned', 'in_progress', 'finalized', 'cancelled', 'rescheduled'] as const;
+const orderStates = [
+  'pending',
+  'confirmed',
+  'assigned',
+  'in_progress',
+  'finalized',
+  'cancelled',
+  'rescheduled',
+  'pendiente',
+  'confirmada',
+  'asignada',
+  'en_camino',
+  'en_proceso',
+  'finalizada',
+  'cancelada',
+  'reagendada',
+  'cerrada',
+] as const;
 const adminPhases = [
   'reserva',
   'confirmacion',

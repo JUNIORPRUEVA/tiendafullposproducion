@@ -603,7 +603,8 @@ export class OperationsService {
       if (!parent) throw new BadRequestException('Servicio padre no encontrado');
     }
 
-    const priority = dto.priority ?? (dto.serviceType === 'installation' ? 1 : 2);
+    const parsedServiceType = this.parseType(dto.serviceType);
+    const priority = dto.priority ?? (parsedServiceType === ServiceType.INSTALLATION ? 1 : 2);
 
     const surveyResult = dto.surveyResult?.trim();
     const materialsUsed = dto.materialsUsed?.trim();
@@ -628,7 +629,7 @@ export class OperationsService {
       const baseData: Prisma.ServiceCreateInput = {
         customer: { connect: { id: dto.customerId } },
         createdBy: { connect: { id: user.id } },
-        serviceType: this.parseType(dto.serviceType),
+        serviceType: parsedServiceType,
         category: category.code,
         categoryRef: { connect: { id: category.id } },
         status: ServiceStatus.RESERVED,
@@ -866,15 +867,23 @@ export class OperationsService {
 
     const missing: string[] = [];
 
+    const requiresLocationOnly = nextPhase === ServicePhaseType.LEVANTAMIENTO;
     const requiresAmountsAndLocation =
       nextPhase === ServicePhaseType.INSTALACION ||
-      nextPhase === ServicePhaseType.MANTENIMIENTO ||
-      nextPhase === ServicePhaseType.LEVANTAMIENTO;
+      nextPhase === ServicePhaseType.MANTENIMIENTO;
+
+    if (requiresLocationOnly) {
+      if (!locationOk(locationText)) {
+        throw new BadRequestException({
+          message: ['Falta: Ubicación (dirección / GPS / Maps)'],
+          code: 'PHASE_VALIDATION',
+        });
+      }
+    }
 
     if (requiresAmountsAndLocation) {
       const quoted = extractMoney((service as any).quotedAmount);
       if (!quoted || quoted <= 0) missing.push('Monto cotizado (quotedAmount)');
-      if (!finalCost || finalCost <= 0) missing.push('Monto total (orderExtras.finalCost)');
       if (!locationOk(locationText)) missing.push('Ubicación (dirección / GPS / Maps)');
 
       if (missing.length > 0) {
@@ -3173,13 +3182,23 @@ export class OperationsService {
     const key = value.trim().toLowerCase();
     const map: Record<string, ServiceType> = {
       installation: ServiceType.INSTALLATION,
+      instalacion: ServiceType.INSTALLATION,
       maintenance: ServiceType.MAINTENANCE,
+      mantenimiento: ServiceType.MAINTENANCE,
       warranty: ServiceType.WARRANTY,
+      garantia: ServiceType.WARRANTY,
       pos_support: ServiceType.POS_SUPPORT,
+      pos: ServiceType.POS_SUPPORT,
+      soporte_pos: ServiceType.POS_SUPPORT,
       other: ServiceType.OTHER,
+      otro: ServiceType.OTHER,
+      levantamiento: ServiceType.MAINTENANCE,
+      survey: ServiceType.MAINTENANCE,
+      reserva: ServiceType.MAINTENANCE,
+      servicio: ServiceType.MAINTENANCE,
     };
     const parsed = map[key];
-    if (!parsed) throw new BadRequestException('Tipo de servicio inválido');
+      if (!parsed) throw new BadRequestException('Tipo de servicio inválido');
     return parsed;
   }
 
