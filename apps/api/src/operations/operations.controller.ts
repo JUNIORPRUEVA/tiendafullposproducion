@@ -45,6 +45,7 @@ import { CreateServiceChecklistTemplateDto } from './dto/create-service-checklis
 import { CreateServiceChecklistItemDto } from './dto/create-service-checklist-item.dto';
 import { CheckServiceChecklistItemDto } from './dto/check-service-checklist-item.dto';
 import { StorageService } from '../storage/storage.service';
+import { isAllowedContentType } from '../storage/helpers/storage_helpers';
 import { CreateServiceSignatureDto } from './dto/create-service-signature.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -301,11 +302,11 @@ export class OperationsController {
         },
       }),
       fileFilter: (_req: Express.Request, file: Express.Multer.File, cb: (error: Error | null, acceptFile: boolean) => void) => {
-        const allowed = /^image\/(png|jpe?g|webp)$|^application\/(pdf|msword|vnd.openxmlformats-officedocument.wordprocessingml.document)$/.test(file.mimetype);
+        const allowed = isAllowedContentType((file.mimetype ?? '').toString());
         if (!allowed) return cb(new BadRequestException('Archivo no permitido'), false);
         cb(null, true);
       },
-      limits: { fileSize: 10 * 1024 * 1024 },
+      limits: { fileSize: 50 * 1024 * 1024 },
     }),
   )
   uploadFile(@Req() req: Request, @Param('id') id: string, @UploadedFile() file?: Express.Multer.File) {

@@ -8,6 +8,8 @@ export const ALLOWED_CONTENT_TYPES = [
   'image/png',
   'image/webp',
   'video/mp4',
+  'video/quicktime',
+  'video/webm',
   'application/pdf',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',

@@ -815,14 +815,12 @@ class OperationsController extends StateNotifier<OperationsState> {
   }
 
   Future<void> changeStatus(String id, String status, {String? message}) async {
-    final nextAdminStatus = _normalizeAdminStatus(status);
-    final nextOrderState = _legacyOrderStateForAdminStatus(status);
     final updated = await ref
         .read(operationsRepositoryProvider)
-        .updateService(
+        .changeAdminStatus(
           serviceId: id,
-          adminStatus: nextAdminStatus ?? status,
-          orderState: nextOrderState,
+          adminStatus: _normalizeAdminStatus(status) ?? status,
+          message: message,
         );
     _commitServiceSnapshot(updated);
     _scheduleGlobalRefresh();
@@ -844,10 +842,10 @@ class OperationsController extends StateNotifier<OperationsState> {
     if (index < 0) {
       final updated = await ref
           .read(operationsRepositoryProvider)
-          .updateService(
+          .changeOrderState(
             serviceId: id,
-            adminStatus: nextAdminStatus,
-            orderState: nextOrderState,
+            orderState: nextOrderState ?? next,
+            message: message,
           );
       _commitServiceSnapshot(updated);
       _scheduleGlobalRefresh();
@@ -868,10 +866,10 @@ class OperationsController extends StateNotifier<OperationsState> {
     try {
       final updated = await ref
           .read(operationsRepositoryProvider)
-          .updateService(
+          .changeOrderState(
             serviceId: id,
-            adminStatus: nextAdminStatus,
-            orderState: nextOrderState,
+            orderState: nextOrderState ?? next,
+            message: message,
           );
       _commitServiceSnapshot(updated);
       _scheduleGlobalRefresh();
@@ -897,7 +895,11 @@ class OperationsController extends StateNotifier<OperationsState> {
     if (index < 0) {
       final updated = await ref
           .read(operationsRepositoryProvider)
-          .updateService(serviceId: id, adminPhase: next);
+          .changeAdminPhase(
+            serviceId: id,
+            adminPhase: next,
+            message: message,
+          );
       _commitServiceSnapshot(updated);
       _scheduleGlobalRefresh();
       return updated;
@@ -914,7 +916,11 @@ class OperationsController extends StateNotifier<OperationsState> {
     try {
       final updated = await ref
           .read(operationsRepositoryProvider)
-          .updateService(serviceId: id, adminPhase: next);
+          .changeAdminPhase(
+            serviceId: id,
+            adminPhase: next,
+            message: message,
+          );
       _commitServiceSnapshot(updated);
       _scheduleGlobalRefresh();
       return updated;
@@ -941,7 +947,7 @@ class OperationsController extends StateNotifier<OperationsState> {
     if (index < 0) {
       final updated = await ref
           .read(operationsRepositoryProvider)
-          .updateService(
+          .changePhase(
             serviceId: id,
             phase: next,
             scheduledAt: scheduledAt,
@@ -968,7 +974,7 @@ class OperationsController extends StateNotifier<OperationsState> {
     try {
       final updated = await ref
           .read(operationsRepositoryProvider)
-          .updateService(
+          .changePhase(
             serviceId: id,
             phase: next,
             scheduledAt: scheduledAt,

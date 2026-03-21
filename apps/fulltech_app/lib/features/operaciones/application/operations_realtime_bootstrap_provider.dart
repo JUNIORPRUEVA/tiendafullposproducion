@@ -13,6 +13,21 @@ final operationsRealtimeBootstrapProvider = Provider<void>((ref) {
 
   Timer? refreshDebounce;
 
+  bool hasFullServiceSnapshot(Map<String, dynamic>? service) {
+    if (service == null) return false;
+    final id = (service['id'] ?? '').toString().trim();
+    if (id.isEmpty) return false;
+    final title = (service['title'] ?? '').toString().trim();
+    final status = (service['status'] ?? '').toString().trim();
+    final phase =
+        (service['phase'] ?? service['currentPhase'] ?? '')
+            .toString()
+            .trim();
+    final customer = service['customer'];
+    final hasCustomer = customer is Map && customer.isNotEmpty;
+    return title.isNotEmpty || status.isNotEmpty || phase.isNotEmpty || hasCustomer;
+  }
+
   Future<void> connectFor(AuthState state) async {
     if (state.isAuthenticated) {
       unawaited(realtime.connect(state));
@@ -40,8 +55,23 @@ final operationsRealtimeBootstrapProvider = Provider<void>((ref) {
   final sub = realtime.stream.listen((msg) {
     final auth = ref.read(authStateProvider);
     final cacheScope = (auth.user?.id ?? '').trim();
+    final currentUserRole = (auth.user?.role ?? '').trim().toLowerCase();
+    final serviceId =
+        ((msg.serviceId ?? msg.service?['id']) ?? '').toString().trim();
+    final fullSnapshot = hasFullServiceSnapshot(msg.service);
 
-    if (msg.service != null) {
+    if (cacheScope.isNotEmpty && serviceId.isNotEmpty) {
+      final technicianId = currentUserRole == 'tecnico' ? cacheScope : null;
+      unawaited(
+        ref.read(operationsRepositoryProvider).warmServiceDetailCaches(
+          cacheScope: cacheScope,
+          serviceId: serviceId,
+          technicianId: technicianId,
+        ),
+      );
+    }
+
+    if (fullSnapshot && msg.service != null) {
       // Best-effort: update detail cache for instant "open detail".
       if (cacheScope.isNotEmpty) {
         unawaited(
@@ -65,6 +95,8 @@ final operationsRealtimeBootstrapProvider = Provider<void>((ref) {
       } catch (_) {
         // Ignore parse errors; we'll reconcile via refresh below.
       }
+    } else if (serviceId.isNotEmpty) {
+      ref.invalidate(serviceProvider(serviceId));
     }
 
     // Reconcile filters/order/dashboard with a debounced refresh.

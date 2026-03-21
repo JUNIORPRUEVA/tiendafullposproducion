@@ -24,6 +24,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../common/redis/redis.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { R2Service } from '../storage/r2.service';
+import { inferMediaType } from '../storage/helpers/storage_helpers';
 import { ServiceClosingService } from '../service-closing/service-closing.service';
 import { ServicesQueryDto } from './dto/services-query.dto';
 import { CreateServiceDto } from './dto/create-service.dto';
@@ -2483,13 +2484,24 @@ export class OperationsService {
 
     this.assertCanOperate(user, service.createdByUserId, service.assignments.map((a) => a.userId));
 
+    const mimeType = (fileType ?? '').toString().trim().toLowerCase();
+    const mediaType = inferMediaType(mimeType);
+    const kind = mediaType == 'video'
+      ? 'video_evidence'
+      : mediaType == 'image'
+        ? 'evidence_final'
+        : 'technical_document';
+
     const file = await this.prisma.$transaction(async (tx) => {
       const row = await tx.serviceFile.create({
         data: {
           serviceId: id,
           uploadedByUserId: user.id,
           fileUrl,
-          fileType,
+          fileType: kind,
+          mimeType: mimeType || null,
+          mediaType,
+          kind,
         },
       });
 
@@ -2499,7 +2511,7 @@ export class OperationsService {
           changedByUserId: user.id,
           type: ServiceUpdateType.FILE_UPLOAD,
           oldValue: Prisma.DbNull,
-          newValue: { fileUrl, fileType },
+          newValue: { fileUrl, fileType: kind, mimeType, mediaType, kind },
           message: 'Evidencia subida',
         },
       });
@@ -2529,7 +2541,7 @@ export class OperationsService {
           `Servicio: ${(hydrated.title ?? '').toString().trim() || 'Servicio'}`,
           `Cliente: ${customerName}`,
           actorName ? `Por: ${actorName}` : null,
-          fileType?.trim() ? `Tipo: ${fileType.trim()}` : null,
+          kind ? `Tipo: ${kind}` : null,
         ].filter(Boolean) as string[];
 
         await this.notifyFleetNumbersForService({
@@ -2544,6 +2556,17 @@ export class OperationsService {
     }
 
     await this.invalidateOperationsCache('service.addFile');
+
+    try {
+      const normalized = await this.findOne(user, id);
+      this.realtime.emitServiceEvent({
+        type: 'service.updated',
+        service: normalized,
+        actorUserId: user.id,
+      });
+    } catch {
+      // ignore
+    }
 
     return file;
   }
