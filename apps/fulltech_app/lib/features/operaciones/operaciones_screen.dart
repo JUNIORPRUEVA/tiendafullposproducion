@@ -5588,6 +5588,9 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         _primeReferenceFuture(fresh);
         _primeExecutionBundle(fresh);
       });
+      debugPrint(
+        'Evidences: ${fresh.evidences.map((file) => '${file.id}:${file.fileType}').toList(growable: false)}',
+      );
     } catch (e) {
       if (silent || !mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -5617,112 +5620,6 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
       return rest;
     }
     return null;
-  }
-
-  bool _looksLikeVideoMedia(ServiceMediaModel media) {
-    final mime = (media.mimeType ?? media.fileType).trim().toLowerCase();
-    if (mime.startsWith('video/')) return true;
-    final mt = (media.mediaType ?? '').trim().toLowerCase();
-    if (mt == 'video') return true;
-    final kind = (media.kind ?? '').trim().toLowerCase();
-    if (kind.contains('video')) return true;
-    final url = media.fileUrl.trim().toLowerCase();
-    return url.endsWith('.mp4') || url.contains('.mp4?');
-  }
-
-  bool _isEvidenceMedia(ServiceMediaModel media) {
-    final kind = (media.kind ?? '').trim().toLowerCase();
-    return kind == 'evidence_final' || kind == 'video_evidence';
-  }
-
-  Future<void> _openReferenceViewer(ServiceMediaModel media) async {
-    final url = media.fileUrl.trim();
-    if (url.isEmpty) return;
-    final isVideo = _looksLikeVideoMedia(media);
-    final title = (media.originalFileName ?? '').trim().isNotEmpty
-        ? (media.originalFileName ?? '').trim()
-        : (media.fileType).trim().isEmpty
-        ? 'Referencia'
-        : media.fileType;
-
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) {
-        return Dialog(
-          insetPadding: const EdgeInsets.all(14),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 720),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Cerrar',
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close_rounded),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  if (!isVideo)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: ColoredBox(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.surfaceContainerHighest,
-                        child: AspectRatio(
-                          aspectRatio: 1,
-                          child: InteractiveViewer(
-                            minScale: 0.8,
-                            maxScale: 5,
-                            child: Image.network(
-                              url,
-                              fit: BoxFit.contain,
-                              loadingBuilder: (context, child, progress) {
-                                if (progress == null) return child;
-                                return const Center(
-                                  child: CircularProgressIndicator(),
-                                );
-                              },
-                              errorBuilder: (context, _, __) {
-                                return Center(
-                                  child: Text(
-                                    'No se pudo cargar la imagen',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(fontWeight: FontWeight.w700),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                      ),
-                    )
-                  else
-                    _VideoReferenceViewer(url: url),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
   }
 
   Future<void> _loadPhaseHistory() async {
@@ -7010,17 +6907,13 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
         FutureBuilder<List<ServiceMediaModel>>(
           future: _referenceMediaFuture,
           builder: (context, snap) {
-            final visibleFiles = service.files
+            final visibleFiles = service.evidences
                 .where(_isVisibleEvidenceFile)
                 .toList(growable: false);
-            final visibleFileIds = visibleFiles
-                .map((file) => file.id.trim())
-                .where((id) => id.isNotEmpty)
-                .toSet();
             final fileItems = visibleFiles
                 .map(
                   (file) => OrderEvidenceItem(
-                    id: 'file:${file.id}',
+                    id: file.id,
                     title: _serviceFileTitle(file),
                     url: file.fileUrl,
                     typeLabel: _serviceFileTypeLabel(file),
@@ -7032,51 +6925,18 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                   ),
                 )
                 .toList(growable: false);
+            final evidenceItems = fileItems;
 
-            final allMedia = snap.data ?? const <ServiceMediaModel>[];
-            final storageEvidence = allMedia
-                .where(_isEvidenceMedia)
-                .where((media) => !visibleFileIds.contains(media.id.trim()))
-                .toList(growable: false);
-            final storageItems = storageEvidence
-                .map(
-                  (media) => OrderEvidenceItem(
-                    id: 'media:${media.id}',
-                    title: (media.originalFileName ?? '').trim().isEmpty
-                        ? (_looksLikeVideoMedia(media) ? 'Video' : 'Evidencia')
-                        : media.originalFileName!.trim(),
-                    url: media.fileUrl,
-                    typeLabel: _looksLikeVideoMedia(media)
-                        ? 'Video'
-                        : 'Evidencia',
-                    meta: media.createdAt == null
-                        ? 'Evidencia adjunta'
-                        : 'Evidencia · ${dateFormat.format(media.createdAt!)}',
-                    isImage: !_looksLikeVideoMedia(media),
-                    isVideo: _looksLikeVideoMedia(media),
-                  ),
-                )
-                .toList(growable: false);
-
-            final evidenceItems = [...fileItems, ...storageItems];
+            debugPrint(
+              'Evidences: ${service.evidences.map((file) => '${file.id}:${file.fileType}').toList(growable: false)}',
+            );
 
             return EvidenceGallery(
               referenceText: referenceText,
               items: evidenceItems,
               onOpenItem: (item) async {
-                if (item.id.startsWith('media:')) {
-                  final mediaId = item.id.substring(6);
-                  final media = storageEvidence
-                      .where((m) => m.id == mediaId)
-                      .firstOrNull;
-                  if (media != null) {
-                    await _openReferenceViewer(media);
-                  }
-                  return;
-                }
-                final fileId = item.id.substring(5);
                 final file = visibleFiles
-                    .where((f) => f.id == fileId)
+                    .where((f) => f.id == item.id)
                     .firstOrNull;
                 if (file != null) {
                   await _openServiceFile(file);

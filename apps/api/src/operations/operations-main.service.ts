@@ -2863,6 +2863,19 @@ export class OperationsService {
       typeof categoryRef?.name === 'string' && categoryRef.name.trim()
         ? categoryRef.name.trim()
         : categoryCode;
+    const evidences = Array.isArray(service?.files)
+      ? service.files.filter((file: any) => {
+          if (file?.deletedAt) return false;
+          const kind = (file?.kind ?? file?.fileType ?? '').toString().trim().toLowerCase();
+          const mime = (file?.mimeType ?? '').toString().trim().toLowerCase();
+          return (
+            kind === 'evidence_final' ||
+            kind === 'video_evidence' ||
+            mime.startsWith('image/') ||
+            mime.startsWith('video/')
+          );
+        })
+      : [];
 
     return {
       ...service,
@@ -2871,6 +2884,7 @@ export class OperationsService {
       categoryName,
       categoryRef,
       category: categoryCode,
+      evidences,
       serviceType: this.toApiType(service.serviceType),
       status: this.toApiStatus(service.status),
       currentPhase: service.currentPhase ? this.toApiPhase(service.currentPhase) : 'reserva',

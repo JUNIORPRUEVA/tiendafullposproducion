@@ -446,6 +446,7 @@ class ServiceModel {
   final List<ServiceAssignmentModel> assignments;
   final List<ServiceStepModel> steps;
   final List<ServiceFileModel> files;
+  final List<ServiceFileModel> evidences;
   final List<ServiceUpdateModel> updates;
   final ServiceClosingSummaryModel? closing;
 
@@ -475,6 +476,7 @@ class ServiceModel {
     required this.assignments,
     required this.steps,
     required this.files,
+    required this.evidences,
     required this.updates,
     this.closing,
     this.technicianId,
@@ -540,6 +542,7 @@ class ServiceModel {
     List<ServiceAssignmentModel>? assignments,
     List<ServiceStepModel>? steps,
     List<ServiceFileModel>? files,
+    List<ServiceFileModel>? evidences,
     List<ServiceUpdateModel>? updates,
     ServiceClosingSummaryModel? closing,
   }) {
@@ -579,6 +582,7 @@ class ServiceModel {
       assignments: assignments ?? this.assignments,
       steps: steps ?? this.steps,
       files: files ?? this.files,
+      evidences: evidences ?? this.evidences,
       updates: updates ?? this.updates,
       closing: closing ?? this.closing,
     );
@@ -635,6 +639,11 @@ class ServiceModel {
     }
 
     final closingRaw = (json['closing'] as Map?)?.cast<String, dynamic>();
+    final parsedFiles = parseList(json['files'], ServiceFileModel.fromJson);
+    final parsedEvidences = parseList(
+      json['evidences'],
+      ServiceFileModel.fromJson,
+    );
 
     return ServiceModel(
       id: (json['id'] ?? '').toString(),
@@ -695,7 +704,19 @@ class ServiceModel {
         ServiceAssignmentModel.fromJson,
       ),
       steps: parseList(json['steps'], ServiceStepModel.fromJson),
-      files: parseList(json['files'], ServiceFileModel.fromJson),
+      files: parsedFiles,
+      evidences: parsedEvidences.isNotEmpty
+          ? parsedEvidences
+          : parsedFiles
+                .where((file) {
+                  final type = file.fileType.trim().toLowerCase();
+                  final mime = (file.mimeType ?? '').trim().toLowerCase();
+                  return type == 'evidence_final' ||
+                      type == 'video_evidence' ||
+                      mime.startsWith('image/') ||
+                      mime.startsWith('video/');
+                })
+                .toList(growable: false),
       updates: parseList(json['updates'], ServiceUpdateModel.fromJson),
       closing: closingRaw == null
           ? null
