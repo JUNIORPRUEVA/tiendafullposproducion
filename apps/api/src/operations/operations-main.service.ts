@@ -966,7 +966,15 @@ export class OperationsService {
     }
 
     if (nextPhase === ServicePhaseType.INSTALACION || nextPhase === ServicePhaseType.MANTENIMIENTO) {
-      await this.serviceClosing.ensureDraftOnPhaseEntry({ serviceId: id, triggeredByUserId: user.id });
+      try {
+        // Closing drafts must not block operational phase changes.
+        await this.serviceClosing.ensureDraftOnPhaseEntry({
+          serviceId: id,
+          triggeredByUserId: user.id,
+        });
+      } catch {
+        // ignore
+      }
     }
 
     const durationMs =

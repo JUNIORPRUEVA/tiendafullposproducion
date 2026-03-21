@@ -313,11 +313,21 @@ export class ServiceClosingService {
 
     const company = await this.resolveCompanyInfo();
 
-    const changes = await this.prisma.serviceExecutionChange.findMany({
-      where: { serviceId: service.id },
-      orderBy: { createdAt: 'asc' },
-      select: { description: true, quantity: true, extraCost: true, note: true },
-    });
+    let changes: Array<{
+      description: string;
+      quantity: unknown;
+      extraCost: unknown;
+      note: string | null;
+    }> = [];
+    try {
+      changes = await this.prisma.serviceExecutionChange.findMany({
+        where: { serviceId: service.id },
+        orderBy: { createdAt: 'asc' },
+        select: { description: true, quantity: true, extraCost: true, note: true },
+      });
+    } catch (e) {
+      if (!this.isSchemaMismatch(e)) throw e;
+    }
 
     const extras = changes
       .map((c) => ({

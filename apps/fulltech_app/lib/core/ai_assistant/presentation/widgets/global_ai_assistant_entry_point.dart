@@ -109,22 +109,43 @@ class GlobalAiAssistantEntryPoint extends ConsumerWidget {
   }
 
   bool _shouldHideEntryPoint(String location) {
-    final normalized = location.trim();
-    final path = (Uri.tryParse(normalized)?.path ?? normalized).trim();
-    return path == Routes.operaciones ||
-        path.startsWith('${Routes.operaciones}/') ||
-        path == Routes.operacionesTecnico ||
-        path.startsWith('${Routes.operacionesTecnico}/') ||
-        path == Routes.operacionesAgenda ||
-        path.startsWith('${Routes.operacionesAgenda}/') ||
-        path == Routes.operacionesMapaClientes ||
-        path.startsWith('${Routes.operacionesMapaClientes}/') ||
-        path == Routes.operacionesReglas ||
-        path.startsWith('${Routes.operacionesReglas}/') ||
-        path == Routes.operacionesChecklistConfig ||
-        path.startsWith('${Routes.operacionesChecklistConfig}/') ||
-        path == Routes.operacionesWarrantyConfig ||
-        path.startsWith('${Routes.operacionesWarrantyConfig}/');
+    final candidates = _routeCandidates(location);
+    return candidates.any((path) {
+      return path == Routes.operaciones ||
+          path.startsWith('${Routes.operaciones}/') ||
+          path == Routes.operacionesTecnico ||
+          path.startsWith('${Routes.operacionesTecnico}/') ||
+          path == Routes.operacionesAgenda ||
+          path.startsWith('${Routes.operacionesAgenda}/') ||
+          path == Routes.operacionesMapaClientes ||
+          path.startsWith('${Routes.operacionesMapaClientes}/') ||
+          path == Routes.operacionesReglas ||
+          path.startsWith('${Routes.operacionesReglas}/') ||
+          path == Routes.operacionesChecklistConfig ||
+          path.startsWith('${Routes.operacionesChecklistConfig}/') ||
+          path == Routes.operacionesWarrantyConfig ||
+          path.startsWith('${Routes.operacionesWarrantyConfig}/');
+    });
+  }
+
+  Iterable<String> _routeCandidates(String location) sync* {
+    final normalized = location.trim().toLowerCase();
+    if (normalized.isNotEmpty) yield normalized;
+
+    final uri = Uri.tryParse(location.trim());
+    if (uri == null) return;
+
+    final path = uri.path.trim().toLowerCase();
+    if (path.isNotEmpty) yield path;
+
+    final fragment = uri.fragment.trim().toLowerCase();
+    if (fragment.isNotEmpty) {
+      yield fragment.startsWith('/') ? fragment : '/$fragment';
+    }
+
+    final fragmentUri = Uri.tryParse(fragment);
+    final fragmentPath = fragmentUri?.path.trim().toLowerCase() ?? '';
+    if (fragmentPath.isNotEmpty) yield fragmentPath;
   }
 
   AiChatContext _buildAssistantContext(BuildContext context) {
