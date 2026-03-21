@@ -9,6 +9,7 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../core/cache/local_json_cache.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/storage/storage_repository.dart';
+import '../application/operations_controller.dart';
 import '../data/operations_repository.dart';
 import '../operations_models.dart';
 import '../presentation/operations_permissions.dart';
@@ -108,7 +109,19 @@ final technicalVisitControllerProvider =
       TechnicalVisitState,
       String
     >((ref, serviceId) {
-      return TechnicalVisitController(ref, serviceId);
+      final controller = TechnicalVisitController(ref, serviceId);
+      ref.listen<AsyncValue<ServiceModel>>(serviceProvider(serviceId), (
+        _,
+        next,
+      ) {
+        next.whenData(
+          (service) => controller.syncSharedService(
+            service,
+            source: 'technical_visit_provider',
+          ),
+        );
+      });
+      return controller;
     });
 
 class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
@@ -130,12 +143,9 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
   }
 
   bool _isWarrantyPhase([ServiceModel? service]) {
-    final value = ((service ?? state.service)?.currentPhase ?? '')
-        .trim()
-        .toLowerCase()
-        .replaceAll(' ', '_')
-        .replaceAll('-', '_');
-    return value == 'garantia' || value == 'warranty';
+    final snapshot = service ?? state.service;
+    if (snapshot == null) return false;
+    return effectiveServicePhaseKey(snapshot) == 'garantia';
   }
 
   String get _phaseCaption => _isWarrantyPhase() ? 'Garantía' : 'Levantamiento';
@@ -177,6 +187,37 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
 
   String _cacheKey(String userId) => 'ops_visit|$userId|${serviceId.trim()}';
 
+  Future<ServiceModel> _loadSharedService() {
+    return ref.read(serviceProvider(serviceId).future);
+  }
+
+  Future<void> _reloadSharedServiceSnapshot({required String source}) async {
+    ref.invalidate(serviceProvider(serviceId));
+    final shared = await ref.read(serviceProvider(serviceId).future);
+    if (!mounted) return;
+    final current = state.service;
+    if (current != null) {
+      debugAssertServiceSync(source: source, expected: current, actual: shared);
+    }
+    state = state.copyWith(service: shared, clearError: true);
+  }
+
+  void syncSharedService(ServiceModel service, {required String source}) {
+    final current = state.service;
+    if (current != null) {
+      debugAssertServiceSync(
+        source: source,
+        expected: current,
+        actual: service,
+      );
+    }
+    state = state.copyWith(
+      service: service,
+      refreshing: false,
+      clearError: true,
+    );
+  }
+
   bool get _readOnly {
     final user = ref.read(authStateProvider).user;
     final service = state.service;
@@ -186,10 +227,10 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
     if (!perms.canOperate) return true;
     if (perms.isAdminLike) return false;
 
-    final status = parseStatus(service.status);
-    return status == ServiceStatus.closed ||
-        status == ServiceStatus.cancelled ||
-        status == ServiceStatus.completed;
+    final status = effectiveServiceStatusKey(service);
+    return status == 'cerrada' ||
+        status == 'cancelada' ||
+        status == 'finalizada';
   }
 
   Future<void> load() async {
@@ -303,13 +344,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
         );
       }
 
-      final service = cacheScope.isEmpty
-          ? await repo.getService(serviceId)
-          : await repo.getServiceAndCache(
-              cacheScope: cacheScope,
-              id: serviceId,
-              silent: hasCached,
-            );
+      final service = await _loadSharedService();
       final visit = cacheScope.isEmpty
           ? await repo.getTechnicalVisitByOrder(serviceId)
           : await repo.getTechnicalVisitByOrderAndCache(
@@ -507,6 +542,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
         clearError: true,
       );
       await _persistDraft();
+      await _reloadSharedServiceSnapshot(source: 'technical_visit_signature');
     } on ApiException catch (e) {
       state = state.copyWith(
         clientSignature: current.copyWith(
@@ -633,6 +669,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
       final nextPhotos = [...state.photos, confirmed.fileUrl];
       state = state.copyWith(photos: nextPhotos, clearError: true);
       _removePending(id);
+      await _reloadSharedServiceSnapshot(source: 'technical_visit_photo');
       await _persistDraft();
       await save();
     } catch (e) {
@@ -704,6 +741,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
       final nextVideos = [...state.videos, confirmed.fileUrl];
       state = state.copyWith(videos: nextVideos, clearError: true);
       _removePending(id);
+      await _reloadSharedServiceSnapshot(source: 'technical_visit_video');
       await _persistDraft();
       await save();
     } catch (e) {
@@ -767,6 +805,7 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
             ? 'Levantamiento guardado localmente. Se sincronizará en segundo plano.'
             : null,
       );
+      await _reloadSharedServiceSnapshot(source: 'technical_visit_save');
       await _persistDraft();
     } on ApiException catch (e) {
       state = state.copyWith(saving: false, error: e.message);

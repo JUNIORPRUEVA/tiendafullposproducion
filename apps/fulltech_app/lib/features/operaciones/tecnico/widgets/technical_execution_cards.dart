@@ -160,19 +160,15 @@ class ServiceHeaderCard extends StatelessWidget {
               children: [
                 _InfoPill(
                   icon: Icons.build_outlined,
-                  label: service.orderType.trim().isNotEmpty
-                      ? service.orderType.trim()
-                      : 'Orden',
+                  label: effectiveServicePhaseLabel(service),
                 ),
                 _InfoPill(
                   icon: Icons.flag_outlined,
-                  label: 'Fase: ${phaseLabel(service.currentPhase)}',
+                  label: 'Fase: ${effectiveServicePhaseLabel(service)}',
                 ),
                 _InfoPill(
                   icon: Icons.playlist_add_check_circle_outlined,
-                  label: service.orderState.trim().isNotEmpty
-                      ? service.orderState.trim()
-                      : service.status.trim(),
+                  label: effectiveServiceStatusLabel(service),
                 ),
                 _InfoPill(icon: Icons.event_outlined, label: scheduledLabel),
               ],

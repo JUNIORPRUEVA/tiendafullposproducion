@@ -340,10 +340,10 @@ class _TechnicalServiceExecutionScreenState
     if (!perms.canOperate) return true;
     if (perms.isAdminLike) return false;
 
-    final status = parseStatus(service.status);
-    return status == ServiceStatus.closed ||
-        status == ServiceStatus.cancelled ||
-        status == ServiceStatus.completed;
+    final status = effectiveServiceStatusKey(service);
+    return status == 'cerrada' ||
+      status == 'cancelada' ||
+      status == 'finalizada';
   }
 
   String _firstName(String raw) {
@@ -354,14 +354,6 @@ class _TechnicalServiceExecutionScreenState
         .toList(growable: false);
     if (parts.isEmpty) return 'Cliente';
     return parts.first.trim();
-  }
-
-  String _effectiveState(ServiceModel service) {
-    final admin = (service.adminStatus ?? '').toString().trim().toLowerCase();
-    if (admin.isNotEmpty) return admin;
-    final order = service.orderState.toString().trim().toLowerCase();
-    if (order.isNotEmpty) return order;
-    return service.status.toString().trim().toLowerCase();
   }
 
   String? _mapOrderStateToTechProgress(String orderState) {
@@ -585,8 +577,8 @@ class _TechnicalServiceExecutionScreenState
   }
 
   Future<void> _showOrderDialog(ServiceModel service) async {
-    final statusLabel = _serviceStatusOptionFor(_effectiveState(service)).label;
-    final phaseText = phaseLabel(service.currentPhase);
+    final statusLabel = effectiveServiceStatusLabel(service);
+    final phaseText = effectiveServicePhaseLabel(service);
     final scheduled = service.scheduledStart ?? service.scheduledEnd;
     final assigned = service.assignments
         .map((assignment) => assignment.userName.trim())
@@ -1634,9 +1626,9 @@ class _TechnicalServiceExecutionScreenState
         .where((p) => p.caption.trim().toLowerCase() != 'firma del cliente')
         .toList(growable: false);
 
-    final currentState = _effectiveState(service);
+    final currentState = effectiveServiceStatusKey(service);
     final firstName = _firstName(service.customerName);
-    final currentPhaseLabel = phaseLabel(service.currentPhase);
+    final currentPhaseLabel = effectiveServicePhaseLabel(service);
     final statusOption = _serviceStatusOptionFor(currentState);
     final visibleChecklists = _visibleDynamicChecklists(st);
 

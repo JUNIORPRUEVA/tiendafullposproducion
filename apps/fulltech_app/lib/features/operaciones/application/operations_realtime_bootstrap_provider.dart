@@ -36,7 +36,9 @@ final operationsRealtimeBootstrapProvider = Provider<void>((ref) {
     refreshDebounce = Timer(const Duration(milliseconds: 650), () {
       unawaited(ref.read(operationsControllerProvider.notifier).refresh());
       unawaited(
-        ref.read(techOperationsControllerProvider.notifier).refresh(silent: true),
+        ref
+            .read(techOperationsControllerProvider.notifier)
+            .refresh(silent: true),
       );
     });
   }
@@ -49,7 +51,9 @@ final operationsRealtimeBootstrapProvider = Provider<void>((ref) {
       // Best-effort: update detail cache for instant "open detail".
       if (cacheScope.isNotEmpty) {
         unawaited(
-          ref.read(operationsRepositoryProvider).upsertServiceCacheFromRealtime(
+          ref
+              .read(operationsRepositoryProvider)
+              .upsertServiceCacheFromRealtime(
                 cacheScope: cacheScope,
                 serviceJson: msg.service!,
               ),
@@ -66,6 +70,7 @@ final operationsRealtimeBootstrapProvider = Provider<void>((ref) {
         ref
             .read(techOperationsControllerProvider.notifier)
             .applyRealtimeService(service);
+        ref.invalidate(serviceProvider(service.id));
       } catch (_) {
         // Ignore parse errors; we'll reconcile via refresh below.
       }

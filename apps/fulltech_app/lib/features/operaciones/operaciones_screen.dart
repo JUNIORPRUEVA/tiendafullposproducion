@@ -175,17 +175,7 @@ String _serviceTypeForAgendaKind(
 }
 
 String _effectiveServiceKindLabel(ServiceModel service) {
-  final orderType = _normalizeAgendaKindValue(
-    service.orderType,
-    fallback: service.orderType.trim().toLowerCase().isEmpty
-        ? 'mantenimiento'
-        : service.orderType.trim().toLowerCase(),
-  );
-  if (_agendaKindOptions.contains(orderType)) {
-    return _agendaKindLabel(orderType);
-  }
-
-  final phase = service.currentPhase.trim().toLowerCase();
+  final phase = effectiveServicePhaseKey(service);
   if (_agendaKindOptions.contains(phase)) {
     return _agendaKindLabel(phase);
   }
@@ -643,49 +633,96 @@ class _OperationsServiceFullEditFormState
 
   String get _normalizedOrderType => _normalizeAgendaKindValue(
     _orderType,
-    fallback: service.currentPhase.trim().toLowerCase().isEmpty
+    fallback: service.phase.trim().toLowerCase().isEmpty
         ? 'mantenimiento'
-        : service.currentPhase.trim().toLowerCase(),
+        : service.phase.trim().toLowerCase(),
   );
+
+  String _legacyOrderStateDraft(ServiceModel snapshot) {
+    final raw = snapshot.orderState.trim().toLowerCase();
+    if (raw.isNotEmpty) return raw;
+
+    switch (effectiveServiceStatusKey(snapshot)) {
+      case 'pendiente':
+        return 'pending';
+      case 'en_camino':
+        return 'assigned';
+      case 'en_proceso':
+        return 'in_progress';
+      case 'finalizada':
+      case 'cerrada':
+        return 'finalized';
+      case 'cancelada':
+        return 'cancelled';
+      default:
+        return 'pending';
+    }
+  }
+
+  void _applyServiceSnapshot(
+    ServiceModel snapshot, {
+    bool overwriteTextFields = false,
+  }) {
+    final address = _extractEditableServiceAddress(snapshot.customerAddress);
+    _orderType = _normalizeAgendaKindValue(
+      snapshot.orderType,
+      fallback: snapshot.phase.trim().toLowerCase().isEmpty
+          ? 'mantenimiento'
+          : snapshot.phase.trim().toLowerCase(),
+    );
+    _serviceType = snapshot.serviceType.trim().isEmpty
+        ? _serviceTypeForAgendaKind(_orderType)
+        : snapshot.serviceType;
+    _categoryId = snapshot.categoryId ?? '';
+    _priority = snapshot.priority;
+    _orderState = _legacyOrderStateDraft(snapshot);
+    _categories = _categoriesFromAsync(ref.read(categoriesProvider));
+    _technicianId = (snapshot.technicianId ?? '').trim().isEmpty
+        ? null
+        : snapshot.technicianId;
+
+    if (overwriteTextFields) {
+      _descriptionCtrl.text = snapshot.description.trim() == 'Sin nota'
+          ? ''
+          : snapshot.description.trim();
+      _addressCtrl.text = address.addressLine;
+      _gpsCtrl.text = address.gpsText;
+      _quotedCtrl.text = snapshot.quotedAmount == null
+          ? ''
+          : snapshot.quotedAmount!.toStringAsFixed(2);
+      _depositCtrl.text = snapshot.depositAmount == null
+          ? ''
+          : snapshot.depositAmount!.toStringAsFixed(2);
+      _surveyResultCtrl.text = (snapshot.surveyResult ?? '').trim();
+      _materialsUsedCtrl.text = (snapshot.materialsUsed ?? '').trim();
+      _finalCostCtrl.text = snapshot.finalCost == null
+          ? ''
+          : snapshot.finalCost!.toStringAsFixed(2);
+    }
+  }
+
+  bool _needsControlledSync(ServiceModel snapshot) {
+    final nextOrderType = _normalizeAgendaKindValue(
+      snapshot.orderType,
+      fallback: snapshot.phase.trim().toLowerCase().isEmpty
+          ? 'mantenimiento'
+          : snapshot.phase.trim().toLowerCase(),
+    );
+    return _orderType != nextOrderType ||
+        _serviceType !=
+            (snapshot.serviceType.trim().isEmpty
+                ? _serviceTypeForAgendaKind(nextOrderType)
+                : snapshot.serviceType) ||
+        _categoryId != (snapshot.categoryId ?? '') ||
+        _priority != snapshot.priority ||
+        _orderState != _legacyOrderStateDraft(snapshot) ||
+        (_technicianId ?? '') != ((snapshot.technicianId ?? '').trim());
+  }
 
   @override
   void initState() {
     super.initState();
-    final address = _extractEditableServiceAddress(service.customerAddress);
-    _orderType = _normalizeAgendaKindValue(
-      service.orderType,
-      fallback: service.currentPhase.trim().toLowerCase().isEmpty
-          ? 'mantenimiento'
-          : service.currentPhase.trim().toLowerCase(),
-    );
-    _serviceType = service.serviceType.trim().isEmpty
-        ? _serviceTypeForAgendaKind(_orderType)
-        : service.serviceType;
-    _categoryId = service.categoryId ?? '';
-    _priority = service.priority;
-    _orderState = service.orderState.trim().isEmpty
-        ? 'pending'
-        : service.orderState;
-    _categories = _categoriesFromAsync(ref.read(categoriesProvider));
-    _technicianId = (service.technicianId ?? '').trim().isEmpty
-        ? null
-        : service.technicianId;
-    _descriptionCtrl.text = service.description.trim() == 'Sin nota'
-        ? ''
-        : service.description.trim();
-    _addressCtrl.text = address.addressLine;
-    _gpsCtrl.text = address.gpsText;
-    _quotedCtrl.text = service.quotedAmount == null
-        ? ''
-        : service.quotedAmount!.toStringAsFixed(2);
-    _depositCtrl.text = service.depositAmount == null
-        ? ''
-        : service.depositAmount!.toStringAsFixed(2);
-    _surveyResultCtrl.text = (service.surveyResult ?? '').trim();
-    _materialsUsedCtrl.text = (service.materialsUsed ?? '').trim();
-    _finalCostCtrl.text = service.finalCost == null
-        ? ''
-        : service.finalCost!.toStringAsFixed(2);
+    _applyServiceSnapshot(service, overwriteTextFields: true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(_loadCategories());
@@ -839,6 +876,21 @@ class _OperationsServiceFullEditFormState
 
   @override
   Widget build(BuildContext context) {
+    final liveServiceAsync = ref.watch(serviceProvider(widget.service.id));
+    final liveService = liveServiceAsync.asData?.value;
+    if (liveService != null && _needsControlledSync(liveService)) {
+      debugAssertServiceSync(
+        source: 'operations_edit_form',
+        expected: service,
+        actual: liveService,
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (!_needsControlledSync(liveService)) return;
+        setState(() => _applyServiceSnapshot(liveService));
+      });
+    }
+
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final categories = _categories.isNotEmpty ? _categories : defaultCategories;
@@ -3308,11 +3360,10 @@ bool _looksLikeValidLocationText(String value) {
 }
 
 bool _isFinalizedService(ServiceModel s) {
-  final orderState = s.orderState.trim().toLowerCase();
-  final status = s.status.trim().toLowerCase();
-  if (orderState == 'finalized') return true;
-  if (status == 'completed' || status == 'closed') return true;
-  return false;
+  final status = effectiveServiceStatusKey(s);
+  return status == 'finalizada' ||
+      status == 'cerrada' ||
+      status == 'cancelada';
 }
 
 List<String> _missingPhaseRequirements(ServiceModel s, String phase) {
@@ -4381,15 +4432,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
   }
 
   Future<void> _pickAndChangeOrderState(ServiceModel service) async {
-    final current =
-        ((service.adminStatus ?? '').trim().isNotEmpty
-                ? service.adminStatus
-                : (service.orderState.trim().isNotEmpty
-                      ? service.orderState
-                      : service.status))
-            .toString()
-            .trim()
-            .toLowerCase();
+    final current = effectiveServiceStatusKey(service);
     final picked = await StatusPickerSheet.show(context, current: current);
     if (!mounted || picked == null) return;
 
@@ -4422,16 +4465,6 @@ class _PanelOptionsState extends State<_PanelOptions> {
     final isDesktop =
         MediaQuery.sizeOf(context).width >=
         _OperacionesScreenState._desktopOperationsBreakpoint;
-
-    String? effectiveAdminStatus(ServiceModel s) {
-      final raw = (s.adminStatus ?? '').trim().toLowerCase();
-      return raw.isEmpty ? null : raw;
-    }
-
-    ops.ServiceStatus effectiveLegacyStatus(ServiceModel s) {
-      final raw = s.orderState.trim().isNotEmpty ? s.orderState : s.status;
-      return ops.parseStatus(raw);
-    }
 
     bool inRange(ServiceModel s) {
       final scheduled = s.scheduledStart;
@@ -4509,27 +4542,18 @@ class _PanelOptionsState extends State<_PanelOptions> {
     }
 
     bool matchesStatus(ServiceModel s) {
-      final adminSt = effectiveAdminStatus(s);
-      final legacySt = effectiveLegacyStatus(s);
+      final canonicalStatus = effectiveServiceStatusKey(s);
       switch (_filters.status) {
         case OperationsStatusFilter.all:
           return true;
         case OperationsStatusFilter.pending:
-          return adminSt != null
-              ? isPendingByAdmin(adminSt)
-              : isPendingByLegacy(legacySt);
+          return isPendingByAdmin(canonicalStatus);
         case OperationsStatusFilter.inProgress:
-          return adminSt != null
-              ? isInProgressByAdmin(adminSt)
-              : isInProgressByLegacy(legacySt);
+          return isInProgressByAdmin(canonicalStatus);
         case OperationsStatusFilter.completed:
-          return adminSt != null
-              ? isCompletedByAdmin(adminSt)
-              : isCompletedByLegacy(legacySt);
+          return isCompletedByAdmin(canonicalStatus);
         case OperationsStatusFilter.cancelled:
-          return adminSt != null
-              ? isCancelledByAdmin(adminSt)
-              : legacySt == ops.ServiceStatus.cancelled;
+          return isCancelledByAdmin(canonicalStatus);
       }
     }
 
@@ -4592,23 +4616,14 @@ class _PanelOptionsState extends State<_PanelOptions> {
           return b.id.compareTo(a.id);
         });
 
-    bool isPendingService(ServiceModel s) {
-      final adminSt = effectiveAdminStatus(s);
-      if (adminSt != null) return isPendingByAdmin(adminSt);
-      return isPendingByLegacy(effectiveLegacyStatus(s));
-    }
+    bool isPendingService(ServiceModel s) =>
+        isPendingByAdmin(effectiveServiceStatusKey(s));
 
-    bool isInProgressService(ServiceModel s) {
-      final adminSt = effectiveAdminStatus(s);
-      if (adminSt != null) return isInProgressByAdmin(adminSt);
-      return isInProgressByLegacy(effectiveLegacyStatus(s));
-    }
+    bool isInProgressService(ServiceModel s) =>
+        isInProgressByAdmin(effectiveServiceStatusKey(s));
 
-    bool isCompletedService(ServiceModel s) {
-      final adminSt = effectiveAdminStatus(s);
-      if (adminSt != null) return isCompletedByAdmin(adminSt);
-      return isCompletedByLegacy(effectiveLegacyStatus(s));
-    }
+    bool isCompletedService(ServiceModel s) =>
+        isCompletedByAdmin(effectiveServiceStatusKey(s));
 
     int pendingCount(List<ServiceModel> list) =>
         list.where(isPendingService).length;
@@ -4630,7 +4645,10 @@ class _PanelOptionsState extends State<_PanelOptions> {
 
     assert(() {
       final rawStatuses = visibleOrders
-          .map((s) => '${s.status}|${s.orderState}')
+          .map(
+            (s) =>
+                '${effectiveServiceStatusKey(s)}|${effectiveServicePhaseKey(s)}',
+          )
           .toSet()
           .toList(growable: false);
       debugPrint(
@@ -4849,34 +4867,22 @@ class _PanelOptionsState extends State<_PanelOptions> {
   }) {
     final pendingOrders = visibleOrders
         .where((service) {
-          final raw = service.orderState.trim().isNotEmpty
-              ? service.orderState
-              : service.status;
-          final status = ops.parseStatus(raw);
-          return status == ops.ServiceStatus.reserved ||
-              status == ops.ServiceStatus.survey ||
-              status == ops.ServiceStatus.scheduled ||
-              status == ops.ServiceStatus.warranty;
+        final status = effectiveServiceStatusKey(service);
+        return status == 'pendiente';
         })
         .toList(growable: false);
 
     final inProgressOrders = visibleOrders
         .where((service) {
-          final raw = service.orderState.trim().isNotEmpty
-              ? service.orderState
-              : service.status;
-          return ops.parseStatus(raw) == ops.ServiceStatus.inProgress;
+        final status = effectiveServiceStatusKey(service);
+        return status == 'en_camino' || status == 'en_proceso';
         })
         .toList(growable: false);
 
     final completedOrders = visibleOrders
         .where((service) {
-          final raw = service.orderState.trim().isNotEmpty
-              ? service.orderState
-              : service.status;
-          final status = ops.parseStatus(raw);
-          return status == ops.ServiceStatus.completed ||
-              status == ops.ServiceStatus.closed;
+        final status = effectiveServiceStatusKey(service);
+        return status == 'finalizada' || status == 'cerrada';
         })
         .toList(growable: false);
 
@@ -5136,7 +5142,7 @@ class _PanelOptionsState extends State<_PanelOptions> {
               unawaited(() async {
                 final draft = await ServiceActionsSheet.pickChangePhaseDraft(
                   context,
-                  current: s.currentPhase,
+                  current: s.phase,
                   initialScheduledAt: s.scheduledStart,
                 );
                 if (!mounted || draft == null) return;
@@ -5915,30 +5921,33 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
   }
 
   ({Color background, Color foreground}) _orderStateTone(String raw) {
-    switch (raw.trim().toLowerCase()) {
+    switch (normalizeOperationsKey(raw)) {
       case 'pending':
       case 'pendiente':
         return (
           background: const Color(0xFFFFF1DB),
           foreground: const Color(0xFF9A5800),
         );
+      case 'en_camino':
       case 'in_progress':
-      case 'en_progreso':
-      case 'en proceso':
+      case 'en_proceso':
         return (
           background: const Color(0xFFE9F5FF),
           foreground: const Color(0xFF145DA0),
         );
       case 'completed':
       case 'finalizado':
+      case 'finalizada':
       case 'closed':
       case 'cerrado':
+      case 'cerrada':
         return (
           background: const Color(0xFFE8F7EE),
           foreground: const Color(0xFF18794E),
         );
       case 'cancelled':
       case 'cancelado':
+      case 'cancelada':
         return (
           background: const Color(0xFFFCE8E8),
           foreground: const Color(0xFFB42318),
@@ -5951,10 +5960,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     }
   }
 
-  String _effectiveOrderState(ServiceModel s) {
-    final raw = s.orderState.trim().toLowerCase();
-    return raw.isEmpty ? 'pendiente' : raw;
-  }
+  String _effectiveOrderState(ServiceModel s) => effectiveServiceStatusKey(s);
 
   bool _looksLikeVideoFile(ServiceFileModel file) {
     final mime = (file.mimeType ?? '').trim().toLowerCase();
@@ -6011,9 +6017,9 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
     final items = <OrderInfoItem>[];
     final normalizedOrderType = _normalizeAgendaKindValue(
       service.orderType,
-      fallback: service.currentPhase.trim().toLowerCase().isEmpty
+      fallback: service.phase.trim().toLowerCase().isEmpty
           ? 'mantenimiento'
-          : service.currentPhase.trim().toLowerCase(),
+          : service.phase.trim().toLowerCase(),
     );
 
     if ((service.surveyResult ?? '').trim().isNotEmpty) {
@@ -6339,13 +6345,20 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final opsState = ref.watch(operationsControllerProvider);
-    ServiceModel service = _service;
-    for (final s in opsState.services) {
-      if (s.id == _service.id) {
-        service = s;
-        break;
-      }
+    final sharedServiceAsync = ref.watch(serviceProvider(_service.id));
+    ServiceModel service = sharedServiceAsync.asData?.value ?? _service;
+    if (sharedServiceAsync.asData?.value != null &&
+        serviceCanonicalFieldsDiffer(_service, service)) {
+      debugAssertServiceSync(
+        source: 'operations_detail_panel',
+        expected: _service,
+        actual: service,
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (!serviceCanonicalFieldsDiffer(_service, service)) return;
+        setState(() => _service = service);
+      });
     }
     final dateFormat = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
 
@@ -6515,13 +6528,14 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
 
             messenger.showSnackBar(
               SnackBar(
-                content: Text('Fase: ${phaseLabel(updated.currentPhase)}'),
+                content: Text('Fase: ${effectiveServicePhaseLabel(updated)}'),
               ),
             );
 
-            final nextPhase = updated.currentPhase.trim().toLowerCase();
-            final currentOrderState = updated.orderState.trim().toLowerCase();
-            if (nextPhase == 'instalacion' && currentOrderState == 'pending') {
+            final nextPhase = updated.phase.trim().toLowerCase();
+            final currentOrderState = effectiveServiceStatusKey(updated);
+            if (nextPhase == 'instalacion' &&
+                currentOrderState == 'pendiente') {
               if (!context.mounted) return;
               final applySuggested = await showDialog<bool>(
                 context: context,
@@ -6663,12 +6677,12 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
       OrderInfoItem(
         icon: Icons.flag_outlined,
         label: 'Fase actual',
-        value: phaseLabel(service.currentPhase),
+        value: effectiveServicePhaseLabel(service),
       ),
       OrderInfoItem(
         icon: Icons.task_alt_outlined,
         label: 'Estado',
-        value: StatusPickerSheet.label(statusChipValue),
+        value: effectiveServiceStatusLabel(service),
         caption: canOperate ? 'Gestionable desde Otros' : null,
       ),
       OrderInfoItem(
@@ -6822,7 +6836,7 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
           orderLabel: customerPhone.isEmpty
               ? service.orderLabel
               : '${service.orderLabel} · $customerPhone',
-          statusLabel: StatusPickerSheet.label(statusChipValue),
+          statusLabel: effectiveServiceStatusLabel(service),
           statusBackground: statusTone.background,
           statusForeground: statusTone.foreground,
           priorityLabel: service.priority > 0 ? 'P${service.priority}' : null,

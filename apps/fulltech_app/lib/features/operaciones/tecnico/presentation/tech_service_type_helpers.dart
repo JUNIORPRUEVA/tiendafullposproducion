@@ -9,7 +9,7 @@ enum TechAllowedServiceType {
 }
 
 TechAllowedServiceType techAllowedServiceTypeFrom(ServiceModel service) {
-  final phaseKey = _normalizeKey(service.currentPhase);
+  final phaseKey = _normalizeKey(effectiveServicePhaseKey(service));
   switch (phaseKey) {
     case 'installation':
     case 'instalacion':

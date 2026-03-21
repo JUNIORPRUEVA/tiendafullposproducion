@@ -115,6 +115,21 @@ final operationsControllerProvider =
       return OperationsController(ref);
     });
 
+final serviceProvider = FutureProvider.family<ServiceModel, String>((
+  ref,
+  serviceId,
+) async {
+  final services = ref.watch(
+    operationsControllerProvider.select((state) => state.services),
+  );
+
+  for (final service in services) {
+    if (service.id == serviceId) return service;
+  }
+
+  return ref.read(operationsControllerProvider.notifier).getOne(serviceId);
+});
+
 class OperationsController extends StateNotifier<OperationsState> {
   final Ref ref;
   int _loadSeq = 0;
@@ -259,13 +274,8 @@ class OperationsController extends StateNotifier<OperationsState> {
 
     final statusFilter = norm(state.statusFilter);
     if (statusFilter.isNotEmpty) {
-      final candidates = <String>{
-        norm(service.status),
-        norm(service.currentPhase),
-        norm(service.adminPhase),
-        norm(service.adminStatus),
-        norm(service.orderState),
-      }..remove('');
+      final candidates = <String>{norm(service.status), norm(service.phase)}
+        ..remove('');
       if (!candidates.contains(statusFilter)) return false;
     }
 
@@ -281,11 +291,7 @@ class OperationsController extends StateNotifier<OperationsState> {
 
     final orderStateFilter = norm(state.orderStateFilter);
     if (orderStateFilter.isNotEmpty) {
-      final candidates = <String>{
-        norm(service.orderState),
-        norm(service.adminStatus),
-        norm(service.status),
-      }..remove('');
+      final candidates = <String>{norm(service.status)}..remove('');
       if (!candidates.contains(orderStateFilter)) return false;
     }
 
@@ -320,11 +326,10 @@ class OperationsController extends StateNotifier<OperationsState> {
         service.customerAddress,
         service.category,
         service.categoryName ?? '',
+        service.phase,
         service.serviceType,
         service.orderType,
-        service.orderState,
-        service.adminStatus ?? '',
-        service.currentPhase,
+        service.status,
       ].map(norm).join(' ');
       if (!haystack.contains(query)) return false;
     }
@@ -426,8 +431,16 @@ class OperationsController extends StateNotifier<OperationsState> {
   }
 
   Future<ServiceModel> getOne(String id) async {
+    for (final service in state.services) {
+      if (service.id == id) return service;
+    }
+
     final repo = ref.read(operationsRepositoryProvider);
     final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
+
+    if (cacheScope.isEmpty) {
+      return repo.getService(id);
+    }
 
     final cached = await repo.getCachedService(cacheScope: cacheScope, id: id);
     if (cached != null) {
@@ -442,6 +455,12 @@ class OperationsController extends StateNotifier<OperationsState> {
       id: id,
       silent: true,
     );
+  }
+
+  void _invalidateServiceDetail(String id) {
+    final trimmed = id.trim();
+    if (trimmed.isEmpty) return;
+    ref.invalidate(serviceProvider(trimmed));
   }
 
   Future<ServiceModel> updateService({
@@ -486,6 +505,7 @@ class OperationsController extends StateNotifier<OperationsState> {
           technicianId: technicianId,
           tags: tags,
         );
+    _invalidateServiceDetail(serviceId);
     await load();
     return updated;
   }
@@ -618,6 +638,7 @@ class OperationsController extends StateNotifier<OperationsState> {
           finalCost: finalCost,
           tags: tags,
         );
+    _invalidateServiceDetail(service.id);
     await load();
     return service;
   }
@@ -626,6 +647,7 @@ class OperationsController extends StateNotifier<OperationsState> {
     await ref
         .read(operationsRepositoryProvider)
         .changeStatus(serviceId: id, status: status, message: message);
+    _invalidateServiceDetail(id);
     await load();
   }
 
@@ -653,9 +675,9 @@ class OperationsController extends StateNotifier<OperationsState> {
     }
 
     final current = before[index];
-    if ((current.adminStatus ?? '').trim().toLowerCase() == next) return;
+    if (current.status.trim().toLowerCase() == next) return;
 
-    final optimistic = current.copyWith(adminStatus: next);
+    final optimistic = current.copyWith(status: next);
     final optimisticList = [...before];
     optimisticList[index] = optimistic;
     state = state.copyWith(services: optimisticList);
@@ -677,6 +699,7 @@ class OperationsController extends StateNotifier<OperationsState> {
       } else {
         await load();
       }
+      _invalidateServiceDetail(id);
     } catch (e) {
       state = state.copyWith(services: before);
       rethrow;
@@ -723,6 +746,7 @@ class OperationsController extends StateNotifier<OperationsState> {
         after[idx] = updated;
         state = state.copyWith(services: after);
       }
+      _invalidateServiceDetail(id);
       await load();
       return updated;
     } catch (e) {
@@ -759,10 +783,10 @@ class OperationsController extends StateNotifier<OperationsState> {
     }
 
     final current = before[index];
-    if (current.currentPhase.trim().toLowerCase() == next) return current;
+    if (current.phase.trim().toLowerCase() == next) return current;
 
     final optimistic = current.copyWith(
-      currentPhase: next,
+      phase: next,
       scheduledStart: scheduledAt,
     );
     final optimisticList = [...before];
@@ -785,6 +809,7 @@ class OperationsController extends StateNotifier<OperationsState> {
         after[idx] = updated;
         state = state.copyWith(services: after);
       }
+      _invalidateServiceDetail(id);
 
       // Ensure filters/counters reflect the new schedule.
       await load();
@@ -804,6 +829,7 @@ class OperationsController extends StateNotifier<OperationsState> {
     await ref
         .read(operationsRepositoryProvider)
         .schedule(serviceId: id, start: start, end: end, message: message);
+    _invalidateServiceDetail(id);
     await load();
   }
 
@@ -811,6 +837,7 @@ class OperationsController extends StateNotifier<OperationsState> {
     await ref
         .read(operationsRepositoryProvider)
         .assign(serviceId: id, assignments: assignments);
+    _invalidateServiceDetail(id);
     await load();
   }
 
@@ -818,6 +845,7 @@ class OperationsController extends StateNotifier<OperationsState> {
     await ref
         .read(operationsRepositoryProvider)
         .addUpdate(serviceId: id, type: 'note', message: message);
+    _invalidateServiceDetail(id);
     await load();
   }
 
@@ -830,6 +858,7 @@ class OperationsController extends StateNotifier<OperationsState> {
           stepId: stepId,
           stepDone: done,
         );
+    _invalidateServiceDetail(id);
     await load();
   }
 
@@ -841,6 +870,7 @@ class OperationsController extends StateNotifier<OperationsState> {
     await ref
         .read(operationsRepositoryProvider)
         .createWarranty(serviceId: id, title: title, description: description);
+    _invalidateServiceDetail(id);
     await load();
   }
 
@@ -848,11 +878,13 @@ class OperationsController extends StateNotifier<OperationsState> {
     await ref
         .read(operationsRepositoryProvider)
         .uploadEvidence(serviceId: id, file: file);
+    _invalidateServiceDetail(id);
     await load();
   }
 
   Future<void> deleteService(String id) async {
     await ref.read(operationsRepositoryProvider).deleteService(id);
+    _invalidateServiceDetail(id);
     await load();
   }
 

@@ -86,6 +86,236 @@ ServiceStatus parseStatus(dynamic raw) {
   }
 }
 
+String normalizeOperationsKey(String raw) {
+  var value = raw.trim().toLowerCase();
+  if (value.isEmpty) return '';
+
+  value = value
+      .replaceAll('á', 'a')
+      .replaceAll('é', 'e')
+      .replaceAll('í', 'i')
+      .replaceAll('ó', 'o')
+      .replaceAll('ú', 'u')
+      .replaceAll('ñ', 'n');
+
+  return value.replaceAll(' ', '_').replaceAll('-', '_');
+}
+
+String _canonicalPhaseKey(String raw) {
+  final value = normalizeOperationsKey(raw);
+  if (value.isEmpty) return '';
+  if (value.contains('levantamiento') || value.contains('survey')) {
+    return 'levantamiento';
+  }
+  if (value.contains('garantia') || value.contains('warranty')) {
+    return 'garantia';
+  }
+  if (value.contains('instalacion') || value.contains('installation')) {
+    return 'instalacion';
+  }
+  if (value.contains('mantenimiento') || value.contains('maintenance')) {
+    return 'mantenimiento';
+  }
+  if (value.contains('reserva') || value.contains('reserved')) {
+    return 'reserva';
+  }
+  return value;
+}
+
+String _canonicalStatusKey(String raw) {
+  final value = normalizeOperationsKey(raw);
+  if (value.isEmpty) return '';
+
+  switch (value) {
+    case 'pending':
+    case 'pendiente':
+    case 'reserved':
+    case 'reserva':
+    case 'scheduled':
+    case 'confirmed':
+    case 'confirmada':
+    case 'confirmado':
+    case 'assigned':
+    case 'asignada':
+    case 'asignado':
+    case 'rescheduled':
+    case 'reagendada':
+    case 'reagendado':
+    case 'survey':
+    case 'levantamiento':
+      return 'pendiente';
+    case 'en_camino':
+      return 'en_camino';
+    case 'in_progress':
+    case 'en_proceso':
+    case 'enproceso':
+      return 'en_proceso';
+    case 'completed':
+    case 'completado':
+    case 'finalized':
+    case 'finalizado':
+    case 'finalizada':
+      return 'finalizada';
+    case 'closed':
+    case 'cerrado':
+    case 'cerrada':
+      return 'cerrada';
+    case 'cancelled':
+    case 'canceled':
+    case 'cancelado':
+    case 'cancelada':
+      return 'cancelada';
+    default:
+      return value;
+  }
+}
+
+String canonicalServicePhaseFromJson(Map<String, dynamic> json) {
+  final candidates = <String>[
+    (json['phase'] ?? '').toString(),
+    (json['currentPhase'] ?? '').toString(),
+    (json['orderType'] ?? '').toString(),
+    (json['serviceType'] ?? '').toString(),
+    (json['title'] ?? '').toString(),
+    (json['description'] ?? '').toString(),
+  ];
+
+  for (final candidate in candidates) {
+    final key = _canonicalPhaseKey(candidate);
+    if (key == 'reserva' ||
+        key == 'instalacion' ||
+        key == 'mantenimiento' ||
+        key == 'levantamiento' ||
+        key == 'garantia') {
+      return key;
+    }
+  }
+
+  return 'reserva';
+}
+
+String canonicalServiceStatusFromJson(Map<String, dynamic> json) {
+  final candidates = <String>[
+    (json['status'] ?? '').toString(),
+    (json['adminStatus'] ?? '').toString(),
+    (json['orderState'] ?? '').toString(),
+  ];
+
+  for (final candidate in candidates) {
+    final key = _canonicalStatusKey(candidate);
+    if (key.isNotEmpty) return key;
+  }
+
+  return 'pendiente';
+}
+
+String effectiveServicePhaseKey(ServiceModel service) {
+  final candidates = <String>[
+    service.phase,
+    service.orderType,
+    service.currentPhase,
+    service.serviceType,
+    service.title,
+    service.description,
+  ];
+
+  for (final candidate in candidates) {
+    final key = _canonicalPhaseKey(candidate);
+    if (key == 'reserva' ||
+        key == 'instalacion' ||
+        key == 'mantenimiento' ||
+        key == 'levantamiento' ||
+        key == 'garantia') {
+      return key;
+    }
+  }
+
+  return _canonicalPhaseKey(service.currentPhase);
+}
+
+String effectiveServicePhaseLabel(ServiceModel service) {
+  return switch (effectiveServicePhaseKey(service)) {
+    'reserva' => 'Reserva',
+    'instalacion' => 'Instalación',
+    'mantenimiento' => 'Mantenimiento',
+    'levantamiento' => 'Levantamiento',
+    'garantia' => 'Garantía',
+    _ => phaseLabel(service.currentPhase),
+  };
+}
+
+String effectiveServiceStatusKey(ServiceModel service) {
+  final candidates = <String>[
+    service.status,
+    service.adminStatus ?? '',
+    service.orderState,
+  ];
+
+  for (final candidate in candidates) {
+    final value = _canonicalStatusKey(candidate);
+    if (value.isNotEmpty) return value;
+  }
+
+  return 'pendiente';
+}
+
+String effectiveServiceStatusLabel(ServiceModel service) {
+  return switch (effectiveServiceStatusKey(service)) {
+    'pendiente' => 'Pendiente',
+    'en_camino' => 'En camino',
+    'en_proceso' => 'En proceso',
+    'finalizada' => 'Finalizada',
+    'cerrada' => 'Cerrada',
+    'cancelada' => 'Cancelada',
+    _ =>
+      (service.adminStatus ?? '').trim().isNotEmpty
+          ? service.adminStatus!.trim()
+          : service.orderState.trim().isNotEmpty
+          ? service.orderState.trim()
+          : service.status.trim(),
+  };
+}
+
+String effectiveServiceCategoryCode(ServiceModel service) {
+  return normalizeOperationsKey(service.category);
+}
+
+String effectiveServiceCategoryLabel(ServiceModel service) {
+  return localizedServiceCategoryFromParts(
+    categoryName: service.categoryName,
+    categoryCode: service.category,
+    fallbackCategory: service.category,
+  );
+}
+
+bool serviceCanonicalFieldsDiffer(ServiceModel left, ServiceModel right) {
+  if (left.id.trim() != right.id.trim()) return true;
+  return effectiveServicePhaseKey(left) != effectiveServicePhaseKey(right) ||
+      effectiveServiceStatusKey(left) != effectiveServiceStatusKey(right) ||
+      effectiveServiceCategoryCode(left) != effectiveServiceCategoryCode(right);
+}
+
+void debugAssertServiceSync({
+  required String source,
+  required ServiceModel expected,
+  required ServiceModel actual,
+}) {
+  assert(() {
+    if (serviceCanonicalFieldsDiffer(expected, actual)) {
+      throw StateError(
+        'State desync detected [$source] '
+        'expected phase=${effectiveServicePhaseKey(expected)} '
+        'status=${effectiveServiceStatusKey(expected)} '
+        'category=${effectiveServiceCategoryCode(expected)} '
+        'actual phase=${effectiveServicePhaseKey(actual)} '
+        'status=${effectiveServiceStatusKey(actual)} '
+        'category=${effectiveServiceCategoryCode(actual)}',
+      );
+    }
+    return true;
+  }());
+}
+
 String phaseLabel(dynamic raw) {
   if (raw == null) return '—';
   var value = raw.toString().trim();
@@ -419,6 +649,7 @@ class ServiceModel {
   final String category;
   final String? categoryId;
   final String? categoryName;
+  final String phase;
   final String status;
   final String currentPhase;
   final String orderType;
@@ -459,6 +690,7 @@ class ServiceModel {
     required this.category,
     this.categoryId,
     this.categoryName,
+    required this.phase,
     required this.status,
     required this.currentPhase,
     required this.orderType,
@@ -515,6 +747,7 @@ class ServiceModel {
     String? category,
     String? categoryId,
     String? categoryName,
+    String? phase,
     String? status,
     String? currentPhase,
     String? orderType,
@@ -546,6 +779,25 @@ class ServiceModel {
     List<ServiceUpdateModel>? updates,
     ServiceClosingSummaryModel? closing,
   }) {
+    final nextPhase =
+        phase ??
+        currentPhase ??
+        (orderType == null ? null : _canonicalPhaseKey(orderType)) ??
+        this.phase;
+    final nextStatus =
+        status ??
+        adminStatus ??
+        (orderState == null ? null : _canonicalStatusKey(orderState)) ??
+        this.status;
+    final nextOrderType =
+        orderType ??
+        ((phase != null || currentPhase != null) ? nextPhase : this.orderType);
+    final nextOrderState =
+        orderState ??
+        ((status != null || adminStatus != null)
+            ? nextStatus
+            : this.orderState);
+
     return ServiceModel(
       id: id,
       orderNumber: orderNumber ?? this.orderNumber,
@@ -555,12 +807,13 @@ class ServiceModel {
       category: category ?? this.category,
       categoryId: categoryId ?? this.categoryId,
       categoryName: categoryName ?? this.categoryName,
-      status: status ?? this.status,
-      currentPhase: currentPhase ?? this.currentPhase,
-      orderType: orderType ?? this.orderType,
-      orderState: orderState ?? this.orderState,
+      phase: nextPhase,
+      status: nextStatus,
+      currentPhase: nextPhase,
+      orderType: nextOrderType,
+      orderState: nextOrderState,
       adminPhase: adminPhase ?? this.adminPhase,
-      adminStatus: adminStatus ?? this.adminStatus,
+      adminStatus: nextStatus,
       technicianId: technicianId ?? this.technicianId,
       priority: priority ?? this.priority,
       quotedAmount: quotedAmount ?? this.quotedAmount,
@@ -644,6 +897,8 @@ class ServiceModel {
       json['evidences'],
       ServiceFileModel.fromJson,
     );
+    final phase = canonicalServicePhaseFromJson(json);
+    final status = canonicalServiceStatusFromJson(json);
 
     return ServiceModel(
       id: (json['id'] ?? '').toString(),
@@ -654,17 +909,15 @@ class ServiceModel {
       category: (json['category'] ?? '').toString(),
       categoryId: json['categoryId']?.toString(),
       categoryName: json['categoryName']?.toString(),
-      status: (json['status'] ?? 'reserved').toString(),
-      currentPhase: (json['currentPhase'] ?? json['phase'] ?? 'reserva')
-          .toString(),
+      phase: phase,
+      status: status,
+      currentPhase: phase,
       orderType: (json['orderType'] ?? 'reserva').toString(),
-      orderState: (json['orderState'] ?? 'pending').toString(),
+      orderState: (json['orderState'] ?? status).toString(),
       adminPhase: json['adminPhase'] == null
           ? null
           : (json['adminPhase'] ?? '').toString(),
-      adminStatus: json['adminStatus'] == null
-          ? null
-          : (json['adminStatus'] ?? '').toString(),
+      adminStatus: status,
       technicianId: json['technicianId'] == null
           ? null
           : (json['technicianId'] ?? '').toString(),

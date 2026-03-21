@@ -81,20 +81,7 @@ class TechOperationsSummary {
   });
 }
 
-String normalizeTechKey(String raw) {
-  var value = raw.trim().toLowerCase();
-  if (value.isEmpty) return '';
-
-  value = value
-      .replaceAll('á', 'a')
-      .replaceAll('é', 'e')
-      .replaceAll('í', 'i')
-      .replaceAll('ó', 'o')
-      .replaceAll('ú', 'u')
-      .replaceAll('ñ', 'n');
-
-  return value.replaceAll(' ', '_').replaceAll('-', '_');
-}
+String normalizeTechKey(String raw) => normalizeOperationsKey(raw);
 
 String techOrderStatusLabel(TechOrderStatusFilter filter) {
   switch (filter) {
@@ -173,51 +160,30 @@ String techServiceCategoryLabel(ServiceModel service) {
 }
 
 TechOrderPhaseFilter? techOrderPhaseFrom(ServiceModel service) {
-  final candidates = [
-    service.currentPhase,
-    service.serviceType,
-    service.orderType,
-    service.title,
-    service.description,
-  ];
-
-  for (final candidate in candidates) {
-    final key = normalizeTechKey(candidate);
-    if (key.contains('instalacion') || key.contains('installation')) {
+  switch (effectiveServicePhaseKey(service)) {
+    case 'instalacion':
       return TechOrderPhaseFilter.installation;
-    }
-    if (key.contains('mantenimiento') || key.contains('maintenance')) {
+    case 'mantenimiento':
       return TechOrderPhaseFilter.maintenance;
-    }
-    if (key.contains('levantamiento') || key.contains('survey')) {
+    case 'levantamiento':
       return TechOrderPhaseFilter.survey;
-    }
-    if (key.contains('garantia') || key.contains('warranty')) {
+    case 'garantia':
       return TechOrderPhaseFilter.warranty;
-    }
   }
 
   return null;
 }
 
 TechOrderStatusFilter techOrderStatusFrom(ServiceModel service) {
-  final rawStatus = service.orderState.trim().isEmpty
-      ? service.status
-      : service.orderState;
-  final status = parseStatus(rawStatus);
-
-  switch (status) {
-    case ServiceStatus.inProgress:
-    case ServiceStatus.warranty:
+  switch (effectiveServiceStatusKey(service)) {
+    case 'en_camino':
+    case 'en_proceso':
       return TechOrderStatusFilter.inProgress;
-    case ServiceStatus.completed:
-    case ServiceStatus.closed:
-    case ServiceStatus.cancelled:
+    case 'finalizada':
+    case 'cerrada':
+    case 'cancelada':
       return TechOrderStatusFilter.completed;
-    case ServiceStatus.reserved:
-    case ServiceStatus.scheduled:
-    case ServiceStatus.survey:
-    case ServiceStatus.unknown:
+    default:
       return TechOrderStatusFilter.pending;
   }
 }
@@ -231,10 +197,9 @@ bool isReservationTechOrder(ServiceModel service) {
 
   final candidates = [
     service.orderType,
-    service.currentPhase,
+    effectiveServicePhaseKey(service),
     service.serviceType,
-    service.status,
-    service.orderState,
+    effectiveServiceStatusKey(service),
   ];
 
   final hasReservationHint = candidates.any((candidate) {

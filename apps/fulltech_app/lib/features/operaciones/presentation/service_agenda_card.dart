@@ -174,11 +174,9 @@ class ServiceAgendaCard extends StatelessWidget {
 
     const previewHeight = 96.0;
 
-    final statusRaw = (service.adminStatus ?? '').trim().isNotEmpty
-        ? service.adminStatus!
-        : (service.orderState.isEmpty ? service.status : service.orderState);
+    final statusRaw = effectiveServiceStatusLabel(service);
 
-    final servicePhaseText = phaseLabel(service.currentPhase);
+    final servicePhaseText = effectiveServicePhaseLabel(service);
     final adminPhaseRaw = (service.adminPhase ?? '').trim();
     final phaseText = servicePhaseText != '—'
         ? servicePhaseText

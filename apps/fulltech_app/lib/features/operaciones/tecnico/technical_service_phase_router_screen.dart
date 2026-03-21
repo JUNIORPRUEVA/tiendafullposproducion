@@ -11,34 +11,6 @@ import 'garantia_screen.dart';
 import 'levantamiento_screen.dart';
 import 'technical_service_execution_screen.dart';
 
-final _serviceForPhaseProvider = FutureProvider.family<ServiceModel, String>((
-  ref,
-  serviceId,
-) async {
-  return ref.read(operationsControllerProvider.notifier).getOne(serviceId);
-});
-
-String _normalizePhase(String raw) {
-  var v = raw.trim().toLowerCase();
-  if (v.isEmpty) return '';
-  v = v.replaceAll(' ', '_').replaceAll('-', '_');
-  return v;
-}
-
-bool _isLevantamientoPhase(String raw) {
-  final value = _normalizePhase(raw);
-  return value == 'levantamiento' ||
-      value == 'survey' ||
-      value.contains('levantamiento');
-}
-
-bool _isGarantiaPhase(String raw) {
-  final value = _normalizePhase(raw);
-  return value == 'garantia' ||
-      value == 'warranty' ||
-      value.contains('garantia');
-}
-
 class TechnicalServicePhaseRouterScreen extends ConsumerWidget {
   final String serviceId;
 
@@ -47,7 +19,7 @@ class TechnicalServicePhaseRouterScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authStateProvider).user;
-    final asyncService = ref.watch(_serviceForPhaseProvider(serviceId));
+    final asyncService = ref.watch(serviceProvider(serviceId));
 
     return asyncService.when(
       loading: () => Scaffold(
@@ -89,8 +61,7 @@ class TechnicalServicePhaseRouterScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 12),
                 FilledButton(
-                  onPressed: () =>
-                      ref.invalidate(_serviceForPhaseProvider(serviceId)),
+                  onPressed: () => ref.invalidate(serviceProvider(serviceId)),
                   child: const Text('Reintentar'),
                 ),
               ],
@@ -99,10 +70,11 @@ class TechnicalServicePhaseRouterScreen extends ConsumerWidget {
         ),
       ),
       data: (service) {
-        if (_isLevantamientoPhase(service.currentPhase)) {
+        final phase = effectiveServicePhaseKey(service);
+        if (phase == 'levantamiento') {
           return LevantamientoScreen(serviceId: serviceId);
         }
-        if (_isGarantiaPhase(service.currentPhase)) {
+        if (phase == 'garantia') {
           return GarantiaScreen(serviceId: serviceId);
         }
         return TechnicalServiceExecutionScreen(serviceId: serviceId);

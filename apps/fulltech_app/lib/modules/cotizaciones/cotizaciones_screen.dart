@@ -200,7 +200,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     }
   }
 
-  void _applyClientPrefillFromRoute() {
+  void _applyClientPrefillFromRoute({bool force = false}) {
     final qp = GoRouterState.of(context).uri.queryParameters;
     final id = (qp['customerId'] ?? '').trim();
     final name = (qp['customerName'] ?? '').trim();
@@ -211,12 +211,18 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     final hasSelection =
         (_selectedClientId ?? '').trim().isNotEmpty ||
         _selectedClientName.trim() != 'Sin cliente';
-    if (hasSelection) return;
+    if (hasSelection && !force) return;
 
     setState(() {
-      if (id.isNotEmpty) _selectedClientId = id;
-      if (name.isNotEmpty) _selectedClientName = name;
-      if (phone.isNotEmpty) _selectedClientPhone = phone;
+      if (force) {
+        _selectedClientId = id.isEmpty ? null : id;
+        _selectedClientName = name.isEmpty ? 'Sin cliente' : name;
+        _selectedClientPhone = phone.isEmpty ? null : phone;
+      } else {
+        if (id.isNotEmpty) _selectedClientId = id;
+        if (name.isNotEmpty) _selectedClientName = name;
+        if (phone.isNotEmpty) _selectedClientPhone = phone;
+      }
       _writeActiveDesktopDraft();
     });
     _schedulePersistEditorDraft();
@@ -343,6 +349,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         _replaceEditorStateFromDraft(activeTicket);
         _writeActiveDesktopDraft();
       });
+      _applyClientPrefillFromRoute(force: true);
       unawaited(_syncQuotationAi(triggerAi: false));
     } catch (_) {
       // Ignore invalid cache entries.

@@ -417,7 +417,7 @@ class _TechnicalPhaseFormScreenState
                           label: 'Fase',
                           value: service == null
                               ? '—'
-                              : phaseLabel(service.currentPhase),
+                              : effectiveServicePhaseLabel(service),
                           icon: Icons.flag_outlined,
                         ),
                         const SizedBox(height: 10),
@@ -425,7 +425,7 @@ class _TechnicalPhaseFormScreenState
                           label: 'Estado',
                           value: (service?.status ?? '').trim().isEmpty
                               ? '—'
-                              : service!.status,
+                              : effectiveServiceStatusLabel(service!),
                           icon: Icons.track_changes_outlined,
                         ),
                         const SizedBox(height: 10),

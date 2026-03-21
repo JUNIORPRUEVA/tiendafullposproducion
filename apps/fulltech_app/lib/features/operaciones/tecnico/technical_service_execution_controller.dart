@@ -112,7 +112,19 @@ final technicalExecutionControllerProvider =
       TechnicalExecutionState,
       String
     >((ref, serviceId) {
-      return TechnicalExecutionController(ref, serviceId);
+      final controller = TechnicalExecutionController(ref, serviceId);
+      ref.listen<AsyncValue<ServiceModel>>(serviceProvider(serviceId), (
+        _,
+        next,
+      ) {
+        next.whenData(
+          (service) => controller.syncSharedService(
+            service,
+            source: 'technical_execution_provider',
+          ),
+        );
+      });
+      return controller;
     });
 
 class TechnicalExecutionController
@@ -198,6 +210,31 @@ class TechnicalExecutionController
     ref
         .read(techOperationsControllerProvider.notifier)
         .applyRealtimeService(service);
+  }
+
+  Future<ServiceModel> _loadSharedService() {
+    return ref.read(serviceProvider(serviceId).future);
+  }
+
+  Future<ServiceModel> _refreshSharedService() {
+    ref.invalidate(serviceProvider(serviceId));
+    return ref.read(serviceProvider(serviceId).future);
+  }
+
+  void syncSharedService(ServiceModel service, {required String source}) {
+    final current = state.service;
+    if (current != null) {
+      debugAssertServiceSync(
+        source: source,
+        expected: current,
+        actual: service,
+      );
+    }
+    state = state.copyWith(
+      service: service,
+      refreshing: false,
+      clearError: true,
+    );
   }
 
   String _resolveTechnicianId(ServiceModel service) {
@@ -312,13 +349,7 @@ class TechnicalExecutionController
         );
       }
 
-      final service = cacheScope.isEmpty
-          ? await repo.getService(serviceId)
-          : await repo.getServiceAndCache(
-              cacheScope: cacheScope,
-              id: serviceId,
-              silent: hasCached,
-            );
+      final service = await _loadSharedService();
 
       ServiceExecutionBundleModel bundle =
           cachedBundle ??
@@ -333,9 +364,9 @@ class TechnicalExecutionController
             categoryLabel: '',
             templates: [],
           );
-        String? reportError;
-        String? checklistError;
-        try {
+      String? reportError;
+      String? checklistError;
+      try {
         bundle = cacheScope.isEmpty
             ? await repo.getExecutionReport(
                 serviceId: serviceId,
@@ -354,16 +385,16 @@ class TechnicalExecutionController
 
       try {
         checklistBundle = cacheScope.isEmpty
-          ? await repo.getServiceChecklists(serviceId: serviceId)
-          : await repo.getServiceChecklistsAndCache(
-            cacheScope: cacheScope,
-            serviceId: serviceId,
-            );
-        } on ApiException catch (e) {
+            ? await repo.getServiceChecklists(serviceId: serviceId)
+            : await repo.getServiceChecklistsAndCache(
+                cacheScope: cacheScope,
+                serviceId: serviceId,
+              );
+      } on ApiException catch (e) {
         checklistError = e.message;
-        } catch (e) {
+      } catch (e) {
         checklistError = e.toString();
-        }
+      }
 
       final combinedError = [
         if ((reportError ?? '').trim().isNotEmpty) reportError!.trim(),
@@ -452,10 +483,10 @@ class TechnicalExecutionController
 
     if (perms.isAdminLike) return false;
 
-    final status = parseStatus(service.status);
-    return status == ServiceStatus.closed ||
-        status == ServiceStatus.cancelled ||
-        status == ServiceStatus.completed;
+    final status = effectiveServiceStatusKey(service);
+    return status == 'cerrada' ||
+        status == 'cancelada' ||
+        status == 'finalizada';
   }
 
   Future<void> _persistDraft() async {
@@ -755,14 +786,7 @@ class TechnicalExecutionController
       // Nota: el backend ya registra `status_change` al cambiar el estado.
       // Evitamos crear updates extra con types no soportados.
 
-      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
-      final refreshed = cacheScope.isEmpty
-          ? await repo.getService(serviceId)
-          : await repo.getServiceAndCache(
-              cacheScope: cacheScope,
-              id: serviceId,
-              silent: true,
-            );
+      final refreshed = await _refreshSharedService();
       state = state.copyWith(savingUpdate: false, service: refreshed);
 
       _syncServiceLists(refreshed);
@@ -873,14 +897,7 @@ class TechnicalExecutionController
       final msg = paid ? '[PAGO] estado=pagado' : '[PAGO] estado=pendiente';
       await repo.addUpdate(serviceId: serviceId, type: 'note', message: msg);
 
-      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
-      final refreshed = cacheScope.isEmpty
-          ? await repo.getService(serviceId)
-          : await repo.getServiceAndCache(
-              cacheScope: cacheScope,
-              id: serviceId,
-              silent: true,
-            );
+      final refreshed = await _refreshSharedService();
       state = state.copyWith(savingUpdate: false, service: refreshed);
 
       _syncServiceLists(refreshed);
@@ -944,14 +961,7 @@ class TechnicalExecutionController
         type: 'note',
         message: 'kind=$k|text=$t',
       );
-      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
-      final refreshed = cacheScope.isEmpty
-          ? await repo.getService(serviceId)
-          : await repo.getServiceAndCache(
-              cacheScope: cacheScope,
-              id: serviceId,
-              silent: true,
-            );
+      final refreshed = await _refreshSharedService();
       state = state.copyWith(savingUpdate: false, service: refreshed);
       _syncServiceLists(refreshed);
       unawaited(ref.read(operationsControllerProvider.notifier).refresh());
@@ -1127,15 +1137,7 @@ class TechnicalExecutionController
 
       if (!mounted) return;
 
-      final repo = ref.read(operationsRepositoryProvider);
-      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
-      final refreshed = cacheScope.isEmpty
-          ? await repo.getService(serviceId)
-          : await repo.getServiceAndCache(
-              cacheScope: cacheScope,
-              id: serviceId,
-              silent: true,
-            );
+      final refreshed = await _refreshSharedService();
 
       if (!mounted) return;
       _removePending(id);
@@ -1270,15 +1272,7 @@ class TechnicalExecutionController
 
       if (!mounted) return;
 
-      final repo = ref.read(operationsRepositoryProvider);
-      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
-      final refreshed = cacheScope.isEmpty
-          ? await repo.getService(serviceId)
-          : await repo.getServiceAndCache(
-              cacheScope: cacheScope,
-              id: serviceId,
-              silent: true,
-            );
+      final refreshed = await _refreshSharedService();
 
       if (!mounted) return;
       _removePending(id);
@@ -1382,14 +1376,7 @@ class TechnicalExecutionController
       await _persistDraft();
       TraceLog.log('OpsTech', 'Upload success serviceId=$serviceId');
 
-      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
-      final refreshed = cacheScope.isEmpty
-          ? await repo.getService(serviceId)
-          : await repo.getServiceAndCache(
-              cacheScope: cacheScope,
-              id: serviceId,
-              silent: true,
-            );
+      final refreshed = await _refreshSharedService();
 
       if (!mounted) return;
       state = state.copyWith(service: refreshed);
@@ -1449,23 +1436,16 @@ class TechnicalExecutionController
 
       state = state.copyWith(changes: [...state.changes, created]);
 
-      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
-      if (cacheScope.isNotEmpty) {
-        unawaited(() async {
-          try {
-            final refreshed = await repo.getServiceAndCache(
-              cacheScope: cacheScope,
-              id: serviceId,
-              silent: true,
-            );
-            if (!mounted) return;
-            state = state.copyWith(service: refreshed);
-            _syncServiceLists(refreshed);
-          } catch (_) {
-            // ignore
-          }
-        }());
-      }
+      unawaited(() async {
+        try {
+          final refreshed = await _refreshSharedService();
+          if (!mounted) return;
+          state = state.copyWith(service: refreshed);
+          _syncServiceLists(refreshed);
+        } catch (_) {
+          // ignore
+        }
+      }());
 
       unawaited(ref.read(operationsControllerProvider.notifier).refresh());
       unawaited(
@@ -1499,23 +1479,16 @@ class TechnicalExecutionController
         changes: state.changes.where((c) => c.id != change.id).toList(),
       );
 
-      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
-      if (cacheScope.isNotEmpty) {
-        unawaited(() async {
-          try {
-            final refreshed = await repo.getServiceAndCache(
-              cacheScope: cacheScope,
-              id: serviceId,
-              silent: true,
-            );
-            if (!mounted) return;
-            state = state.copyWith(service: refreshed);
-            _syncServiceLists(refreshed);
-          } catch (_) {
-            // ignore
-          }
-        }());
-      }
+      unawaited(() async {
+        try {
+          final refreshed = await _refreshSharedService();
+          if (!mounted) return;
+          state = state.copyWith(service: refreshed);
+          _syncServiceLists(refreshed);
+        } catch (_) {
+          // ignore
+        }
+      }());
 
       unawaited(ref.read(operationsControllerProvider.notifier).refresh());
       unawaited(

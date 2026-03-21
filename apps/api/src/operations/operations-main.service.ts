@@ -2846,6 +2846,107 @@ export class OperationsService {
     return `${yyyy}${MM}${dd}${HH}${mm}${ss}${SSS}${stableSuffix}`;
   }
 
+  private normalizeClientKey(value: unknown): string {
+    return (value ?? '')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[\s-]+/g, '_');
+  }
+
+  private normalizeClientPhaseValue(value: unknown): string {
+    const key = this.normalizeClientKey(value);
+    if (!key) return '';
+    if (key.includes('levantamiento') || key.includes('survey')) return 'levantamiento';
+    if (key.includes('garantia') || key.includes('warranty')) return 'garantia';
+    if (key.includes('instalacion') || key.includes('installation')) return 'instalacion';
+    if (key.includes('mantenimiento') || key.includes('maintenance')) return 'mantenimiento';
+    if (key.includes('reserva') || key.includes('reserved')) return 'reserva';
+    return '';
+  }
+
+  private deriveClientPhase(service: any): string {
+    const candidates = [
+      service?.orderType ? this.toApiOrderType(service.orderType) : '',
+      service?.currentPhase ? this.toApiPhase(service.currentPhase) : '',
+      service?.serviceType ? this.toApiType(service.serviceType) : '',
+      service?.title,
+      service?.description,
+    ];
+
+    for (const candidate of candidates) {
+      const phase = this.normalizeClientPhaseValue(candidate);
+      if (phase) return phase;
+    }
+
+    return 'reserva';
+  }
+
+  private normalizeClientStatusValue(value: unknown): string {
+    const key = this.normalizeClientKey(value);
+    if (!key) return '';
+
+    switch (key) {
+      case 'pending':
+      case 'pendiente':
+      case 'reserved':
+      case 'reserva':
+      case 'scheduled':
+      case 'confirmed':
+      case 'confirmada':
+      case 'confirmado':
+      case 'assigned':
+      case 'asignada':
+      case 'asignado':
+      case 'rescheduled':
+      case 'reagendada':
+      case 'reagendado':
+      case 'survey':
+      case 'levantamiento':
+        return 'pendiente';
+      case 'en_camino':
+        return 'en_camino';
+      case 'in_progress':
+      case 'en_proceso':
+      case 'enproceso':
+        return 'en_proceso';
+      case 'completed':
+      case 'completado':
+      case 'finalized':
+      case 'finalizado':
+      case 'finalizada':
+        return 'finalizada';
+      case 'closed':
+      case 'cerrado':
+      case 'cerrada':
+        return 'cerrada';
+      case 'cancelled':
+      case 'canceled':
+      case 'cancelado':
+      case 'cancelada':
+        return 'cancelada';
+      default:
+        return key;
+    }
+  }
+
+  private deriveClientStatus(service: any): string {
+    const candidates = [
+      service?.adminStatus ? this.toApiAdminStatus(service.adminStatus) : '',
+      service?.orderState ? this.toApiOrderState(service.orderState) : '',
+      service?.status ? this.toApiStatus(service.status) : '',
+    ];
+
+    for (const candidate of candidates) {
+      const status = this.normalizeClientStatusValue(candidate);
+      if (status) return status;
+    }
+
+    return 'pendiente';
+  }
+
   private normalizeService(service: any) {
     const orderNumber =
       typeof service?.orderNumber === 'string' && service.orderNumber.trim()
@@ -2876,6 +2977,8 @@ export class OperationsService {
           );
         })
       : [];
+    const phase = this.deriveClientPhase(service);
+    const status = this.deriveClientStatus(service);
 
     return {
       ...service,
@@ -2885,13 +2988,14 @@ export class OperationsService {
       categoryRef,
       category: categoryCode,
       evidences,
+      phase,
       serviceType: this.toApiType(service.serviceType),
-      status: this.toApiStatus(service.status),
-      currentPhase: service.currentPhase ? this.toApiPhase(service.currentPhase) : 'reserva',
+      status,
+      currentPhase: phase,
       orderType: service.orderType ? this.toApiOrderType(service.orderType) : 'reserva',
       orderState: service.orderState ? this.toApiOrderState(service.orderState) : 'pending',
       adminPhase: service.adminPhase ? this.toApiAdminPhase(service.adminPhase) : null,
-      adminStatus: service.adminStatus ? this.toApiAdminStatus(service.adminStatus) : null,
+      adminStatus: status,
       assignments: (service.assignments ?? []).map((item: any) => ({
         ...item,
         role: this.toApiAssignRole(item.role),

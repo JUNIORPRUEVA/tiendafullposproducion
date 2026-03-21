@@ -26,9 +26,7 @@ class _ServiceDetailBundle {
 final _serviceDetailProvider =
     FutureProvider.family<_ServiceDetailBundle, String>((ref, serviceId) async {
       final repo = ref.read(operationsRepositoryProvider);
-      final serviceFuture = ref
-          .read(operationsControllerProvider.notifier)
-          .getOne(serviceId);
+      final serviceFuture = ref.watch(serviceProvider(serviceId).future);
       final visitFuture = repo.getTechnicalVisitByOrder(serviceId);
       final results = await Future.wait<dynamic>([serviceFuture, visitFuture]);
       return _ServiceDetailBundle(
@@ -473,9 +471,7 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
   }
 
   List<Widget> _buildOrderSection(ServiceModel service, List<String> assigned) {
-    final rawStatus = _clean(service.orderState).isEmpty
-        ? _clean(service.status)
-        : _clean(service.orderState);
+    final rawStatus = effectiveServiceStatusLabel(service);
     final scheduled = _fmtDateTime(
       service.scheduledStart ?? service.scheduledEnd,
     );
@@ -1051,7 +1047,8 @@ class _HistoryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final statusTheme = _historyStatusTheme(service.status);
+    final statusTheme = _historyStatusTheme(effectiveServiceStatusKey(service));
+    final statusLabel = effectiveServiceStatusLabel(service);
 
     final dt =
         service.completedAt ?? service.scheduledStart ?? service.scheduledEnd;
@@ -1125,7 +1122,7 @@ class _HistoryTile extends StatelessWidget {
                         ],
                       ),
                     StatusBadge(
-                      label: service.status,
+                      label: statusLabel,
                       background: statusTheme.background,
                       foreground: statusTheme.foreground,
                     ),
@@ -1141,17 +1138,23 @@ class _HistoryTile extends StatelessWidget {
 }
 
 ({Color background, Color foreground}) _historyStatusTheme(String rawStatus) {
-  final status = rawStatus.trim().toLowerCase();
-  if (status.contains('complete') || status.contains('final')) {
+  final status = normalizeOperationsKey(rawStatus);
+  if (status == 'finalizada' || status == 'cerrada') {
     return (
       background: const Color(0xFFEAF8EF),
       foreground: const Color(0xFF15803D),
     );
   }
-  if (status.contains('progress') || status.contains('proceso')) {
+  if (status == 'en_proceso' || status == 'en_camino') {
     return (
       background: const Color(0xFFEAF2FF),
       foreground: const Color(0xFF0B6BDE),
+    );
+  }
+  if (status == 'cancelada') {
+    return (
+      background: const Color(0xFFFFF1F2),
+      foreground: const Color(0xFFB42318),
     );
   }
   return (

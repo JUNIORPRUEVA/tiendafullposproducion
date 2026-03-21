@@ -221,7 +221,7 @@ class ServiceActionsSheet {
         final canChangeAdminPhaseEffective =
             changeAdminPhase != null && canChangeAdminPhase;
 
-        final phaseSubtitle = phaseLabel(service.currentPhase);
+        final phaseSubtitle = effectiveServicePhaseLabel(service);
         final adminPhaseRaw = (service.adminPhase ?? '').trim();
         final adminPhaseSubtitle = adminPhaseRaw.isEmpty
             ? '—'
@@ -249,7 +249,7 @@ class ServiceActionsSheet {
                 item(
                   icon: Icons.swap_horiz_rounded,
                   title: 'Cambiar estado',
-                  subtitle: 'Actual: ${service.status}',
+                  subtitle: 'Actual: ${effectiveServiceStatusLabel(service)}',
                   enabled: canChangeStatus,
                   disabledReason: canOperate
                       ? 'No hay transiciones disponibles'
@@ -279,7 +279,7 @@ class ServiceActionsSheet {
                           final draft =
                               await _pickServicePhaseWithScheduleAndNote(
                                 context,
-                                current: service.currentPhase,
+                                current: service.phase,
                                 initialScheduledAt: service.scheduledStart,
                               );
                           if (draft == null) return;
