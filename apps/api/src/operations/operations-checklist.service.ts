@@ -800,49 +800,48 @@ export class OperationsChecklistService {
     executionId: string,
     dto: CheckServiceChecklistItemDto,
   ) {
-    const rows = await this.prisma.$queryRaw<ChecklistExecutionLookupRow[]>(
-      Prisma.sql`
-        SELECT
-          ce.id AS "executionId",
-          ce.service_order_id AS "serviceId"
-        FROM checklist_executions ce
-        WHERE ce.id = ${executionId}::uuid
-        LIMIT 1
-      `,
-    );
-    const row = rows[0];
+    const row = await this.prisma.checklistExecution.findUnique({
+      where: { id: executionId },
+      select: {
+        id: true,
+        serviceOrderId: true,
+      },
+    });
     if (!row) {
       throw new NotFoundException('Ítem de checklist no encontrado');
     }
 
-    await this.operations.findOne(user, row.serviceId);
+    await this.operations.findOne(user, row.serviceOrderId);
 
     const checkedAt = dto.isChecked ? new Date() : null;
     const checkedById = dto.isChecked ? user.id : null;
 
-    const updatedRows = await this.prisma.$queryRaw<
-      Array<{
-        id: string;
-        isChecked: boolean;
-        checkedAt: Date | null;
-        checkedById: string | null;
-      }>
-    >(Prisma.sql`
-      UPDATE checklist_executions
-      SET
-        is_checked = ${dto.isChecked},
-        checked_at = ${checkedAt},
-        checked_by = ${checkedById},
-        updated_at = now()
-      WHERE id = ${executionId}::uuid
-      RETURNING
-        id,
-        is_checked AS "isChecked",
-        checked_at AS "checkedAt",
-        checked_by AS "checkedById"
-    `);
-      await this.invalidateChecklistCache('checklist.checkItem', row.serviceId);
-    return updatedRows[0];
+    const updated = await this.prisma.checklistExecution.update({
+      where: { id: executionId },
+      data: {
+        isChecked: dto.isChecked,
+        checkedAt,
+        checkedByUserId: checkedById,
+      },
+      select: {
+        id: true,
+        isChecked: true,
+        checkedAt: true,
+        checkedByUserId: true,
+      },
+    });
+
+    await this.invalidateChecklistCache(
+      'checklist.checkItem',
+      row.serviceOrderId,
+    );
+
+    return {
+      id: updated.id,
+      isChecked: updated.isChecked,
+      checkedAt: updated.checkedAt,
+      checkedById: updated.checkedByUserId,
+    };
   }
 
   private groupTemplateRows(rows: TemplateListRow[]) {

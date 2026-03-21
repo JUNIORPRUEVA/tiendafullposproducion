@@ -6839,10 +6839,6 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
                 .toList(growable: false);
             final evidenceItems = fileItems;
 
-            debugPrint(
-              'Evidences: ${service.evidences.map((file) => '${file.id}:${file.fileType}').toList(growable: false)}',
-            );
-
             return EvidenceGallery(
               referenceText: referenceText,
               items: evidenceItems,

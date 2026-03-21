@@ -412,7 +412,10 @@ class EvidenceGallery extends StatelessWidget {
                       for (final item in imageItems)
                         SizedBox(
                           width: tileWidth,
-                          child: _ImageEvidenceTile(item: item),
+                          child: _ImageEvidenceTile(
+                            item: item,
+                            onTap: () => onOpenItem(item),
+                          ),
                         ),
                     ],
                   );
@@ -988,60 +991,68 @@ class _DocumentActionTile extends StatelessWidget {
 
 class _ImageEvidenceTile extends StatelessWidget {
   final OrderEvidenceItem item;
+  final VoidCallback onTap;
 
-  const _ImageEvidenceTile({required this.item});
+  const _ImageEvidenceTile({required this.item, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFDCE6F1)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        onTap: onTap,
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFDCE6F1)),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
             children: [
-              PhotoPreview(source: item.url, height: 132),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: const Color(0xFF16324E),
-                      ),
-                    ),
-                    if ((item.meta ?? '').trim().isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        item.meta!.trim(),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF72849A),
-                          fontWeight: FontWeight.w700,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  PhotoPreview(source: item.url, height: 132),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF16324E),
+                          ),
                         ),
-                      ),
-                    ],
-                  ],
-                ),
+                        if ((item.meta ?? '').trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            item.meta!.trim(),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF72849A),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              Positioned(
+                top: 10,
+                right: 10,
+                child: _TypePill(label: item.typeLabel),
               ),
             ],
           ),
-          Positioned(
-            top: 10,
-            right: 10,
-            child: _TypePill(label: item.typeLabel),
-          ),
-        ],
+        ),
       ),
     );
   }

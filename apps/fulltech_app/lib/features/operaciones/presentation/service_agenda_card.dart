@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/utils/safe_url_launcher.dart';
 
@@ -40,7 +39,7 @@ class ServiceAgendaCard extends StatelessWidget {
     );
     final uri = location.mapsUri;
     if (uri == null) return;
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    await safeOpenUrl(context, uri, copiedMessage: 'Link copiado');
   }
 
   Future<void> _openWhatsApp(BuildContext context) async {

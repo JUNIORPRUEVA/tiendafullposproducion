@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../core/errors/api_exception.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/routing/routes.dart';
+import '../../../core/utils/safe_url_launcher.dart';
 import '../../../core/widgets/app_drawer.dart';
 import '../application/operations_controller.dart';
 import '../data/operations_repository.dart';
@@ -707,7 +707,7 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
         Future<void> openMaps() async {
           final uri = location.mapsUri;
           if (uri == null) return;
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
+          await safeOpenUrl(context, uri, copiedMessage: 'Link copiado');
         }
 
         final locationSection = _buildLocationSection(addressLabel, snapshot);
@@ -807,7 +807,11 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                                       scheme: 'tel',
                                       path: phoneValue,
                                     );
-                                    await launchUrl(uri);
+                                    await safeOpenUrl(
+                                      context,
+                                      uri,
+                                      copiedMessage: 'Link copiado',
+                                    );
                                   },
                                 ),
                               ),

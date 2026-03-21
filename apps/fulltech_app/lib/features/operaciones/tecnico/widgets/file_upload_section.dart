@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
+import '../../../../core/utils/safe_url_launcher.dart';
+import '../../presentation/photo_preview.dart';
 import 'service_order_detail_components.dart';
 import '../technical_evidence_upload.dart';
 
@@ -36,10 +37,10 @@ class FileUploadSection extends StatelessWidget {
       .where((item) => isVideo ? item.isVideo : item.isImage)
       .toList(growable: false);
 
-  Future<void> _openExternal(String value) async {
+  Future<void> _openExternal(BuildContext context, String value) async {
     final uri = Uri.tryParse(value.trim());
     if (uri == null) return;
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    await safeOpenUrl(context, uri, copiedMessage: 'Enlace copiado');
   }
 
   @override
@@ -89,13 +90,31 @@ class FileUploadSection extends StatelessWidget {
         if (_filteredPending.isNotEmpty) ...[
           const SizedBox(height: 12),
           for (final upload in _filteredPending) ...[
-            Text(
-              upload.fileName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    upload.fileName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  upload.status == PendingEvidenceStatus.failed
+                      ? 'Error al subir'
+                      : '${(upload.progress * 100).clamp(0, 100).round()}%',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: upload.status == PendingEvidenceStatus.failed
+                        ? const Color(0xFFB42318)
+                        : const Color(0xFF0B6BDE),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 6),
             ClipRRect(
@@ -127,17 +146,12 @@ class FileUploadSection extends StatelessWidget {
                   borderRadius: BorderRadius.circular(16),
                   child: Stack(
                     children: [
-                      Image.network(
-                        items[index],
+                      SizedBox(
                         width: 110,
                         height: 110,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                          width: 110,
+                        child: PhotoPreview(
+                          source: items[index],
                           height: 110,
-                          color: const Color(0xFFF1F5F9),
-                          alignment: Alignment.center,
-                          child: const Icon(Icons.broken_image_outlined),
                         ),
                       ),
                       Positioned(
@@ -194,7 +208,7 @@ class FileUploadSection extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  onTap: () => _openExternal(items[index]),
+                  onTap: () => _openExternal(context, items[index]),
                   trailing: IconButton(
                     tooltip: 'Eliminar',
                     onPressed: enabled ? () => onRemove?.call(index) : null,

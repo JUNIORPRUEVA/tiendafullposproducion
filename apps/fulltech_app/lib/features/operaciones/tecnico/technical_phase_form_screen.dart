@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/routing/routes.dart';
+import '../../../core/utils/safe_url_launcher.dart';
 import '../../../core/widgets/app_drawer.dart';
 import '../../../modules/cotizaciones/cotizacion_models.dart';
 import '../../../modules/cotizaciones/data/cotizaciones_repository.dart';
@@ -166,7 +166,7 @@ class _TechnicalPhaseFormScreenState
   Future<void> _openMaps(ServiceLocationInfo location) async {
     final uri = location.mapsUri;
     if (uri == null) return;
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    await safeOpenUrl(context, uri, copiedMessage: 'Link copiado');
   }
 
   Widget _buildBanner(BuildContext context) {
