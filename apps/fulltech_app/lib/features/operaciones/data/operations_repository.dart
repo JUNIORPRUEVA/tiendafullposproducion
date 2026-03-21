@@ -938,11 +938,24 @@ class OperationsRepository {
     }
     if (data is Map) {
       final message = data['message'];
-      if (message is String && message.trim().isNotEmpty) return message;
+      if (message is String && message.trim().isNotEmpty) {
+        final raw = message.trim();
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map) {
+            return _extractMessage(decoded.cast<String, dynamic>(), raw);
+          }
+        } catch (_) {
+          // Keep raw text when nested payload is not JSON.
+        }
+        return raw;
+      }
       if (message is List && message.isNotEmpty) {
         final first = message.first;
         if (first is String && first.trim().isNotEmpty) return first;
       }
+      final error = data['error'];
+      if (error is String && error.trim().isNotEmpty) return error.trim();
     }
     return fallback;
   }

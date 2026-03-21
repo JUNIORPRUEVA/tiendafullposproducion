@@ -52,7 +52,6 @@ final offlineStoreProvider = Provider<OfflineStore>((ref) {
 final syncQueueServiceProvider =
     StateNotifierProvider<SyncQueueService, SyncQueueState>((ref) {
       final service = SyncQueueService(ref.read(offlineStoreProvider));
-      ref.onDispose(service.dispose);
       return service;
     });
 

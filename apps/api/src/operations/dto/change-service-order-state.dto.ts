@@ -8,6 +8,15 @@ const orderStates = [
   'finalized',
   'cancelled',
   'rescheduled',
+  'pendiente',
+  'confirmada',
+  'asignada',
+  'en_camino',
+  'en_proceso',
+  'finalizada',
+  'cancelada',
+  'reagendada',
+  'cerrada',
 ] as const;
 
 export class ChangeServiceOrderStateDto {
