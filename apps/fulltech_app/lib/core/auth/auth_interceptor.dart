@@ -4,17 +4,20 @@ import 'package:dio/dio.dart';
 
 import '../debug/trace_log.dart';
 import '../api/api_routes.dart';
+import 'auth_session_events.dart';
 import 'token_storage.dart';
 
 class AuthInterceptor extends Interceptor {
   final TokenStorage tokenStorage;
+  final AuthSessionEvents sessionEvents;
   final Dio dio;
   final Dio _refreshDio;
 
   static const String _retryFlagKey = '__auth_retry';
   Future<_RefreshResult?>? _refreshFuture;
 
-  AuthInterceptor(this.tokenStorage, this.dio) : _refreshDio = Dio(dio.options);
+  AuthInterceptor(this.tokenStorage, this.sessionEvents, this.dio)
+    : _refreshDio = Dio(dio.options);
 
   @override
   void onRequest(
@@ -168,6 +171,8 @@ class AuthInterceptor extends Interceptor {
       } catch (_) {
         // Fall through to original error.
       }
+
+      sessionEvents.requestUnauthorizedLogout();
     }
     handler.next(err);
   }

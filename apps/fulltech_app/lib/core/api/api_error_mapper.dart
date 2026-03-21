@@ -20,6 +20,7 @@ class ApiErrorMapper {
     final method = error.requestOptions.method.toUpperCase();
     final uri = error.requestOptions.uri;
     final detail = _buildTechnicalDetail(error, dio: dio);
+    final responseBody = _buildResponseBody(error.response?.data);
     final rawMessage = _extractMessage(error.response?.data, fallbackMessage);
 
     if (status != null) {
@@ -29,6 +30,7 @@ class ApiErrorMapper {
         type: _httpType(status),
         displayCode: status.toString(),
         technicalDetails: detail,
+        responseBody: responseBody,
         method: method,
         uri: uri,
         retryable: status == 408 || status == 429 || status >= 500,
@@ -145,8 +147,7 @@ class ApiErrorMapper {
         );
       case NetworkProbeStatus.timeout:
         return ApiException.detailed(
-          message:
-              '$fallbackMessage. La verificación de red tardó demasiado.',
+          message: '$fallbackMessage. La verificación de red tardó demasiado.',
           type: ApiErrorType.timeout,
           displayCode: 'NETWORK_TIMEOUT',
           technicalDetails: probe.detail,
@@ -234,6 +235,18 @@ class ApiErrorMapper {
       if (error.error != null) 'error=${error.error}',
     ];
     return parts.join(' | ');
+  }
+
+  static String? _buildResponseBody(dynamic data) {
+    if (data == null) return null;
+
+    final raw = data is String ? data : data.toString();
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+
+    const maxChars = 6000;
+    if (trimmed.length <= maxChars) return trimmed;
+    return '${trimmed.substring(0, maxChars)}\n…';
   }
 
   static ApiErrorType _httpType(int status) {

@@ -162,41 +162,16 @@ class MapPreview extends StatelessWidget {
     return Uri.tryParse(raw);
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildPlaceholder(
+    BuildContext context, {
+    required bool isActionable,
+    Uri? target,
+  }) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-
-    final target = _targetUri();
-    if (target == null) return const SizedBox.shrink();
-
-    final parsedFromMaps = _hasCoords
-        ? null
-        : parseLatLngFromText((mapsUrl ?? '').trim());
-    final effectiveLat = latitude ?? parsedFromMaps?.latitude;
-    final effectiveLng = longitude ?? parsedFromMaps?.longitude;
-    if (effectiveLat != null && effectiveLng != null) {
-      return MapPreviewCard(
-        latitude: effectiveLat,
-        longitude: effectiveLng,
-        height: height,
-      );
-    }
-
     final borderRadius = BorderRadius.circular(14);
 
-    Future<Widget> resolvedPreview() async {
-      final raw = (mapsUrl ?? '').trim();
-      final point = await _resolveLatLngFromUrl(raw);
-      if (point == null) return const SizedBox.shrink();
-      return MapPreviewCard(
-        latitude: point.latitude,
-        longitude: point.longitude,
-        height: height,
-      );
-    }
-
-    final fallback = Container(
+    return Container(
       decoration: BoxDecoration(
         borderRadius: borderRadius,
         border: Border.all(
@@ -208,28 +183,33 @@ class MapPreview extends StatelessWidget {
         child: Material(
           color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
           child: InkWell(
-            onTap: () =>
-                safeOpenUrl(context, target, copiedMessage: 'Link copiado'),
+            onTap: target == null
+                ? null
+                : () => safeOpenUrl(
+                    context,
+                    target,
+                    copiedMessage: 'Link copiado',
+                  ),
             child: SizedBox(
               height: height,
               width: double.infinity,
               child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.map_outlined,
-                      color: scheme.onSurface.withValues(alpha: 0.65),
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: scheme.surface.withValues(alpha: 0.90),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: scheme.outlineVariant.withValues(alpha: 0.45),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Ver en Maps',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: scheme.onSurface.withValues(alpha: 0.75),
-                      ),
-                    ),
-                  ],
+                  ),
+                  child: Icon(
+                    isActionable
+                        ? Icons.location_on_outlined
+                        : Icons.location_off_outlined,
+                    size: 22,
+                    color: scheme.onSurface.withValues(alpha: 0.72),
+                  ),
                 ),
               ),
             ),
@@ -237,20 +217,65 @@ class MapPreview extends StatelessWidget {
         ),
       ),
     );
+  }
 
+  @override
+  Widget build(BuildContext context) {
+    final target = _targetUri();
     final raw = (mapsUrl ?? '').trim();
+    if (target == null && raw.isEmpty && !_hasCoords) {
+      return const SizedBox.shrink();
+    }
+
+    final parsedFromMaps = _hasCoords ? null : parseLatLngFromText(raw);
+    final effectiveLat = latitude ?? parsedFromMaps?.latitude;
+    final effectiveLng = longitude ?? parsedFromMaps?.longitude;
+    if (effectiveLat != null && effectiveLng != null) {
+      return MapPreviewCard(
+        latitude: effectiveLat,
+        longitude: effectiveLng,
+        height: height,
+      );
+    }
+
+    Future<Widget> resolvedPreview() async {
+      final point = await _resolveLatLngFromUrl(raw);
+      if (point == null) {
+        return _buildPlaceholder(
+          context,
+          isActionable: target != null,
+          target: target,
+        );
+      }
+      return MapPreviewCard(
+        latitude: point.latitude,
+        longitude: point.longitude,
+        height: height,
+      );
+    }
+
     final uri = Uri.tryParse(raw);
     final shouldResolve =
         uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
 
-    if (!shouldResolve) return fallback;
+    if (!shouldResolve) {
+      return _buildPlaceholder(
+        context,
+        isActionable: target != null,
+        target: target,
+      );
+    }
 
     return FutureBuilder<Widget>(
       future: resolvedPreview(),
       builder: (context, snapshot) {
         final resolved = snapshot.data;
         if (resolved != null && resolved is! SizedBox) return resolved;
-        return fallback;
+        return _buildPlaceholder(
+          context,
+          isActionable: target != null,
+          target: target,
+        );
       },
     );
   }

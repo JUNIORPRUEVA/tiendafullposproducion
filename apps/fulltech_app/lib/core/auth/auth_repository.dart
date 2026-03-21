@@ -14,6 +14,7 @@ import '../models/user_model.dart';
 import '../network/network_reachability.dart';
 import '../utils/is_flutter_test.dart';
 import 'auth_interceptor.dart';
+import 'auth_session_events.dart';
 import 'token_storage.dart';
 import '../loading/app_loading_controller.dart';
 import '../loading/loading_interceptor.dart';
@@ -54,8 +55,9 @@ final networkReachabilityProvider = Provider<NetworkReachability>((ref) {
 final dioProvider = Provider<Dio>((ref) {
   final api = ApiClient();
   final storage = ref.watch(tokenStorageProvider);
+  final sessionEvents = ref.watch(authSessionEventsProvider);
   final reachability = ref.watch(networkReachabilityProvider);
-  api.dio.interceptors.add(AuthInterceptor(storage, api.dio));
+  api.dio.interceptors.add(AuthInterceptor(storage, sessionEvents, api.dio));
   api.dio.interceptors.add(
     ApiConnectivityInterceptor(dio: api.dio, reachability: reachability),
   );
@@ -142,7 +144,6 @@ class AuthRepository {
   }
 
   Future<UserModel> login(String email, String password) async {
-    await _safeClearTokens();
     try {
       final normalizedEmail = email.trim();
       Response<dynamic> res;
@@ -201,7 +202,6 @@ class AuthRepository {
         rethrow;
       }
     } on TimeoutException {
-      await _safeClearTokens();
       throw const ApiException.detailed(
         message:
             'El servidor tardó demasiado en responder. Inténtalo de nuevo.',
@@ -210,10 +210,8 @@ class AuthRepository {
         retryable: true,
       );
     } on DioException catch (e) {
-      await _safeClearTokens();
       throw _mapDioError(e, 'No se pudo iniciar sesión');
     } catch (_) {
-      await _safeClearTokens();
       rethrow;
     }
   }

@@ -100,25 +100,26 @@ class MapPreviewCard extends StatelessWidget {
                               : _osmStaticMapUri())
                           .toString(),
                       fit: BoxFit.cover,
+                      alignment: Alignment.center,
                       filterQuality: FilterQuality.low,
                       errorBuilder: (context, error, stackTrace) {
                         return Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.map_outlined,
-                                color: scheme.onSurface.withValues(alpha: 0.65),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'Ver en Maps',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  color: scheme.onSurface.withValues(alpha: 0.75),
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: scheme.surface.withValues(alpha: 0.90),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: scheme.outlineVariant.withValues(
+                                  alpha: 0.45,
                                 ),
                               ),
-                            ],
+                            ),
+                            child: Icon(
+                              Icons.location_on_outlined,
+                              color: scheme.onSurface.withValues(alpha: 0.72),
+                              size: 22,
+                            ),
                           ),
                         );
                       },

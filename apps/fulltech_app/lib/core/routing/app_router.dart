@@ -11,6 +11,7 @@ import '../../features/operaciones/operaciones_screen.dart';
 import '../../features/operaciones/tecnico/operaciones_tecnico_screen.dart';
 import '../../features/operaciones/tecnico/service_order_detail_screen.dart';
 import '../../features/operaciones/tecnico/technical_service_phase_router_screen.dart';
+import '../../features/splash/splash_screen.dart';
 import '../../features/salidas_tecnicas/tecnico_salidas_screen.dart';
 import '../../features/operaciones/operaciones_mapa_clientes_screen.dart';
 import '../../features/operaciones/operaciones_checklist_config_screen.dart';
@@ -66,10 +67,14 @@ final routerProvider = Provider<GoRouter>((ref) {
   }
 
   return GoRouter(
-    initialLocation: Routes.operaciones,
+    initialLocation: Routes.splash,
     refreshListenable: refresh,
     observers: [routeObserver],
     routes: [
+      GoRoute(
+        path: Routes.splash,
+        builder: (context, state) => const SplashScreen(),
+      ),
       GoRoute(
         path: Routes.login,
         builder: (context, state) => const LoginScreen(),
@@ -266,13 +271,28 @@ final routerProvider = Provider<GoRouter>((ref) {
       final loc = state.uri.toString();
       final path = state.uri.path;
       final isAuthRoute = path == Routes.login;
+      final isSplashRoute = path == Routes.splash;
+
+      String defaultAuthedRoute() {
+        return role == AppRole.tecnico
+            ? Routes.operacionesTecnico
+            : Routes.operaciones;
+      }
+
+      if (!auth.initialized || auth.restoringSession) {
+        return isSplashRoute ? null : Routes.splash;
+      }
+
+      if (isSplashRoute) {
+        return isAuth ? defaultAuthedRoute() : Routes.login;
+      }
 
       if (!isAuth) {
         return isAuthRoute ? null : Routes.login;
       }
 
       if (isAuth && isAuthRoute) {
-        return Routes.operaciones;
+        return defaultAuthedRoute();
       }
 
       if (role == AppRole.tecnico && path == Routes.operaciones) {

@@ -9659,11 +9659,10 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                         decoration: InputDecoration(
                           border: const OutlineInputBorder(),
                           labelText: 'Ubicación GPS (WhatsApp/Maps)',
+                          hintText: 'Pega un link de Google Maps o "lat,lng"',
                           helperText: resolvingGps
                               ? 'Detectando ubicación desde el link...'
-                              : (gpsPoint == null
-                                    ? 'Pega un link de Google Maps o "lat,lng"'
-                                    : 'Detectado: ${formatLatLng(gpsPoint)}'),
+                              : null,
                           suffixIcon: SizedBox(
                             width: 96,
                             child: Row(
@@ -9729,15 +9728,15 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
                           ],
                           if (gpsText.isNotEmpty) ...[
                             const SizedBox(height: 12),
-                            _GpsMapPreviewCard(
-                              point: gpsPoint,
-                              mapsUrl: gpsText,
-                              onOpen: () {
-                                unawaited(_openGpsInApp());
-                              },
-                              onNavigate: () {
-                                unawaited(_openGpsDestinationFromInput());
-                              },
+                            SizedBox(
+                              height: 170,
+                              child: _GpsMapPreviewCard(
+                                point: gpsPoint,
+                                mapsUrl: gpsText,
+                                onOpen: () {
+                                  unawaited(_openGpsInApp());
+                                },
+                              ),
                             ),
                           ],
                         ],
@@ -9750,72 +9749,6 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           );
         }
 
-        final agendaKindItems = const [
-          DropdownMenuItem(value: 'reserva', child: Text('Reserva')),
-          DropdownMenuItem(value: 'instalacion', child: Text('Instalación')),
-          DropdownMenuItem(
-            value: 'mantenimiento',
-            child: Text('Mantenimiento'),
-          ),
-          DropdownMenuItem(value: 'garantia', child: Text('Garantía')),
-          DropdownMenuItem(
-            value: 'levantamiento',
-            child: Text('Levantamiento'),
-          ),
-        ];
-        final safeAgendaKind =
-            _safeDropdownValue<String>(
-              _normalizeAgendaKindValue(widget.agendaKind),
-              agendaKindItems,
-            ) ??
-            'reserva';
-        final priorityItems = const [
-          DropdownMenuItem(value: 1, child: Text('Alta')),
-          DropdownMenuItem(value: 2, child: Text('Media')),
-          DropdownMenuItem(value: 3, child: Text('Baja')),
-        ];
-        final safePriority =
-            _safeDropdownValue<int>(_priority, priorityItems) ?? 1;
-        final serviceTypeItems = const [
-          DropdownMenuItem(value: 'installation', child: Text('Instalación')),
-          DropdownMenuItem(value: 'maintenance', child: Text('Mantenimiento')),
-          DropdownMenuItem(value: 'warranty', child: Text('Garantía')),
-          DropdownMenuItem(value: 'pos_support', child: Text('Soporte POS')),
-          DropdownMenuItem(value: 'other', child: Text('Otro')),
-        ];
-        final safeServiceType =
-            _safeDropdownValue<String>(_serviceType, serviceTypeItems) ??
-            'installation';
-        final orderStateItems = const [
-          DropdownMenuItem(value: 'pendiente', child: Text('Pendiente')),
-          DropdownMenuItem(value: 'confirmada', child: Text('Confirmada')),
-          DropdownMenuItem(value: 'asignada', child: Text('Asignada')),
-          DropdownMenuItem(value: 'en_camino', child: Text('En camino')),
-          DropdownMenuItem(value: 'en_proceso', child: Text('En proceso')),
-          DropdownMenuItem(value: 'finalizada', child: Text('Finalizada')),
-          DropdownMenuItem(value: 'cancelada', child: Text('Cancelada')),
-          DropdownMenuItem(value: 'reagendada', child: Text('Reagendada')),
-          DropdownMenuItem(value: 'cerrada', child: Text('Cerrada')),
-        ];
-        final safeOrderState =
-            _safeDropdownValue<String>(_orderState, orderStateItems) ??
-            'pendiente';
-        final technicianItems = [
-          const DropdownMenuItem(value: '', child: Text('Sin asignar')),
-          ..._technicians.map(
-            (t) => DropdownMenuItem(value: t.id, child: Text(t.name)),
-          ),
-        ];
-        final safeTechnicianId =
-            _safeDropdownValue<String>(_technicianId ?? '', technicianItems) ??
-            '';
-        final paymentStatusItems = const [
-          DropdownMenuItem(value: 'pendiente', child: Text('Pendiente')),
-          DropdownMenuItem(value: 'pagado', child: Text('Pagado')),
-        ];
-        final safePaymentStatus =
-            _safeDropdownValue<String>(_paymentStatus, paymentStatusItems) ??
-            'pendiente';
         final paymentMethodItems = const [
           DropdownMenuItem(value: 'efectivo', child: Text('Efectivo')),
           DropdownMenuItem(
@@ -9824,6 +9757,73 @@ class _CreateReservationTabState extends ConsumerState<_CreateReservationTab> {
           ),
           DropdownMenuItem(value: 'tarjeta', child: Text('Tarjeta')),
         ];
+        final agendaKindItems = _agendaKindOptions
+            .map(
+              (value) => DropdownMenuItem<String>(
+                value: value,
+                child: Text(_agendaKindLabel(value)),
+              ),
+            )
+            .toList(growable: false);
+        final safeAgendaKind =
+            _safeDropdownValue<String>(
+              _normalizeAgendaKindValue(widget.agendaKind),
+              agendaKindItems,
+            ) ??
+            _agendaKindOptions.first;
+        final priorityItems = const [
+          DropdownMenuItem<int>(value: 1, child: Text('Alta')),
+          DropdownMenuItem<int>(value: 2, child: Text('Media')),
+          DropdownMenuItem<int>(value: 3, child: Text('Baja')),
+        ];
+        final safePriority =
+            _safeDropdownValue<int>(_priority, priorityItems) ?? 1;
+        final serviceTypeItems = const [
+          DropdownMenuItem<String>(
+            value: 'installation',
+            child: Text('Instalación'),
+          ),
+          DropdownMenuItem<String>(
+            value: 'maintenance',
+            child: Text('Servicio técnico'),
+          ),
+          DropdownMenuItem<String>(value: 'warranty', child: Text('Garantía')),
+        ];
+        final safeServiceType =
+            _safeDropdownValue<String>(_serviceType, serviceTypeItems) ??
+            widget.initialServiceType;
+        final orderStateItems = const [
+          DropdownMenuItem<String>(
+            value: 'pendiente',
+            child: Text('Pendiente'),
+          ),
+          DropdownMenuItem<String>(value: 'asignada', child: Text('Asignada')),
+        ];
+        final safeOrderState =
+            _safeDropdownValue<String>(_orderState, orderStateItems) ??
+            'pendiente';
+        final technicianItems = <DropdownMenuItem<String>>[
+          const DropdownMenuItem<String>(value: '', child: Text('Sin asignar')),
+          ..._technicians.map(
+            (tech) => DropdownMenuItem<String>(
+              value: tech.id,
+              child: Text(tech.name),
+            ),
+          ),
+        ];
+        final safeTechnicianId =
+            _safeDropdownValue<String>(_technicianId ?? '', technicianItems) ??
+            '';
+        final paymentStatusItems = const [
+          DropdownMenuItem<String>(
+            value: 'pendiente',
+            child: Text('Pendiente'),
+          ),
+          DropdownMenuItem<String>(value: 'pagado', child: Text('Pagado')),
+        ];
+        final safePaymentStatus =
+            _safeDropdownValue<String>(_paymentStatus, paymentStatusItems) ??
+            'pendiente';
         final safePaymentMethod =
             _safeDropdownValue<String>(_paymentMethod, paymentMethodItems) ??
             'efectivo';
@@ -11794,127 +11794,60 @@ class _GpsMapPreviewCard extends StatelessWidget {
   final LatLng? point;
   final String? mapsUrl;
   final VoidCallback onOpen;
-  final VoidCallback onNavigate;
 
   const _GpsMapPreviewCard({
     required this.point,
     required this.mapsUrl,
     required this.onOpen,
-    required this.onNavigate,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
+    final scheme = Theme.of(context).colorScheme;
+    final preview = point != null
+        ? MapPreview(
+            latitude: point!.latitude,
+            longitude: point!.longitude,
+            height: 170,
+          )
+        : MapPreview(mapsUrl: (mapsUrl ?? '').trim(), height: 170);
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SizedBox(
-              height: 170,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: point != null
-                    ? InkWell(
-                        onTap: onOpen,
-                        child: IgnorePointer(
-                          ignoring: true,
-                          child: FlutterMap(
-                            options: MapOptions(
-                              initialCenter: point!,
-                              initialZoom: 15,
-                              interactionOptions: const InteractionOptions(
-                                flags: InteractiveFlag.none,
-                              ),
-                            ),
-                            children: [
-                              TileLayer(
-                                urlTemplate:
-                                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                userAgentPackageName: 'fulltech_app',
-                                tileProvider: NetworkTileProvider(),
-                              ),
-                              MarkerLayer(
-                                markers: [
-                                  Marker(
-                                    width: 50,
-                                    height: 50,
-                                    point: point!,
-                                    child: Stack(
-                                      alignment: Alignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.location_on,
-                                          color: scheme.onSurface.withValues(
-                                            alpha: 0.35,
-                                          ),
-                                          size: 50,
-                                        ),
-                                        Icon(
-                                          Icons.location_on,
-                                          color: scheme.primary,
-                                          size: 46,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    : MapPreview(mapsUrl: (mapsUrl ?? '').trim(), height: 170),
-              ),
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: onOpen,
+              child: IgnorePointer(child: preview),
             ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Icon(
-                  point != null ? Icons.open_in_full : Icons.link_rounded,
-                  size: 16,
-                  color: scheme.onSurface.withValues(alpha: 0.70),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    point != null
-                        ? 'Ver mapa en pantalla completa'
-                        : 'Ubicación detectada desde el enlace',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: scheme.onSurface.withValues(alpha: 0.80),
-                    ),
-                  ),
-                ),
-                FilledButton.tonalIcon(
-                  onPressed: onNavigate,
-                  icon: const Icon(Icons.directions_outlined, size: 18),
-                  label: const Text('Ir'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              point != null
-                  ? formatLatLng(point!)
-                  : ((mapsUrl ?? '').trim().isEmpty
-                        ? 'Ubicación disponible'
-                        : (mapsUrl ?? '').trim()),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: scheme.onSurface.withValues(alpha: 0.65),
-              ),
-            ),
-          ],
+          ),
         ),
-      ),
+        Positioned(
+          top: 10,
+          right: 10,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: scheme.surface.withValues(alpha: 0.92),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: 0.45),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(7),
+                child: Icon(
+                  Icons.location_on_rounded,
+                  size: 16,
+                  color: scheme.primary,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

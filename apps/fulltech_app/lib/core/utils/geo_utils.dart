@@ -29,10 +29,21 @@ LatLng? parseLatLngFromText(String input) {
     return null;
   }
 
+  String normalizeCoordinateCandidate(String value) {
+    var normalized = value.trim();
+    final lower = normalized.toLowerCase();
+    if (lower.startsWith('loc:') || lower.startsWith('geo:')) {
+      normalized = normalized.substring(4).trim();
+    }
+    return normalized;
+  }
+
+  final decodedRaw = Uri.decodeFull(raw);
+
   // 1) Plain "lat,lng" anywhere in the text.
   final pair = RegExp(
     r'(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)',
-  ).firstMatch(raw);
+  ).firstMatch(decodedRaw);
   final direct = fromPair(pair?.group(1), pair?.group(2));
   if (direct != null) return direct;
 
@@ -42,30 +53,38 @@ LatLng? parseLatLngFromText(String input) {
     RegExp(r'll=(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:&|$)'),
     RegExp(r'!3d(-?\d{1,2}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)'),
     RegExp(r'query=(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:&|$)'),
-    RegExp(r'destination=(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:&|$)'),
+    RegExp(
+      r'destination=(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:&|$)',
+    ),
   ];
-  final regexDirect = firstPairMatch(raw, regexPatterns);
+  final regexDirect = firstPairMatch(decodedRaw, regexPatterns);
   if (regexDirect != null) return regexDirect;
 
   // 2) Google Maps URLs commonly shared by WhatsApp:
   // - https://maps.google.com/?q=lat,lng
   // - https://www.google.com/maps/search/?api=1&query=lat,lng
   // - https://www.google.com/maps/@lat,lng,17z
-  final url = raw;
+  final url = decodedRaw;
 
   String? extractParam(String name) {
-    final match = RegExp('(?:\\?|&)' + RegExp.escape(name) + r'=([^&]+)')
-        .firstMatch(url);
+    final match = RegExp(
+      '(?:\\?|&)' + RegExp.escape(name) + r'=([^&]+)',
+    ).firstMatch(url);
     if (match == null) return null;
     final value = match.group(1) ?? '';
     return Uri.decodeComponent(value.replaceAll('+', ' '));
   }
 
-  final q = extractParam('q') ?? extractParam('query');
+  final q =
+      extractParam('q') ??
+      extractParam('query') ??
+      extractParam('destination') ??
+      extractParam('center') ??
+      extractParam('ll');
   if (q != null) {
     final qPair = RegExp(
       r'(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)',
-    ).firstMatch(q);
+    ).firstMatch(normalizeCoordinateCandidate(q));
     final parsed = fromPair(qPair?.group(1), qPair?.group(2));
     if (parsed != null) return parsed;
   }
@@ -78,8 +97,17 @@ LatLng? parseLatLngFromText(String input) {
 
   final uri = Uri.tryParse(url);
   if (uri != null) {
+    for (final segment in uri.pathSegments) {
+      final nested = firstPairMatch(Uri.decodeComponent(segment), [
+        RegExp(r'(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)'),
+      ]);
+      if (nested != null) return nested;
+    }
+
     for (final entry in uri.queryParameters.entries) {
-      final value = Uri.decodeFull(entry.value).trim();
+      final value = normalizeCoordinateCandidate(
+        Uri.decodeFull(entry.value).replaceAll('+', ' '),
+      );
       if (value.isEmpty) continue;
       final nested = parseLatLngFromText(value);
       if (nested != null) return nested;

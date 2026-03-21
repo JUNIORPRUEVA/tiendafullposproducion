@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'auth_repository.dart';
+import 'auth_session_events.dart';
 import 'token_storage.dart';
 import '../debug/trace_log.dart';
 import '../models/user_model.dart';
@@ -61,10 +62,40 @@ Future<TokenStorageLaunchSnapshot> loadAuthLaunchSnapshot() {
 
 class AuthController extends StateNotifier<AuthState> {
   final Ref ref;
+  late final AuthSessionEvents _sessionEvents;
 
   AuthController(this.ref)
     : super(_buildInitialAuthState(ref.read(authLaunchSnapshotProvider))) {
+    _sessionEvents = ref.read(authSessionEventsProvider);
+    _sessionEvents.addListener(_onSessionEventsChanged);
+    ref.onDispose(() {
+      _sessionEvents.removeListener(_onSessionEventsChanged);
+    });
     _bootstrap();
+  }
+
+  void _onSessionEventsChanged() {
+    if (!_sessionEvents.unauthorizedLogoutRequested) return;
+    unawaited(_logoutForUnauthorized());
+  }
+
+  void _markSessionHealthy() {
+    _sessionEvents.markSessionHealthy();
+  }
+
+  Future<void> _logoutForUnauthorized() async {
+    _markSessionHealthy();
+    final storage = ref.read(tokenStorageProvider);
+    await storage.clearTokens();
+    if (!mounted) return;
+    state = AuthState(
+      initialized: true,
+      isAuthenticated: false,
+      user: null,
+      loading: false,
+      restoringSession: false,
+      hasSessionHint: false,
+    );
   }
 
   Future<void> _bootstrap() async {
@@ -116,6 +147,7 @@ class AuthController extends StateNotifier<AuthState> {
         restoringSession: true,
         hasSessionHint: true,
       );
+      _markSessionHealthy();
       sw.stop();
       TraceLog.log(
         'Auth',
@@ -150,6 +182,7 @@ class AuthController extends StateNotifier<AuthState> {
 
       switch (result.status) {
         case SessionVerificationStatus.authenticated:
+          _markSessionHealthy();
           state = AuthState(
             initialized: true,
             isAuthenticated: true,
@@ -170,6 +203,7 @@ class AuthController extends StateNotifier<AuthState> {
           );
           break;
         case SessionVerificationStatus.deferred:
+          _markSessionHealthy();
           state = state.copyWith(
             initialized: true,
             isAuthenticated: true,
@@ -204,6 +238,7 @@ class AuthController extends StateNotifier<AuthState> {
     final repo = ref.read(authRepositoryProvider);
     try {
       final user = await repo.login(email, password);
+      _markSessionHealthy();
       state = AuthState(
         initialized: true,
         isAuthenticated: true,
@@ -227,6 +262,7 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
+    _markSessionHealthy();
     final storage = ref.read(tokenStorageProvider);
     await storage.clearTokens();
     state = AuthState(
@@ -240,6 +276,8 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   void setUser(UserModel user) {
+    unawaited(ref.read(tokenStorageProvider).saveUserSnapshot(user));
+    _markSessionHealthy();
     state = state.copyWith(
       user: user,
       isAuthenticated: true,
@@ -250,13 +288,12 @@ class AuthController extends StateNotifier<AuthState> {
 }
 
 AuthState _buildInitialAuthState(TokenStorageLaunchSnapshot snapshot) {
-  final canRestoreSession = snapshot.canRestoreSession;
   return AuthState(
-    initialized: true,
-    isAuthenticated: canRestoreSession,
-    user: canRestoreSession ? snapshot.user : null,
+    initialized: false,
+    isAuthenticated: snapshot.hasSessionHint,
+    user: snapshot.user,
     loading: false,
-    restoringSession: canRestoreSession,
+    restoringSession: snapshot.hasSessionHint,
     hasSessionHint: snapshot.hasSessionHint,
   );
 }

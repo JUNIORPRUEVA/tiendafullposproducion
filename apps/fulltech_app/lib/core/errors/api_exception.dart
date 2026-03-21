@@ -22,6 +22,7 @@ class ApiException implements Exception {
   final ApiErrorType type;
   final String displayCode;
   final String? technicalDetails;
+  final String? responseBody;
   final Uri? uri;
   final String? method;
   final bool retryable;
@@ -41,6 +42,7 @@ class ApiException implements Exception {
     this.type = ApiErrorType.unknown,
     this.displayCode = 'UNKNOWN',
     this.technicalDetails,
+    this.responseBody,
     this.uri,
     this.method,
     this.retryable = false,
@@ -62,6 +64,8 @@ class ApiException implements Exception {
       'type=$type',
       if (method != null && method!.trim().isNotEmpty) 'method=$method',
       if (uri != null) 'uri=$uri',
+      if (responseBody != null && responseBody!.trim().isNotEmpty)
+        'response=$responseBody',
       if (technicalDetails != null && technicalDetails!.trim().isNotEmpty)
         'detail=$technicalDetails',
     ];

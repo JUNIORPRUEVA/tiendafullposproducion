@@ -1,25 +1,88 @@
-import 'package:flutter/foundation.dart';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app_error_reporter.dart';
 
-class AppErrorOverlay extends StatelessWidget {
+class AppErrorOverlay extends StatefulWidget {
   const AppErrorOverlay({super.key});
 
-  Future<void> _showDetails(BuildContext context, String msg) async {
-    final stack = AppErrorReporter.instance.lastErrorStack.value;
-    final full = stack == null || stack.trim().isEmpty ? msg : '$msg\n\n$stack';
+  @override
+  State<AppErrorOverlay> createState() => _AppErrorOverlayState();
+}
+
+class _AppErrorOverlayState extends State<AppErrorOverlay> {
+  int? _lastShownEventId;
+  bool _dialogOpen = false;
+
+  @override
+  void initState() {
+    super.initState();
+    AppErrorReporter.instance.lastError.addListener(_handleErrorChanged);
+  }
+
+  @override
+  void dispose() {
+    AppErrorReporter.instance.lastError.removeListener(_handleErrorChanged);
+    super.dispose();
+  }
+
+  void _handleErrorChanged() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _showLatestErrorIfNeeded();
+    });
+  }
+
+  Future<void> _showLatestErrorIfNeeded() async {
+    final error = AppErrorReporter.instance.lastError.value;
+    if (error == null) return;
+    if (_dialogOpen) return;
+    if (_lastShownEventId == error.eventId) return;
+
+    _dialogOpen = true;
+    _lastShownEventId = error.eventId;
+    await _showDetails(context, error);
+    _dialogOpen = false;
+
+    final latest = AppErrorReporter.instance.lastError.value;
+    if (!mounted || latest == null) return;
+    if (latest.eventId != _lastShownEventId) {
+      unawaited(_showLatestErrorIfNeeded());
+    }
+  }
+
+  Future<void> _showDetails(BuildContext context, AppErrorDetails error) async {
+    final full = error.toClipboardString();
+    final sections = <Widget>[
+      _Section(label: 'Error', value: error.message),
+      if ((error.endpointUrl ?? '').trim().isNotEmpty)
+        _Section(label: 'Endpoint', value: error.endpointUrl!),
+      if ((error.method ?? '').trim().isNotEmpty)
+        _Section(label: 'Método', value: error.method!),
+      if ((error.apiResponse ?? '').trim().isNotEmpty)
+        _Section(label: 'Respuesta API', value: error.apiResponse!),
+      if ((error.technicalDetails ?? '').trim().isNotEmpty)
+        _Section(label: 'Detalle técnico', value: error.technicalDetails!),
+      if (error.stackTrace.trim().isNotEmpty)
+        _Section(label: 'Stack trace', value: error.stackTrace),
+    ];
 
     await showDialog<void>(
       context: context,
+      barrierDismissible: true,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Error (debug)'),
+          title: const Text('Error detectado'),
           content: SizedBox(
             width: 720,
             child: SingleChildScrollView(
-              child: SelectableText(full),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: sections,
+              ),
             ),
           ),
           actions: [
@@ -27,12 +90,14 @@ class AppErrorOverlay extends StatelessWidget {
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: full));
                 if (!dialogContext.mounted) return;
-                Navigator.pop(dialogContext);
               },
-              child: const Text('Copiar'),
+              child: const Text('Copiar error'),
             ),
             TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
+              onPressed: () {
+                AppErrorReporter.instance.clear();
+                Navigator.pop(dialogContext);
+              },
               child: const Text('Cerrar'),
             ),
           ],
@@ -43,52 +108,44 @@ class AppErrorOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!kDebugMode) return const SizedBox.shrink();
+    return const SizedBox.shrink();
+  }
+}
 
-    final scheme = Theme.of(context).colorScheme;
+class _Section extends StatelessWidget {
+  final String label;
+  final String value;
 
-    return ValueListenableBuilder<String?>(
-      valueListenable: AppErrorReporter.instance.lastErrorMessage,
-      builder: (context, msg, _) {
-        if (msg == null || msg.trim().isEmpty) return const SizedBox.shrink();
+  const _Section({required this.label, required this.value});
 
-        return Positioned(
-          left: 8,
-          right: 8,
-          top: MediaQuery.paddingOf(context).top + 8,
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              decoration: BoxDecoration(
-                color: scheme.errorContainer,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: scheme.error.withValues(alpha: 0.35)),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      msg,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: scheme.onErrorContainer),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => _showDetails(context, msg),
-                    icon: Icon(Icons.bug_report, color: scheme.onErrorContainer),
-                  ),
-                  IconButton(
-                    onPressed: AppErrorReporter.instance.clear,
-                    icon: Icon(Icons.close, color: scheme.onErrorContainer),
-                  ),
-                ],
-              ),
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
           ),
-        );
-      },
+          const SizedBox(height: 6),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.45,
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: SelectableText(value),
+          ),
+        ],
+      ),
     );
   }
 }
