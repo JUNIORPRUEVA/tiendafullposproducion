@@ -5,8 +5,13 @@ import '../../../core/utils/geo_utils.dart';
 class ServiceLocationInfo {
   final String label;
   final Uri? mapsUri;
+  final bool isDirectLaunch;
 
-  const ServiceLocationInfo({required this.label, required this.mapsUri});
+  const ServiceLocationInfo({
+    required this.label,
+    required this.mapsUri,
+    this.isDirectLaunch = false,
+  });
 
   bool get canOpenMaps => mapsUri != null;
 }
@@ -103,6 +108,7 @@ ServiceLocationInfo buildServiceLocationInfo({
     return ServiceLocationInfo(
       label: locationLabel,
       mapsUri: uriFromLatLng(parsedPoint),
+      isDirectLaunch: true,
     );
   }
 
@@ -110,14 +116,22 @@ ServiceLocationInfo buildServiceLocationInfo({
   if (maps.isNotEmpty) {
     final parsed = Uri.tryParse(maps);
     if (parsed != null) {
-      return ServiceLocationInfo(label: locationLabel, mapsUri: parsed);
+      return ServiceLocationInfo(
+        label: locationLabel,
+        mapsUri: parsed,
+        isDirectLaunch: true,
+      );
     }
   }
 
   // 1b) Embedded URL (e.g. "MAPS: https://..." inside address snapshot).
   final embedded = extractMapsUriFromText(address);
   if (embedded != null) {
-    return ServiceLocationInfo(label: locationLabel, mapsUri: embedded);
+    return ServiceLocationInfo(
+      label: locationLabel,
+      mapsUri: embedded,
+      isDirectLaunch: true,
+    );
   }
 
   // 4) Plain address.

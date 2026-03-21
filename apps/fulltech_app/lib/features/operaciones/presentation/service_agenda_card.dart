@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/utils/safe_url_launcher.dart';
 
@@ -39,8 +40,7 @@ class ServiceAgendaCard extends StatelessWidget {
     );
     final uri = location.mapsUri;
     if (uri == null) return;
-
-    await safeOpenUrl(context, uri, copiedMessage: 'Link copiado');
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   Future<void> _openWhatsApp(BuildContext context) async {
@@ -194,7 +194,7 @@ class ServiceAgendaCard extends StatelessWidget {
         onView: onView,
         onChangeState: onChangeState,
         onChangePhase: onChangePhase,
-        onOpenMaps: showLocationRow && location.canOpenMaps
+        onOpenMaps: showLocationRow && location.isDirectLaunch
             ? () {
                 unawaited(_openMaps(context));
               }
@@ -336,7 +336,7 @@ class ServiceAgendaCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (location.canOpenMaps) ...[
+                      if (location.isDirectLaunch) ...[
                         const SizedBox(width: 6),
                         IconButton(
                           tooltip: 'Abrir Maps',
@@ -347,7 +347,7 @@ class ServiceAgendaCard extends StatelessWidget {
                             minWidth: 36,
                             minHeight: 36,
                           ),
-                          icon: const Icon(Icons.map_outlined, size: 18),
+                          icon: const Icon(Icons.location_on, size: 18),
                         ),
                       ],
                     ],

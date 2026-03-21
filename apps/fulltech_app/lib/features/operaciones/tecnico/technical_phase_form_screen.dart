@@ -286,9 +286,9 @@ class _TechnicalPhaseFormScreenState
     final location = buildServiceLocationInfo(
       addressOrText: service?.customerAddress ?? '',
     );
-    final quoteAsync = ref.watch(
-      _latestQuoteProvider(service?.customerPhone ?? ''),
-    );
+    final quoteAsync = _isWarranty
+        ? ref.watch(_latestQuoteProvider(service?.customerPhone ?? ''))
+        : const AsyncValue<CotizacionModel?>.data(null);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7FBFE),
@@ -345,6 +345,17 @@ class _TechnicalPhaseFormScreenState
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                    ),
+                  ],
+                  if (!_isWarranty &&
+                      (state.error ?? '').trim().isEmpty &&
+                      state.visit == null) ...[
+                    const SizedBox(height: 12),
+                    const EmptyStateWidget(
+                      icon: Icons.assignment_late_outlined,
+                      title: 'Sin datos de levantamiento aún',
+                      message:
+                          'Todavía no existe un levantamiento guardado para esta orden. Puedes registrar notas, evidencia y firma desde esta pantalla.',
                     ),
                   ],
                   const SizedBox(height: 12),
@@ -462,115 +473,118 @@ class _TechnicalPhaseFormScreenState
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  SectionCard(
-                    icon: Icons.request_quote_outlined,
-                    title: 'Información de cotización',
-                    child: quoteAsync.when(
-                      loading: () => const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                      error: (error, _) => Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'No fue posible cargar la cotización más reciente.',
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: const Color(0xFFB42318),
-                                ),
-                          ),
-                          if (_money(service?.quotedAmount).isNotEmpty) ...[
-                            const SizedBox(height: 10),
-                            InfoRow(
-                              label: 'Cotizado',
-                              value: _money(service?.quotedAmount),
-                              icon: Icons.payments_outlined,
-                            ),
-                          ],
-                        ],
-                      ),
-                      data: (quote) {
-                        final canOpenQuote = (service?.customerPhone ?? '')
-                            .trim()
-                            .isNotEmpty;
-                        return Column(
+                  if (_isWarranty) ...[
+                    const SizedBox(height: 12),
+                    SectionCard(
+                      icon: Icons.request_quote_outlined,
+                      title: 'Información de cotización',
+                      child: quoteAsync.when(
+                        loading: () => const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                        error: (error, _) => Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            InfoRow(
-                              label: 'Cotizado',
-                              value: _money(
-                                quote?.total ?? service?.quotedAmount,
-                              ),
-                              icon: Icons.payments_outlined,
-                              emphasize: true,
+                            Text(
+                              'No fue posible cargar la cotización más reciente.',
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: const Color(0xFFB42318),
+                                  ),
                             ),
-                            const SizedBox(height: 10),
-                            InfoRow(
-                              label: 'Fecha',
-                              value: quote == null
-                                  ? 'Sin cotización vinculada'
-                                  : _fmtDate(quote.createdAt),
-                              icon: Icons.event_outlined,
-                            ),
-                            if ((quote?.note ?? '').trim().isNotEmpty) ...[
+                            if (_money(service?.quotedAmount).isNotEmpty) ...[
                               const SizedBox(height: 10),
                               InfoRow(
-                                label: 'Nota',
-                                value: quote!.note,
-                                icon: Icons.sticky_note_2_outlined,
-                                multiline: true,
-                              ),
-                            ],
-                            if (quote != null && quote.items.isNotEmpty) ...[
-                              const SizedBox(height: 12),
-                              Text(
-                                'Items principales',
-                                style: Theme.of(context).textTheme.bodyMedium
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.w800,
-                                      color: const Color(0xFF10233F),
-                                    ),
-                              ),
-                              const SizedBox(height: 8),
-                              for (final item in quote.items.take(4)) ...[
-                                InfoRow(
-                                  label: item.qty.toStringAsFixed(
-                                    item.qty.truncateToDouble() == item.qty
-                                        ? 0
-                                        : 1,
-                                  ),
-                                  value: item.nombre,
-                                  icon: Icons.inventory_2_outlined,
-                                ),
-                                const SizedBox(height: 8),
-                              ],
-                            ],
-                            if (canOpenQuote) ...[
-                              const SizedBox(height: 8),
-                              ActionButton(
-                                label: 'Ver cotización',
-                                icon: Icons.open_in_new_outlined,
-                                tonal: true,
-                                onPressed: () {
-                                  final uri = Uri(
-                                    path: Routes.cotizacionesHistorial,
-                                    queryParameters: {
-                                      'customerPhone': service!.customerPhone,
-                                      'pick': '0',
-                                    },
-                                  );
-                                  context.go(uri.toString());
-                                },
+                                label: 'Cotizado',
+                                value: _money(service?.quotedAmount),
+                                icon: Icons.payments_outlined,
                               ),
                             ],
                           ],
-                        );
-                      },
+                        ),
+                        data: (quote) {
+                          final canOpenQuote = (service?.customerPhone ?? '')
+                              .trim()
+                              .isNotEmpty;
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              InfoRow(
+                                label: 'Cotizado',
+                                value: _money(
+                                  quote?.total ?? service?.quotedAmount,
+                                ),
+                                icon: Icons.payments_outlined,
+                                emphasize: true,
+                              ),
+                              const SizedBox(height: 10),
+                              InfoRow(
+                                label: 'Fecha',
+                                value: quote == null
+                                    ? 'Sin cotización vinculada'
+                                    : _fmtDate(quote.createdAt),
+                                icon: Icons.event_outlined,
+                              ),
+                              if ((quote?.note ?? '').trim().isNotEmpty) ...[
+                                const SizedBox(height: 10),
+                                InfoRow(
+                                  label: 'Nota',
+                                  value: quote!.note,
+                                  icon: Icons.sticky_note_2_outlined,
+                                  multiline: true,
+                                ),
+                              ],
+                              if (quote != null && quote.items.isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Items principales',
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                        color: const Color(0xFF10233F),
+                                      ),
+                                ),
+                                const SizedBox(height: 8),
+                                for (final item in quote.items.take(4)) ...[
+                                  InfoRow(
+                                    label: item.qty.toStringAsFixed(
+                                      item.qty.truncateToDouble() == item.qty
+                                          ? 0
+                                          : 1,
+                                    ),
+                                    value: item.nombre,
+                                    icon: Icons.inventory_2_outlined,
+                                  ),
+                                  const SizedBox(height: 8),
+                                ],
+                              ],
+                              if (canOpenQuote) ...[
+                                const SizedBox(height: 8),
+                                ActionButton(
+                                  label: 'Ver cotización',
+                                  icon: Icons.open_in_new_outlined,
+                                  tonal: true,
+                                  onPressed: () {
+                                    final uri = Uri(
+                                      path: Routes.cotizacionesHistorial,
+                                      queryParameters: {
+                                        'customerPhone':
+                                            service!.customerPhone,
+                                        'pick': '0',
+                                      },
+                                    );
+                                    context.go(uri.toString());
+                                  },
+                                ),
+                              ],
+                            ],
+                          );
+                        },
+                      ),
                     ),
-                  ),
+                  ],
                   const SizedBox(height: 12),
                   SectionCard(
                     icon: Icons.photo_library_outlined,

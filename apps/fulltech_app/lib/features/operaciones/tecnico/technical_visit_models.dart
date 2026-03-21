@@ -193,7 +193,11 @@ class TechnicalVisitModel {
   factory TechnicalVisitModel.fromJson(Map<String, dynamic> json) {
     return TechnicalVisitModel(
       id: _s(json, 'id'),
-      orderId: _s(json, 'orderId', alt: 'order_id'),
+      orderId: _s(
+        json,
+        'orderId',
+        alt: json.containsKey('order_id') ? 'order_id' : 'service_id',
+      ),
       technicianId: _s(json, 'technicianId', alt: 'technician_id'),
       reportDescription: _s(
         json,

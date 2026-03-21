@@ -47,6 +47,47 @@ export class TechnicalVisitsService {
     return /prisma/i.test(msg) && /(does not exist|unknown.*field|column .* does not exist|relation .* does not exist)/i.test(msg);
   }
 
+  private buildTechnicalVisitSurveyResponse(survey: any | null | undefined) {
+    if (!survey) return {};
+    return {
+      id: survey.id,
+      orderId: survey.orderId,
+      order_id: survey.orderId,
+      serviceId: survey.orderId,
+      service_id: survey.orderId,
+      technicianId: survey.technicianId,
+      technician_id: survey.technicianId,
+      reportDescription: survey.reportDescription ?? '',
+      report_description: survey.reportDescription ?? '',
+      installationNotes: survey.installationNotes ?? '',
+      installation_notes: survey.installationNotes ?? '',
+      estimatedProducts: survey.estimatedProducts ?? [],
+      estimated_products: survey.estimatedProducts ?? [],
+      photos: survey.photos ?? [],
+      videos: survey.videos ?? [],
+      visitDate: survey.visitDate ?? null,
+      visit_date: survey.visitDate ?? null,
+      createdAt: survey.createdAt ?? null,
+      created_at: survey.createdAt ?? null,
+      updatedAt: survey.updatedAt ?? null,
+      updated_at: survey.updatedAt ?? null,
+    };
+  }
+
+  private buildTechnicalVisitEnvelope(service: any, survey: any | null | undefined) {
+    return {
+      service: {
+        id: service.id,
+        currentPhase: service.currentPhase,
+        status: service.status,
+        technicianId: service.technicianId,
+        createdByUserId: service.createdByUserId,
+        assignments: service.assignments ?? [],
+      },
+      survey: this.buildTechnicalVisitSurveyResponse(survey),
+    };
+  }
+
   private async getServiceOrThrow(user: AuthUser, serviceId: string, mode: 'view' | 'operate') {
     const service = await this.prisma.service.findFirst({
       where: { id: serviceId, isDeleted: false },
@@ -118,7 +159,7 @@ export class TechnicalVisitsService {
         },
       });
       await this.invalidateTechnicalVisitCache('technicalVisit.create', orderId);
-      return created;
+      return this.buildTechnicalVisitEnvelope(service, created);
     } catch (e: any) {
       if (this.isSchemaMismatch(e)) {
         throw new ServiceUnavailableException('Módulo de levantamiento no disponible: falta aplicar migraciones.');
@@ -134,10 +175,10 @@ export class TechnicalVisitsService {
     const id = (orderId ?? '').trim();
     if (!id) throw new BadRequestException('orderId inválido');
 
-    await this.getServiceOrThrow(user, id, 'view');
+    const service = await this.getServiceOrThrow(user, id, 'view');
 
     const cacheKey = this.buildVisitByOrderCacheKey(id);
-    const cached = await this.redis.get<{ found: boolean; data: any | null }>(cacheKey);
+    const cached = await this.redis.get<{ found: boolean; data: any }>(cacheKey);
     if (cached) {
       if (this.redis.isEnabled()) this.logger.log(`Redis HIT ${cacheKey}`);
       return cached.data;
@@ -146,10 +187,13 @@ export class TechnicalVisitsService {
 
     try {
       const data = await this.prisma.technicalVisit.findUnique({ where: { orderId: id } });
-      await this.redis.set(cacheKey, { found: data != null, data });
-      return data;
+      const envelope = this.buildTechnicalVisitEnvelope(service, data);
+      await this.redis.set(cacheKey, { found: data != null, data: envelope });
+      return envelope;
     } catch (e) {
-      if (this.isSchemaMismatch(e)) return null;
+      if (this.isSchemaMismatch(e)) {
+        return this.buildTechnicalVisitEnvelope(service, null);
+      }
       throw e;
     }
   }
@@ -187,6 +231,7 @@ export class TechnicalVisitsService {
 
     const updated = await this.prisma.technicalVisit.update({ where: { id: visitId }, data });
     await this.invalidateTechnicalVisitCache('technicalVisit.update', existing.orderId);
-    return updated;
+    const service = await this.getServiceOrThrow(user, existing.orderId, 'view');
+    return this.buildTechnicalVisitEnvelope(service, updated);
   }
 }

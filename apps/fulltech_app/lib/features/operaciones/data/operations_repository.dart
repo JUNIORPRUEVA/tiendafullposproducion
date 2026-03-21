@@ -62,6 +62,7 @@ class OperationsRepository {
   static const Duration _serviceDetailCacheTtl = Duration(days: 7);
   static const Duration _techServicesCacheTtl = Duration(minutes: 2);
   static const Duration _executionReportCacheTtl = Duration(days: 3);
+  static const Duration _servicePhaseHistoryCacheTtl = Duration(days: 3);
   static const Duration _serviceChecklistCacheTtl = Duration(days: 7);
   static const Duration _technicalVisitCacheTtl = Duration(days: 3);
   static const Duration _checklistMetadataCacheTtl = Duration(days: 7);
@@ -286,18 +287,81 @@ class OperationsRepository {
     return {
       'id': visit.id,
       'orderId': visit.orderId,
+      'order_id': visit.orderId,
+      'service_id': visit.orderId,
       'technicianId': visit.technicianId,
+      'technician_id': visit.technicianId,
       'reportDescription': visit.reportDescription,
+      'report_description': visit.reportDescription,
       'installationNotes': visit.installationNotes,
+      'installation_notes': visit.installationNotes,
       'estimatedProducts': visit.estimatedProducts
+          .map((item) => item.toJson())
+          .toList(growable: false),
+      'estimated_products': visit.estimatedProducts
           .map((item) => item.toJson())
           .toList(growable: false),
       'photos': visit.photos,
       'videos': visit.videos,
       'visitDate': visit.visitDate?.toIso8601String(),
+      'visit_date': visit.visitDate?.toIso8601String(),
       'createdAt': visit.createdAt?.toIso8601String(),
+      'created_at': visit.createdAt?.toIso8601String(),
       'updatedAt': visit.updatedAt?.toIso8601String(),
+      'updated_at': visit.updatedAt?.toIso8601String(),
     };
+  }
+
+  Map<String, dynamic> _servicePhaseHistoryToMap(
+    ServicePhaseHistoryModel item,
+  ) {
+    return {
+      'id': item.id,
+      'phase': item.phase,
+      'note': item.note,
+      'changedBy': {'nombreCompleto': item.changedBy},
+      'changedAt': item.changedAt?.toIso8601String(),
+      'fromPhase': item.fromPhase,
+      'toPhase': item.toPhase,
+    };
+  }
+
+  bool _looksLikeTechnicalVisitPayload(Map<String, dynamic> raw) {
+    final id = (raw['id'] ?? '').toString().trim();
+    final orderId =
+        (raw['orderId'] ?? raw['order_id'] ?? raw['service_id'] ?? '')
+            .toString()
+            .trim();
+    final technicianId = (raw['technicianId'] ?? raw['technician_id'] ?? '')
+        .toString()
+        .trim();
+    return id.isNotEmpty || orderId.isNotEmpty || technicianId.isNotEmpty;
+  }
+
+  TechnicalVisitModel? _parseTechnicalVisitResponseMap(
+    Map<String, dynamic> raw,
+  ) {
+    final surveyRaw = raw['survey'];
+    if (surveyRaw is Map) {
+      final survey = surveyRaw.cast<String, dynamic>();
+      if (!_looksLikeTechnicalVisitPayload(survey)) return null;
+      return TechnicalVisitModel.fromJson(survey);
+    }
+
+    if (raw.containsKey('service') || raw.isEmpty) {
+      return null;
+    }
+
+    if (!_looksLikeTechnicalVisitPayload(raw)) {
+      return null;
+    }
+
+    return TechnicalVisitModel.fromJson(raw);
+  }
+
+  TechnicalVisitModel? _parseTechnicalVisitResponse(dynamic data) {
+    final raw = _decodeJsonMap(data);
+    return _parseTechnicalVisitResponseMap(raw);
   }
 
   Map<String, dynamic> _decodeJsonMap(dynamic data) {
@@ -448,6 +512,18 @@ class OperationsRepository {
       'technical_visit',
       _scope(cacheScope),
       orderId.trim(),
+    ].join('|');
+  }
+
+  String _servicePhaseHistoryCacheKey({
+    required String cacheScope,
+    required String serviceId,
+  }) {
+    return [
+      'ops',
+      'service_phases',
+      _scope(cacheScope),
+      serviceId.trim(),
     ].join('|');
   }
 
@@ -796,7 +872,30 @@ class OperationsRepository {
       maxAge: _technicalVisitCacheTtl,
     );
     if (map == null) return null;
-    return TechnicalVisitModel.fromJson(map);
+    return _parseTechnicalVisitResponseMap(map);
+  }
+
+  Future<List<ServicePhaseHistoryModel>?> getCachedServicePhases({
+    required String cacheScope,
+    required String serviceId,
+  }) async {
+    final map = await _cache.readMap(
+      _servicePhaseHistoryCacheKey(
+        cacheScope: cacheScope,
+        serviceId: serviceId,
+      ),
+      maxAge: _servicePhaseHistoryCacheTtl,
+    );
+    final raw = map?['items'];
+    if (raw is! List) return null;
+    return raw
+        .whereType<Map>()
+        .map(
+          (item) =>
+              ServicePhaseHistoryModel.fromJson(item.cast<String, dynamic>()),
+        )
+        .where((item) => item.id.trim().isNotEmpty)
+        .toList(growable: false);
   }
 
   Future<void> upsertServiceCacheFromRealtime({
@@ -1151,10 +1250,12 @@ class OperationsRepository {
     required String cacheScope,
     required String serviceId,
     String? technicianId,
+    bool silent = false,
   }) async {
     final bundle = await getExecutionReport(
       serviceId: serviceId,
       technicianId: technicianId,
+      silent: silent,
     );
     await _cache.writeMap(
       _executionReportCacheKey(
@@ -1199,8 +1300,9 @@ class OperationsRepository {
   Future<TechnicalVisitModel?> getTechnicalVisitByOrderAndCache({
     required String cacheScope,
     required String orderId,
+    bool silent = false,
   }) async {
-    final visit = await getTechnicalVisitByOrder(orderId);
+    final visit = await getTechnicalVisitByOrder(orderId, silent: silent);
     if (visit == null) {
       await _cache.remove(
         _technicalVisitCacheKey(cacheScope: cacheScope, orderId: orderId),
@@ -1209,9 +1311,80 @@ class OperationsRepository {
     }
     await _cache.writeMap(
       _technicalVisitCacheKey(cacheScope: cacheScope, orderId: orderId),
-      _technicalVisitToMap(visit),
+      {'survey': _technicalVisitToMap(visit)},
     );
     return visit;
+  }
+
+  Future<List<ServicePhaseHistoryModel>> listServicePhasesAndCache({
+    required String cacheScope,
+    required String serviceId,
+    bool silent = false,
+  }) async {
+    final items = await listServicePhases(serviceId, silent: silent);
+    await _cache.writeMap(
+      _servicePhaseHistoryCacheKey(
+        cacheScope: cacheScope,
+        serviceId: serviceId,
+      ),
+      {
+        'items': items
+            .map((item) => _servicePhaseHistoryToMap(item))
+            .toList(growable: false),
+      },
+    );
+    return items;
+  }
+
+  Future<void> warmServiceDetailCaches({
+    required String cacheScope,
+    required String serviceId,
+    String? technicianId,
+    bool includeExecutionBundle = true,
+    bool includeTechnicalVisit = true,
+    bool includePhaseHistory = true,
+  }) async {
+    final id = serviceId.trim();
+    if (cacheScope.trim().isEmpty || id.isEmpty) return;
+
+    Future<void> guard(Future<void> Function() action) async {
+      try {
+        await action();
+      } catch (_) {
+        // Best-effort warmup.
+      }
+    }
+
+    await Future.wait([
+      guard(() async {
+        await getServiceAndCache(cacheScope: cacheScope, id: id, silent: true);
+      }),
+      if (includeExecutionBundle)
+        guard(() async {
+          await getExecutionReportAndCache(
+            cacheScope: cacheScope,
+            serviceId: id,
+            technicianId: technicianId,
+            silent: true,
+          );
+        }),
+      if (includeTechnicalVisit)
+        guard(() async {
+          await getTechnicalVisitByOrderAndCache(
+            cacheScope: cacheScope,
+            orderId: id,
+            silent: true,
+          );
+        }),
+      if (includePhaseHistory)
+        guard(() async {
+          await listServicePhasesAndCache(
+            cacheScope: cacheScope,
+            serviceId: id,
+            silent: true,
+          );
+        }),
+    ]);
   }
 
   Future<ServiceModel> updateService({
@@ -1542,10 +1715,14 @@ class OperationsRepository {
   }
 
   Future<List<ServicePhaseHistoryModel>> listServicePhases(
-    String serviceId,
-  ) async {
+    String serviceId, {
+    bool silent = false,
+  }) async {
     try {
-      final res = await _dio.get(ApiRoutes.servicePhases(serviceId));
+      final res = await _dio.get(
+        ApiRoutes.servicePhases(serviceId),
+        options: Options(extra: {'silent': silent}),
+      );
       final raw = res.data;
       if (raw is! List) return const [];
       return raw
@@ -1637,11 +1814,15 @@ class OperationsRepository {
   Future<ServiceExecutionBundleModel> getExecutionReport({
     required String serviceId,
     String? technicianId,
+    bool silent = false,
   }) async {
     try {
       final res = await _dio.get(
         ApiRoutes.serviceExecutionReport(serviceId),
-        options: Options(responseType: ResponseType.plain),
+        options: Options(
+          extra: {'silent': silent},
+          responseType: ResponseType.plain,
+        ),
         queryParameters: {
           if (technicianId != null && technicianId.trim().isNotEmpty)
             'technicianId': technicianId.trim(),
@@ -2599,14 +2780,19 @@ class OperationsRepository {
   }
 
   // Levantamiento Técnico (Technical Visit Report)
-  Future<TechnicalVisitModel?> getTechnicalVisitByOrder(String orderId) async {
+  Future<TechnicalVisitModel?> getTechnicalVisitByOrder(
+    String orderId, {
+    bool silent = false,
+  }) async {
     try {
       final res = await _dio.get(
         ApiRoutes.technicalVisitByOrder(orderId),
-        options: Options(responseType: ResponseType.plain),
+        options: Options(
+          extra: {'silent': silent},
+          responseType: ResponseType.plain,
+        ),
       );
-      final raw = _decodeJsonMap(res.data);
-      return TechnicalVisitModel.fromJson(raw);
+      return _parseTechnicalVisitResponse(res.data);
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) return null;
@@ -2633,8 +2819,11 @@ class OperationsRepository {
         data: payload,
         options: Options(responseType: ResponseType.plain),
       );
-      final raw = _decodeJsonMap(res.data);
-      return TechnicalVisitModel.fromJson(raw);
+      final visit = _parseTechnicalVisitResponse(res.data);
+      if (visit == null) {
+        throw const FormatException('Missing technical visit survey');
+      }
+      return visit;
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) {
         throw ApiException('No autorizado. Inicia sesión nuevamente.', 401);
@@ -2660,8 +2849,11 @@ class OperationsRepository {
         data: payload,
         options: Options(responseType: ResponseType.plain),
       );
-      final raw = _decodeJsonMap(res.data);
-      return TechnicalVisitModel.fromJson(raw);
+      final visit = _parseTechnicalVisitResponse(res.data);
+      if (visit == null) {
+        throw const FormatException('Missing technical visit survey');
+      }
+      return visit;
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) {
         throw ApiException('No autorizado. Inicia sesión nuevamente.', 401);

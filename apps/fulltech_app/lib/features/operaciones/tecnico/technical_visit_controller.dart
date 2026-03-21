@@ -799,8 +799,16 @@ class TechnicalVisitController extends StateNotifier<TechnicalVisitState> {
         payload: basePayload,
       );
 
+      final persistedVisit = queued
+          ? state.visit
+          : await repo.getTechnicalVisitByOrderAndCache(
+              cacheScope: userId,
+              orderId: serviceId,
+            );
+
       state = state.copyWith(
         saving: false,
+        visit: persistedVisit,
         error: queued
             ? 'Levantamiento guardado localmente. Se sincronizará en segundo plano.'
             : null,

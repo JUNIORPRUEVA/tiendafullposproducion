@@ -133,6 +133,10 @@ final serviceProvider = FutureProvider.family<ServiceModel, String>((
 class OperationsController extends StateNotifier<OperationsState> {
   final Ref ref;
   int _loadSeq = 0;
+  final Map<String, DateTime> _detailPrefetchAt = <String, DateTime>{};
+
+  static const int _detailPrefetchLimit = 6;
+  static const Duration _detailPrefetchTtl = Duration(minutes: 2);
 
   OperationsController(this.ref) : super(OperationsState.initial()) {
     load();
@@ -180,6 +184,7 @@ class OperationsController extends StateNotifier<OperationsState> {
         services: cachedPage?.items ?? state.services,
         dashboard: cachedDashboard ?? state.dashboard,
       );
+      _prefetchLikelyDetails(cachedItems);
 
       unawaited(() async {
         try {
@@ -218,6 +223,7 @@ class OperationsController extends StateNotifier<OperationsState> {
             services: page.items,
             dashboard: dashboard,
           );
+          _prefetchLikelyDetails(page.items);
         } catch (e) {
           if (!mounted || seq != _loadSeq) return;
           state = state.copyWith(
@@ -260,6 +266,52 @@ class OperationsController extends StateNotifier<OperationsState> {
     }
     next.sort(_sortServicesForRealtime);
     state = state.copyWith(services: next);
+    _prefetchLikelyDetails([service]);
+  }
+
+  void _prefetchLikelyDetails(List<ServiceModel> services) {
+    if (services.isEmpty) return;
+
+    var queued = 0;
+    for (final service in services) {
+      final id = service.id.trim();
+      if (id.isEmpty) continue;
+      unawaited(prefetchServiceBundle(id));
+      queued++;
+      if (queued >= _detailPrefetchLimit) break;
+    }
+  }
+
+  Future<void> prefetchServiceBundle(
+    String serviceId, {
+    bool force = false,
+  }) async {
+    final id = serviceId.trim();
+    if (id.isEmpty) return;
+
+    final now = DateTime.now();
+    final last = _detailPrefetchAt[id];
+    if (!force && last != null && now.difference(last) < _detailPrefetchTtl) {
+      return;
+    }
+    _detailPrefetchAt[id] = now;
+
+    final auth = ref.read(authStateProvider);
+    final cacheScope = (auth.user?.id ?? '').trim();
+    if (cacheScope.isEmpty) return;
+
+    final technicianId =
+        (auth.user?.role ?? '').trim().toLowerCase() == 'tecnico'
+        ? cacheScope
+        : null;
+
+    await ref
+        .read(operationsRepositoryProvider)
+        .warmServiceDetailCaches(
+          cacheScope: cacheScope,
+          serviceId: id,
+          technicianId: technicianId,
+        );
   }
 
   bool _matchesCurrentFilters(ServiceModel service) {

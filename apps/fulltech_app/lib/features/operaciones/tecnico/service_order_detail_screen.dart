@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -27,7 +29,33 @@ final _serviceDetailProvider =
     FutureProvider.family<_ServiceDetailBundle, String>((ref, serviceId) async {
       final repo = ref.read(operationsRepositoryProvider);
       final serviceFuture = ref.watch(serviceProvider(serviceId).future);
-      final visitFuture = repo.getTechnicalVisitByOrder(serviceId);
+      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
+      final visitFuture = () async {
+        if (cacheScope.isEmpty) {
+          return repo.getTechnicalVisitByOrder(serviceId);
+        }
+
+        final cached = await repo.getCachedTechnicalVisitByOrder(
+          cacheScope: cacheScope,
+          orderId: serviceId,
+        );
+        if (cached != null) {
+          unawaited(
+            repo.getTechnicalVisitByOrderAndCache(
+              cacheScope: cacheScope,
+              orderId: serviceId,
+              silent: true,
+            ),
+          );
+          return cached;
+        }
+
+        return repo.getTechnicalVisitByOrderAndCache(
+          cacheScope: cacheScope,
+          orderId: serviceId,
+          silent: true,
+        );
+      }();
       final results = await Future.wait<dynamic>([serviceFuture, visitFuture]);
       return _ServiceDetailBundle(
         service: results[0] as ServiceModel,
@@ -656,6 +684,8 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
 
         final snapshot = _parseLocationSnapshot(service.customerAddress);
         final pay = _paymentInfo(service);
+        final isLevantamiento =
+            effectiveServicePhaseKey(service) == 'levantamiento';
 
         final phone = service.customerPhone.trim();
         final canOpenQuote = phone.isNotEmpty;
@@ -834,85 +864,132 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                 ],
                 const SizedBox(height: 12),
                 SectionCard(
-                  icon: Icons.receipt_long_outlined,
-                  title: 'Información de cotización',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          StatusBadge(
-                            label: pay.status,
-                            background: paymentTheme.background,
-                            foreground: paymentTheme.foreground,
-                            icon: paymentTheme.icon,
+                  icon: Icons.assignment_turned_in_outlined,
+                  title: 'Levantamiento',
+                  child: bundle.visit == null
+                      ? const EmptyStateWidget(
+                          icon: Icons.assignment_late_outlined,
+                          title: 'Sin datos de levantamiento aún',
+                          message:
+                              'Todavía no se ha guardado un levantamiento para esta orden.',
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            InfoRow(
+                              label: 'Fecha',
+                              value: _fmtDateTime(
+                                bundle.visit!.updatedAt ??
+                                    bundle.visit!.visitDate ??
+                                    bundle.visit!.createdAt,
+                              ),
+                              icon: Icons.event_outlined,
+                            ),
+                            if (_hasText(bundle.visit!.reportDescription)) ...[
+                              const SizedBox(height: 10),
+                              InfoRow(
+                                label: 'Reporte',
+                                value: _clean(bundle.visit!.reportDescription),
+                                icon: Icons.notes_outlined,
+                                multiline: true,
+                                emphasize: true,
+                              ),
+                            ],
+                            if (_hasText(bundle.visit!.installationNotes)) ...[
+                              const SizedBox(height: 10),
+                              InfoRow(
+                                label: 'Observaciones',
+                                value: _clean(bundle.visit!.installationNotes),
+                                icon: Icons.subject_outlined,
+                                multiline: true,
+                              ),
+                            ],
+                          ],
+                        ),
+                ),
+                if (!isLevantamiento) ...[
+                  const SizedBox(height: 12),
+                  SectionCard(
+                    icon: Icons.receipt_long_outlined,
+                    title: 'Información de cotización',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            StatusBadge(
+                              label: pay.status,
+                              background: paymentTheme.background,
+                              foreground: paymentTheme.foreground,
+                              icon: paymentTheme.icon,
+                            ),
+                          ],
+                        ),
+                        if (_money(pay.total).isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          InfoRow(
+                            label: 'Total',
+                            value: _money(pay.total),
+                            icon: Icons.payments_outlined,
+                            emphasize: true,
                           ),
                         ],
-                      ),
-                      if (_money(pay.total).isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        InfoRow(
-                          label: 'Total',
-                          value: _money(pay.total),
-                          icon: Icons.payments_outlined,
-                          emphasize: true,
-                        ),
+                        if (_money(pay.balance).isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          InfoRow(
+                            label: 'Saldo',
+                            value: _money(pay.balance),
+                            icon: Icons.account_balance_wallet_outlined,
+                          ),
+                        ],
+                        if (_money(pay.deposit).isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          InfoRow(
+                            label: 'Depósito',
+                            value: _money(pay.deposit),
+                            icon: Icons.savings_outlined,
+                          ),
+                        ],
+                        if (_money(service.quotedAmount).isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          InfoRow(
+                            label: 'Cotizado',
+                            value: _money(service.quotedAmount),
+                            icon: Icons.request_quote_outlined,
+                          ),
+                        ],
+                        if (_money(service.finalCost).isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          InfoRow(
+                            label: 'Costo final',
+                            value: _money(service.finalCost),
+                            icon: Icons.price_check_outlined,
+                          ),
+                        ],
+                        if (canOpenQuote) ...[
+                          const SizedBox(height: 12),
+                          ActionButton(
+                            label: 'Ver cotización',
+                            icon: Icons.open_in_new_outlined,
+                            tonal: true,
+                            onPressed: () {
+                              final uri = Uri(
+                                path: Routes.cotizacionesHistorial,
+                                queryParameters: {
+                                  'customerPhone': phone,
+                                  'pick': '0',
+                                },
+                              );
+                              context.go(uri.toString());
+                            },
+                          ),
+                        ],
                       ],
-                      if (_money(pay.balance).isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        InfoRow(
-                          label: 'Saldo',
-                          value: _money(pay.balance),
-                          icon: Icons.account_balance_wallet_outlined,
-                        ),
-                      ],
-                      if (_money(pay.deposit).isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        InfoRow(
-                          label: 'Depósito',
-                          value: _money(pay.deposit),
-                          icon: Icons.savings_outlined,
-                        ),
-                      ],
-                      if (_money(service.quotedAmount).isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        InfoRow(
-                          label: 'Cotizado',
-                          value: _money(service.quotedAmount),
-                          icon: Icons.request_quote_outlined,
-                        ),
-                      ],
-                      if (_money(service.finalCost).isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        InfoRow(
-                          label: 'Costo final',
-                          value: _money(service.finalCost),
-                          icon: Icons.price_check_outlined,
-                        ),
-                      ],
-                      if (canOpenQuote) ...[
-                        const SizedBox(height: 12),
-                        ActionButton(
-                          label: 'Ver cotización',
-                          icon: Icons.open_in_new_outlined,
-                          tonal: true,
-                          onPressed: () {
-                            final uri = Uri(
-                              path: Routes.cotizacionesHistorial,
-                              queryParameters: {
-                                'customerPhone': phone,
-                                'pick': '0',
-                              },
-                            );
-                            context.go(uri.toString());
-                          },
-                        ),
-                      ],
-                    ],
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 12),
                 SectionCard(
                   icon: Icons.history_outlined,

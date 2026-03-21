@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../operations_models.dart';
 import 'operations_filters.dart';
+import 'service_location_helpers.dart';
 
 class OperationsMetricItem {
   final String label;
@@ -571,7 +572,12 @@ class OrderCard extends StatelessWidget {
     final customerName = service.customerName.trim().isEmpty
         ? 'Cliente'
         : service.customerName.trim();
-    final address = service.customerAddress.trim();
+    final location = buildServiceLocationInfo(
+      addressOrText: service.customerAddress,
+    );
+    final locationLabel = location.label == 'Sin ubicación'
+        ? ''
+        : location.label;
     final priorityLabel = 'P${service.priority}';
 
     return DecoratedBox(
@@ -667,16 +673,16 @@ class OrderCard extends StatelessWidget {
               ),
               const SizedBox(height: 4),
             ],
-            if (address.isNotEmpty)
+            if (locationLabel.isNotEmpty)
               _InfoRowWidget(
-                icon: Icons.place_outlined,
-                label: address,
+                icon: Icons.location_on,
+                label: locationLabel,
                 trailing: onOpenMaps == null
                     ? null
                     : IconButton(
                         tooltip: 'Abrir Maps',
                         onPressed: onOpenMaps,
-                        icon: const Icon(Icons.map_outlined, size: 16),
+                        icon: const Icon(Icons.location_on, size: 16),
                         style: IconButton.styleFrom(
                           visualDensity: VisualDensity.compact,
                           minimumSize: const Size(30, 30),

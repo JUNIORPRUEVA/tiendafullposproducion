@@ -1955,6 +1955,11 @@ class _OperacionesScreenState extends ConsumerState<OperacionesScreen>
   }
 
   Future<void> _openServiceDetail(ServiceModel service) async {
+    unawaited(
+      ref
+          .read(operationsControllerProvider.notifier)
+          .prefetchServiceBundle(service.id, force: true),
+    );
     await Navigator.of(context).push<void>(
       _buildServiceDetailRoute(
         _OperationsServiceDetailPage(
@@ -3361,9 +3366,7 @@ bool _looksLikeValidLocationText(String value) {
 
 bool _isFinalizedService(ServiceModel s) {
   final status = effectiveServiceStatusKey(s);
-  return status == 'finalizada' ||
-      status == 'cerrada' ||
-      status == 'cancelada';
+  return status == 'finalizada' || status == 'cerrada' || status == 'cancelada';
 }
 
 List<String> _missingPhaseRequirements(ServiceModel s, String phase) {
@@ -4867,22 +4870,22 @@ class _PanelOptionsState extends State<_PanelOptions> {
   }) {
     final pendingOrders = visibleOrders
         .where((service) {
-        final status = effectiveServiceStatusKey(service);
-        return status == 'pendiente';
+          final status = effectiveServiceStatusKey(service);
+          return status == 'pendiente';
         })
         .toList(growable: false);
 
     final inProgressOrders = visibleOrders
         .where((service) {
-        final status = effectiveServiceStatusKey(service);
-        return status == 'en_camino' || status == 'en_proceso';
+          final status = effectiveServiceStatusKey(service);
+          return status == 'en_camino' || status == 'en_proceso';
         })
         .toList(growable: false);
 
     final completedOrders = visibleOrders
         .where((service) {
-        final status = effectiveServiceStatusKey(service);
-        return status == 'finalizada' || status == 'cerrada';
+          final status = effectiveServiceStatusKey(service);
+          return status == 'finalizada' || status == 'cerrada';
         })
         .toList(growable: false);
 
@@ -5585,9 +5588,15 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
 
   Future<void> _refreshServiceDetail({bool silent = true}) async {
     try {
-      final fresh = await ref
-          .read(operationsRepositoryProvider)
-          .getService(widget.service.id);
+      final repo = ref.read(operationsRepositoryProvider);
+      final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
+      final fresh = cacheScope.isEmpty
+          ? await repo.getService(widget.service.id)
+          : await repo.getServiceAndCache(
+              cacheScope: cacheScope,
+              id: widget.service.id,
+              silent: true,
+            );
       if (!mounted) return;
       setState(() {
         _service = fresh;
@@ -5612,9 +5621,43 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
   }
 
   Future<ServiceExecutionBundleModel> _loadExecutionBundle(String serviceId) {
-    return ref
-        .read(operationsRepositoryProvider)
-        .getExecutionReport(serviceId: serviceId);
+    final repo = ref.read(operationsRepositoryProvider);
+    final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
+
+    if (cacheScope.isEmpty) {
+      return repo.getExecutionReport(serviceId: serviceId);
+    }
+
+    return () async {
+      final cached = await repo.getCachedExecutionReport(
+        cacheScope: cacheScope,
+        serviceId: serviceId,
+      );
+      if (cached != null) {
+        unawaited(() async {
+          try {
+            final fresh = await repo.getExecutionReportAndCache(
+              cacheScope: cacheScope,
+              serviceId: serviceId,
+              silent: true,
+            );
+            if (!mounted || _service.id.trim() != serviceId.trim()) return;
+            setState(() {
+              _executionBundleFuture = Future.value(fresh);
+            });
+          } catch (_) {
+            // Keep cached value on screen.
+          }
+        }());
+        return cached;
+      }
+
+      return repo.getExecutionReportAndCache(
+        cacheScope: cacheScope,
+        serviceId: serviceId,
+        silent: true,
+      );
+    }();
   }
 
   String? _extractLatestReferenceText(ServiceModel service) {
@@ -5631,16 +5674,37 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
   Future<void> _loadPhaseHistory() async {
     final serviceId = _service.id.trim();
     if (serviceId.isEmpty) return;
+    final repo = ref.read(operationsRepositoryProvider);
+    final cacheScope = (ref.read(authStateProvider).user?.id ?? '').trim();
 
     setState(() {
       _phaseHistoryLoading = true;
       _phaseHistoryError = null;
     });
 
+    if (cacheScope.isNotEmpty) {
+      final cached = await repo.getCachedServicePhases(
+        cacheScope: cacheScope,
+        serviceId: serviceId,
+      );
+      if (!mounted) return;
+      if (cached != null && cached.isNotEmpty) {
+        setState(() {
+          _phaseHistory = cached;
+          _phaseHistoryLoading = true;
+          _phaseHistoryError = null;
+        });
+      }
+    }
+
     try {
-      final items = await ref
-          .read(operationsRepositoryProvider)
-          .listServicePhases(serviceId);
+      final items = cacheScope.isEmpty
+          ? await repo.listServicePhases(serviceId, silent: true)
+          : await repo.listServicePhasesAndCache(
+              cacheScope: cacheScope,
+              serviceId: serviceId,
+              silent: true,
+            );
       if (!mounted) return;
       setState(() {
         _phaseHistory = items;
@@ -5650,9 +5714,11 @@ class _ServiceDetailPanelState extends ConsumerState<_ServiceDetailPanel> {
       if (!mounted) return;
       setState(() {
         _phaseHistoryLoading = false;
-        _phaseHistoryError = e is ApiException
-            ? e.message
-            : 'No se pudo cargar historial de fases';
+        _phaseHistoryError = _phaseHistory.isNotEmpty
+            ? null
+            : (e is ApiException
+                  ? e.message
+                  : 'No se pudo cargar historial de fases');
       });
     }
   }
