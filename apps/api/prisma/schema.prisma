@@ -631,6 +631,9 @@ model Client {
   email     String?
   direccion String?
   notas     String?
+  latitude  Decimal? @db.Decimal(10, 8)
+  longitude Decimal? @db.Decimal(11, 8)
+  locationUrl String? @map("location_url")
   lastActivityAt DateTime?
   isDeleted Boolean  @default(false)
   createdAt DateTime @default(now())
@@ -647,6 +650,7 @@ model Client {
   @@index([ownerId, telefono])
   @@index([phoneNormalized])
   @@index([lastActivityAt])
+  @@index([latitude, longitude])
 }
 
 model Sale {

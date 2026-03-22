@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_provider.dart';
@@ -13,6 +12,7 @@ import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
 import 'application/service_order_detail_controller.dart';
 import 'service_order_models.dart';
+import 'widgets/evidence_item_widget.dart';
 
 class ServiceOrderDetailScreen extends ConsumerWidget {
   const ServiceOrderDetailScreen({super.key, required this.orderId});
@@ -615,69 +615,11 @@ class _EvidenceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isUrl = evidence.content.startsWith('http://') ||
-        evidence.content.startsWith('https://');
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                evidence.type.isText
-                    ? Icons.notes_outlined
-                    : evidence.type.isImage
-                    ? Icons.image_outlined
-                    : Icons.videocam_outlined,
-              ),
-              const SizedBox(width: 8),
-              Expanded(child: Text(evidence.type.label)),
-              Text(
-                DateFormat('dd/MM h:mm a', 'es_DO').format(evidence.createdAt.toLocal()),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (evidence.type.isImage && isUrl)
-            ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Image.network(
-                evidence.content,
-                height: 180,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) =>
-                    const SizedBox(
-                      height: 120,
-                      child: Center(child: Text('No se pudo cargar la imagen')),
-                    ),
-              ),
-            )
-          else
-            Text(evidence.content),
-          if (isUrl) ...[
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  final uri = Uri.tryParse(evidence.content);
-                  if (uri == null) return;
-                  await launchUrl(uri, mode: LaunchMode.externalApplication);
-                },
-                icon: const Icon(Icons.open_in_new_outlined),
-                label: const Text('Abrir enlace'),
-              ),
-            ),
-          ],
-        ],
-      ),
+    return EvidenceItemWidget(
+      type: evidence.type,
+      url: evidence.type.isText ? null : evidence.content,
+      text: evidence.type.isText ? evidence.content : null,
+      createdAt: evidence.createdAt,
     );
   }
 }

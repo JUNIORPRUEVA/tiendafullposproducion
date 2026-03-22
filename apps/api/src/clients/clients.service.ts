@@ -1,14 +1,141 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, type Client } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizePhone } from '../common/utils/normalize-phone';
+import { ClientLocationFieldsDto } from './dto/client-location-fields.dto';
 import { CreateClientDto } from './dto/create-client.dto';
 import { ClientsQueryDto } from './dto/clients-query.dto';
+import { UpdateClientLocationDto } from './dto/update-client-location.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 
 @Injectable()
 export class ClientsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private hasOwn(source: object, key: string) {
+    return Object.prototype.hasOwnProperty.call(source, key);
+  }
+
+  private toNullableNumber(
+    value: Prisma.Decimal | number | string | null | undefined,
+  ): number | null {
+    if (value == null) return null;
+    if (value instanceof Prisma.Decimal) return value.toNumber();
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  private normalizeLocationUrl(value: string | null | undefined): string | null {
+    const normalized = value?.trim();
+    return normalized ? normalized : null;
+  }
+
+  private buildGoogleMapsUrl(latitude: number, longitude: number) {
+    return `https://www.google.com/maps?q=${latitude},${longitude}`;
+  }
+
+  private extractCoordinatesFromLocationUrl(locationUrl: string) {
+    const decoded = decodeURIComponent(locationUrl);
+    const patterns = [
+      /[?&]q=(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/i,
+      /@(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/i,
+      /(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/,
+    ];
+
+    for (const pattern of patterns) {
+      const match = decoded.match(pattern);
+      if (!match) continue;
+
+      const latitude = Number(match[1]);
+      const longitude = Number(match[2]);
+
+      if (
+        Number.isFinite(latitude) &&
+        Number.isFinite(longitude) &&
+        latitude >= -90 &&
+        latitude <= 90 &&
+        longitude >= -180 &&
+        longitude <= 180
+      ) {
+        return { latitude, longitude };
+      }
+    }
+
+    return null;
+  }
+
+  private resolveLocationPayload(dto: ClientLocationFieldsDto, allowClear = false) {
+    const latitudeWasProvided = this.hasOwn(dto, 'latitude');
+    const longitudeWasProvided = this.hasOwn(dto, 'longitude');
+    const locationUrlWasProvided = this.hasOwn(dto, 'location_url') || this.hasOwn(dto, 'locationUrl');
+
+    if (!latitudeWasProvided && !longitudeWasProvided && !locationUrlWasProvided) {
+      return null;
+    }
+
+    const latitude = dto.latitude ?? null;
+    const longitude = dto.longitude ?? null;
+    const locationUrl = this.normalizeLocationUrl(dto.location_url ?? dto.locationUrl);
+
+    if (allowClear && latitude == null && longitude == null && locationUrl == null) {
+      return {
+        latitude: null,
+        longitude: null,
+        locationUrl: null,
+      };
+    }
+
+    if ((latitude == null) != (longitude == null)) {
+      throw new BadRequestException('latitude y longitude deben enviarse juntos.');
+    }
+
+    let resolvedLatitude = latitude;
+    let resolvedLongitude = longitude;
+
+    if (resolvedLatitude == null || resolvedLongitude == null) {
+      if (!locationUrl) {
+        throw new BadRequestException('Debe enviar latitude/longitude o location_url.');
+      }
+
+      const extracted = this.extractCoordinatesFromLocationUrl(locationUrl);
+      if (!extracted) {
+        throw new BadRequestException(
+          'No se pudieron extraer coordenadas válidas desde location_url.',
+        );
+      }
+
+      resolvedLatitude = extracted.latitude;
+      resolvedLongitude = extracted.longitude;
+    }
+
+    const finalLocationUrl = locationUrl ?? this.buildGoogleMapsUrl(resolvedLatitude, resolvedLongitude);
+
+    return {
+      latitude: new Prisma.Decimal(resolvedLatitude),
+      longitude: new Prisma.Decimal(resolvedLongitude),
+      locationUrl: finalLocationUrl,
+    };
+  }
+
+  private serializeClient(client: Client | null) {
+    if (!client) return client;
+
+    const latitude = this.toNullableNumber(client.latitude);
+    const longitude = this.toNullableNumber(client.longitude);
+    const locationUrl = client.locationUrl ?? null;
+
+    return {
+      ...client,
+      latitude,
+      longitude,
+      locationUrl,
+      location_url: locationUrl,
+    };
+  }
+
+  private serializeClientCollection(clients: Client[]) {
+    return clients.map((client) => this.serializeClient(client));
+  }
 
   private async assertNoActiveDuplicatePhoneNormalized(
     phoneNormalized: string,
@@ -34,11 +161,23 @@ export class ClientsService {
 
   async create(ownerId: string, dto: CreateClientDto) {
     const phoneNormalized = normalizePhone(dto.telefono);
+    const locationData = this.resolveLocationPayload(dto);
     await this.assertNoActiveDuplicatePhoneNormalized(phoneNormalized);
     try {
-      return await this.prisma.client.create({
-        data: { ...dto, ownerId, phoneNormalized, lastActivityAt: new Date() },
+      const client = await this.prisma.client.create({
+        data: {
+          nombre: dto.nombre,
+          telefono: dto.telefono,
+          email: dto.email,
+          direccion: dto.direccion,
+          notas: dto.notas,
+          ownerId,
+          phoneNormalized,
+          lastActivityAt: new Date(),
+          ...(locationData ?? {}),
+        },
       });
+      return this.serializeClient(client);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException('Ya existe un cliente con ese teléfono');
@@ -87,37 +226,66 @@ export class ClientsService {
       this.prisma.client.count({ where }),
     ]);
 
-    return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
+    return {
+      items: this.serializeClientCollection(items),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    };
   }
 
   async findOne(id: string) {
     const client = await this.prisma.client.findFirst({ where: { id } });
     if (!client) throw new NotFoundException('Client not found');
-    return client;
+    return this.serializeClient(client);
   }
 
   async update(id: string, dto: UpdateClientDto) {
     await this.findOne(id);
     const telefonoWasProvided = Object.prototype.hasOwnProperty.call(dto, 'telefono');
     const phoneNormalized = telefonoWasProvided ? normalizePhone(dto.telefono) : undefined;
+    const locationData = this.resolveLocationPayload(dto, true);
     if (telefonoWasProvided) {
       await this.assertNoActiveDuplicatePhoneNormalized(phoneNormalized ?? '', id);
     }
 
     try {
-      return await this.prisma.client.update({
+      const client = await this.prisma.client.update({
         where: { id },
         data: {
-          ...dto,
+          nombre: dto.nombre,
+          telefono: dto.telefono,
+          email: dto.email,
+          direccion: dto.direccion,
+          notas: dto.notas,
           ...(telefonoWasProvided ? { phoneNormalized: phoneNormalized ?? '' } : {}),
+          ...(locationData ?? {}),
         },
       });
+      return this.serializeClient(client);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException('Ya existe un cliente con ese teléfono');
       }
       throw error;
     }
+  }
+
+  async updateLocation(id: string, dto: UpdateClientLocationDto) {
+    await this.findOne(id);
+    const locationData = this.resolveLocationPayload(dto, true);
+
+    if (!locationData) {
+      throw new BadRequestException('Debe enviar latitude/longitude o location_url.');
+    }
+
+    const client = await this.prisma.client.update({
+      where: { id },
+      data: locationData,
+    });
+
+    return this.serializeClient(client);
   }
 
   async remove(id: string) {
@@ -137,6 +305,9 @@ export class ClientsService {
         email: true,
         direccion: true,
         notas: true,
+        latitude: true,
+        longitude: true,
+        locationUrl: true,
         ownerId: true,
         lastActivityAt: true,
         isDeleted: true,
@@ -167,7 +338,7 @@ export class ClientsService {
     ]);
 
     return {
-      client,
+      client: this.serializeClient(client),
       createdBy,
       metrics: {
         salesCount: salesAgg._count._all,

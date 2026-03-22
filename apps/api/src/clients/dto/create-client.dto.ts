@@ -1,6 +1,7 @@
 import { IsOptional, IsString } from 'class-validator';
+import { ClientLocationFieldsDto } from './client-location-fields.dto';
 
-export class CreateClientDto {
+export class CreateClientDto extends ClientLocationFieldsDto {
   @IsString()
   nombre!: string;
 

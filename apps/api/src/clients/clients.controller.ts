@@ -8,6 +8,7 @@ import { ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { ClientTimelineQueryDto } from './dto/client-timeline-query.dto';
 import { ClientsQueryDto } from './dto/clients-query.dto';
+import { UpdateClientLocationDto } from './dto/update-client-location.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -52,6 +53,11 @@ export class ClientsController {
   @Patch(':id')
   update(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateClientDto) {
     return this.clients.update(id, dto);
+  }
+
+  @Patch(':id/location')
+  updateLocation(@Param('id') id: string, @Body() dto: UpdateClientLocationDto) {
+    return this.clients.updateLocation(id, dto);
   }
 
   @Delete(':id')

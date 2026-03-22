@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as path;
-import 'package:video_player/video_player.dart';
 
 import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_provider.dart';
@@ -20,6 +19,7 @@ import '../clientes/cliente_model.dart';
 import '../cotizaciones/cotizacion_models.dart';
 import 'application/create_service_order_controller.dart';
 import 'service_order_models.dart';
+import 'widgets/evidence_item_widget.dart';
 
 class CreateServiceOrderScreen extends ConsumerStatefulWidget {
   const CreateServiceOrderScreen({super.key, this.args});
@@ -1109,162 +1109,18 @@ class _EvidenceBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bubbleColor = reference.isImage
-        ? const Color(0xFFE5F3ED)
-        : reference.isVideo
-        ? const Color(0xFFF8EDE1)
-        : const Color(0xFFE8EEF8);
-
-    return Container(
+    return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: compact ? 360 : 420),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: bubbleColor,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                reference.isImage
-                    ? Icons.image_outlined
-                  : reference.isVideo
-                    ? Icons.videocam_outlined
-                    : Icons.notes_outlined,
-                size: 18,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  reference.type.label,
-                  style: Theme.of(context).textTheme.labelLarge,
-                ),
-              ),
-              if (onRemove != null)
-                IconButton(
-                  onPressed: onRemove,
-                  icon: const Icon(Icons.close, size: 18),
-                  visualDensity: VisualDensity.compact,
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (reference.isImage)
-            ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: reference.previewBytes != null
-                  ? Image.memory(
-                      reference.previewBytes!,
-                      height: compact ? 140 : 180,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    )
-                  : Image.network(
-                      reference.previewSource,
-                      height: compact ? 140 : 180,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    ),
-            )
-          else if (reference.isVideo)
-            _DraftVideoPreview(reference: reference, compact: compact)
-          else
-            Text(reference.content),
-        ],
-      ),
-    );
-  }
-}
-
-class _DraftVideoPreview extends StatefulWidget {
-  const _DraftVideoPreview({required this.reference, required this.compact});
-
-  final ServiceOrderDraftReference reference;
-  final bool compact;
-
-  @override
-  State<_DraftVideoPreview> createState() => _DraftVideoPreviewState();
-}
-
-class _DraftVideoPreviewState extends State<_DraftVideoPreview> {
-  VideoPlayerController? _controller;
-  bool _ready = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = createVideoPreviewController(
-      path: widget.reference.previewSource,
-      bytes: widget.reference.previewBytes,
-      fileName: widget.reference.fileName,
-    );
-    final controller = _controller;
-    if (controller == null) return;
-    controller.setVolume(0);
-    controller.initialize().then((_) {
-      if (!mounted) return;
-      setState(() {
-        _ready = true;
-      });
-    }).catchError((_) {
-      if (!mounted) return;
-      setState(() {
-        _ready = false;
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final height = widget.compact ? 140.0 : 180.0;
-    final controller = _controller;
-    if (controller == null || !_ready) {
-      return Container(
-        height: height,
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: const Color(0xFF0F172A),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.play_circle_outline, color: Colors.white, size: 40),
-            const SizedBox(height: 8),
-            Text(
-              widget.reference.fileName ?? 'Video cargado',
-              style: const TextStyle(color: Colors.white),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: AspectRatio(
-        aspectRatio: controller.value.aspectRatio == 0
-            ? 16 / 9
-            : controller.value.aspectRatio,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            VideoPlayer(controller),
-            Container(
-              color: Colors.black26,
-              alignment: Alignment.center,
-              child: const Icon(Icons.play_circle_fill, color: Colors.white, size: 42),
-            ),
-          ],
-        ),
+      child: EvidenceItemWidget(
+        type: reference.type,
+        url: reference.isText ? null : reference.content,
+        text: reference.isText ? reference.content : null,
+        createdAt: reference.createdAt,
+        previewBytes: reference.previewBytes,
+        localPath: reference.localPath,
+        fileName: reference.fileName,
+        compact: compact,
+        onRemove: onRemove,
       ),
     );
   }
