@@ -26,7 +26,8 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
     final controller = ref.read(provider.notifier);
     final order = state.order;
     final currentUser = ref.watch(authStateProvider).user;
-    final isTechnician = currentUser?.appRole.isTechnician ?? false;
+    final role = currentUser?.appRole ?? AppRole.unknown;
+    final canSeeTechnicalArea = role.isTechnician || role.isAdmin;
 
     return Scaffold(
       appBar: AppBar(
@@ -128,7 +129,7 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    if (isTechnician) ...[
+                    if (canSeeTechnicalArea) ...[
                       _DetailSection(
                         title: 'Información técnica',
                         child: Column(
@@ -158,10 +159,25 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                       const SizedBox(height: 16),
                     ],
                     _DetailSection(
-                      title: 'Evidencias',
-                      trailing: !isTechnician
-                          ? null
-                          : MenuAnchor(
+                      title: 'Referencia',
+                      child: order.referenceItems.isEmpty
+                          ? const Text('Sin referencias registradas')
+                          : Column(
+                              children: order.referenceItems
+                                  .map(
+                                    (evidence) => Padding(
+                                      padding: const EdgeInsets.only(bottom: 12),
+                                      child: _EvidenceCard(evidence: evidence),
+                                    ),
+                                  )
+                                  .toList(growable: false),
+                            ),
+                    ),
+                    if (canSeeTechnicalArea) ...[
+                      const SizedBox(height: 16),
+                      _DetailSection(
+                        title: 'Evidencia técnica',
+                        trailing: MenuAnchor(
                               menuChildren: [
                                 MenuItemButton(
                                   onPressed: () => _addTextEvidence(context, ref, provider),
@@ -192,46 +208,55 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                                 );
                               },
                             ),
-                      child: order.evidences.isEmpty
-                          ? const Text('Sin evidencias registradas')
-                          : Column(
-                              children: order.evidences
-                                  .map(
-                                    (evidence) => Padding(
-                                      padding: const EdgeInsets.only(bottom: 12),
-                                      child: _EvidenceCard(evidence: evidence),
-                                    ),
-                                  )
-                                  .toList(growable: false),
-                            ),
-                    ),
-                    const SizedBox(height: 16),
-                    _DetailSection(
-                      title: 'Reporte técnico',
-                      trailing: FilledButton.tonalIcon(
-                        onPressed: state.working
-                            ? null
-                            : () => _addReport(context, ref, provider),
-                        icon: const Icon(Icons.note_add_outlined),
-                        label: const Text('Agregar reporte'),
-                      ),
-                      child: order.reports.isEmpty
-                          ? const Text('No hay reportes cargados')
-                          : Column(
-                              children: order.reports
-                                  .map(
-                                    (report) => Padding(
-                                      padding: const EdgeInsets.only(bottom: 12),
-                                      child: _ReportCard(
-                                        report: report,
-                                        authorName: state.usersById[report.createdById]
-                                            ?.nombreCompleto,
+                        child: order.technicalEvidenceItems.isEmpty
+                            ? const Text('Sin evidencias técnicas registradas')
+                            : Column(
+                                children: order.technicalEvidenceItems
+                                    .map(
+                                      (evidence) => Padding(
+                                        padding: const EdgeInsets.only(bottom: 12),
+                                        child: _EvidenceCard(evidence: evidence),
                                       ),
-                                    ),
-                                  )
-                                  .toList(growable: false),
-                            ),
-                    ),
+                                    )
+                                    .toList(growable: false),
+                              ),
+                      ),
+                      const SizedBox(height: 16),
+                      _DetailSection(
+                        title: 'Reporte técnico',
+                        trailing: FilledButton.tonalIcon(
+                          onPressed: state.working
+                              ? null
+                              : () => _addReport(context, ref, provider),
+                          icon: const Icon(Icons.note_add_outlined),
+                          label: const Text('Agregar reporte'),
+                        ),
+                        child: order.reports.isEmpty
+                            ? const Text('No hay reportes cargados')
+                            : Column(
+                                children: order.reports
+                                    .map(
+                                      (report) => Padding(
+                                        padding: const EdgeInsets.only(bottom: 12),
+                                        child: _ReportCard(
+                                          report: report,
+                                          authorName: state.usersById[report.createdById]
+                                              ?.nombreCompleto,
+                                        ),
+                                      ),
+                                    )
+                                    .toList(growable: false),
+                              ),
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 16),
+                      _DetailSection(
+                        title: 'Evidencia técnica',
+                        child: const Text(
+                          'Solo técnico y administración pueden registrar evidencias técnicas y reportes.',
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -604,9 +629,9 @@ class _EvidenceCard extends StatelessWidget {
           Row(
             children: [
               Icon(
-                evidence.type == ServiceEvidenceType.texto
+                evidence.type.isText
                     ? Icons.notes_outlined
-                    : evidence.type == ServiceEvidenceType.imagen
+                    : evidence.type.isImage
                     ? Icons.image_outlined
                     : Icons.videocam_outlined,
               ),
@@ -619,7 +644,7 @@ class _EvidenceCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          if (evidence.type == ServiceEvidenceType.imagen && isUrl)
+          if (evidence.type.isImage && isUrl)
             ClipRRect(
               borderRadius: BorderRadius.circular(16),
               child: Image.network(

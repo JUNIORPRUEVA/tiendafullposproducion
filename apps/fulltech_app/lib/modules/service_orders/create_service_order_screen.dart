@@ -87,11 +87,11 @@ class _CreateServiceOrderScreenState
       floatingActionButton: isDesktop
           ? null
           : FloatingActionButton.extended(
-            onPressed: state.submitting || state.uploadingEvidence || !isTechnician
+              onPressed: state.submitting || state.uploadingEvidence
                   ? null
-                  : () => _showEvidenceActions(context, controller),
+                  : () => _showReferenceActions(context, controller),
               icon: const Icon(Icons.add_photo_alternate_outlined),
-              label: const Text('Evidencia'),
+              label: const Text('Referencia'),
             ),
       body: SafeArea(
         child: state.loading && !state.initialized
@@ -107,24 +107,17 @@ class _CreateServiceOrderScreenState
                     isTechnician: isTechnician,
                   );
                   final evidencePanel = _EvidencePreviewPanel(
-                    evidences: state.evidences,
-                    canManageEvidence: isTechnician,
+                    references: state.references,
                     uploadLabel: state.uploadLabel,
                     uploadProgress: state.uploadProgress,
                     uploading: state.uploadingEvidence,
-                    onRemove: isTechnician ? controller.removeEvidence : null,
-                    onAddNote: isTechnician
-                      ? () => _addNoteEvidence(context, controller)
-                      : null,
-                    onAddImage: isTechnician
-                      ? () => _addImageEvidence(context, controller)
-                      : null,
-                    onAddVideo: isTechnician
-                      ? () => _addVideoEvidence(context, controller)
-                      : null,
-                    onRecordVideo: isTechnician && _supportsVideoRecording
-                      ? () => _recordVideoEvidence(context, controller)
-                      : null,
+                    onRemove: controller.removeReference,
+                    onAddNote: () => _addNoteReference(context, controller),
+                    onAddImage: () => _addImageReference(context, controller),
+                    onAddVideo: () => _addVideoReference(context, controller),
+                    onRecordVideo: _supportsVideoRecording
+                        ? () => _recordVideoReference(context, controller)
+                        : null,
                   );
 
                   if (!desktop) {
@@ -207,7 +200,7 @@ class _CreateServiceOrderScreenState
         _HeroCard(
           isCloneMode: state.isCloneMode,
           onViewOrders: () => context.go(Routes.serviceOrders),
-          evidenceCount: state.evidences.length,
+          evidenceCount: state.references.length,
         ),
         if (state.isCloneMode) ...[
           const SizedBox(height: 16),
@@ -356,22 +349,19 @@ class _CreateServiceOrderScreenState
         if (!desktop) ...[
           const SizedBox(height: 16),
           _SectionCard(
-            title: 'Evidencias',
-            subtitle: isTechnician
-                ? 'Agrega notas, imágenes o videos antes de guardar la orden.'
-                : 'Vista de evidencias. Solo el técnico puede agregar o eliminar archivos.',
-            trailing: isTechnician
-                ? OutlinedButton.icon(
-                    onPressed: state.uploadingEvidence
-                        ? null
-                        : () => _showEvidenceActions(context, controller),
-                    icon: const Icon(Icons.add_circle_outline),
-                    label: const Text('Agregar'),
-                  )
-                : null,
+            title: 'Referencia',
+            subtitle:
+                'Agrega texto, imágenes o videos de referencia antes de guardar la orden.',
+            trailing: OutlinedButton.icon(
+              onPressed: state.uploadingEvidence
+                  ? null
+                  : () => _showReferenceActions(context, controller),
+              icon: const Icon(Icons.add_circle_outline),
+              label: const Text('Agregar'),
+            ),
             child: _EvidenceChatList(
-              evidences: state.evidences,
-              onRemove: isTechnician ? controller.removeEvidence : null,
+              references: state.references,
+              onRemove: controller.removeReference,
               compact: true,
             ),
           ),
@@ -556,7 +546,7 @@ class _CreateServiceOrderScreenState
     });
   }
 
-  Future<void> _showEvidenceActions(
+  Future<void> _showReferenceActions(
     BuildContext context,
     CreateServiceOrderController controller,
   ) async {
@@ -573,7 +563,7 @@ class _CreateServiceOrderScreenState
                 title: const Text('Agregar nota'),
                 onTap: () {
                   Navigator.pop(sheetContext);
-                  _addNoteEvidence(context, controller);
+                  _addNoteReference(context, controller);
                 },
               ),
               ListTile(
@@ -581,7 +571,7 @@ class _CreateServiceOrderScreenState
                 title: const Text('Subir imagen'),
                 onTap: () {
                   Navigator.pop(sheetContext);
-                  _addImageEvidence(context, controller);
+                  _addImageReference(context, controller);
                 },
               ),
               ListTile(
@@ -589,7 +579,7 @@ class _CreateServiceOrderScreenState
                 title: const Text('Subir video'),
                 onTap: () {
                   Navigator.pop(sheetContext);
-                  _addVideoEvidence(context, controller);
+                  _addVideoReference(context, controller);
                 },
               ),
               if (_supportsVideoRecording)
@@ -598,7 +588,7 @@ class _CreateServiceOrderScreenState
                   title: const Text('Grabar video'),
                   onTap: () {
                     Navigator.pop(sheetContext);
-                    _recordVideoEvidence(context, controller);
+                    _recordVideoReference(context, controller);
                   },
                 ),
             ],
@@ -608,20 +598,20 @@ class _CreateServiceOrderScreenState
     );
   }
 
-  Future<void> _addNoteEvidence(
+  Future<void> _addNoteReference(
     BuildContext context,
     CreateServiceOrderController controller,
   ) async {
     final value = await _promptMultilineInput(
       context,
-      title: 'Agregar nota',
-      label: 'Escribe la evidencia en texto',
+      title: 'Agregar referencia',
+      label: 'Escribe la referencia en texto',
     );
     if ((value ?? '').trim().isEmpty) return;
-    controller.addTextEvidence(value!.trim());
+    controller.addTextReference(value!.trim());
   }
 
-  Future<void> _addVideoEvidence(
+  Future<void> _addVideoReference(
     BuildContext context,
     CreateServiceOrderController controller,
   ) async {
@@ -633,7 +623,7 @@ class _CreateServiceOrderScreenState
     final file = result?.files.single;
     if (file == null) return;
     try {
-      await controller.addVideoEvidence(
+      await controller.addVideoReference(
         fileName: file.name,
         bytes: file.bytes,
         path: file.path,
@@ -649,7 +639,7 @@ class _CreateServiceOrderScreenState
     }
   }
 
-  Future<void> _addImageEvidence(
+  Future<void> _addImageReference(
     BuildContext context,
     CreateServiceOrderController controller,
   ) async {
@@ -661,7 +651,7 @@ class _CreateServiceOrderScreenState
     final bytes = file?.bytes;
     if (file == null) return;
     try {
-      await controller.addImageEvidence(
+      await controller.addImageReference(
         bytes: bytes,
         path: file.path,
         fileName: file.name,
@@ -677,7 +667,7 @@ class _CreateServiceOrderScreenState
     }
   }
 
-  Future<void> _recordVideoEvidence(
+  Future<void> _recordVideoReference(
     BuildContext context,
     CreateServiceOrderController controller,
   ) async {
@@ -685,7 +675,7 @@ class _CreateServiceOrderScreenState
       final picker = ImagePicker();
       final file = await picker.pickVideo(source: ImageSource.camera);
       if (file == null) return;
-      await controller.addVideoEvidence(
+      await controller.addVideoReference(
         fileName: file.name.isEmpty ? path.basename(file.path) : file.name,
         path: file.path,
       );
@@ -772,7 +762,7 @@ class _HeroCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Formulario rápido, validación clara y evidencias listas antes de crear.',
+                      'Formulario rápido, validación clara y referencias listas antes de crear.',
                       style: theme.textTheme.bodyLarge?.copyWith(
                         color: Colors.white.withValues(alpha: 0.84),
                       ),
@@ -793,7 +783,7 @@ class _HeroCard extends StatelessWidget {
             runSpacing: 10,
             children: [
               _HeroStat(label: 'Estado', value: isCloneMode ? 'Clonación' : 'Nueva orden'),
-              _HeroStat(label: 'Evidencias', value: '$evidenceCount preparadas'),
+              _HeroStat(label: 'Referencias', value: '$evidenceCount preparadas'),
               _HeroStat(label: 'Flujo', value: 'Cliente → orden → detalle'),
             ],
           ),
@@ -1102,8 +1092,7 @@ class _SummaryChip extends StatelessWidget {
 
 class _EvidencePreviewPanel extends StatelessWidget {
   const _EvidencePreviewPanel({
-    required this.evidences,
-    required this.canManageEvidence,
+    required this.references,
     required this.uploading,
     required this.uploadProgress,
     this.uploadLabel,
@@ -1114,8 +1103,7 @@ class _EvidencePreviewPanel extends StatelessWidget {
     this.onRecordVideo,
   });
 
-  final List<ServiceOrderDraftEvidence> evidences;
-  final bool canManageEvidence;
+  final List<ServiceOrderDraftReference> references;
   final bool uploading;
   final double uploadProgress;
   final String? uploadLabel;
@@ -1128,41 +1116,39 @@ class _EvidencePreviewPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _SectionCard(
-      title: 'Evidencias',
-      subtitle: canManageEvidence
-          ? 'Se guardan en storage primero y luego se vinculan a la orden.'
-          : 'Solo el técnico puede cargar evidencias desde esta pantalla.',
+      title: 'Referencia',
+      subtitle:
+          'Se guardan en storage primero y luego se vinculan a la orden creada.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (canManageEvidence)
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: uploading ? null : onAddNote,
+                icon: const Icon(Icons.notes_outlined),
+                label: const Text('Agregar nota'),
+              ),
+              OutlinedButton.icon(
+                onPressed: uploading ? null : onAddImage,
+                icon: const Icon(Icons.image_outlined),
+                label: const Text('Subir imagen'),
+              ),
+              OutlinedButton.icon(
+                onPressed: uploading ? null : onAddVideo,
+                icon: const Icon(Icons.videocam_outlined),
+                label: const Text('Subir video'),
+              ),
+              if (onRecordVideo != null)
                 OutlinedButton.icon(
-                  onPressed: uploading ? null : onAddNote,
-                  icon: const Icon(Icons.notes_outlined),
-                  label: const Text('Agregar nota'),
+                  onPressed: uploading ? null : onRecordVideo,
+                  icon: const Icon(Icons.fiber_manual_record_outlined),
+                  label: const Text('Grabar video'),
                 ),
-                OutlinedButton.icon(
-                  onPressed: uploading ? null : onAddImage,
-                  icon: const Icon(Icons.image_outlined),
-                  label: const Text('Subir imagen'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: uploading ? null : onAddVideo,
-                  icon: const Icon(Icons.videocam_outlined),
-                  label: const Text('Subir video'),
-                ),
-                if (onRecordVideo != null)
-                  OutlinedButton.icon(
-                    onPressed: uploading ? null : onRecordVideo,
-                    icon: const Icon(Icons.fiber_manual_record_outlined),
-                    label: const Text('Grabar video'),
-                  ),
-              ],
-            ),
+            ],
+          ),
           if (uploading) ...[
             const SizedBox(height: 14),
             _UploadProgressCard(
@@ -1172,7 +1158,7 @@ class _EvidencePreviewPanel extends StatelessWidget {
           ],
           const SizedBox(height: 16),
           _EvidenceChatList(
-            evidences: evidences,
+            references: references,
             onRemove: onRemove,
             compact: false,
           ),
@@ -1184,18 +1170,18 @@ class _EvidencePreviewPanel extends StatelessWidget {
 
 class _EvidenceChatList extends StatelessWidget {
   const _EvidenceChatList({
-    required this.evidences,
+    required this.references,
     this.onRemove,
     required this.compact,
   });
 
-  final List<ServiceOrderDraftEvidence> evidences;
+  final List<ServiceOrderDraftReference> references;
   final ValueChanged<String>? onRemove;
   final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    if (evidences.isEmpty) {
+    if (references.isEmpty) {
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(18),
@@ -1203,12 +1189,12 @@ class _EvidenceChatList extends StatelessWidget {
           color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(18),
         ),
-        child: const Text('Aún no hay evidencias preparadas'),
+        child: const Text('Aún no hay referencias preparadas'),
       );
     }
 
     return Column(
-      children: evidences
+      children: references
           .asMap()
           .entries
           .map(
@@ -1219,7 +1205,7 @@ class _EvidenceChatList extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: _EvidenceBubble(
-                  evidence: entry.value,
+                  reference: entry.value,
                   compact: compact,
                   onRemove: onRemove == null
                       ? null
@@ -1235,20 +1221,20 @@ class _EvidenceChatList extends StatelessWidget {
 
 class _EvidenceBubble extends StatelessWidget {
   const _EvidenceBubble({
-    required this.evidence,
+    required this.reference,
     required this.compact,
     this.onRemove,
   });
 
-  final ServiceOrderDraftEvidence evidence;
+  final ServiceOrderDraftReference reference;
   final bool compact;
   final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
-    final bubbleColor = evidence.isImage
+    final bubbleColor = reference.isImage
         ? const Color(0xFFE5F3ED)
-        : evidence.isVideo
+        : reference.isVideo
         ? const Color(0xFFF8EDE1)
         : const Color(0xFFE8EEF8);
 
@@ -1265,9 +1251,9 @@ class _EvidenceBubble extends StatelessWidget {
           Row(
             children: [
               Icon(
-                evidence.isImage
+                reference.isImage
                     ? Icons.image_outlined
-                    : evidence.isVideo
+                  : reference.isVideo
                     ? Icons.videocam_outlined
                     : Icons.notes_outlined,
                 size: 18,
@@ -1275,7 +1261,7 @@ class _EvidenceBubble extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  evidence.type.label,
+                  reference.type.label,
                   style: Theme.of(context).textTheme.labelLarge,
                 ),
               ),
@@ -1288,27 +1274,27 @@ class _EvidenceBubble extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          if (evidence.isImage)
+          if (reference.isImage)
             ClipRRect(
               borderRadius: BorderRadius.circular(16),
-              child: evidence.previewBytes != null
+              child: reference.previewBytes != null
                   ? Image.memory(
-                      evidence.previewBytes!,
+                      reference.previewBytes!,
                       height: compact ? 140 : 180,
                       width: double.infinity,
                       fit: BoxFit.cover,
                     )
                   : Image.network(
-                      evidence.previewSource,
+                      reference.previewSource,
                       height: compact ? 140 : 180,
                       width: double.infinity,
                       fit: BoxFit.cover,
                     ),
             )
-          else if (evidence.isVideo)
-            _DraftVideoPreview(evidence: evidence, compact: compact)
+          else if (reference.isVideo)
+            _DraftVideoPreview(reference: reference, compact: compact)
           else
-            Text(evidence.content),
+            Text(reference.content),
         ],
       ),
     );
@@ -1316,9 +1302,9 @@ class _EvidenceBubble extends StatelessWidget {
 }
 
 class _DraftVideoPreview extends StatefulWidget {
-  const _DraftVideoPreview({required this.evidence, required this.compact});
+  const _DraftVideoPreview({required this.reference, required this.compact});
 
-  final ServiceOrderDraftEvidence evidence;
+  final ServiceOrderDraftReference reference;
   final bool compact;
 
   @override
@@ -1333,9 +1319,9 @@ class _DraftVideoPreviewState extends State<_DraftVideoPreview> {
   void initState() {
     super.initState();
     _controller = createVideoPreviewController(
-      path: widget.evidence.previewSource,
-      bytes: widget.evidence.previewBytes,
-      fileName: widget.evidence.fileName,
+      path: widget.reference.previewSource,
+      bytes: widget.reference.previewBytes,
+      fileName: widget.reference.fileName,
     );
     final controller = _controller;
     if (controller == null) return;
@@ -1377,7 +1363,7 @@ class _DraftVideoPreviewState extends State<_DraftVideoPreview> {
             const Icon(Icons.play_circle_outline, color: Colors.white, size: 40),
             const SizedBox(height: 8),
             Text(
-              widget.evidence.fileName ?? 'Video cargado',
+              widget.reference.fileName ?? 'Video cargado',
               style: const TextStyle(color: Colors.white),
             ),
           ],

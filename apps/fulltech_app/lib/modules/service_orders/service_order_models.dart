@@ -15,7 +15,14 @@ enum ServiceOrderType { instalacion, mantenimiento, levantamiento, garantia }
 
 enum ServiceOrderStatus { pendiente, enProceso, finalizado, cancelado }
 
-enum ServiceEvidenceType { texto, imagen, video }
+enum ServiceEvidenceType {
+  referenciaTexto,
+  referenciaImagen,
+  referenciaVideo,
+  evidenciaTexto,
+  evidenciaImagen,
+  evidenciaVideo,
+}
 
 ServiceOrderCategory serviceOrderCategoryFromApi(String value) {
   switch (value.trim()) {
@@ -68,14 +75,20 @@ ServiceOrderStatus serviceOrderStatusFromApi(String value) {
 
 ServiceEvidenceType serviceEvidenceTypeFromApi(String value) {
   switch (value.trim()) {
-    case 'texto':
-      return ServiceEvidenceType.texto;
-    case 'imagen':
-      return ServiceEvidenceType.imagen;
-    case 'video':
-      return ServiceEvidenceType.video;
+    case 'referencia_texto':
+      return ServiceEvidenceType.referenciaTexto;
+    case 'referencia_imagen':
+      return ServiceEvidenceType.referenciaImagen;
+    case 'referencia_video':
+      return ServiceEvidenceType.referenciaVideo;
+    case 'evidencia_texto':
+      return ServiceEvidenceType.evidenciaTexto;
+    case 'evidencia_imagen':
+      return ServiceEvidenceType.evidenciaImagen;
+    case 'evidencia_video':
+      return ServiceEvidenceType.evidenciaVideo;
     default:
-      return ServiceEvidenceType.texto;
+      return ServiceEvidenceType.referenciaTexto;
   }
 }
 
@@ -205,25 +218,62 @@ extension ServiceOrderStatusX on ServiceOrderStatus {
 extension ServiceEvidenceTypeX on ServiceEvidenceType {
   String get apiValue {
     switch (this) {
-      case ServiceEvidenceType.texto:
-        return 'texto';
-      case ServiceEvidenceType.imagen:
-        return 'imagen';
-      case ServiceEvidenceType.video:
-        return 'video';
+      case ServiceEvidenceType.referenciaTexto:
+        return 'referencia_texto';
+      case ServiceEvidenceType.referenciaImagen:
+        return 'referencia_imagen';
+      case ServiceEvidenceType.referenciaVideo:
+        return 'referencia_video';
+      case ServiceEvidenceType.evidenciaTexto:
+        return 'evidencia_texto';
+      case ServiceEvidenceType.evidenciaImagen:
+        return 'evidencia_imagen';
+      case ServiceEvidenceType.evidenciaVideo:
+        return 'evidencia_video';
     }
   }
 
   String get label {
     switch (this) {
-      case ServiceEvidenceType.texto:
-        return 'Texto';
-      case ServiceEvidenceType.imagen:
-        return 'Imagen';
-      case ServiceEvidenceType.video:
-        return 'Video';
+      case ServiceEvidenceType.referenciaTexto:
+        return 'Referencia en texto';
+      case ServiceEvidenceType.referenciaImagen:
+        return 'Referencia en imagen';
+      case ServiceEvidenceType.referenciaVideo:
+        return 'Referencia en video';
+      case ServiceEvidenceType.evidenciaTexto:
+        return 'Evidencia en texto';
+      case ServiceEvidenceType.evidenciaImagen:
+        return 'Evidencia en imagen';
+      case ServiceEvidenceType.evidenciaVideo:
+        return 'Evidencia en video';
     }
   }
+
+  bool get isReference {
+    return this == ServiceEvidenceType.referenciaTexto ||
+        this == ServiceEvidenceType.referenciaImagen ||
+        this == ServiceEvidenceType.referenciaVideo;
+  }
+
+  bool get isTechnicalEvidence => !isReference;
+
+  bool get isText {
+    return this == ServiceEvidenceType.referenciaTexto ||
+        this == ServiceEvidenceType.evidenciaTexto;
+  }
+
+  bool get isImage {
+    return this == ServiceEvidenceType.referenciaImagen ||
+        this == ServiceEvidenceType.evidenciaImagen;
+  }
+
+  bool get isVideo {
+    return this == ServiceEvidenceType.referenciaVideo ||
+        this == ServiceEvidenceType.evidenciaVideo;
+  }
+
+  String get familyLabel => isReference ? 'Referencia' : 'Evidencia técnica';
 }
 
 class ServiceOrderEvidenceModel {
@@ -321,6 +371,15 @@ class ServiceOrderModel {
   });
 
   bool get isCloneSourceAllowed => status == ServiceOrderStatus.finalizado;
+  List<ServiceOrderEvidenceModel> get referenceItems {
+    return evidences.where((item) => item.type.isReference).toList(growable: false);
+  }
+
+  List<ServiceOrderEvidenceModel> get technicalEvidenceItems {
+    return evidences
+        .where((item) => item.type.isTechnicalEvidence)
+        .toList(growable: false);
+  }
 
   ServiceOrderModel copyWith({
     String? id,
@@ -485,7 +544,7 @@ class CreateServiceOrderEvidenceRequest {
   }
 }
 
-class ServiceOrderDraftEvidence {
+class ServiceOrderDraftReference {
   final String id;
   final ServiceEvidenceType type;
   final String content;
@@ -496,7 +555,7 @@ class ServiceOrderDraftEvidence {
   final int? sizeBytes;
   final DateTime createdAt;
 
-  const ServiceOrderDraftEvidence({
+  const ServiceOrderDraftReference({
     required this.id,
     required this.type,
     required this.content,
@@ -508,28 +567,28 @@ class ServiceOrderDraftEvidence {
     this.sizeBytes,
   });
 
-  factory ServiceOrderDraftEvidence.text({
+  factory ServiceOrderDraftReference.text({
     required String id,
     required String content,
   }) {
-    return ServiceOrderDraftEvidence(
+    return ServiceOrderDraftReference(
       id: id,
-      type: ServiceEvidenceType.texto,
+      type: ServiceEvidenceType.referenciaTexto,
       content: content,
       createdAt: DateTime.now(),
     );
   }
 
-  factory ServiceOrderDraftEvidence.video({
+  factory ServiceOrderDraftReference.video({
     required String id,
     required String uploadedUrl,
     String? localPath,
     String? fileName,
     int? sizeBytes,
   }) {
-    return ServiceOrderDraftEvidence(
+    return ServiceOrderDraftReference(
       id: id,
-      type: ServiceEvidenceType.video,
+      type: ServiceEvidenceType.referenciaVideo,
       content: uploadedUrl,
       uploadedUrl: uploadedUrl,
       localPath: localPath,
@@ -539,7 +598,7 @@ class ServiceOrderDraftEvidence {
     );
   }
 
-  factory ServiceOrderDraftEvidence.image({
+  factory ServiceOrderDraftReference.image({
     required String id,
     required String uploadedUrl,
     required String fileName,
@@ -547,9 +606,9 @@ class ServiceOrderDraftEvidence {
     String? localPath,
     int? sizeBytes,
   }) {
-    return ServiceOrderDraftEvidence(
+    return ServiceOrderDraftReference(
       id: id,
-      type: ServiceEvidenceType.imagen,
+      type: ServiceEvidenceType.referenciaImagen,
       content: uploadedUrl,
       uploadedUrl: uploadedUrl,
       previewBytes: previewBytes,
@@ -560,11 +619,11 @@ class ServiceOrderDraftEvidence {
     );
   }
 
-  bool get isImage => type == ServiceEvidenceType.imagen;
-  bool get isVideo => type == ServiceEvidenceType.video;
-  bool get isText => type == ServiceEvidenceType.texto;
+  bool get isImage => type.isImage;
+  bool get isVideo => type.isVideo;
+  bool get isText => type.isText;
   bool get hasRemoteContent => (uploadedUrl ?? '').trim().isNotEmpty;
-  String get evidenceContent => isText ? content : ((uploadedUrl ?? content).trim());
+  String get referenceContent => isText ? content : ((uploadedUrl ?? content).trim());
   String get previewSource {
     final path = (localPath ?? '').trim();
     if (path.isNotEmpty) return path;

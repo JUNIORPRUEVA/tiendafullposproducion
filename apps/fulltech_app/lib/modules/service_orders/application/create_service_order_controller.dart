@@ -24,7 +24,7 @@ class CreateServiceOrderState {
   final List<ClienteModel> clients;
   final List<CotizacionModel> quotations;
   final List<UserModel> technicians;
-  final List<ServiceOrderDraftEvidence> evidences;
+  final List<ServiceOrderDraftReference> references;
   final ClienteModel? selectedClient;
   final CotizacionModel? selectedQuotation;
   final UserModel? selectedTechnician;
@@ -45,7 +45,7 @@ class CreateServiceOrderState {
     this.clients = const [],
     this.quotations = const [],
     this.technicians = const [],
-    this.evidences = const [],
+    this.references = const [],
     this.selectedClient,
     this.selectedQuotation,
     this.selectedTechnician,
@@ -69,7 +69,7 @@ class CreateServiceOrderState {
     List<ClienteModel>? clients,
     List<CotizacionModel>? quotations,
     List<UserModel>? technicians,
-    List<ServiceOrderDraftEvidence>? evidences,
+    List<ServiceOrderDraftReference>? references,
     ClienteModel? selectedClient,
     CotizacionModel? selectedQuotation,
     UserModel? selectedTechnician,
@@ -96,7 +96,7 @@ class CreateServiceOrderState {
       clients: clients ?? this.clients,
       quotations: quotations ?? this.quotations,
       technicians: technicians ?? this.technicians,
-        evidences: evidences ?? this.evidences,
+      references: references ?? this.references,
       selectedClient: selectedClient ?? this.selectedClient,
       selectedQuotation: clearSelectedQuotation
           ? null
@@ -293,14 +293,13 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
     state = state.copyWith(serviceType: serviceType, clearActionError: true);
   }
 
-  void addTextEvidence(String content) {
-    _ensureTechnicianEvidenceAccess();
+  void addTextReference(String content) {
     final normalized = content.trim();
     if (normalized.isEmpty) return;
     state = state.copyWith(
-      evidences: [
-        ...state.evidences,
-        ServiceOrderDraftEvidence.text(
+      references: [
+        ...state.references,
+        ServiceOrderDraftReference.text(
           id: _draftId(),
           content: normalized,
         ),
@@ -309,13 +308,12 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
     );
   }
 
-  Future<void> addVideoEvidence({
+  Future<void> addVideoReference({
     required String fileName,
     List<int>? bytes,
     String? path,
     int? sizeBytes,
   }) async {
-    _ensureTechnicianEvidenceAccess();
     await _withUploadState(
       label: 'Subiendo video',
       action: () async {
@@ -326,9 +324,9 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
               onProgress: _updateUploadProgress,
             );
         state = state.copyWith(
-          evidences: [
-            ...state.evidences,
-            ServiceOrderDraftEvidence.video(
+          references: [
+            ...state.references,
+            ServiceOrderDraftReference.video(
               id: _draftId(),
               uploadedUrl: uploaded.url,
               localPath: (path ?? '').trim().isEmpty ? null : path!.trim(),
@@ -343,13 +341,12 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
     );
   }
 
-  Future<void> addImageEvidence({
+  Future<void> addImageReference({
     required String fileName,
     List<int>? bytes,
     String? path,
     int? sizeBytes,
   }) async {
-    _ensureTechnicianEvidenceAccess();
     await _withUploadState(
       label: 'Subiendo imagen',
       action: () async {
@@ -360,9 +357,9 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
               onProgress: _updateUploadProgress,
             );
         state = state.copyWith(
-          evidences: [
-            ...state.evidences,
-            ServiceOrderDraftEvidence.image(
+          references: [
+            ...state.references,
+            ServiceOrderDraftReference.image(
               id: _draftId(),
               uploadedUrl: uploaded.url,
               previewBytes: bytes == null ? null : Uint8List.fromList(bytes),
@@ -378,10 +375,9 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
     );
   }
 
-  void removeEvidence(String id) {
-    _ensureTechnicianEvidenceAccess();
+  void removeReference(String id) {
     state = state.copyWith(
-      evidences: state.evidences.where((item) => item.id != id).toList(),
+      references: state.references.where((item) => item.id != id).toList(),
       clearActionError: true,
     );
   }
@@ -432,7 +428,7 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
                   assignedToId: assignedToId,
                 ),
               );
-      final warningMessage = await _sendDraftEvidences(result.id);
+      final warningMessage = await _sendDraftReferences(result.id);
       state = state.copyWith(submitting: false);
       return CreateServiceOrderSubmissionResult(
         order: result,
@@ -447,31 +443,26 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
     }
   }
 
-  Future<String?> _sendDraftEvidences(String orderId) async {
-    if (state.evidences.isEmpty) return null;
+  Future<String?> _sendDraftReferences(String orderId) async {
+    if (state.references.isEmpty) return null;
 
     try {
       final api = ref.read(serviceOrdersApiProvider);
 
-      for (final evidence in state.evidences) {
+      for (final reference in state.references) {
         await api.addEvidence(
           orderId,
           CreateServiceOrderEvidenceRequest(
-            type: evidence.type,
-            content: evidence.evidenceContent,
+            type: reference.type,
+            content: reference.referenceContent,
           ),
         );
       }
 
       return null;
     } catch (_) {
-      return 'La orden fue creada, pero no se pudieron guardar todas las evidencias.';
+      return 'La orden fue creada, pero no se pudieron guardar todas las referencias.';
     }
-  }
-
-  void _ensureTechnicianEvidenceAccess() {
-    if (_isTechnician) return;
-    throw ApiException('Solo el técnico puede gestionar evidencias desde esta pantalla');
   }
 
   void _updateUploadProgress(double progress) {

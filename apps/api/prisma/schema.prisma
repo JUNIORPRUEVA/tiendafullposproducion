@@ -291,9 +291,12 @@ enum ServiceOrderStatus {
 }
 
 enum ServiceEvidenceType {
-  TEXTO  @map("texto")
-  IMAGEN @map("imagen")
-  VIDEO  @map("video")
+  REFERENCIA_TEXTO  @map("referencia_texto")
+  REFERENCIA_IMAGEN @map("referencia_imagen")
+  REFERENCIA_VIDEO  @map("referencia_video")
+  EVIDENCIA_TEXTO   @map("evidencia_texto")
+  EVIDENCIA_IMAGEN  @map("evidencia_imagen")
+  EVIDENCIA_VIDEO   @map("evidencia_video")
 
   @@map("service_evidence_type")
 }

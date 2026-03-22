@@ -116,7 +116,7 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
   Future<void> addTextEvidence(String content) async {
     await _addEvidence(
       CreateServiceOrderEvidenceRequest(
-        type: ServiceEvidenceType.texto,
+        type: ServiceEvidenceType.evidenciaTexto,
         content: content,
       ),
     );
@@ -137,7 +137,7 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
       await ref.read(serviceOrdersApiProvider).addEvidence(
             orderId,
             CreateServiceOrderEvidenceRequest(
-              type: ServiceEvidenceType.imagen,
+              type: ServiceEvidenceType.evidenciaImagen,
               content: uploaded.url,
             ),
           );
@@ -166,7 +166,7 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
       await ref.read(serviceOrdersApiProvider).addEvidence(
             orderId,
             CreateServiceOrderEvidenceRequest(
-              type: ServiceEvidenceType.video,
+              type: ServiceEvidenceType.evidenciaVideo,
               content: uploaded.url,
             ),
           );

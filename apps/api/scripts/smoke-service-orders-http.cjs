@@ -256,7 +256,7 @@ async function main() {
   const evidenceText = await http(
     'POST',
     `/service-orders/${createdOrder.id}/evidences`,
-    { type: 'texto', content: 'Texto HTTP QA' },
+    { type: 'referencia_texto', content: 'Texto HTTP QA' },
     token,
     201,
   );
@@ -265,7 +265,7 @@ async function main() {
   const evidenceImage = await http(
     'POST',
     `/service-orders/${createdOrder.id}/evidences`,
-    { type: 'imagen', content: 'https://example.com/evidence.jpg' },
+    { type: 'referencia_imagen', content: 'https://example.com/evidence.jpg' },
     token,
     201,
   );
@@ -274,7 +274,7 @@ async function main() {
   const evidenceVideo = await http(
     'POST',
     `/service-orders/${createdOrder.id}/evidences`,
-    { type: 'video', content: 'https://example.com/evidence.mp4' },
+    { type: 'evidencia_video', content: 'https://example.com/evidence.mp4' },
     token,
     201,
   );

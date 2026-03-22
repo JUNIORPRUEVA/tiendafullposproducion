@@ -88,6 +88,7 @@ export class ServiceOrdersService {
   async addEvidence(user: AuthUser, id: string, dto: CreateEvidenceDto) {
     const item = await this.findOrderOrThrow(user, id);
     this.assertCanOperate(user, item);
+    this.assertCanAddEvidenceType(user, dto.type as ApiServiceEvidenceType);
 
     const content = this.cleanRequiredText(dto.content, 'content');
 
@@ -109,6 +110,7 @@ export class ServiceOrdersService {
   async addReport(user: AuthUser, id: string, dto: CreateReportDto) {
     const item = await this.findOrderOrThrow(user, id);
     this.assertCanOperate(user, item);
+    this.assertCanManageTechnicalOutputs(user);
 
     const report = this.cleanRequiredText(dto.report, 'report');
 
@@ -284,6 +286,22 @@ export class ServiceOrdersService {
     throw new ForbiddenException('No puedes operar esta orden de servicio');
   }
 
+  private assertCanAddEvidenceType(user: AuthUser, type: ApiServiceEvidenceType) {
+    if (type.startsWith('referencia_')) {
+      return;
+    }
+
+    this.assertCanManageTechnicalOutputs(user);
+  }
+
+  private assertCanManageTechnicalOutputs(user: AuthUser) {
+    if (user.role === Role.ADMIN || user.role === Role.TECNICO) {
+      return;
+    }
+
+    throw new ForbiddenException('Solo admin y técnico pueden registrar evidencia técnica o reportes');
+  }
+
   private async assertClientExists(clientId: string) {
     const client = await this.prisma.client.findUnique({
       where: { id: clientId },
@@ -402,10 +420,11 @@ export class ServiceOrdersService {
   }
 
   private mapEvidence(item: Prisma.ServiceEvidenceGetPayload<object>) {
+    const typeKey = String(item.type ?? '').trim().toUpperCase();
     return {
       id: item.id,
       serviceOrderId: item.serviceOrderId,
-      type: SERVICE_EVIDENCE_TYPE_FROM_DB[item.type],
+      type: SERVICE_EVIDENCE_TYPE_FROM_DB[typeKey] ?? 'referencia_texto',
       content: item.content,
       createdById: item.createdById,
       createdAt: item.createdAt,

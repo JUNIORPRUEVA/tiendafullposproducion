@@ -49,7 +49,7 @@ export class ServiceOrdersController {
   }
 
   @Post(':id/report')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  @Roles(Role.ADMIN, Role.TECNICO)
   addReport(@Req() req: Request, @Param('id') id: string, @Body() dto: CreateReportDto) {
     return this.serviceOrders.addReport(req.user as JwtUser, id, dto);
   }

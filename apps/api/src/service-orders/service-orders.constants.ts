@@ -28,12 +28,23 @@ export const SERVICE_ORDER_STATUS_VALUES = [
   'cancelado',
 ] as const;
 
-export const SERVICE_EVIDENCE_TYPE_VALUES = ['texto', 'imagen', 'video'] as const;
+export const SERVICE_EVIDENCE_TYPE_VALUES = [
+  'referencia_texto',
+  'referencia_imagen',
+  'referencia_video',
+  'evidencia_texto',
+  'evidencia_imagen',
+  'evidencia_video',
+] as const;
 
 export type ApiServiceOrderCategory = (typeof SERVICE_ORDER_CATEGORY_VALUES)[number];
 export type ApiServiceOrderType = (typeof SERVICE_ORDER_TYPE_VALUES)[number];
 export type ApiServiceOrderStatus = (typeof SERVICE_ORDER_STATUS_VALUES)[number];
 export type ApiServiceEvidenceType = (typeof SERVICE_EVIDENCE_TYPE_VALUES)[number];
+
+const asServiceEvidenceType = (value: ApiServiceEvidenceType): ServiceEvidenceType => {
+  return value.toUpperCase() as unknown as ServiceEvidenceType;
+};
 
 export const SERVICE_ORDER_CATEGORY_TO_DB: Record<ApiServiceOrderCategory, ServiceOrderCategory> = {
   camara: ServiceOrderCategory.CAMARA,
@@ -82,15 +93,21 @@ export const SERVICE_ORDER_STATUS_FROM_DB: Record<ServiceOrderStatus, ApiService
 };
 
 export const SERVICE_EVIDENCE_TYPE_TO_DB: Record<ApiServiceEvidenceType, ServiceEvidenceType> = {
-  texto: ServiceEvidenceType.TEXTO,
-  imagen: ServiceEvidenceType.IMAGEN,
-  video: ServiceEvidenceType.VIDEO,
+  referencia_texto: asServiceEvidenceType('referencia_texto'),
+  referencia_imagen: asServiceEvidenceType('referencia_imagen'),
+  referencia_video: asServiceEvidenceType('referencia_video'),
+  evidencia_texto: asServiceEvidenceType('evidencia_texto'),
+  evidencia_imagen: asServiceEvidenceType('evidencia_imagen'),
+  evidencia_video: asServiceEvidenceType('evidencia_video'),
 };
 
-export const SERVICE_EVIDENCE_TYPE_FROM_DB: Record<ServiceEvidenceType, ApiServiceEvidenceType> = {
-  [ServiceEvidenceType.TEXTO]: 'texto',
-  [ServiceEvidenceType.IMAGEN]: 'imagen',
-  [ServiceEvidenceType.VIDEO]: 'video',
+export const SERVICE_EVIDENCE_TYPE_FROM_DB: Record<string, ApiServiceEvidenceType> = {
+  REFERENCIA_TEXTO: 'referencia_texto',
+  REFERENCIA_IMAGEN: 'referencia_imagen',
+  REFERENCIA_VIDEO: 'referencia_video',
+  EVIDENCIA_TEXTO: 'evidencia_texto',
+  EVIDENCIA_IMAGEN: 'evidencia_imagen',
+  EVIDENCIA_VIDEO: 'evidencia_video',
 };
 
 export const SERVICE_ORDER_ALLOWED_STATUS_TRANSITIONS: Record<
