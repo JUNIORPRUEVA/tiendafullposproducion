@@ -142,6 +142,15 @@ class ApiRoutes {
   static const cotizacionAiAnalyze = '/cotizaciones/ai/analyze';
   static const cotizacionAiChat = '/cotizaciones/ai/chat';
 
+    // Service orders
+    static const serviceOrders = '/service-orders';
+    static String serviceOrderDetail(String id) => '/service-orders/$id';
+    static String serviceOrderStatus(String id) => '/service-orders/$id/status';
+    static String serviceOrderEvidences(String id) =>
+            '/service-orders/$id/evidences';
+    static String serviceOrderReport(String id) => '/service-orders/$id/report';
+    static String serviceOrderClone(String id) => '/service-orders/$id/clone';
+
   // Asistente IA (global)
   static const aiChat = '/ai/chat';
 

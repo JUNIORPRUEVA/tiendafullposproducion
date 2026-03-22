@@ -25,6 +25,9 @@ class RouteAccess {
       case Routes.ventas:
       case Routes.registrarVenta:
         return AppPermission.viewSales;
+      case Routes.serviceOrders:
+      case Routes.serviceOrderCreate:
+        return AppPermission.viewOperations;
       case Routes.cotizaciones:
       case Routes.cotizacionesHistorial:
         return AppPermission.viewQuotes;
@@ -52,6 +55,9 @@ class RouteAccess {
     // Prefix matches (parameterized routes)
     if (path.startsWith('/clientes/')) {
       return AppPermission.viewClients;
+    }
+    if (path.startsWith('${Routes.serviceOrders}/')) {
+      return AppPermission.viewOperations;
     }
     if (path.startsWith('/users/')) {
       return AppPermission.manageUsers;

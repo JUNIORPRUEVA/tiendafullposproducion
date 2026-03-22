@@ -1,0 +1,188 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/errors/api_exception.dart';
+import '../../../core/models/user_model.dart';
+import '../../../features/user/data/users_repository.dart';
+import '../../clientes/cliente_model.dart';
+import '../../clientes/data/clientes_repository.dart';
+import '../data/service_orders_api.dart';
+import '../service_order_models.dart';
+
+class ServiceOrderDetailState {
+  final bool loading;
+  final bool working;
+  final String? error;
+  final String? actionError;
+  final ServiceOrderModel? order;
+  final ClienteModel? client;
+  final Map<String, UserModel> usersById;
+
+  const ServiceOrderDetailState({
+    this.loading = false,
+    this.working = false,
+    this.error,
+    this.actionError,
+    this.order,
+    this.client,
+    this.usersById = const {},
+  });
+
+  ServiceOrderDetailState copyWith({
+    bool? loading,
+    bool? working,
+    String? error,
+    String? actionError,
+    ServiceOrderModel? order,
+    ClienteModel? client,
+    Map<String, UserModel>? usersById,
+    bool clearError = false,
+    bool clearActionError = false,
+  }) {
+    return ServiceOrderDetailState(
+      loading: loading ?? this.loading,
+      working: working ?? this.working,
+      error: clearError ? null : (error ?? this.error),
+      actionError: clearActionError ? null : (actionError ?? this.actionError),
+      order: order ?? this.order,
+      client: client ?? this.client,
+      usersById: usersById ?? this.usersById,
+    );
+  }
+}
+
+final serviceOrderDetailControllerProvider = StateNotifierProvider.autoDispose
+    .family<ServiceOrderDetailController, ServiceOrderDetailState, String>(
+  (ref, orderId) {
+    return ServiceOrderDetailController(ref, orderId)..load();
+  },
+);
+
+class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState> {
+  ServiceOrderDetailController(this.ref, this.orderId)
+      : super(const ServiceOrderDetailState());
+
+  final Ref ref;
+  final String orderId;
+
+  Future<void> load() async {
+    state = state.copyWith(
+      loading: state.order == null,
+      working: false,
+      clearError: true,
+      clearActionError: true,
+    );
+    try {
+      final order = await ref.read(serviceOrdersApiProvider).getOrder(orderId);
+      final futures = <Future<dynamic>>[
+        ref
+            .read(clientesRepositoryProvider)
+            .getClientById(ownerId: '', id: order.clientId),
+        ref.read(usersRepositoryProvider).getAllUsers(),
+      ];
+      final results = await Future.wait<dynamic>(futures);
+      final client = results[0] as ClienteModel;
+      final users = results[1] as List<UserModel>;
+      state = state.copyWith(
+        loading: false,
+        order: order,
+        client: client,
+        usersById: {for (final user in users) user.id: user},
+      );
+    } catch (error) {
+      final message = error is ApiException
+          ? error.message
+          : 'No se pudo cargar la orden';
+      state = state.copyWith(loading: false, error: message);
+    }
+  }
+
+  Future<void> refresh() => load();
+
+  Future<void> updateStatus(ServiceOrderStatus status) async {
+    state = state.copyWith(working: true, clearActionError: true);
+    try {
+      await ref.read(serviceOrdersApiProvider).updateStatus(orderId, status);
+      await load();
+    } catch (error) {
+      final message = error is ApiException
+          ? error.message
+          : 'No se pudo actualizar el estado';
+      state = state.copyWith(working: false, actionError: message);
+      rethrow;
+    }
+  }
+
+  Future<void> addTextEvidence(String content) async {
+    await _addEvidence(
+      CreateServiceOrderEvidenceRequest(
+        type: ServiceEvidenceType.texto,
+        content: content,
+      ),
+    );
+  }
+
+  Future<void> addImageEvidence({
+    required List<int> bytes,
+    required String fileName,
+  }) async {
+    state = state.copyWith(working: true, clearActionError: true);
+    try {
+      final url = await ref.read(usersRepositoryProvider).uploadUserDocument(
+            bytes: bytes,
+            fileName: fileName,
+            kind: 'service_order_evidence',
+          );
+      await ref.read(serviceOrdersApiProvider).addEvidence(
+            orderId,
+            CreateServiceOrderEvidenceRequest(
+              type: ServiceEvidenceType.imagen,
+              content: url,
+            ),
+          );
+      await load();
+    } catch (error) {
+      final message = error is ApiException
+          ? error.message
+          : 'No se pudo subir la imagen';
+      state = state.copyWith(working: false, actionError: message);
+      rethrow;
+    }
+  }
+
+  Future<void> addVideoEvidenceUrl(String url) async {
+    await _addEvidence(
+      CreateServiceOrderEvidenceRequest(
+        type: ServiceEvidenceType.video,
+        content: url,
+      ),
+    );
+  }
+
+  Future<void> addReport(String report) async {
+    state = state.copyWith(working: true, clearActionError: true);
+    try {
+      await ref.read(serviceOrdersApiProvider).addReport(orderId, report);
+      await load();
+    } catch (error) {
+      final message = error is ApiException
+          ? error.message
+          : 'No se pudo guardar el reporte';
+      state = state.copyWith(working: false, actionError: message);
+      rethrow;
+    }
+  }
+
+  Future<void> _addEvidence(CreateServiceOrderEvidenceRequest request) async {
+    state = state.copyWith(working: true, clearActionError: true);
+    try {
+      await ref.read(serviceOrdersApiProvider).addEvidence(orderId, request);
+      await load();
+    } catch (error) {
+      final message = error is ApiException
+          ? error.message
+          : 'No se pudo guardar la evidencia';
+      state = state.copyWith(working: false, actionError: message);
+      rethrow;
+    }
+  }
+}

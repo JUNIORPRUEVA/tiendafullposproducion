@@ -89,12 +89,14 @@ class AppNavigator {
     if (path.isEmpty) return Routes.profile;
 
     if (path == Routes.registrarVenta) return Routes.ventas;
+    if (path == Routes.serviceOrderCreate) return Routes.serviceOrders;
     if (path == Routes.cotizacionesHistorial) return Routes.cotizaciones;
     if (path == Routes.clienteNuevo) return Routes.clientes;
     if (path.startsWith('/clientes/') && path.endsWith('/editar')) {
       return Routes.clientes;
     }
     if (path.startsWith('/clientes/')) return Routes.clientes;
+    if (path.startsWith('${Routes.serviceOrders}/')) return Routes.serviceOrders;
     if (path == Routes.contabilidadCierresDiarios ||
         path == Routes.contabilidadFacturaFiscal ||
         path == Routes.contabilidadPagosPendientes) {

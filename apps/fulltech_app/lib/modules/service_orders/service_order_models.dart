@@ -1,0 +1,492 @@
+import 'package:flutter/material.dart';
+
+enum ServiceOrderCategory {
+  camara,
+  motorPorton,
+  alarma,
+  cercoElectrico,
+  intercom,
+  puntoVenta,
+}
+
+enum ServiceOrderType { instalacion, mantenimiento, levantamiento, garantia }
+
+enum ServiceOrderStatus { pendiente, enProceso, finalizado, cancelado }
+
+enum ServiceEvidenceType { texto, imagen, video }
+
+ServiceOrderCategory serviceOrderCategoryFromApi(String value) {
+  switch (value.trim()) {
+    case 'camara':
+      return ServiceOrderCategory.camara;
+    case 'motor_porton':
+      return ServiceOrderCategory.motorPorton;
+    case 'alarma':
+      return ServiceOrderCategory.alarma;
+    case 'cerco_electrico':
+      return ServiceOrderCategory.cercoElectrico;
+    case 'intercom':
+      return ServiceOrderCategory.intercom;
+    case 'punto_venta':
+      return ServiceOrderCategory.puntoVenta;
+    default:
+      return ServiceOrderCategory.camara;
+  }
+}
+
+ServiceOrderType serviceOrderTypeFromApi(String value) {
+  switch (value.trim()) {
+    case 'instalacion':
+      return ServiceOrderType.instalacion;
+    case 'mantenimiento':
+      return ServiceOrderType.mantenimiento;
+    case 'levantamiento':
+      return ServiceOrderType.levantamiento;
+    case 'garantia':
+      return ServiceOrderType.garantia;
+    default:
+      return ServiceOrderType.instalacion;
+  }
+}
+
+ServiceOrderStatus serviceOrderStatusFromApi(String value) {
+  switch (value.trim()) {
+    case 'pendiente':
+      return ServiceOrderStatus.pendiente;
+    case 'en_proceso':
+      return ServiceOrderStatus.enProceso;
+    case 'finalizado':
+      return ServiceOrderStatus.finalizado;
+    case 'cancelado':
+      return ServiceOrderStatus.cancelado;
+    default:
+      return ServiceOrderStatus.pendiente;
+  }
+}
+
+ServiceEvidenceType serviceEvidenceTypeFromApi(String value) {
+  switch (value.trim()) {
+    case 'texto':
+      return ServiceEvidenceType.texto;
+    case 'imagen':
+      return ServiceEvidenceType.imagen;
+    case 'video':
+      return ServiceEvidenceType.video;
+    default:
+      return ServiceEvidenceType.texto;
+  }
+}
+
+extension ServiceOrderCategoryX on ServiceOrderCategory {
+  String get apiValue {
+    switch (this) {
+      case ServiceOrderCategory.camara:
+        return 'camara';
+      case ServiceOrderCategory.motorPorton:
+        return 'motor_porton';
+      case ServiceOrderCategory.alarma:
+        return 'alarma';
+      case ServiceOrderCategory.cercoElectrico:
+        return 'cerco_electrico';
+      case ServiceOrderCategory.intercom:
+        return 'intercom';
+      case ServiceOrderCategory.puntoVenta:
+        return 'punto_venta';
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case ServiceOrderCategory.camara:
+        return 'Cámara';
+      case ServiceOrderCategory.motorPorton:
+        return 'Motor portón';
+      case ServiceOrderCategory.alarma:
+        return 'Alarma';
+      case ServiceOrderCategory.cercoElectrico:
+        return 'Cerco eléctrico';
+      case ServiceOrderCategory.intercom:
+        return 'Intercom';
+      case ServiceOrderCategory.puntoVenta:
+        return 'Punto de venta';
+    }
+  }
+}
+
+extension ServiceOrderTypeX on ServiceOrderType {
+  String get apiValue {
+    switch (this) {
+      case ServiceOrderType.instalacion:
+        return 'instalacion';
+      case ServiceOrderType.mantenimiento:
+        return 'mantenimiento';
+      case ServiceOrderType.levantamiento:
+        return 'levantamiento';
+      case ServiceOrderType.garantia:
+        return 'garantia';
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case ServiceOrderType.instalacion:
+        return 'Instalación';
+      case ServiceOrderType.mantenimiento:
+        return 'Mantenimiento';
+      case ServiceOrderType.levantamiento:
+        return 'Levantamiento';
+      case ServiceOrderType.garantia:
+        return 'Garantía';
+    }
+  }
+}
+
+extension ServiceOrderStatusX on ServiceOrderStatus {
+  String get apiValue {
+    switch (this) {
+      case ServiceOrderStatus.pendiente:
+        return 'pendiente';
+      case ServiceOrderStatus.enProceso:
+        return 'en_proceso';
+      case ServiceOrderStatus.finalizado:
+        return 'finalizado';
+      case ServiceOrderStatus.cancelado:
+        return 'cancelado';
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case ServiceOrderStatus.pendiente:
+        return 'Pendiente';
+      case ServiceOrderStatus.enProceso:
+        return 'En proceso';
+      case ServiceOrderStatus.finalizado:
+        return 'Finalizado';
+      case ServiceOrderStatus.cancelado:
+        return 'Cancelado';
+    }
+  }
+
+  Color get color {
+    switch (this) {
+      case ServiceOrderStatus.pendiente:
+        return const Color(0xFFD98324);
+      case ServiceOrderStatus.enProceso:
+        return const Color(0xFF1D5D9B);
+      case ServiceOrderStatus.finalizado:
+        return const Color(0xFF2E8B57);
+      case ServiceOrderStatus.cancelado:
+        return const Color(0xFFB3261E);
+    }
+  }
+
+  List<ServiceOrderStatus> get allowedNextStatuses {
+    switch (this) {
+      case ServiceOrderStatus.pendiente:
+        return const [
+          ServiceOrderStatus.enProceso,
+          ServiceOrderStatus.cancelado,
+        ];
+      case ServiceOrderStatus.enProceso:
+        return const [
+          ServiceOrderStatus.finalizado,
+          ServiceOrderStatus.cancelado,
+        ];
+      case ServiceOrderStatus.finalizado:
+      case ServiceOrderStatus.cancelado:
+        return const [];
+    }
+  }
+}
+
+extension ServiceEvidenceTypeX on ServiceEvidenceType {
+  String get apiValue {
+    switch (this) {
+      case ServiceEvidenceType.texto:
+        return 'texto';
+      case ServiceEvidenceType.imagen:
+        return 'imagen';
+      case ServiceEvidenceType.video:
+        return 'video';
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case ServiceEvidenceType.texto:
+        return 'Texto';
+      case ServiceEvidenceType.imagen:
+        return 'Imagen';
+      case ServiceEvidenceType.video:
+        return 'Video';
+    }
+  }
+}
+
+class ServiceOrderEvidenceModel {
+  final String id;
+  final String serviceOrderId;
+  final ServiceEvidenceType type;
+  final String content;
+  final String createdById;
+  final DateTime createdAt;
+
+  const ServiceOrderEvidenceModel({
+    required this.id,
+    required this.serviceOrderId,
+    required this.type,
+    required this.content,
+    required this.createdById,
+    required this.createdAt,
+  });
+
+  factory ServiceOrderEvidenceModel.fromJson(Map<String, dynamic> json) {
+    return ServiceOrderEvidenceModel(
+      id: (json['id'] ?? '').toString(),
+      serviceOrderId: (json['serviceOrderId'] ?? '').toString(),
+      type: serviceEvidenceTypeFromApi((json['type'] ?? '').toString()),
+      content: (json['content'] ?? '').toString(),
+      createdById: (json['createdById'] ?? '').toString(),
+      createdAt:
+          DateTime.tryParse((json['createdAt'] ?? '').toString()) ??
+          DateTime.now(),
+    );
+  }
+}
+
+class ServiceOrderReportModel {
+  final String id;
+  final String serviceOrderId;
+  final String report;
+  final String createdById;
+  final DateTime createdAt;
+
+  const ServiceOrderReportModel({
+    required this.id,
+    required this.serviceOrderId,
+    required this.report,
+    required this.createdById,
+    required this.createdAt,
+  });
+
+  factory ServiceOrderReportModel.fromJson(Map<String, dynamic> json) {
+    return ServiceOrderReportModel(
+      id: (json['id'] ?? '').toString(),
+      serviceOrderId: (json['serviceOrderId'] ?? '').toString(),
+      report: (json['report'] ?? '').toString(),
+      createdById: (json['createdById'] ?? '').toString(),
+      createdAt:
+          DateTime.tryParse((json['createdAt'] ?? '').toString()) ??
+          DateTime.now(),
+    );
+  }
+}
+
+class ServiceOrderModel {
+  final String id;
+  final String clientId;
+  final String? quotationId;
+  final ServiceOrderCategory category;
+  final ServiceOrderType serviceType;
+  final ServiceOrderStatus status;
+  final String? technicalNote;
+  final String? extraRequirements;
+  final String? parentOrderId;
+  final String createdById;
+  final String? assignedToId;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final List<ServiceOrderEvidenceModel> evidences;
+  final List<ServiceOrderReportModel> reports;
+
+  const ServiceOrderModel({
+    required this.id,
+    required this.clientId,
+    required this.quotationId,
+    required this.category,
+    required this.serviceType,
+    required this.status,
+    required this.technicalNote,
+    required this.extraRequirements,
+    required this.parentOrderId,
+    required this.createdById,
+    required this.assignedToId,
+    required this.createdAt,
+    required this.updatedAt,
+    this.evidences = const [],
+    this.reports = const [],
+  });
+
+  bool get isCloneSourceAllowed => status == ServiceOrderStatus.finalizado;
+
+  ServiceOrderModel copyWith({
+    String? id,
+    String? clientId,
+    String? quotationId,
+    ServiceOrderCategory? category,
+    ServiceOrderType? serviceType,
+    ServiceOrderStatus? status,
+    String? technicalNote,
+    String? extraRequirements,
+    String? parentOrderId,
+    String? createdById,
+    String? assignedToId,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    List<ServiceOrderEvidenceModel>? evidences,
+    List<ServiceOrderReportModel>? reports,
+    bool clearQuotationId = false,
+    bool clearTechnicalNote = false,
+    bool clearExtraRequirements = false,
+    bool clearParentOrderId = false,
+    bool clearAssignedToId = false,
+  }) {
+    return ServiceOrderModel(
+      id: id ?? this.id,
+      clientId: clientId ?? this.clientId,
+      quotationId: clearQuotationId ? null : (quotationId ?? this.quotationId),
+      category: category ?? this.category,
+      serviceType: serviceType ?? this.serviceType,
+      status: status ?? this.status,
+      technicalNote: clearTechnicalNote
+          ? null
+          : (technicalNote ?? this.technicalNote),
+      extraRequirements: clearExtraRequirements
+          ? null
+          : (extraRequirements ?? this.extraRequirements),
+      parentOrderId: clearParentOrderId
+          ? null
+          : (parentOrderId ?? this.parentOrderId),
+      createdById: createdById ?? this.createdById,
+      assignedToId: clearAssignedToId
+          ? null
+          : (assignedToId ?? this.assignedToId),
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      evidences: evidences ?? this.evidences,
+      reports: reports ?? this.reports,
+    );
+  }
+
+  factory ServiceOrderModel.fromJson(Map<String, dynamic> json) {
+    final rawEvidences = (json['evidences'] as List?) ?? const [];
+    final rawReports = (json['reports'] as List?) ?? const [];
+    return ServiceOrderModel(
+      id: (json['id'] ?? '').toString(),
+      clientId: (json['clientId'] ?? '').toString(),
+      quotationId: json['quotationId']?.toString(),
+      category: serviceOrderCategoryFromApi((json['category'] ?? '').toString()),
+      serviceType: serviceOrderTypeFromApi(
+        (json['serviceType'] ?? '').toString(),
+      ),
+      status: serviceOrderStatusFromApi((json['status'] ?? '').toString()),
+      technicalNote: json['technicalNote']?.toString(),
+      extraRequirements: json['extraRequirements']?.toString(),
+      parentOrderId: json['parentOrderId']?.toString(),
+      createdById: (json['createdById'] ?? '').toString(),
+      assignedToId: json['assignedToId']?.toString(),
+      createdAt:
+          DateTime.tryParse((json['createdAt'] ?? '').toString()) ??
+          DateTime.now(),
+      updatedAt:
+          DateTime.tryParse((json['updatedAt'] ?? '').toString()) ??
+          DateTime.now(),
+      evidences: rawEvidences
+          .whereType<Map>()
+          .map(
+            (row) =>
+                ServiceOrderEvidenceModel.fromJson(row.cast<String, dynamic>()),
+          )
+          .toList(growable: false),
+      reports: rawReports
+          .whereType<Map>()
+          .map(
+            (row) =>
+                ServiceOrderReportModel.fromJson(row.cast<String, dynamic>()),
+          )
+          .toList(growable: false),
+    );
+  }
+}
+
+class CreateServiceOrderRequest {
+  final String clientId;
+  final String quotationId;
+  final ServiceOrderCategory category;
+  final ServiceOrderType serviceType;
+  final String? technicalNote;
+  final String? extraRequirements;
+  final String? assignedToId;
+
+  const CreateServiceOrderRequest({
+    required this.clientId,
+    required this.quotationId,
+    required this.category,
+    required this.serviceType,
+    this.technicalNote,
+    this.extraRequirements,
+    this.assignedToId,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'clientId': clientId,
+      'quotationId': quotationId,
+      'category': category.apiValue,
+      'serviceType': serviceType.apiValue,
+      if ((technicalNote ?? '').trim().isNotEmpty)
+        'technicalNote': technicalNote!.trim(),
+      if ((extraRequirements ?? '').trim().isNotEmpty)
+        'extraRequirements': extraRequirements!.trim(),
+      if ((assignedToId ?? '').trim().isNotEmpty) 'assignedToId': assignedToId,
+    };
+  }
+}
+
+class CloneServiceOrderRequest {
+  final ServiceOrderType serviceType;
+  final String? technicalNote;
+  final String? extraRequirements;
+  final String? assignedToId;
+
+  const CloneServiceOrderRequest({
+    required this.serviceType,
+    this.technicalNote,
+    this.extraRequirements,
+    this.assignedToId,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'serviceType': serviceType.apiValue,
+      if ((technicalNote ?? '').trim().isNotEmpty)
+        'technicalNote': technicalNote!.trim(),
+      if ((extraRequirements ?? '').trim().isNotEmpty)
+        'extraRequirements': extraRequirements!.trim(),
+      if ((assignedToId ?? '').trim().isNotEmpty) 'assignedToId': assignedToId,
+    };
+  }
+}
+
+class CreateServiceOrderEvidenceRequest {
+  final ServiceEvidenceType type;
+  final String content;
+
+  const CreateServiceOrderEvidenceRequest({
+    required this.type,
+    required this.content,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {'type': type.apiValue, 'content': content.trim()};
+  }
+}
+
+class ServiceOrderCreateArgs {
+  final ServiceOrderModel? cloneSource;
+
+  const ServiceOrderCreateArgs({this.cloneSource});
+
+  bool get isCloneMode => cloneSource != null;
+}

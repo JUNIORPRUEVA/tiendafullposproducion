@@ -23,6 +23,9 @@ import '../../modules/configuracion/configuracion_screen.dart';
 import '../../modules/manual_interno/manual_interno_screen.dart';
 import '../../modules/cotizaciones/cotizaciones_historial_screen.dart';
 import '../../modules/cotizaciones/cotizaciones_screen.dart';
+import '../../modules/service_orders/create_service_order_screen.dart';
+import '../../modules/service_orders/service_order_detail_screen.dart';
+import '../../modules/service_orders/service_orders_list_screen.dart';
 import '../../modules/ventas/mis_ventas_screen.dart';
 import '../../modules/ventas/registrar_venta_screen.dart';
 import '../../modules/horarios/horarios_screen.dart';
@@ -144,6 +147,26 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.cotizaciones,
             builder: (context, state) => const CotizacionesScreen(),
+          ),
+          GoRoute(
+            path: Routes.serviceOrders,
+            builder: (context, state) => const ServiceOrdersListScreen(),
+          ),
+          GoRoute(
+            path: Routes.serviceOrderCreate,
+            builder: (context, state) {
+              final args = state.extra is ServiceOrderCreateArgs
+                  ? state.extra as ServiceOrderCreateArgs
+                  : null;
+              return CreateServiceOrderScreen(args: args);
+            },
+          ),
+          GoRoute(
+            path: Routes.serviceOrderDetail,
+            builder: (context, state) {
+              final id = state.pathParameters['id'] ?? '';
+              return ServiceOrderDetailScreen(orderId: id);
+            },
           ),
           GoRoute(
             path: Routes.cotizacionesHistorial,

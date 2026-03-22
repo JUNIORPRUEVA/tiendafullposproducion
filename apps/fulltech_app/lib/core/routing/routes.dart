@@ -18,6 +18,9 @@ class Routes {
   static const ventas = '/ventas';
   static const cotizaciones = '/cotizaciones';
   static const cotizacionesHistorial = '/cotizaciones/historial';
+  static const serviceOrders = '/service-orders';
+  static const serviceOrderCreate = '/service-orders/nueva';
+  static const serviceOrderDetail = '/service-orders/:id';
   static const registrarVenta = '/ventas/nueva';
   static const clienteNuevo = '/clientes/nuevo';
   static const clienteDetalle = '/clientes/:id';
@@ -30,4 +33,5 @@ class Routes {
 
   static String clienteDetail(String id) => '/clientes/$id';
   static String clienteEdit(String id) => '/clientes/$id/editar';
+  static String serviceOrderById(String id) => '/service-orders/$id';
 }
