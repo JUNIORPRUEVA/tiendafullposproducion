@@ -20,6 +20,9 @@ class EvidenceItemWidget extends StatelessWidget {
     this.fileName,
     this.onRemove,
     this.compact = false,
+    this.showSurface = true,
+    this.showHeader = true,
+    this.surfaceColor,
   });
 
   final ServiceEvidenceType type;
@@ -31,6 +34,9 @@ class EvidenceItemWidget extends StatelessWidget {
   final String? fileName;
   final VoidCallback? onRemove;
   final bool compact;
+  final bool showSurface;
+  final bool showHeader;
+  final Color? surfaceColor;
 
   @override
   Widget build(BuildContext context) {
@@ -38,16 +44,10 @@ class EvidenceItemWidget extends StatelessWidget {
     final effectiveVideoSource = (localPath ?? '').trim().isNotEmpty
         ? localPath!.trim()
         : resolvedUrl;
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (showHeader) ...[
           Row(
             children: [
               Icon(
@@ -75,23 +75,34 @@ class EvidenceItemWidget extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          if (type.isText)
-            Text((text ?? '').trim().isEmpty ? 'Sin contenido' : text!.trim())
-          else if (type.isImage)
-            _EvidenceImage(
-              url: resolvedUrl,
-              previewBytes: previewBytes,
-              compact: compact,
-            )
-          else
-            _EvidenceVideo(
-              source: effectiveVideoSource,
-              previewBytes: previewBytes,
-              fileName: fileName,
-              compact: compact,
-            ),
         ],
+        if (type.isText)
+          Text((text ?? '').trim().isEmpty ? 'Sin contenido' : text!.trim())
+        else if (type.isImage)
+          _EvidenceImage(
+            url: resolvedUrl,
+            previewBytes: previewBytes,
+            compact: compact,
+          )
+        else
+          _EvidenceVideo(
+            source: effectiveVideoSource,
+            previewBytes: previewBytes,
+            fileName: fileName,
+            compact: compact,
+          ),
+      ],
+    );
+
+    if (!showSurface) return content;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: surfaceColor ?? Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(18),
       ),
+      child: content,
     );
   }
 }
@@ -334,6 +345,7 @@ class _EvidenceVideoState extends State<_EvidenceVideo> {
     if (_loading) {
       return _VideoSurface(
         expanded: widget.expanded,
+        compact: widget.compact,
         child: const Center(child: CircularProgressIndicator()),
       );
     }
@@ -341,6 +353,7 @@ class _EvidenceVideoState extends State<_EvidenceVideo> {
     if (_failed || _controller == null) {
       return _VideoSurface(
         expanded: widget.expanded,
+        compact: widget.compact,
         child: const _MediaErrorBox(message: 'No se pudo cargar el video'),
       );
     }
@@ -421,10 +434,15 @@ class _EvidenceVideoState extends State<_EvidenceVideo> {
 }
 
 class _VideoSurface extends StatelessWidget {
-  const _VideoSurface({required this.child, required this.expanded});
+  const _VideoSurface({
+    required this.child,
+    required this.expanded,
+    required this.compact,
+  });
 
   final Widget child;
   final bool expanded;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {

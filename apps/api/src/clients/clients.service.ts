@@ -12,8 +12,19 @@ import { UpdateClientDto } from './dto/update-client.dto';
 export class ClientsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private static readonly uuidPattern =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
   private hasOwn(source: object, key: string) {
     return Object.prototype.hasOwnProperty.call(source, key);
+  }
+
+  private ensureValidClientId(id: string) {
+    if (ClientsService.uuidPattern.test(id)) {
+      return;
+    }
+
+    throw new NotFoundException('Client not found');
   }
 
   private toNullableNumber(
@@ -92,28 +103,38 @@ export class ClientsService {
     let resolvedLatitude = latitude;
     let resolvedLongitude = longitude;
 
-    if (resolvedLatitude == null || resolvedLongitude == null) {
-      if (!locationUrl) {
-        throw new BadRequestException('Debe enviar latitude/longitude o location_url.');
-      }
-
-      const extracted = this.extractCoordinatesFromLocationUrl(locationUrl);
-      if (!extracted) {
-        throw new BadRequestException(
-          'No se pudieron extraer coordenadas válidas desde location_url.',
-        );
-      }
-
-      resolvedLatitude = extracted.latitude;
-      resolvedLongitude = extracted.longitude;
+    // If explicit coordinates are provided, use them and build URL if needed.
+    if (resolvedLatitude != null && resolvedLongitude != null) {
+      const finalLocationUrl = locationUrl ?? this.buildGoogleMapsUrl(resolvedLatitude, resolvedLongitude);
+      return {
+        latitude: new Prisma.Decimal(resolvedLatitude),
+        longitude: new Prisma.Decimal(resolvedLongitude),
+        locationUrl: finalLocationUrl,
+      };
     }
 
-    const finalLocationUrl = locationUrl ?? this.buildGoogleMapsUrl(resolvedLatitude, resolvedLongitude);
+    // Only URL provided: try to extract coordinates, but don't reject if it's a
+    // short/redirect link (e.g. maps.app.goo.gl). Store the URL as-is in that case.
+    if (!locationUrl) {
+      throw new BadRequestException('Debe enviar latitude/longitude o location_url.');
+    }
 
+    const extracted = this.extractCoordinatesFromLocationUrl(locationUrl);
+
+    if (extracted) {
+      return {
+        latitude: new Prisma.Decimal(extracted.latitude),
+        longitude: new Prisma.Decimal(extracted.longitude),
+        locationUrl,
+      };
+    }
+
+    // URL provided but coordinates could not be extracted (e.g. short share link).
+    // Store the URL without coordinates — the client app will open the link directly.
     return {
-      latitude: new Prisma.Decimal(resolvedLatitude),
-      longitude: new Prisma.Decimal(resolvedLongitude),
-      locationUrl: finalLocationUrl,
+      latitude: null,
+      longitude: null,
+      locationUrl,
     };
   }
 
@@ -236,6 +257,7 @@ export class ClientsService {
   }
 
   async findOne(id: string) {
+    this.ensureValidClientId(id);
     const client = await this.prisma.client.findFirst({ where: { id } });
     if (!client) throw new NotFoundException('Client not found');
     return this.serializeClient(client);
@@ -295,6 +317,7 @@ export class ClientsService {
   }
 
   async getProfile(id: string) {
+    this.ensureValidClientId(id);
     const client = await this.prisma.client.findFirst({
       where: { id },
       select: {
@@ -356,6 +379,7 @@ export class ClientsService {
     id: string,
     options: { take?: number; before?: string; types?: string },
   ) {
+    this.ensureValidClientId(id);
     await this.findOne(id);
 
     const take = Math.min(Math.max(options.take ?? 100, 1), 300);
@@ -425,4 +449,3 @@ export class ClientsService {
     return { items: rows, before: before.toISOString(), take };
   }
 }
-

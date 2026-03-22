@@ -505,6 +505,44 @@ class CreateServiceOrderRequest {
   }
 }
 
+class UpdateServiceOrderRequest {
+  final String clientId;
+  final String quotationId;
+  final ServiceOrderCategory category;
+  final ServiceOrderType serviceType;
+  final String? technicalNote;
+  final String? extraRequirements;
+  final String? assignedToId;
+
+  const UpdateServiceOrderRequest({
+    required this.clientId,
+    required this.quotationId,
+    required this.category,
+    required this.serviceType,
+    this.technicalNote,
+    this.extraRequirements,
+    this.assignedToId,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'clientId': clientId,
+      'quotationId': quotationId,
+      'category': category.apiValue,
+      'serviceType': serviceType.apiValue,
+      'technicalNote': technicalNote?.trim().isEmpty == true
+          ? null
+          : technicalNote?.trim(),
+      'extraRequirements': extraRequirements?.trim().isEmpty == true
+          ? null
+          : extraRequirements?.trim(),
+      'assignedToId': assignedToId?.trim().isEmpty == true
+          ? null
+          : assignedToId?.trim(),
+    };
+  }
+}
+
 class CloneServiceOrderRequest {
   final ServiceOrderType serviceType;
   final String? technicalNote;
@@ -633,8 +671,10 @@ class ServiceOrderDraftReference {
 
 class ServiceOrderCreateArgs {
   final ServiceOrderModel? cloneSource;
+  final ServiceOrderModel? editSource;
 
-  const ServiceOrderCreateArgs({this.cloneSource});
+  const ServiceOrderCreateArgs({this.cloneSource, this.editSource});
 
   bool get isCloneMode => cloneSource != null;
+  bool get isEditMode => editSource != null;
 }

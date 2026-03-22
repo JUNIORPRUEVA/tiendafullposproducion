@@ -50,10 +50,7 @@ class ClientesRepository {
       );
       await upsertClient(
         ownerId: ownerId,
-        cliente: cliente.copyWith(
-          updatedLocal: false,
-          syncStatus: 'synced',
-        ),
+        cliente: cliente.copyWith(updatedLocal: false, syncStatus: 'synced'),
       );
     });
 
@@ -208,6 +205,11 @@ class ClientesRepository {
     return fallback;
   }
 
+  bool _isLocalId(String id) {
+    final trimmed = id.trim();
+    return trimmed.isEmpty || trimmed.startsWith('local_');
+  }
+
   Future<List<ClienteModel>> listClients({
     required String ownerId,
     String search = '',
@@ -322,7 +324,7 @@ class ClientesRepository {
       ..removeWhere((key, value) => value == null);
 
     try {
-      if (cliente.id.isEmpty) {
+      if (_isLocalId(cliente.id)) {
         final res = await _dio.post(ApiRoutes.clients, data: payload);
         final created = ClienteModel.fromJson(
           (res.data as Map).cast<String, dynamic>(),

@@ -31,6 +31,7 @@ class CreateServiceOrderState {
   final ServiceOrderCategory category;
   final ServiceOrderType? serviceType;
   final ServiceOrderModel? cloneSource;
+  final ServiceOrderModel? editSource;
   final String? quotationMessage;
   final bool uploadingEvidence;
   final double uploadProgress;
@@ -52,6 +53,7 @@ class CreateServiceOrderState {
     this.category = ServiceOrderCategory.camara,
     this.serviceType,
     this.cloneSource,
+    this.editSource,
     this.quotationMessage,
     this.uploadingEvidence = false,
     this.uploadProgress = 0,
@@ -59,6 +61,7 @@ class CreateServiceOrderState {
   });
 
   bool get isCloneMode => cloneSource != null;
+  bool get isEditMode => editSource != null;
 
   CreateServiceOrderState copyWith({
     bool? loading,
@@ -76,6 +79,7 @@ class CreateServiceOrderState {
     ServiceOrderCategory? category,
     ServiceOrderType? serviceType,
     ServiceOrderModel? cloneSource,
+    ServiceOrderModel? editSource,
     String? quotationMessage,
     bool? uploadingEvidence,
     double? uploadProgress,
@@ -107,6 +111,7 @@ class CreateServiceOrderState {
       category: category ?? this.category,
       serviceType: serviceType ?? this.serviceType,
       cloneSource: cloneSource ?? this.cloneSource,
+        editSource: editSource ?? this.editSource,
       quotationMessage: clearQuotationMessage
           ? null
           : (quotationMessage ?? this.quotationMessage),
@@ -138,8 +143,11 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
       : super(
           CreateServiceOrderState(
             cloneSource: args?.cloneSource,
+            editSource: args?.editSource,
             category:
-                args?.cloneSource?.category ?? ServiceOrderCategory.camara,
+                args?.editSource?.category ??
+                args?.cloneSource?.category ??
+                ServiceOrderCategory.camara,
           ),
         );
 
@@ -149,7 +157,8 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
   String get _ownerId => ref.read(authStateProvider).user?.id ?? '';
   AppRole get _currentRole =>
       ref.read(authStateProvider).user?.appRole ?? AppRole.unknown;
-  bool get _isTechnician => _currentRole == AppRole.tecnico;
+    bool get _canManageOperationalFields =>
+      _currentRole == AppRole.tecnico || _currentRole == AppRole.admin;
 
   Future<void> load() async {
     if (state.initialized || state.loading) return;
@@ -167,24 +176,25 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
       final technicians = users
           .where((user) => user.appRole == AppRole.tecnico)
           .toList(growable: false);
-      final cloneSource = args?.cloneSource;
-      final selectedClient = cloneSource == null
+      final seedOrder = args?.editSource ?? args?.cloneSource;
+      final selectedClient = seedOrder == null
           ? null
-          : clients.where((item) => item.id == cloneSource.clientId).firstWhere(
+          : clients.where((item) => item.id == seedOrder.clientId).firstWhere(
                 (item) => true,
                 orElse: () => ClienteModel(
-                  id: cloneSource.clientId,
+                  id: seedOrder.clientId,
                   ownerId: _ownerId,
                   nombre: 'Cliente vinculado',
                   telefono: '',
                 ),
               );
-      final selectedTechnician = cloneSource?.assignedToId == null
+      final assignedToId = seedOrder?.assignedToId;
+      final selectedTechnician = assignedToId == null
           ? null
-          : technicians.where((item) => item.id == cloneSource!.assignedToId).firstWhere(
+          : technicians.where((item) => item.id == assignedToId).firstWhere(
                 (item) => true,
                 orElse: () => UserModel(
-                  id: cloneSource!.assignedToId!,
+                  id: assignedToId,
                   email: '',
                   nombreCompleto: 'Técnico asignado',
                   telefono: '',
@@ -198,10 +208,10 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
         technicians: technicians,
         selectedClient: selectedClient,
         selectedTechnician: selectedTechnician,
-        serviceType: cloneSource?.serviceType,
+        serviceType: seedOrder?.serviceType,
       );
       if (selectedClient != null) {
-        await selectClient(selectedClient, preserveQuotationId: cloneSource?.quotationId);
+        await selectClient(selectedClient, preserveQuotationId: seedOrder?.quotationId);
       }
     } catch (error) {
       final message = error is ApiException
@@ -392,22 +402,39 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
     if (client == null) {
       throw ApiException('Debes seleccionar un cliente');
     }
-    if (quotation == null && !state.isCloneMode) {
+    if (quotation == null && !state.isCloneMode && !state.isEditMode) {
       throw ApiException('Debes seleccionar una cotización');
     }
     if (serviceType == null) {
       throw ApiException('Debes seleccionar el tipo de servicio');
     }
+    final effectiveQuotationId = quotation?.id ?? state.editSource?.quotationId;
+    if ((effectiveQuotationId ?? '').trim().isEmpty) {
+      throw ApiException('Debes seleccionar una cotización');
+    }
 
-    final technicalNoteValue = _isTechnician ? technicalNote.trim() : '';
-    final extraRequirementsValue = _isTechnician
+    final technicalNoteValue = _canManageOperationalFields ? technicalNote.trim() : '';
+    final extraRequirementsValue = _canManageOperationalFields
         ? extraRequirements.trim()
         : '';
-    final assignedToId = _isTechnician ? state.selectedTechnician?.id : null;
+    final assignedToId = _canManageOperationalFields ? state.selectedTechnician?.id : null;
 
     state = state.copyWith(submitting: true, clearActionError: true);
     try {
-      final result = state.isCloneMode
+      final result = state.isEditMode
+          ? await ref.read(serviceOrdersApiProvider).updateOrder(
+                state.editSource!.id,
+                UpdateServiceOrderRequest(
+                  clientId: client.id,
+                  quotationId: effectiveQuotationId!,
+                  category: state.category,
+                  serviceType: serviceType,
+                  technicalNote: technicalNoteValue,
+                  extraRequirements: extraRequirementsValue,
+                  assignedToId: assignedToId,
+                ),
+              )
+          : state.isCloneMode
           ? await ref.read(serviceOrdersApiProvider).cloneOrder(
                 state.cloneSource!.id,
                 CloneServiceOrderRequest(
@@ -428,7 +455,9 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
                   assignedToId: assignedToId,
                 ),
               );
-      final warningMessage = await _sendDraftReferences(result.id);
+      final warningMessage = state.isEditMode
+          ? null
+          : await _sendDraftReferences(result.id);
       state = state.copyWith(submitting: false);
       return CreateServiceOrderSubmissionResult(
         order: result,

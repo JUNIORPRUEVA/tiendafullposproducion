@@ -61,8 +61,8 @@ class ClientesState {
 
 final clientesControllerProvider =
     StateNotifierProvider<ClientesController, ClientesState>((ref) {
-  return ClientesController(ref);
-});
+      return ClientesController(ref);
+    });
 
 class ClientesController extends StateNotifier<ClientesState> {
   final Ref ref;
@@ -72,7 +72,8 @@ class ClientesController extends StateNotifier<ClientesState> {
     load();
   }
 
-  String get _ownerId => ref.read(authStateProvider).user?.id ?? 'default_owner';
+  String get _ownerId =>
+      ref.read(authStateProvider).user?.id ?? 'default_owner';
 
   Future<void> load({String? search}) async {
     final seq = ++_loadSeq;
@@ -106,21 +107,13 @@ class ClientesController extends StateNotifier<ClientesState> {
         estadoFilter: state.estadoFilter,
       );
       if (seq != _loadSeq) return;
-      state = state.copyWith(
-        items: items,
-        loading: false,
-        refreshing: false,
-      );
+      state = state.copyWith(items: items, loading: false, refreshing: false);
     } catch (e) {
       if (seq != _loadSeq) return;
       final message = e is ApiException
           ? e.message
           : 'No se pudieron cargar los clientes';
-      state = state.copyWith(
-        loading: false,
-        refreshing: false,
-        error: message,
-      );
+      state = state.copyWith(loading: false, refreshing: false, error: message);
     }
   }
 
@@ -152,31 +145,34 @@ class ClientesController extends StateNotifier<ClientesState> {
   }
 
   Future<void> _persistSnapshot(List<ClienteModel> items) {
-    return ref.read(clientesRepositoryProvider).saveClientsSnapshot(
-      ownerId: _ownerId,
-      search: state.search,
-      order: state.order,
-      correoFilter: state.correoFilter,
-      estadoFilter: state.estadoFilter,
-      items: items,
-    );
+    return ref
+        .read(clientesRepositoryProvider)
+        .saveClientsSnapshot(
+          ownerId: _ownerId,
+          search: state.search,
+          order: state.order,
+          correoFilter: state.correoFilter,
+          estadoFilter: state.estadoFilter,
+          items: items,
+        );
   }
 
   Future<ClienteModel> getById(String id) async {
-    final local = state.items.where((c) => c.id == id).cast<ClienteModel?>().firstWhere(
-          (element) => element != null,
-          orElse: () => null,
-        );
+    final local = state.items
+        .where((c) => c.id == id)
+        .cast<ClienteModel?>()
+        .firstWhere((element) => element != null, orElse: () => null);
     if (local != null) return local;
 
     final repo = ref.read(clientesRepositoryProvider);
     return repo.getClientById(ownerId: _ownerId, id: id);
   }
 
-  Future<void> saveCliente({
+  Future<ClienteModel> saveCliente({
     required String nombre,
     required String telefono,
     String? direccion,
+    String? locationUrl,
     String? correo,
     String? id,
   }) async {
@@ -201,6 +197,9 @@ class ClientesController extends StateNotifier<ClientesState> {
         nombre: nombre.trim(),
         telefono: telefono.trim(),
         direccion: (direccion ?? '').trim().isEmpty ? null : direccion?.trim(),
+        locationUrl: (locationUrl ?? '').trim().isEmpty
+            ? null
+            : locationUrl?.trim(),
         correo: (correo ?? '').trim().isEmpty ? null : correo?.trim(),
         createdAt: id == null ? now : null,
         updatedAt: now,
@@ -212,7 +211,8 @@ class ClientesController extends StateNotifier<ClientesState> {
       final optimisticItems = [
         if ((id ?? '').isEmpty) optimistic,
         for (final item in previous)
-          if (item.id == optimistic.id || ((id ?? '').isNotEmpty && item.id == id))
+          if (item.id == optimistic.id ||
+              ((id ?? '').isNotEmpty && item.id == id))
             optimistic
           else
             item,
@@ -232,8 +232,11 @@ class ClientesController extends StateNotifier<ClientesState> {
       ];
       state = state.copyWith(items: merged, saving: false);
       await _persistSnapshot(merged);
+      return synced;
     } catch (e) {
-      final message = e is ApiException ? e.message : 'No se pudo guardar el cliente';
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudo guardar el cliente';
       state = state.copyWith(saving: false, actionError: message);
       await load(search: state.search);
       rethrow;
@@ -243,9 +246,7 @@ class ClientesController extends StateNotifier<ClientesState> {
   Future<void> remove(String id) async {
     state = state.copyWith(saving: true, clearActionError: true);
     final previous = state.items;
-    state = state.copyWith(
-      items: previous.where((c) => c.id != id).toList(),
-    );
+    state = state.copyWith(items: previous.where((c) => c.id != id).toList());
 
     try {
       final repo = ref.read(clientesRepositoryProvider);
@@ -253,7 +254,9 @@ class ClientesController extends StateNotifier<ClientesState> {
       await repo.syncDeleteClientOrQueue(ownerId: _ownerId, id: id);
       state = state.copyWith(saving: false);
     } catch (e) {
-      final message = e is ApiException ? e.message : 'No se pudo eliminar el cliente';
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudo eliminar el cliente';
       state = state.copyWith(
         items: previous,
         saving: false,

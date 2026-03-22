@@ -10,6 +10,7 @@ import { CloneServiceOrderDto } from './dto/clone-service-order.dto';
 import { CreateEvidenceDto } from './dto/create-evidence.dto';
 import { CreateReportDto } from './dto/create-report.dto';
 import { CreateServiceOrderDto } from './dto/create-service-order.dto';
+import { UpdateServiceOrderDto } from './dto/update-service-order.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import {
   ApiServiceEvidenceType,
@@ -65,6 +66,50 @@ export class ServiceOrdersService {
   async findOne(user: AuthUser, id: string) {
     const item = await this.findOrderWithRelationsOrThrow(user, id);
     return this.mapOrder(item);
+  }
+
+  async update(user: AuthUser, id: string, dto: UpdateServiceOrderDto) {
+    this.assertAdmin(user);
+    const current = await this.findOrderOrThrow(user, id);
+
+    const clientId = this.cleanOptionalText(dto.clientId, dto.client_id) ?? current.clientId;
+    const quotationId = this.cleanOptionalText(dto.quotationId, dto.quotation_id) ?? current.quotationId;
+    const category = this.cleanOptionalText(dto.category) as ApiServiceOrderCategory | null;
+    const serviceType = this.cleanOptionalText(dto.serviceType, dto.service_type) as ApiServiceOrderType | null;
+    const technicalNote = this.cleanOptionalText(dto.technicalNote, dto.technical_note);
+    const extraRequirements = this.cleanOptionalText(dto.extraRequirements, dto.extra_requirements);
+    const assignedToId = this.hasAssignedToInput(dto)
+      ? await this.resolveAssignedToId(dto.assignedToId, dto.assigned_to)
+      : current.assignedToId;
+
+    await this.assertClientExists(clientId);
+    await this.assertQuotationMatchesClient(quotationId, clientId);
+
+    try {
+      const updated = await this.prisma.serviceOrder.update({
+        where: { id },
+        data: {
+          clientId,
+          quotationId,
+          category: category
+            ? SERVICE_ORDER_CATEGORY_TO_DB[category]
+            : current.category,
+          serviceType: serviceType
+            ? SERVICE_ORDER_TYPE_TO_DB[serviceType]
+            : current.serviceType,
+          technicalNote: this.hasTextInput(dto, 'technicalNote', 'technical_note')
+            ? technicalNote
+            : current.technicalNote,
+          extraRequirements: this.hasTextInput(dto, 'extraRequirements', 'extra_requirements')
+            ? extraRequirements
+            : current.extraRequirements,
+          assignedToId,
+        },
+      });
+      return this.mapOrder(updated);
+    } catch (error) {
+      this.rethrowWriteError(error);
+    }
   }
 
   async updateStatus(user: AuthUser, id: string, dto: UpdateStatusDto) {
@@ -153,6 +198,18 @@ export class ServiceOrdersService {
         },
       });
       return this.mapOrder(cloned);
+    } catch (error) {
+      this.rethrowWriteError(error);
+    }
+  }
+
+  async remove(user: AuthUser, id: string) {
+    this.assertAdmin(user);
+    await this.findOrderOrThrow(user, id);
+
+    try {
+      await this.prisma.serviceOrder.delete({ where: { id } });
+      return { ok: true };
     } catch (error) {
       this.rethrowWriteError(error);
     }
@@ -283,6 +340,21 @@ export class ServiceOrdersService {
     if (user.role === Role.VENDEDOR && item.createdById === user.id) return;
     if (user.role === Role.TECNICO && (item.assignedToId === user.id || item.createdById === user.id)) return;
     throw new ForbiddenException('No puedes operar esta orden de servicio');
+  }
+
+  private assertAdmin(user: AuthUser) {
+    if (user.role !== Role.ADMIN) {
+      throw new ForbiddenException('Solo administradores pueden modificar o eliminar órdenes');
+    }
+  }
+
+  private hasAssignedToInput(dto: UpdateServiceOrderDto) {
+    return Object.prototype.hasOwnProperty.call(dto, 'assignedToId') ||
+      Object.prototype.hasOwnProperty.call(dto, 'assigned_to');
+  }
+
+  private hasTextInput(dto: UpdateServiceOrderDto, ...keys: Array<keyof UpdateServiceOrderDto>) {
+    return keys.some((key) => Object.prototype.hasOwnProperty.call(dto, key));
   }
 
   private assertCanAddEvidenceType(user: AuthUser, type: ApiServiceEvidenceType) {

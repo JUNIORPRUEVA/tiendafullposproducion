@@ -73,6 +73,29 @@ class ServiceOrdersApi {
     }
   }
 
+  Future<ServiceOrderModel> updateOrder(
+    String id,
+    UpdateServiceOrderRequest request,
+  ) async {
+    try {
+      final res = await _dio.patch(
+        ApiRoutes.serviceOrderUpdate(id),
+        data: request.toJson(),
+      );
+      return ServiceOrderModel.fromJson((res.data as Map).cast<String, dynamic>());
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo editar la orden');
+    }
+  }
+
+  Future<void> deleteOrder(String id) async {
+    try {
+      await _dio.delete(ApiRoutes.serviceOrderDelete(id));
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo eliminar la orden');
+    }
+  }
+
   Future<ServiceOrderModel> cloneOrder(
     String sourceOrderId,
     CloneServiceOrderRequest request,

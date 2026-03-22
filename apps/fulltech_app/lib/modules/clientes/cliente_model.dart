@@ -4,6 +4,7 @@ class ClienteModel {
   final String nombre;
   final String telefono;
   final String? direccion;
+  final String? locationUrl;
   final String? correo;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -17,6 +18,7 @@ class ClienteModel {
     required this.nombre,
     required this.telefono,
     this.direccion,
+    this.locationUrl,
     this.correo,
     this.createdAt,
     this.updatedAt,
@@ -34,8 +36,15 @@ class ClienteModel {
       direccion: (map['direccion'] as String?)?.trim().isEmpty == true
           ? null
           : map['direccion'] as String?,
-      correo: ((map['correo'] ?? map['email']) as String?)?.trim().isEmpty ==
+      locationUrl:
+          ((map['locationUrl'] ?? map['location_url']) as String?)
+                  ?.trim()
+                  .isEmpty ==
               true
+          ? null
+          : (map['locationUrl'] ?? map['location_url']) as String?,
+      correo:
+          ((map['correo'] ?? map['email']) as String?)?.trim().isEmpty == true
           ? null
           : (map['correo'] ?? map['email']) as String?,
       createdAt: map['created_at'] != null
@@ -64,6 +73,7 @@ class ClienteModel {
       'nombre': nombre,
       'telefono': telefono,
       'direccion': direccion,
+      'location_url': locationUrl,
       'correo': correo,
       'created_at': createdAt?.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
@@ -80,6 +90,9 @@ class ClienteModel {
       'nombre': nombre.trim(),
       'telefono': telefono.trim(),
       'direccion': direccion?.trim().isEmpty == true ? null : direccion?.trim(),
+      'location_url': locationUrl?.trim().isEmpty == true
+          ? null
+          : locationUrl?.trim(),
       'email': correo?.trim().isEmpty == true ? null : correo?.trim(),
     };
   }
@@ -90,6 +103,7 @@ class ClienteModel {
     String? nombre,
     String? telefono,
     String? direccion,
+    String? locationUrl,
     String? correo,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -97,6 +111,7 @@ class ClienteModel {
     String? syncStatus,
     bool? updatedLocal,
     bool clearDireccion = false,
+    bool clearLocationUrl = false,
     bool clearCorreo = false,
     bool clearSyncStatus = false,
   }) {
@@ -106,6 +121,7 @@ class ClienteModel {
       nombre: nombre ?? this.nombre,
       telefono: telefono ?? this.telefono,
       direccion: clearDireccion ? null : (direccion ?? this.direccion),
+      locationUrl: clearLocationUrl ? null : (locationUrl ?? this.locationUrl),
       correo: clearCorreo ? null : (correo ?? this.correo),
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

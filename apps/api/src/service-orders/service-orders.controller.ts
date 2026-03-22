@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client';
 import { Request } from 'express';
@@ -8,6 +8,7 @@ import { CloneServiceOrderDto } from './dto/clone-service-order.dto';
 import { CreateEvidenceDto } from './dto/create-evidence.dto';
 import { CreateReportDto } from './dto/create-report.dto';
 import { CreateServiceOrderDto } from './dto/create-service-order.dto';
+import { UpdateServiceOrderDto } from './dto/update-service-order.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { ServiceOrdersService } from './service-orders.service';
 
@@ -36,6 +37,12 @@ export class ServiceOrdersController {
     return this.serviceOrders.findOne(req.user as JwtUser, id);
   }
 
+  @Patch(':id')
+  @Roles(Role.ADMIN)
+  update(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateServiceOrderDto) {
+    return this.serviceOrders.update(req.user as JwtUser, id, dto);
+  }
+
   @Patch(':id/status')
   @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
   updateStatus(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateStatusDto) {
@@ -58,5 +65,11 @@ export class ServiceOrdersController {
   @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
   clone(@Req() req: Request, @Param('id') id: string, @Body() dto: CloneServiceOrderDto) {
     return this.serviceOrders.clone(req.user as JwtUser, id, dto);
+  }
+
+  @Delete(':id')
+  @Roles(Role.ADMIN)
+  remove(@Req() req: Request, @Param('id') id: string) {
+    return this.serviceOrders.remove(req.user as JwtUser, id);
   }
 }

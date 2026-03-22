@@ -12,7 +12,6 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
-import '../../core/utils/video_preview_controller.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/app_navigation.dart';
 import '../clientes/cliente_model.dart';
@@ -39,11 +38,12 @@ class _CreateServiceOrderScreenState
   @override
   void initState() {
     super.initState();
+    final seedOrder = widget.args?.editSource ?? widget.args?.cloneSource;
     _technicalNoteController = TextEditingController(
-      text: widget.args?.cloneSource?.technicalNote ?? '',
+      text: seedOrder?.technicalNote ?? '',
     );
     _extraRequirementsController = TextEditingController(
-      text: widget.args?.cloneSource?.extraRequirements ?? '',
+      text: seedOrder?.extraRequirements ?? '',
     );
   }
 
@@ -60,11 +60,14 @@ class _CreateServiceOrderScreenState
     final state = ref.watch(provider);
     final controller = ref.read(provider.notifier);
     final user = ref.watch(authStateProvider).user;
-    final isTechnician = user?.appRole.isTechnician ?? false;
+    final canManageOperationalFields =
+      user?.appRole.isTechnician == true || user?.appRole.isAdmin == true;
     final width = MediaQuery.sizeOf(context).width;
     final isDesktop = width >= kDesktopShellBreakpoint;
-    final shellFallback = widget.args?.isCloneMode == true
-        ? Routes.serviceOrderById(widget.args!.cloneSource!.id)
+    final shellFallback = widget.args?.isEditMode == true
+      ? Routes.serviceOrderById(widget.args!.editSource!.id)
+      : widget.args?.isCloneMode == true
+      ? Routes.serviceOrderById(widget.args!.cloneSource!.id)
         : Routes.serviceOrders;
 
     return Scaffold(
@@ -74,7 +77,13 @@ class _CreateServiceOrderScreenState
           context,
           fallbackRoute: shellFallback,
         ),
-        title: Text(state.isCloneMode ? 'Clonar orden' : 'Crear orden'),
+        title: Text(
+          state.isEditMode
+              ? 'Editar orden'
+              : state.isCloneMode
+              ? 'Clonar orden'
+              : 'Crear orden',
+        ),
         actions: [
           TextButton.icon(
             onPressed: () => context.go(Routes.serviceOrders),
@@ -84,7 +93,9 @@ class _CreateServiceOrderScreenState
           const SizedBox(width: 8),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: state.isEditMode
+          ? null
+          : FloatingActionButton.extended(
         onPressed: state.submitting || state.uploadingEvidence
             ? null
             : () => _showReferenceActions(context, controller),
@@ -102,7 +113,7 @@ class _CreateServiceOrderScreenState
                     desktop: desktop,
                     state: state,
                     controller: controller,
-                    isTechnician: isTechnician,
+                    canManageOperationalFields: canManageOperationalFields,
                   );
                   return ListView(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
@@ -126,12 +137,18 @@ class _CreateServiceOrderScreenState
                     await AppFeedback.showInfo(
                       context,
                       result.warningMessage ??
-                          (state.isCloneMode
+                          (state.isEditMode
+                              ? 'Orden actualizada correctamente'
+                              : state.isCloneMode
                               ? 'Orden clonada correctamente'
                               : 'Orden creada correctamente'),
                     );
                     if (!context.mounted) return;
-                    context.go(Routes.serviceOrderById(result.order.id));
+                    if (state.isEditMode) {
+                      context.pop(true);
+                    } else {
+                      context.go(Routes.serviceOrderById(result.order.id));
+                    }
                   } catch (_) {
                     if (!context.mounted) return;
                     final message = ref
@@ -148,7 +165,13 @@ class _CreateServiceOrderScreenState
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.save_outlined),
-          label: Text(state.isCloneMode ? 'Crear nueva orden' : 'Guardar orden'),
+          label: Text(
+            state.isEditMode
+                ? 'Guardar cambios'
+                : state.isCloneMode
+                ? 'Crear nueva orden'
+                : 'Guardar orden',
+          ),
         ),
       ),
     );
@@ -159,7 +182,7 @@ class _CreateServiceOrderScreenState
     required bool desktop,
     required CreateServiceOrderState state,
     required CreateServiceOrderController controller,
-    required bool isTechnician,
+    required bool canManageOperationalFields,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -300,7 +323,7 @@ class _CreateServiceOrderScreenState
                     .toList(growable: false),
                 onChanged: (value) => controller.setServiceType(value),
               ),
-              if (isTechnician) ...[
+              if (canManageOperationalFields) ...[
                 const SizedBox(height: 12),
                 _SelectionTile(
                   label: 'Técnico',
@@ -314,17 +337,19 @@ class _CreateServiceOrderScreenState
           ),
         ),
         const SizedBox(height: 16),
-        _SectionCard(
-          title: 'Referencia',
-          subtitle:
-              'Lo que agregues desde el botón flotante aparecerá aquí antes de guardar la orden.',
-          child: _EvidenceChatList(
-            references: state.references,
-            onRemove: controller.removeReference,
-            compact: true,
+        if (!state.isEditMode) ...[
+          _SectionCard(
+            title: 'Referencia',
+            subtitle:
+                'Lo que agregues desde el botón flotante aparecerá aquí antes de guardar la orden.',
+            child: _EvidenceChatList(
+              references: state.references,
+              onRemove: controller.removeReference,
+              compact: true,
+            ),
           ),
-        ),
-        if (isTechnician) ...[
+        ],
+        if (canManageOperationalFields) ...[
           const SizedBox(height: 16),
           _SectionCard(
             title: 'Notas',

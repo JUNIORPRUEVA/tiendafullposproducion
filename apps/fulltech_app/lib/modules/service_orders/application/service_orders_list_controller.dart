@@ -94,4 +94,36 @@ class ServiceOrdersListController extends StateNotifier<ServiceOrdersListState> 
   }
 
   Future<void> refresh() => load(refresh: true);
+
+  Future<void> deleteOrder(String id) async {
+    await ref.read(serviceOrdersApiProvider).deleteOrder(id);
+    final items = state.items
+        .where((item) => item.id != id)
+        .toList(growable: false);
+    state = state.copyWith(items: items);
+  }
+
+  void upsertOrder(ServiceOrderModel order) {
+    final items = [...state.items];
+    final index = items.indexWhere((item) => item.id == order.id);
+    if (index >= 0) {
+      items[index] = order;
+    } else {
+      items.add(order);
+    }
+    items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    state = state.copyWith(items: items);
+  }
+
+  void replaceOrderStatus({
+    required String orderId,
+    required ServiceOrderStatus status,
+  }) {
+    final items = state.items
+        .map(
+          (item) => item.id == orderId ? item.copyWith(status: status) : item,
+        )
+        .toList(growable: false);
+    state = state.copyWith(items: items);
+  }
 }

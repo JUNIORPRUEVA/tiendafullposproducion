@@ -4,6 +4,7 @@ class ClientModel {
   final String telefono;
   final String? email;
   final String? direccion;
+  final String? locationUrl;
   final String? notas;
 
   const ClientModel({
@@ -12,6 +13,7 @@ class ClientModel {
     required this.telefono,
     this.email,
     this.direccion,
+    this.locationUrl,
     this.notas,
   });
 
@@ -22,6 +24,7 @@ class ClientModel {
       telefono: json['telefono'] ?? '',
       email: json['email'] as String?,
       direccion: json['direccion'] as String? ?? json['address'] as String?,
+      locationUrl: json['locationUrl'] as String? ?? json['location_url'] as String?,
       notas: json['notas'] as String? ?? json['notes'] as String?,
     );
   }

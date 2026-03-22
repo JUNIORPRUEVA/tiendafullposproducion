@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:validators/validators.dart' as validators;
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/utils/safe_url_launcher.dart';
 import 'application/clientes_controller.dart';
+import 'client_location_utils.dart';
 import 'cliente_model.dart';
 
 class ClienteFormScreen extends ConsumerStatefulWidget {
@@ -24,6 +29,7 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
   final _nombreCtrl = TextEditingController();
   final _telefonoCtrl = TextEditingController();
   final _direccionCtrl = TextEditingController();
+  final _locationUrlCtrl = TextEditingController();
   final _correoCtrl = TextEditingController();
 
   bool _loadingInitial = false;
@@ -42,6 +48,7 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
     _nombreCtrl.dispose();
     _telefonoCtrl.dispose();
     _direccionCtrl.dispose();
+    _locationUrlCtrl.dispose();
     _correoCtrl.dispose();
     super.dispose();
   }
@@ -57,6 +64,7 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
       _nombreCtrl.text = cliente.nombre;
       _telefonoCtrl.text = cliente.telefono;
       _direccionCtrl.text = cliente.direccion ?? '';
+      _locationUrlCtrl.text = cliente.locationUrl ?? '';
       _correoCtrl.text = cliente.correo ?? '';
     } catch (_) {
       if (!mounted) return;
@@ -74,13 +82,14 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     try {
-      await ref
+      final saved = await ref
           .read(clientesControllerProvider.notifier)
           .saveCliente(
             id: _cliente?.id,
             nombre: _nombreCtrl.text,
             telefono: _telefonoCtrl.text,
             direccion: _direccionCtrl.text,
+            locationUrl: _locationUrlCtrl.text,
             correo: _correoCtrl.text,
           );
       if (!mounted) return;
@@ -89,7 +98,7 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
           content: Text(_isEdit ? 'Cliente actualizado' : 'Cliente creado'),
         ),
       );
-      Navigator.pop(context, true);
+      context.go(Routes.clienteDetail(saved.id));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -102,6 +111,8 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(clientesControllerProvider);
     final user = ref.watch(authStateProvider).user;
+    final locationPreview = parseClientLocationPreview(_locationUrlCtrl.text);
+    final locationUri = Uri.tryParse(_locationUrlCtrl.text.trim());
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: user),
@@ -173,6 +184,48 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
+                        controller: _locationUrlCtrl,
+                        keyboardType: TextInputType.url,
+                        decoration: InputDecoration(
+                          labelText: 'Link de ubicación',
+                          hintText: 'https://maps.google.com/...',
+                          suffixIcon: IconButton(
+                            tooltip: 'Abrir link',
+                            onPressed: (_locationUrlCtrl.text).trim().isEmpty
+                                ? null
+                                : () async {
+                                    final uri = locationUri;
+                                    if (uri == null) return;
+                                    await safeOpenUrl(context, uri);
+                                  },
+                            icon: const Icon(Icons.open_in_new_rounded),
+                          ),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                        validator: (value) {
+                          final text = (value ?? '').trim();
+                          if (text.isEmpty) return null;
+                          final uri = Uri.tryParse(text);
+                          final looksValid =
+                              uri != null &&
+                              uri.hasScheme &&
+                              (uri.host.isNotEmpty || uri.scheme == 'geo');
+                          if (!looksValid) {
+                            return 'Ingresa un link de ubicación válido';
+                          }
+                          return null;
+                        },
+                      ),
+                      if ((_locationUrlCtrl.text).trim().isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        _LocationPreviewCard(
+                          locationUrl: _locationUrlCtrl.text.trim(),
+                          latitude: locationPreview.latitude,
+                          longitude: locationPreview.longitude,
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      TextFormField(
                         controller: _correoCtrl,
                         keyboardType: TextInputType.emailAddress,
                         decoration: const InputDecoration(
@@ -222,6 +275,102 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
                 ),
               ),
             ),
+    );
+  }
+}
+
+class _LocationPreviewCard extends StatelessWidget {
+  const _LocationPreviewCard({
+    required this.locationUrl,
+    this.latitude,
+    this.longitude,
+  });
+
+  final String locationUrl;
+  final double? latitude;
+  final double? longitude;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final uri = Uri.tryParse(locationUrl);
+    final hasCoords =
+        latitude != null &&
+        longitude != null &&
+        latitude!.isFinite &&
+        longitude!.isFinite;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Vista previa de ubicación',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (hasCoords) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox(
+                  height: 180,
+                  child: FlutterMap(
+                    options: MapOptions(
+                      initialCenter: LatLng(latitude!, longitude!),
+                      initialZoom: 15,
+                      interactionOptions: const InteractionOptions(
+                        flags: InteractiveFlag.none,
+                      ),
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate:
+                            'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        userAgentPackageName: 'com.fulltech.app',
+                      ),
+                      MarkerLayer(
+                        markers: [
+                          Marker(
+                            point: LatLng(latitude!, longitude!),
+                            width: 40,
+                            height: 40,
+                            child: Icon(
+                              Icons.location_pin,
+                              color: theme.colorScheme.error,
+                              size: 40,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${latitude!.toStringAsFixed(6)}, ${longitude!.toStringAsFixed(6)}',
+                style: theme.textTheme.bodySmall,
+              ),
+            ] else
+              Text(
+                'El enlace se guardará, pero no se pudieron extraer coordenadas para mostrar el mapa aquí.',
+                style: theme.textTheme.bodyMedium,
+              ),
+            if (uri != null) ...[
+              const SizedBox(height: 8),
+              FilledButton.tonalIcon(
+                onPressed: () => safeOpenUrl(context, uri),
+                icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                label: const Text('Abrir enlace'),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

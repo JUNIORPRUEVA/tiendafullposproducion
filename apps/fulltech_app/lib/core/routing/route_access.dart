@@ -73,7 +73,7 @@ class RouteAccess {
 
   static String defaultHomeForRole(AppRole role) {
     if (hasPermission(role, AppPermission.viewOperations)) {
-      return Routes.serviceOrderCreate;
+      return Routes.serviceOrders;
     }
     if (hasPermission(role, AppPermission.viewClients)) {
       return Routes.clientes;

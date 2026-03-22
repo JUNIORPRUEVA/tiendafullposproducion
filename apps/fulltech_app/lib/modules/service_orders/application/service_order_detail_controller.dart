@@ -5,6 +5,7 @@ import '../../../core/models/user_model.dart';
 import '../../clientes/cliente_model.dart';
 import '../../clientes/data/clientes_repository.dart';
 import '../data/service_orders_api.dart';
+import 'service_orders_list_controller.dart';
 import '../data/upload_repository.dart';
 import '../service_order_models.dart';
 import '../../../features/user/data/users_repository.dart';
@@ -100,15 +101,33 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
   Future<void> refresh() => load();
 
   Future<void> updateStatus(ServiceOrderStatus status) async {
+    final currentOrder = state.order;
+    if (currentOrder == null) return;
+
     state = state.copyWith(working: true, clearActionError: true);
+    final previousOrder = currentOrder;
+    final optimisticOrder = currentOrder.copyWith(status: status);
+    state = state.copyWith(order: optimisticOrder);
+    ref
+        .read(serviceOrdersListControllerProvider.notifier)
+        .replaceOrderStatus(orderId: orderId, status: status);
+
     try {
-      await ref.read(serviceOrdersApiProvider).updateStatus(orderId, status);
-      await load();
+      final updated = await ref.read(serviceOrdersApiProvider).updateStatus(orderId, status);
+      state = state.copyWith(working: false, order: updated);
+      ref.read(serviceOrdersListControllerProvider.notifier).upsertOrder(updated);
     } catch (error) {
       final message = error is ApiException
           ? error.message
           : 'No se pudo actualizar el estado';
-      state = state.copyWith(working: false, actionError: message);
+      state = state.copyWith(
+        working: false,
+        order: previousOrder,
+        actionError: message,
+      );
+      ref
+          .read(serviceOrdersListControllerProvider.notifier)
+          .upsertOrder(previousOrder);
       rethrow;
     }
   }

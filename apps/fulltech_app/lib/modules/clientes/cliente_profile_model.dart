@@ -5,6 +5,9 @@ class ClienteProfileClient {
   final String phoneNormalized;
   final String? email;
   final String? direccion;
+  final String? locationUrl;
+  final double? latitude;
+  final double? longitude;
   final String? notas;
   final String? ownerId;
   final DateTime? lastActivityAt;
@@ -19,6 +22,9 @@ class ClienteProfileClient {
     required this.phoneNormalized,
     this.email,
     this.direccion,
+    this.locationUrl,
+    this.latitude,
+    this.longitude,
     this.notas,
     this.ownerId,
     this.lastActivityAt,
@@ -28,6 +34,12 @@ class ClienteProfileClient {
   });
 
   factory ClienteProfileClient.fromJson(Map<String, dynamic> json) {
+    double? parseDouble(dynamic v) {
+      if (v == null) return null;
+      final n = double.tryParse(v.toString());
+      return (n != null && n.isFinite) ? n : null;
+    }
+
     return ClienteProfileClient(
       id: (json['id'] ?? '').toString(),
       nombre: (json['nombre'] ?? '').toString(),
@@ -39,6 +51,15 @@ class ClienteProfileClient {
       direccion: (json['direccion'] as String?)?.trim().isEmpty == true
           ? null
           : json['direccion'] as String?,
+      locationUrl:
+          ((json['locationUrl'] ?? json['location_url']) as String?)
+                  ?.trim()
+                  .isEmpty ==
+              true
+          ? null
+          : (json['locationUrl'] ?? json['location_url']) as String?,
+      latitude: parseDouble(json['latitude']),
+      longitude: parseDouble(json['longitude']),
       notas: (json['notas'] as String?)?.trim().isEmpty == true
           ? null
           : json['notas'] as String?,
