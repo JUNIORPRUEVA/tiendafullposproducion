@@ -26,7 +26,6 @@ import '../../modules/cotizaciones/cotizaciones_screen.dart';
 import '../../modules/ventas/mis_ventas_screen.dart';
 import '../../modules/ventas/registrar_venta_screen.dart';
 import '../../modules/horarios/horarios_screen.dart';
-import '../ai_assistant/application/ai_assistant_controller.dart';
 import '../auth/auth_provider.dart';
 import '../auth/app_permissions.dart';
 import '../auth/app_role.dart';
@@ -47,15 +46,6 @@ final _routerRefreshProvider = Provider<_RouterRefreshNotifier>((ref) {
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ref.watch(_routerRefreshProvider);
   final routeObserver = ref.watch(appRouteObserverProvider);
-
-  Widget hideGlobalAiAssistant(Widget child) {
-    return ProviderScope(
-      overrides: [
-        hideGlobalAiAssistantEntryPointProvider.overrideWithValue(true),
-      ],
-      child: child,
-    );
-  }
 
   return GoRouter(
     initialLocation: Routes.splash,

@@ -150,7 +150,9 @@ void _initializeDesktopSqlite() {
 }
 
 class MyApp extends ConsumerStatefulWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, this.enableBackgroundStartup = true});
+
+  final bool enableBackgroundStartup;
 
   @override
   ConsumerState<MyApp> createState() => _MyAppState();
@@ -162,6 +164,7 @@ class _MyAppState extends ConsumerState<MyApp> {
   @override
   void initState() {
     super.initState();
+    if (!widget.enableBackgroundStartup) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       setState(() => _backgroundStartupStarted = true);
@@ -178,14 +181,16 @@ class _MyAppState extends ConsumerState<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    if (_backgroundStartupStarted) {
+    if (widget.enableBackgroundStartup && _backgroundStartupStarted) {
       ref.watch(syncQueueBootstrapProvider);
     }
     final router = ref.watch(routerProvider);
     ref.watch(authStateProvider);
 
     ref.listen<AuthState>(authStateProvider, (previous, next) {
-      if (!_backgroundStartupStarted) return;
+      if (!widget.enableBackgroundStartup || !_backgroundStartupStarted) {
+        return;
+      }
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         if (next.isAuthenticated) {
@@ -217,7 +222,8 @@ class _MyAppState extends ConsumerState<MyApp> {
         return Stack(
           children: [
             FulltechGlobalBackground(
-              enableBlurEffects: _backgroundStartupStarted,
+              enableBlurEffects:
+                  widget.enableBackgroundStartup && _backgroundStartupStarted,
             ),
             if (effectiveChild != null)
               GlobalAiAssistantEntryPoint(child: effectiveChild),

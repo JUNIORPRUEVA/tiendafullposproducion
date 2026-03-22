@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../auth/auth_provider.dart';
 import '../../../routing/app_router.dart';
-import '../../../routing/routes.dart';
 import '../../../widgets/app_navigation.dart';
 import '../../application/ai_assistant_controller.dart';
 import '../../domain/models/ai_chat_context.dart';

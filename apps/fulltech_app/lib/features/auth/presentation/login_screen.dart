@@ -5,8 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:validators/validators.dart' as validators;
 
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/auth/app_role.dart';
 import '../../../core/errors/api_exception.dart';
-import '../../../core/routing/routes.dart';
+import '../../../core/routing/route_access.dart';
 import '../../../core/widgets/error_banner.dart';
 import '../../../core/widgets/primary_button.dart';
 
@@ -88,7 +89,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           .login(_emailCtrl.text, _passwordCtrl.text);
       await _persistRememberedCredentials();
       if (mounted) {
-        context.go(RouteAccess.defaultHomeForRole(ref.read(authStateProvider).user?.appRole ?? AppRole.unknown));
+        context.go(
+          RouteAccess.defaultHomeForRole(
+            ref.read(authStateProvider).user?.appRole ?? AppRole.unknown,
+          ),
+        );
       }
     } on ApiException catch (e) {
       if (mounted) {

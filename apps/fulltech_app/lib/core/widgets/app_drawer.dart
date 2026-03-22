@@ -10,7 +10,7 @@ import 'app_navigation.dart';
 class AppDrawer extends ConsumerWidget {
   final UserModel? currentUser;
 
-  const AppDrawer({super.key, required this.currentUser});
+  const AppDrawer({super.key, this.currentUser});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

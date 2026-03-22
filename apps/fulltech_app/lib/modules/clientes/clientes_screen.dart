@@ -60,7 +60,10 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
       ),
       body: Column(
         children: [
-          const SyncStatusBanner(),
+          SyncStatusBanner(
+            visible: state.refreshing,
+            label: 'Sincronizando clientes...',
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: TextField(
