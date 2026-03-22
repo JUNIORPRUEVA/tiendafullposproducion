@@ -84,15 +84,13 @@ class _CreateServiceOrderScreenState
           const SizedBox(width: 8),
         ],
       ),
-      floatingActionButton: isDesktop
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: state.submitting || state.uploadingEvidence
-                  ? null
-                  : () => _showReferenceActions(context, controller),
-              icon: const Icon(Icons.add_photo_alternate_outlined),
-              label: const Text('Referencia'),
-            ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: state.submitting || state.uploadingEvidence
+            ? null
+            : () => _showReferenceActions(context, controller),
+        icon: const Icon(Icons.add_photo_alternate_outlined),
+        label: const Text('Referencia'),
+      ),
       body: SafeArea(
         child: state.loading && !state.initialized
             ? const Center(child: CircularProgressIndicator())
@@ -106,40 +104,9 @@ class _CreateServiceOrderScreenState
                     controller: controller,
                     isTechnician: isTechnician,
                   );
-                  final evidencePanel = _EvidencePreviewPanel(
-                    references: state.references,
-                    uploadLabel: state.uploadLabel,
-                    uploadProgress: state.uploadProgress,
-                    uploading: state.uploadingEvidence,
-                    onRemove: controller.removeReference,
-                    onAddNote: () => _addNoteReference(context, controller),
-                    onAddImage: () => _addImageReference(context, controller),
-                    onAddVideo: () => _addVideoReference(context, controller),
-                    onRecordVideo: _supportsVideoRecording
-                        ? () => _recordVideoReference(context, controller)
-                        : null,
-                  );
-
-                  if (!desktop) {
-                    return ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-                      children: [form, const SizedBox(height: 16), evidencePanel],
-                    );
-                  }
-
-                  return Padding(
+                  return ListView(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(flex: 7, child: SingleChildScrollView(child: form)),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          flex: 5,
-                          child: SingleChildScrollView(child: evidencePanel),
-                        ),
-                      ],
-                    ),
+                    children: [form],
                   );
                 },
               ),
@@ -346,26 +313,17 @@ class _CreateServiceOrderScreenState
             ],
           ),
         ),
-        if (!desktop) ...[
-          const SizedBox(height: 16),
-          _SectionCard(
-            title: 'Referencia',
-            subtitle:
-                'Agrega texto, imágenes o videos de referencia antes de guardar la orden.',
-            trailing: OutlinedButton.icon(
-              onPressed: state.uploadingEvidence
-                  ? null
-                  : () => _showReferenceActions(context, controller),
-              icon: const Icon(Icons.add_circle_outline),
-              label: const Text('Agregar'),
-            ),
-            child: _EvidenceChatList(
-              references: state.references,
-              onRemove: controller.removeReference,
-              compact: true,
-            ),
+        const SizedBox(height: 16),
+        _SectionCard(
+          title: 'Referencia',
+          subtitle:
+              'Lo que agregues desde el botón flotante aparecerá aquí antes de guardar la orden.',
+          child: _EvidenceChatList(
+            references: state.references,
+            onRemove: controller.removeReference,
+            compact: true,
           ),
-        ],
+        ),
         if (isTechnician) ...[
           const SizedBox(height: 16),
           _SectionCard(
@@ -827,13 +785,11 @@ class _SectionCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.child,
-    this.trailing,
   });
 
   final String title;
   final String subtitle;
   final Widget child;
-  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -857,7 +813,6 @@ class _SectionCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (trailing != null) trailing!,
               ],
             ),
             const SizedBox(height: 16),
@@ -1084,84 +1039,6 @@ class _SummaryChip extends StatelessWidget {
           Text(label, style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 4),
           Text(value, style: Theme.of(context).textTheme.titleSmall),
-        ],
-      ),
-    );
-  }
-}
-
-class _EvidencePreviewPanel extends StatelessWidget {
-  const _EvidencePreviewPanel({
-    required this.references,
-    required this.uploading,
-    required this.uploadProgress,
-    this.uploadLabel,
-    this.onRemove,
-    this.onAddNote,
-    this.onAddImage,
-    this.onAddVideo,
-    this.onRecordVideo,
-  });
-
-  final List<ServiceOrderDraftReference> references;
-  final bool uploading;
-  final double uploadProgress;
-  final String? uploadLabel;
-  final ValueChanged<String>? onRemove;
-  final VoidCallback? onAddNote;
-  final VoidCallback? onAddImage;
-  final VoidCallback? onAddVideo;
-  final VoidCallback? onRecordVideo;
-
-  @override
-  Widget build(BuildContext context) {
-    return _SectionCard(
-      title: 'Referencia',
-      subtitle:
-          'Se guardan en storage primero y luego se vinculan a la orden creada.',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: uploading ? null : onAddNote,
-                icon: const Icon(Icons.notes_outlined),
-                label: const Text('Agregar nota'),
-              ),
-              OutlinedButton.icon(
-                onPressed: uploading ? null : onAddImage,
-                icon: const Icon(Icons.image_outlined),
-                label: const Text('Subir imagen'),
-              ),
-              OutlinedButton.icon(
-                onPressed: uploading ? null : onAddVideo,
-                icon: const Icon(Icons.videocam_outlined),
-                label: const Text('Subir video'),
-              ),
-              if (onRecordVideo != null)
-                OutlinedButton.icon(
-                  onPressed: uploading ? null : onRecordVideo,
-                  icon: const Icon(Icons.fiber_manual_record_outlined),
-                  label: const Text('Grabar video'),
-                ),
-            ],
-          ),
-          if (uploading) ...[
-            const SizedBox(height: 14),
-            _UploadProgressCard(
-              label: uploadLabel ?? 'Subiendo archivo',
-              progress: uploadProgress,
-            ),
-          ],
-          const SizedBox(height: 16),
-          _EvidenceChatList(
-            references: references,
-            onRemove: onRemove,
-            compact: false,
-          ),
         ],
       ),
     );

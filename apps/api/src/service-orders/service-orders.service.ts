@@ -166,7 +166,6 @@ export class ServiceOrdersService {
     const quotationId = this.requireAliasValue(dto.quotationId, dto.quotation_id, 'quotation_id');
     const category = this.requireDirectValue(dto.category, 'category') as ApiServiceOrderCategory;
     const serviceType = this.requireAliasValue(dto.serviceType, dto.service_type, 'service_type') as ApiServiceOrderType;
-    const status = this.requireDirectValue(dto.status, 'status') as ApiServiceOrderStatus;
     const technicalNote = this.cleanOptionalText(dto.technicalNote, dto.technical_note);
     const extraRequirements = this.cleanOptionalText(dto.extraRequirements, dto.extra_requirements);
     const assignedToId = await this.resolveAssignedToId(dto.assignedToId, dto.assigned_to);
@@ -179,7 +178,7 @@ export class ServiceOrdersService {
       quotationId,
       category: SERVICE_ORDER_CATEGORY_TO_DB[category],
       serviceType: SERVICE_ORDER_TYPE_TO_DB[serviceType],
-      status: SERVICE_ORDER_STATUS_TO_DB[status],
+      status: SERVICE_ORDER_STATUS_TO_DB.pendiente,
       technicalNote,
       extraRequirements,
       createdById: user.id,
