@@ -55,6 +55,36 @@ List<AppNavigationSection> buildAppNavigationSections(
     AppNavigationSection(
       title: 'Principal',
       items: [
+        if (can(AppPermission.viewOperations))
+          const AppNavigationItem(
+            icon: Icons.assignment_outlined,
+            title: 'Órdenes',
+            route: Routes.serviceOrderCreate,
+          ),
+        if (can(AppPermission.viewClients))
+          const AppNavigationItem(
+            icon: Icons.group_outlined,
+            title: 'Clientes',
+            route: Routes.clientes,
+          ),
+        if (can(AppPermission.viewQuotes))
+          const AppNavigationItem(
+            icon: Icons.request_quote_outlined,
+            title: 'Cotizaciones',
+            route: Routes.cotizaciones,
+          ),
+        if (can(AppPermission.manageUsers))
+          const AppNavigationItem(
+            icon: Icons.engineering_outlined,
+            title: 'Técnicos',
+            route: Routes.users,
+          ),
+        if (can(AppPermission.manageSettings))
+          const AppNavigationItem(
+            icon: Icons.settings_outlined,
+            title: 'Configuración',
+            route: Routes.configuracion,
+          ),
         if (can(AppPermission.viewPunch))
           const AppNavigationItem(
             icon: Icons.access_time_rounded,
@@ -78,24 +108,6 @@ List<AppNavigationSection> buildAppNavigationSections(
             icon: Icons.point_of_sale_outlined,
             title: 'Mis Ventas',
             route: Routes.ventas,
-          ),
-        if (can(AppPermission.viewQuotes))
-          const AppNavigationItem(
-            icon: Icons.request_quote_outlined,
-            title: 'Cotizaciones',
-            route: Routes.cotizaciones,
-          ),
-        if (can(AppPermission.viewClients))
-          const AppNavigationItem(
-            icon: Icons.group_outlined,
-            title: 'Clientes',
-            route: Routes.clientes,
-          ),
-        if (can(AppPermission.viewOperations))
-          const AppNavigationItem(
-            icon: Icons.assignment_outlined,
-            title: 'Órdenes',
-            route: Routes.serviceOrders,
           ),
         if (can(AppPermission.viewAccounting))
           const AppNavigationItem(
@@ -142,18 +154,6 @@ List<AppNavigationSection> buildAppNavigationSections(
             route: Routes.manualInterno,
             showIndicator: showManualIndicator,
           ),
-        if (can(AppPermission.manageSettings))
-          const AppNavigationItem(
-            icon: Icons.settings_outlined,
-            title: 'Configuración',
-            route: Routes.configuracion,
-          ),
-        if (can(AppPermission.manageUsers))
-          const AppNavigationItem(
-            icon: Icons.people_outline,
-            title: 'Usuarios',
-            route: Routes.users,
-          ),
       ],
     ),
   ];
@@ -177,6 +177,11 @@ String safeCurrentLocation(BuildContext context) {
 }
 
 bool isNavigationRouteActive(String location, String route) {
+  if (route == Routes.serviceOrderCreate) {
+    return location == Routes.serviceOrderCreate ||
+        location == Routes.serviceOrders ||
+        location.startsWith('${Routes.serviceOrders}/');
+  }
   return location == route || location.startsWith('$route/');
 }
 
@@ -195,7 +200,7 @@ String resolveNavigationTitle(
   final path = Uri.tryParse(location)?.path ?? location;
   if (path == Routes.registrarVenta) return 'Nueva venta';
   if (path == Routes.serviceOrders) return 'Órdenes de servicio';
-  if (path == Routes.serviceOrderCreate) return 'Nueva orden';
+  if (path == Routes.serviceOrderCreate) return 'Crear orden';
   if (path == Routes.cotizacionesHistorial) return 'Historial de cotizaciones';
   if (path == Routes.clienteNuevo) return 'Nuevo cliente';
   if (path == Routes.profile) return 'Perfil';

@@ -1,10 +1,13 @@
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/auth/app_role.dart';
+import '../../core/auth/auth_provider.dart';
 import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
@@ -22,6 +25,8 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
     final state = ref.watch(provider);
     final controller = ref.read(provider.notifier);
     final order = state.order;
+    final currentUser = ref.watch(authStateProvider).user;
+    final isTechnician = currentUser?.appRole.isTechnician ?? false;
 
     return Scaffold(
       appBar: AppBar(
@@ -123,66 +128,70 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    _DetailSection(
-                      title: 'Información técnica',
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _ReadOnlyField(
-                            label: 'Nota técnica',
-                            value: order.technicalNote,
-                          ),
-                          const SizedBox(height: 12),
-                          _ReadOnlyField(
-                            label: 'Requisitos extra',
-                            value: order.extraRequirements,
-                          ),
-                          const SizedBox(height: 12),
-                          _ReadOnlyField(
-                            label: 'Técnico asignado',
-                            value: order.assignedToId == null
-                                ? null
-                                : state.usersById[order.assignedToId!]
-                                        ?.nombreCompleto ??
-                                    order.assignedToId,
-                          ),
-                        ],
+                    if (isTechnician) ...[
+                      _DetailSection(
+                        title: 'Información técnica',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _ReadOnlyField(
+                              label: 'Nota técnica',
+                              value: order.technicalNote,
+                            ),
+                            const SizedBox(height: 12),
+                            _ReadOnlyField(
+                              label: 'Requisitos extra',
+                              value: order.extraRequirements,
+                            ),
+                            const SizedBox(height: 12),
+                            _ReadOnlyField(
+                              label: 'Técnico asignado',
+                              value: order.assignedToId == null
+                                  ? null
+                                  : state.usersById[order.assignedToId!]
+                                          ?.nombreCompleto ??
+                                      order.assignedToId,
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
+                      const SizedBox(height: 16),
+                    ],
                     _DetailSection(
                       title: 'Evidencias',
-                      trailing: MenuAnchor(
-                        menuChildren: [
-                          MenuItemButton(
-                            onPressed: () => _addTextEvidence(context, ref, provider),
-                            child: const Text('Agregar texto'),
-                          ),
-                          MenuItemButton(
-                            onPressed: () => _addImageEvidence(context, ref, provider),
-                            child: const Text('Subir imagen'),
-                          ),
-                          MenuItemButton(
-                            onPressed: () => _addVideoEvidence(context, ref, provider),
-                            child: const Text('Agregar URL de video'),
-                          ),
-                        ],
-                        builder: (context, menuController, child) {
-                          return OutlinedButton.icon(
-                            onPressed: state.working
-                                ? null
-                                : () {
-                                    if (menuController.isOpen) {
-                                      menuController.close();
-                                    } else {
-                                      menuController.open();
-                                    }
-                                  },
-                            icon: const Icon(Icons.add_photo_alternate_outlined),
-                            label: const Text('Nueva evidencia'),
-                          );
-                        },
-                      ),
+                      trailing: !isTechnician
+                          ? null
+                          : MenuAnchor(
+                              menuChildren: [
+                                MenuItemButton(
+                                  onPressed: () => _addTextEvidence(context, ref, provider),
+                                  child: const Text('Agregar texto'),
+                                ),
+                                MenuItemButton(
+                                  onPressed: () => _addImageEvidence(context, ref, provider),
+                                  child: const Text('Subir imagen'),
+                                ),
+                                MenuItemButton(
+                                  onPressed: () => _addVideoEvidence(context, ref, provider),
+                                  child: const Text('Subir video'),
+                                ),
+                              ],
+                              builder: (context, menuController, child) {
+                                return OutlinedButton.icon(
+                                  onPressed: state.working
+                                      ? null
+                                      : () {
+                                          if (menuController.isOpen) {
+                                            menuController.close();
+                                          } else {
+                                            menuController.open();
+                                          }
+                                        },
+                                  icon: const Icon(Icons.add_photo_alternate_outlined),
+                                  label: const Text('Nueva evidencia'),
+                                );
+                              },
+                            ),
                       child: order.evidences.isEmpty
                           ? const Text('Sin evidencias registradas')
                           : Column(
@@ -294,6 +303,7 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
       await ref.read(provider.notifier).addImageEvidence(
             bytes: file.bytes!,
             fileName: file.name,
+        path: file.path,
           );
       if (!context.mounted) return;
       await AppFeedback.showInfo(context, 'Imagen cargada como evidencia');
@@ -314,14 +324,19 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
       ServiceOrderDetailState
     > provider,
   ) async {
-    final value = await _promptSingleInput(
-      context,
-      title: 'URL del video',
-      label: 'Pega el enlace del video',
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['mp4', 'mov', 'webm', 'mkv'],
+      withData: kIsWeb,
     );
-    if ((value ?? '').trim().isEmpty) return;
+    final file = result?.files.single;
+    if (file == null) return;
     try {
-      await ref.read(provider.notifier).addVideoEvidenceUrl(value!.trim());
+      await ref.read(provider.notifier).addVideoEvidence(
+            fileName: file.name,
+            bytes: file.bytes,
+            path: file.path,
+          );
       if (!context.mounted) return;
       await AppFeedback.showInfo(context, 'Video agregado');
     } catch (_) {
@@ -358,36 +373,6 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
         ref.read(provider).actionError ?? 'No se pudo guardar el reporte',
       );
     }
-  }
-
-  Future<String?> _promptSingleInput(
-    BuildContext context, {
-    required String title,
-    required String label,
-  }) {
-    final textController = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: Text(title),
-          content: TextField(
-            controller: textController,
-            decoration: InputDecoration(labelText: label),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, textController.text),
-              child: const Text('Guardar'),
-            ),
-          ],
-        );
-      },
-    );
   }
 
   Future<String?> _promptMultilineInput(

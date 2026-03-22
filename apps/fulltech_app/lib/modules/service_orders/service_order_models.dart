@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 enum ServiceOrderCategory {
@@ -480,6 +482,93 @@ class CreateServiceOrderEvidenceRequest {
 
   Map<String, dynamic> toJson() {
     return {'type': type.apiValue, 'content': content.trim()};
+  }
+}
+
+class ServiceOrderDraftEvidence {
+  final String id;
+  final ServiceEvidenceType type;
+  final String content;
+  final String? uploadedUrl;
+  final Uint8List? previewBytes;
+  final String? localPath;
+  final String? fileName;
+  final int? sizeBytes;
+  final DateTime createdAt;
+
+  const ServiceOrderDraftEvidence({
+    required this.id,
+    required this.type,
+    required this.content,
+    required this.createdAt,
+    this.uploadedUrl,
+    this.previewBytes,
+    this.localPath,
+    this.fileName,
+    this.sizeBytes,
+  });
+
+  factory ServiceOrderDraftEvidence.text({
+    required String id,
+    required String content,
+  }) {
+    return ServiceOrderDraftEvidence(
+      id: id,
+      type: ServiceEvidenceType.texto,
+      content: content,
+      createdAt: DateTime.now(),
+    );
+  }
+
+  factory ServiceOrderDraftEvidence.video({
+    required String id,
+    required String uploadedUrl,
+    String? localPath,
+    String? fileName,
+    int? sizeBytes,
+  }) {
+    return ServiceOrderDraftEvidence(
+      id: id,
+      type: ServiceEvidenceType.video,
+      content: uploadedUrl,
+      uploadedUrl: uploadedUrl,
+      localPath: localPath,
+      fileName: fileName,
+      sizeBytes: sizeBytes,
+      createdAt: DateTime.now(),
+    );
+  }
+
+  factory ServiceOrderDraftEvidence.image({
+    required String id,
+    required String uploadedUrl,
+    required String fileName,
+    Uint8List? previewBytes,
+    String? localPath,
+    int? sizeBytes,
+  }) {
+    return ServiceOrderDraftEvidence(
+      id: id,
+      type: ServiceEvidenceType.imagen,
+      content: uploadedUrl,
+      uploadedUrl: uploadedUrl,
+      previewBytes: previewBytes,
+      localPath: localPath,
+      fileName: fileName,
+      sizeBytes: sizeBytes,
+      createdAt: DateTime.now(),
+    );
+  }
+
+  bool get isImage => type == ServiceEvidenceType.imagen;
+  bool get isVideo => type == ServiceEvidenceType.video;
+  bool get isText => type == ServiceEvidenceType.texto;
+  bool get hasRemoteContent => (uploadedUrl ?? '').trim().isNotEmpty;
+  String get evidenceContent => isText ? content : ((uploadedUrl ?? content).trim());
+  String get previewSource {
+    final path = (localPath ?? '').trim();
+    if (path.isNotEmpty) return path;
+    return (uploadedUrl ?? content).trim();
   }
 }
 

@@ -2,11 +2,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/errors/api_exception.dart';
 import '../../../core/models/user_model.dart';
-import '../../../features/user/data/users_repository.dart';
 import '../../clientes/cliente_model.dart';
 import '../../clientes/data/clientes_repository.dart';
 import '../data/service_orders_api.dart';
+import '../data/upload_repository.dart';
 import '../service_order_models.dart';
+import '../../../features/user/data/users_repository.dart';
 
 class ServiceOrderDetailState {
   final bool loading;
@@ -124,19 +125,20 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
   Future<void> addImageEvidence({
     required List<int> bytes,
     required String fileName,
+    String? path,
   }) async {
     state = state.copyWith(working: true, clearActionError: true);
     try {
-      final url = await ref.read(usersRepositoryProvider).uploadUserDocument(
+      final uploaded = await ref.read(uploadRepositoryProvider).uploadImage(
             bytes: bytes,
+            path: path,
             fileName: fileName,
-            kind: 'service_order_evidence',
           );
       await ref.read(serviceOrdersApiProvider).addEvidence(
             orderId,
             CreateServiceOrderEvidenceRequest(
               type: ServiceEvidenceType.imagen,
-              content: url,
+              content: uploaded.url,
             ),
           );
       await load();
@@ -149,13 +151,33 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
     }
   }
 
-  Future<void> addVideoEvidenceUrl(String url) async {
-    await _addEvidence(
-      CreateServiceOrderEvidenceRequest(
-        type: ServiceEvidenceType.video,
-        content: url,
-      ),
-    );
+  Future<void> addVideoEvidence({
+    required String fileName,
+    List<int>? bytes,
+    String? path,
+  }) async {
+    state = state.copyWith(working: true, clearActionError: true);
+    try {
+      final uploaded = await ref.read(uploadRepositoryProvider).uploadVideo(
+            fileName: fileName,
+            bytes: bytes,
+            path: path,
+          );
+      await ref.read(serviceOrdersApiProvider).addEvidence(
+            orderId,
+            CreateServiceOrderEvidenceRequest(
+              type: ServiceEvidenceType.video,
+              content: uploaded.url,
+            ),
+          );
+      await load();
+    } catch (error) {
+      final message = error is ApiException
+          ? error.message
+          : 'No se pudo subir el video';
+      state = state.copyWith(working: false, actionError: message);
+      rethrow;
+    }
   }
 
   Future<void> addReport(String report) async {
