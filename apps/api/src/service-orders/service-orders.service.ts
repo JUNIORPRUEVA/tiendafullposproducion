@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, PrismaClientKnownRequestError, Role } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CloneServiceOrderDto } from './dto/clone-service-order.dto';
 import { CreateEvidenceDto } from './dto/create-evidence.dto';
@@ -35,6 +35,8 @@ type ServiceOrderWithRelations = Prisma.ServiceOrderGetPayload<{
     reports: { orderBy: { createdAt: 'asc' } };
   };
 }>;
+
+type ServiceOrderRecord = Prisma.ServiceOrderGetPayload<object>;
 
 @Injectable()
 export class ServiceOrdersService {
@@ -154,7 +156,10 @@ export class ServiceOrdersService {
     }
   }
 
-  private async buildCreatePayload(user: AuthUser, dto: CreateServiceOrderDto) {
+  private async buildCreatePayload(
+    user: AuthUser,
+    dto: CreateServiceOrderDto,
+  ): Promise<Prisma.ServiceOrderUncheckedCreateInput> {
     const clientId = this.requireAliasValue(dto.clientId, dto.client_id, 'client_id');
     const quotationId = this.requireAliasValue(dto.quotationId, dto.quotation_id, 'quotation_id');
     const category = this.requireDirectValue(dto.category, 'category') as ApiServiceOrderCategory;
@@ -212,18 +217,35 @@ export class ServiceOrdersService {
     }
   }
 
-  private async findOrderOrThrow(user: AuthUser, id: string) {
+  private async findOrderOrThrow(
+    user: AuthUser,
+    id: string,
+  ): Promise<ServiceOrderRecord> {
     const where = await this.buildAccessWhere(user);
     const item = await this.prisma.serviceOrder.findFirst({
       where: { id, ...where },
     });
 
-    if (item) return item;
+    if (!item) {
+      const exists = await this.prisma.serviceOrder.findUnique({
+        where: { id },
+        select: { id: true },
+      });
 
-    await this.throwOrderAccessError(id);
+      if (!exists) {
+        throw new NotFoundException('Orden de servicio no encontrada');
+      }
+
+      throw new ForbiddenException('No tienes acceso a esta orden de servicio');
+    }
+
+    return item;
   }
 
-  private async findOrderWithRelationsOrThrow(user: AuthUser, id: string) {
+  private async findOrderWithRelationsOrThrow(
+    user: AuthUser,
+    id: string,
+  ): Promise<ServiceOrderWithRelations> {
     const where = await this.buildAccessWhere(user);
     const item = await this.prisma.serviceOrder.findFirst({
       where: { id, ...where },
@@ -233,22 +255,20 @@ export class ServiceOrdersService {
       },
     });
 
-    if (item) return item;
+    if (!item) {
+      const exists = await this.prisma.serviceOrder.findUnique({
+        where: { id },
+        select: { id: true },
+      });
 
-    await this.throwOrderAccessError(id);
-  }
+      if (!exists) {
+        throw new NotFoundException('Orden de servicio no encontrada');
+      }
 
-  private async throwOrderAccessError(id: string): Promise<never> {
-    const exists = await this.prisma.serviceOrder.findUnique({
-      where: { id },
-      select: { id: true },
-    });
-
-    if (!exists) {
-      throw new NotFoundException('Orden de servicio no encontrada');
+      throw new ForbiddenException('No tienes acceso a esta orden de servicio');
     }
 
-    throw new ForbiddenException('No tienes acceso a esta orden de servicio');
+    return item;
   }
 
   private assertCanOperate(
@@ -348,11 +368,11 @@ export class ServiceOrdersService {
     return null;
   }
 
-  private toApiStatus(status: ServiceOrderWithRelations['status']) {
+  private toApiStatus(status: ServiceOrderRecord['status']) {
     return SERVICE_ORDER_STATUS_FROM_DB[status];
   }
 
-  private mapOrder(item: ServiceOrderWithRelations | Prisma.ServiceOrderGetPayload<object>) {
+  private mapOrder(item: ServiceOrderWithRelations | ServiceOrderRecord) {
     const base = {
       id: item.id,
       clientId: item.clientId,
@@ -403,7 +423,7 @@ export class ServiceOrdersService {
   }
 
   private rethrowWriteError(error: unknown): never {
-    if (error instanceof PrismaClientKnownRequestError) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2025') {
         throw new NotFoundException('El recurso solicitado no existe');
       }
@@ -411,6 +431,17 @@ export class ServiceOrdersService {
         throw new BadRequestException('La operación viola una relación requerida');
       }
     }
+
+    if (typeof error === 'object' && error !== null) {
+      const value = error as { code?: unknown };
+      if (value.code === 'P2025') {
+        throw new NotFoundException('El recurso solicitado no existe');
+      }
+      if (value.code === 'P2003') {
+        throw new BadRequestException('La operación viola una relación requerida');
+      }
+    }
+
     throw error;
   }
 }

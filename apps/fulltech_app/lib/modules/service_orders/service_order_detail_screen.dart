@@ -64,7 +64,7 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           DropdownButtonFormField<ServiceOrderStatus>(
-                            value: order.status,
+                            initialValue: order.status,
                             decoration: const InputDecoration(
                               labelText: 'Estado',
                               border: OutlineInputBorder(),
@@ -252,9 +252,10 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
   Future<void> _addTextEvidence(
     BuildContext context,
     WidgetRef ref,
-    AutoDisposeStateNotifierProviderFamily<ServiceOrderDetailController,
-            ServiceOrderDetailState, String>
-        provider,
+    AutoDisposeStateNotifierProvider<
+      ServiceOrderDetailController,
+      ServiceOrderDetailState
+    > provider,
   ) async {
     final value = await _promptMultilineInput(
       context,
@@ -263,14 +264,14 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
     );
     if ((value ?? '').trim().isEmpty) return;
     try {
-      await ref.read(provider(orderId).notifier).addTextEvidence(value!.trim());
+      await ref.read(provider.notifier).addTextEvidence(value!.trim());
       if (!context.mounted) return;
       await AppFeedback.showInfo(context, 'Evidencia agregada');
     } catch (_) {
       if (!context.mounted) return;
       await AppFeedback.showError(
         context,
-        ref.read(provider(orderId)).actionError ?? 'No se pudo guardar la evidencia',
+        ref.read(provider).actionError ?? 'No se pudo guardar la evidencia',
       );
     }
   }
@@ -278,9 +279,10 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
   Future<void> _addImageEvidence(
     BuildContext context,
     WidgetRef ref,
-    AutoDisposeStateNotifierProviderFamily<ServiceOrderDetailController,
-            ServiceOrderDetailState, String>
-        provider,
+    AutoDisposeStateNotifierProvider<
+      ServiceOrderDetailController,
+      ServiceOrderDetailState
+    > provider,
   ) async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
@@ -289,7 +291,7 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
     final file = result?.files.single;
     if (file == null || file.bytes == null) return;
     try {
-      await ref.read(provider(orderId).notifier).addImageEvidence(
+      await ref.read(provider.notifier).addImageEvidence(
             bytes: file.bytes!,
             fileName: file.name,
           );
@@ -299,7 +301,7 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
       if (!context.mounted) return;
       await AppFeedback.showError(
         context,
-        ref.read(provider(orderId)).actionError ?? 'No se pudo subir la imagen',
+        ref.read(provider).actionError ?? 'No se pudo subir la imagen',
       );
     }
   }
@@ -307,9 +309,10 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
   Future<void> _addVideoEvidence(
     BuildContext context,
     WidgetRef ref,
-    AutoDisposeStateNotifierProviderFamily<ServiceOrderDetailController,
-            ServiceOrderDetailState, String>
-        provider,
+    AutoDisposeStateNotifierProvider<
+      ServiceOrderDetailController,
+      ServiceOrderDetailState
+    > provider,
   ) async {
     final value = await _promptSingleInput(
       context,
@@ -318,14 +321,14 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
     );
     if ((value ?? '').trim().isEmpty) return;
     try {
-      await ref.read(provider(orderId).notifier).addVideoEvidenceUrl(value!.trim());
+      await ref.read(provider.notifier).addVideoEvidenceUrl(value!.trim());
       if (!context.mounted) return;
       await AppFeedback.showInfo(context, 'Video agregado');
     } catch (_) {
       if (!context.mounted) return;
       await AppFeedback.showError(
         context,
-        ref.read(provider(orderId)).actionError ?? 'No se pudo guardar el video',
+        ref.read(provider).actionError ?? 'No se pudo guardar el video',
       );
     }
   }
@@ -333,9 +336,10 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
   Future<void> _addReport(
     BuildContext context,
     WidgetRef ref,
-    AutoDisposeStateNotifierProviderFamily<ServiceOrderDetailController,
-            ServiceOrderDetailState, String>
-        provider,
+    AutoDisposeStateNotifierProvider<
+      ServiceOrderDetailController,
+      ServiceOrderDetailState
+    > provider,
   ) async {
     final value = await _promptMultilineInput(
       context,
@@ -344,14 +348,14 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
     );
     if ((value ?? '').trim().isEmpty) return;
     try {
-      await ref.read(provider(orderId).notifier).addReport(value!.trim());
+      await ref.read(provider.notifier).addReport(value!.trim());
       if (!context.mounted) return;
       await AppFeedback.showInfo(context, 'Reporte guardado');
     } catch (_) {
       if (!context.mounted) return;
       await AppFeedback.showError(
         context,
-        ref.read(provider(orderId)).actionError ?? 'No se pudo guardar el reporte',
+        ref.read(provider).actionError ?? 'No se pudo guardar el reporte',
       );
     }
   }

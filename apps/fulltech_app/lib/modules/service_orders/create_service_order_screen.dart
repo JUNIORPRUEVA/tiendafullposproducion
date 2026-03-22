@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/routing/app_navigator.dart';
+import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
+import '../cotizaciones/cotizacion_models.dart';
 import 'application/create_service_order_controller.dart';
 import 'service_order_models.dart';
 
@@ -50,7 +52,7 @@ class _CreateServiceOrderScreenState
       appBar: AppBar(
         leading: AppNavigator.maybeBackButton(
           context,
-          fallbackRoute: '/service-orders',
+          fallbackRoute: Routes.serviceOrders,
         ),
         title: Text(state.isCloneMode ? 'Clonar orden' : 'Nueva orden'),
       ),
@@ -81,7 +83,7 @@ class _CreateServiceOrderScreenState
                     child: Column(
                       children: [
                         DropdownButtonFormField<String>(
-                          value: state.selectedClient?.id,
+                          initialValue: state.selectedClient?.id,
                           isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Cliente',
@@ -110,7 +112,7 @@ class _CreateServiceOrderScreenState
                         ),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
-                          value: state.selectedQuotation?.id,
+                          initialValue: state.selectedQuotation?.id,
                           isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Cotización',
@@ -150,7 +152,7 @@ class _CreateServiceOrderScreenState
                     child: Column(
                       children: [
                         DropdownButtonFormField<ServiceOrderCategory>(
-                          value: state.category,
+                          initialValue: state.category,
                           decoration: const InputDecoration(
                             labelText: 'Categoría',
                             border: OutlineInputBorder(),
@@ -171,7 +173,7 @@ class _CreateServiceOrderScreenState
                         ),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<ServiceOrderType>(
-                          value: state.serviceType,
+                          initialValue: state.serviceType,
                           decoration: const InputDecoration(
                             labelText: 'Tipo de servicio',
                             border: OutlineInputBorder(),
@@ -188,7 +190,7 @@ class _CreateServiceOrderScreenState
                         ),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
-                          value: state.selectedTechnician?.id,
+                          initialValue: state.selectedTechnician?.id,
                           isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Técnico asignado',
@@ -265,17 +267,17 @@ class _CreateServiceOrderScreenState
                       technicalNote: _technicalNoteController.text,
                       extraRequirements: _extraRequirementsController.text,
                     );
-                    if (!mounted) return;
+                    if (!context.mounted) return;
                     await AppFeedback.showInfo(
                       context,
                       state.isCloneMode
                           ? 'Orden clonada correctamente'
                           : 'Orden creada correctamente',
                     );
-                    if (!mounted) return;
+                    if (!context.mounted) return;
                     context.pop(true);
                   } catch (_) {
-                    if (!mounted) return;
+                    if (!context.mounted) return;
                     final message = ref
                             .read(provider)
                             .actionError ??

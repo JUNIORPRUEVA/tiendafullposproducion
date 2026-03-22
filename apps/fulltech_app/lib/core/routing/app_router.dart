@@ -25,6 +25,7 @@ import '../../modules/cotizaciones/cotizaciones_historial_screen.dart';
 import '../../modules/cotizaciones/cotizaciones_screen.dart';
 import '../../modules/service_orders/create_service_order_screen.dart';
 import '../../modules/service_orders/service_order_detail_screen.dart';
+import '../../modules/service_orders/service_order_models.dart';
 import '../../modules/service_orders/service_orders_list_screen.dart';
 import '../../modules/ventas/mis_ventas_screen.dart';
 import '../../modules/ventas/registrar_venta_screen.dart';
