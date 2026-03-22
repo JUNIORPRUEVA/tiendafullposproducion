@@ -44,6 +44,11 @@ export class ClientsService {
         throw new ConflictException('Ya existe un cliente con ese teléfono');
       }
       throw error;
+    }
+  }
+
+  async findAll(query: ClientsQueryDto) {
+    const page = query.page && query.page > 0 ? query.page : 1;
     const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : 20;
     const skip = (page - 1) * pageSize;
 
@@ -59,6 +64,8 @@ export class ClientsService {
           : { isDeleted: false }),
     };
 
+    const or: Prisma.ClientWhereInput[] = [
+      ...(search
         ? [
             { nombre: { contains: search, mode: Prisma.QueryMode.insensitive } },
             { telefono: { contains: search, mode: Prisma.QueryMode.insensitive } },
@@ -77,7 +84,7 @@ export class ClientsService {
         skip,
         take: pageSize,
       }),
-      this.prisma.client.count({ where })
+      this.prisma.client.count({ where }),
     ]);
 
     return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
