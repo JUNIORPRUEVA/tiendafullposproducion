@@ -313,7 +313,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
       _DesktopMetricData(
         title: 'Ventas registradas',
         value: state.summary.totalSales.toString(),
-        subtitle: 'Operaciones en el rango activo',
+        subtitle: 'Ventas en el rango activo',
         icon: Icons.receipt_long_outlined,
       ),
       _DesktopMetricData(
@@ -2281,7 +2281,7 @@ class _SalesSummary extends StatelessWidget {
                         _SalesSummaryMetric(
                           title: 'Ventas registradas',
                           value: state.summary.totalSales.toString(),
-                          subtitle: 'operaciones activas en el rango',
+                          subtitle: 'ventas activas en el rango',
                           icon: Icons.receipt_long_outlined,
                         ),
                         _SalesSummaryMetric(

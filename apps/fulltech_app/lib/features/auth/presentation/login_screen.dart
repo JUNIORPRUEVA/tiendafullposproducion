@@ -88,7 +88,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           .login(_emailCtrl.text, _passwordCtrl.text);
       await _persistRememberedCredentials();
       if (mounted) {
-        context.go(Routes.operaciones);
+        context.go(RouteAccess.defaultHomeForRole(ref.read(authStateProvider).user?.appRole ?? AppRole.unknown));
       }
     } on ApiException catch (e) {
       if (mounted) {

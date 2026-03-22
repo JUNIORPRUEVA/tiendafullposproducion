@@ -71,7 +71,6 @@ class ApiRoutes {
   static const salesSummary = '/sales/summary';
   static String saleDetail(String id) => '/sales/$id';
 
-  // Operaciones
   static const services = '/services';
   static const technicians = '/technicians';
   static String serviceDetail(String id) => '/services/$id';
@@ -104,33 +103,6 @@ class ApiRoutes {
   static String warrantyConfigDetail(String id) => '/warranty-configs/$id';
   static String warrantyConfigActive(String id) =>
       '/warranty-configs/$id/active';
-  static String serviceWarranty(String id) => '/services/$id/warranty';
-  static String customerServices(String id) => '/customers/$id/services';
-
-  // Levantamiento Técnico (Technical Visit Report)
-  static const technicalVisits = '/technical-visits';
-  static String technicalVisitByOrder(String orderId) =>
-      '/technical-visits/order/$orderId';
-  static String technicalVisitDetail(String id) => '/technical-visits/$id';
-
-  static const operationsDashboard = '/dashboard/operations';
-  static const tecnicoVehiculos = '/tecnico/vehiculos';
-  static const tecnicoSalidaAbierta = '/tecnico/salidas-tecnicas/abierta';
-  static const tecnicoSalidasHistorial = '/tecnico/salidas-tecnicas/historial';
-  static const tecnicoSalidasIniciar = '/tecnico/salidas-tecnicas/iniciar';
-  static String tecnicoSalidaLlegada(String id) =>
-      '/tecnico/salidas-tecnicas/$id/llegada';
-  static String tecnicoSalidaFinalizar(String id) =>
-      '/tecnico/salidas-tecnicas/$id/finalizar';
-  static const adminSalidasTecnicas = '/admin/salidas-tecnicas';
-  static String adminSalidaAprobar(String id) =>
-      '/admin/salidas-tecnicas/$id/aprobar';
-  static String adminSalidaRechazar(String id) =>
-      '/admin/salidas-tecnicas/$id/rechazar';
-  static const adminPagosCombustibleTecnicos =
-      '/admin/pagos-combustible-tecnicos';
-  static String adminPagoCombustiblePagado(String id) =>
-      '/admin/pagos-combustible-tecnicos/$id/pagado';
 
   // Nómina
   static const payrollPeriods = '/payroll/periods';

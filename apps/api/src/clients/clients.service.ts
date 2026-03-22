@@ -44,11 +44,6 @@ export class ClientsService {
         throw new ConflictException('Ya existe un cliente con ese teléfono');
       }
       throw error;
-    }
-  }
-
-  async findAll(query: ClientsQueryDto) {
-    const page = query.page && query.page > 0 ? query.page : 1;
     const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : 20;
     const skip = (page - 1) * pageSize;
 
@@ -64,8 +59,6 @@ export class ClientsService {
           : { isDeleted: false }),
     };
 
-    const or: Prisma.ClientWhereInput[] = [
-      ...(search
         ? [
             { nombre: { contains: search, mode: Prisma.QueryMode.insensitive } },
             { telefono: { contains: search, mode: Prisma.QueryMode.insensitive } },
@@ -147,7 +140,7 @@ export class ClientsService {
 
     if (!client) throw new NotFoundException('Client not found');
 
-    const [createdBy, salesAgg, servicesAgg, cotizacionesAgg] = await this.prisma.$transaction([
+    const [createdBy, salesAgg, cotizacionesAgg] = await this.prisma.$transaction([
       this.prisma.user.findUnique({
         where: { id: client.ownerId },
         select: { id: true, nombreCompleto: true, email: true, role: true },
@@ -157,11 +150,6 @@ export class ClientsService {
         _count: { _all: true },
         _sum: { totalSold: true },
         _max: { saleDate: true },
-      }),
-      this.prisma.service.aggregate({
-        where: { customerId: id, isDeleted: false },
-        _count: { _all: true },
-        _max: { updatedAt: true },
       }),
       this.prisma.cotizacion.aggregate({
         where: { customerId: id },
@@ -178,8 +166,6 @@ export class ClientsService {
         salesCount: salesAgg._count._all,
         salesTotal: salesAgg._sum.totalSold,
         lastSaleAt: salesAgg._max.saleDate,
-        servicesCount: servicesAgg._count._all,
-        lastServiceAt: servicesAgg._max.updatedAt,
         cotizacionesCount: cotizacionesAgg._count._all,
         cotizacionesTotal: cotizacionesAgg._sum.total,
         lastCotizacionAt: cotizacionesAgg._max.updatedAt,
@@ -252,77 +238,6 @@ export class ClientsService {
         WHERE c."customerId" = ${id}::uuid
           AND c."createdAt" < ${before}
 
-        UNION ALL
-
-        SELECT
-          'service'::text AS "eventType",
-          sv.id::text AS "eventId",
-          sv."createdAt" AS "at",
-          sv.title::text AS title,
-          sv."quotedAmount" AS amount,
-          sv.status::text AS status,
-          u.id::text AS "userId",
-                u."nombreCompleto"::text AS "userName",
-          jsonb_build_object(
-            'category', sv.category,
-            'orderState', sv."orderState",
-            'technicianId', sv."technicianId"
-          ) AS meta
-        FROM "Service" sv
-              JOIN "users" u ON u.id = sv."createdByUserId"
-        WHERE sv."customerId" = ${id}::uuid
-          AND sv."isDeleted" = false
-          AND sv."createdAt" < ${before}
-
-        UNION ALL
-
-        SELECT
-          'service_phase'::text AS "eventType",
-          ph.id::text AS "eventId",
-          ph."changedAt" AS "at",
-          'Cambio de fase'::text AS title,
-          NULL::numeric AS amount,
-          COALESCE(ph."toPhase", ph.phase)::text AS status,
-          u.id::text AS "userId",
-                u."nombreCompleto"::text AS "userName",
-          jsonb_build_object(
-            'serviceId', sv.id,
-            'serviceTitle', sv.title,
-            'fromPhase', ph."fromPhase",
-            'toPhase', ph."toPhase",
-            'note', ph.note
-          ) AS meta
-        FROM "ServicePhaseHistory" ph
-        JOIN "Service" sv ON sv.id = ph."serviceId"
-              JOIN "users" u ON u.id = ph."changedByUserId"
-        WHERE sv."customerId" = ${id}::uuid
-          AND sv."isDeleted" = false
-          AND ph."changedAt" < ${before}
-
-        UNION ALL
-
-        SELECT
-          'service_update'::text AS "eventType",
-          su.id::text AS "eventId",
-          su."createdAt" AS "at",
-          'Actualización'::text AS title,
-          NULL::numeric AS amount,
-          su.type::text AS status,
-          u.id::text AS "userId",
-                u."nombreCompleto"::text AS "userName",
-          jsonb_build_object(
-            'serviceId', sv.id,
-            'serviceTitle', sv.title,
-            'message', su.message,
-            'oldValue', su."oldValue",
-            'newValue', su."newValue"
-          ) AS meta
-        FROM "ServiceUpdate" su
-        JOIN "Service" sv ON sv.id = su."serviceId"
-              JOIN "users" u ON u.id = su."changedByUserId"
-        WHERE sv."customerId" = ${id}::uuid
-          AND sv."isDeleted" = false
-          AND su."createdAt" < ${before}
       ) t
       WHERE (cardinality(${types}::text[]) = 0 OR t."eventType" = ANY(${types}::text[]))
       ORDER BY t."at" DESC, t."eventId" DESC

@@ -60,7 +60,6 @@ class AdministracionRepository {
             'noSalesInWindow': 0,
             'lateArrivalsToday': totalsAtt['tardyCount'] ?? 0,
             'salesInWindow': totalsSales['totalSales'] ?? 0,
-            'openOperations': 0,
           },
           alerts: const [],
         );

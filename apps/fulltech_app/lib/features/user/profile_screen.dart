@@ -137,31 +137,6 @@ class ProfileScreen extends ConsumerWidget {
                             ],
                           ),
                         ),
-                        if ((user.role ?? '').toUpperCase() == 'TECNICO')
-                          _SectionCard(
-                            title: 'Salidas técnicas',
-                            icon: Icons.route_outlined,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Text(
-                                  'Administra tus vehículos propios, inicia salidas de campo y registra llegada/finalización para calcular combustible.',
-                                  style: theme.textTheme.bodyMedium,
-                                ),
-                                const SizedBox(height: 14),
-                                FilledButton.icon(
-                                  onPressed: () =>
-                                      context.go(Routes.salidasTecnicas),
-                                  icon: const Icon(
-                                    Icons.directions_car_outlined,
-                                  ),
-                                  label: const Text(
-                                    'Gestionar vehículos y salidas',
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
                         if ((user.cuentaNominaPreferencial ?? '')
                             .trim()
                             .isNotEmpty)

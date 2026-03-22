@@ -48,11 +48,7 @@ BoxDecoration _desktopSurfaceDecoration(ThemeData theme) {
 }
 
 bool _shouldShowDesktopAiAssistant(String location) {
-  final normalized = location.trim();
-  final uri = Uri.tryParse(normalized) ?? Uri(path: normalized);
-  final path = uri.path.trim().toLowerCase();
-
-  return !path.startsWith(Routes.operaciones);
+  return true;
 }
 
 class ResponsiveShell extends ConsumerStatefulWidget {

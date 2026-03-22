@@ -149,7 +149,7 @@ export class CompanyManualService {
         summary: 'Toda gestion debe iniciar con datos completos y trazables del cliente.',
         content: `1. Confirmar nombre, telefono y necesidad principal antes de crear cualquier registro.
 2. Evitar duplicados; si el cliente ya existe, actualizar su ficha en lugar de crear otra.
-3. Registrar observaciones claras y verificables para que operaciones, ventas y soporte trabajen con la misma informacion.
+3. Registrar observaciones claras y verificables para que ventas y soporte trabajen con la misma informacion.
 4. No prometer tiempos, precios o garantias fuera de lo documentado en el sistema.`,
         kind: CompanyManualEntryKind.GENERAL_RULE,
         audience: CompanyManualAudience.GENERAL,
@@ -179,40 +179,6 @@ export class CompanyManualService {
         ownerId,
         createdByUserId: actorUserId,
         updatedByUserId: actorUserId,
-        title: 'Politica de garantia y evidencia',
-        summary: 'Toda gestion de garantia requiere evidencia clara, fecha y condicion de entrega.',
-        content: `1. La garantia debe registrarse con descripcion del caso, evidencia y fecha de recepcion.
-2. El tecnico o responsable debe indicar diagnostico preliminar y estado actual del equipo o servicio.
-3. No se aprueban garantias sin trazabilidad suficiente ni sin validacion del historial correspondiente.
-4. El cliente debe recibir una explicacion clara del alcance de la garantia y sus limitaciones.`,
-        kind: CompanyManualEntryKind.WARRANTY_POLICY,
-        audience: CompanyManualAudience.GENERAL,
-        targetRoles: [],
-        moduleKey: 'operaciones',
-        published: true,
-        sortOrder: 3,
-      },
-      {
-        ownerId,
-        createdByUserId: actorUserId,
-        updatedByUserId: actorUserId,
-        title: 'Regla de servicio para seguimiento operativo',
-        summary: 'Cada proceso debe reflejar su estado real en el sistema para evitar errores de coordinacion.',
-        content: `1. Actualizar la fase del servicio inmediatamente cuando cambie la situacion operativa.
-2. Registrar notas utiles, pendientes y responsables visibles para el siguiente usuario.
-3. No cerrar un servicio sin confirmar entrega, conformidad o siguiente accion definida.
-4. Toda incidencia que afecte tiempo, costo o alcance debe quedar documentada.`,
-        kind: CompanyManualEntryKind.SERVICE_RULE,
-        audience: CompanyManualAudience.GENERAL,
-        targetRoles: [],
-        moduleKey: 'operaciones',
-        published: true,
-        sortOrder: 4,
-      },
-      {
-        ownerId,
-        createdByUserId: actorUserId,
-        updatedByUserId: actorUserId,
         title: 'Responsabilidad al actualizar estados y datos',
         summary: 'Quien modifica un registro es responsable de la exactitud y completitud del cambio.',
         content: `1. Antes de guardar cambios, revisar que el cliente, servicio o venta correcto este seleccionado.
@@ -224,24 +190,24 @@ export class CompanyManualService {
         targetRoles: [],
         moduleKey: 'general',
         published: true,
-        sortOrder: 5,
+        sortOrder: 3,
       },
       {
         ownerId,
         createdByUserId: actorUserId,
         updatedByUserId: actorUserId,
         title: 'Guia rapida de uso de modulos principales',
-        summary: 'Clientes, cotizaciones y operaciones deben usarse como una cadena continua de trabajo.',
-        content: `1. Registrar o validar el cliente antes de iniciar una cotizacion o servicio.
-2. Usar cotizaciones para dejar claro el alcance comercial antes de ejecutar.
-3. Mover el seguimiento a operaciones cuando el proceso requiera ejecucion o control tecnico.
-4. Mantener consistencia entre lo vendido, lo ejecutado y lo entregado.`,
+        summary: 'Clientes, cotizaciones y ventas deben mantenerse alineados en una misma cadena de trabajo.',
+        content: `1. Registrar o validar el cliente antes de iniciar una cotizacion o venta.
+      2. Usar cotizaciones para dejar claro el alcance comercial antes de confirmar.
+      3. Mantener observaciones visibles para soporte cuando el caso requiera seguimiento posterior.
+      4. Mantener consistencia entre lo cotizado, lo vendido y lo entregado.`,
         kind: CompanyManualEntryKind.MODULE_GUIDE,
         audience: CompanyManualAudience.GENERAL,
         targetRoles: [],
         moduleKey: 'general',
         published: true,
-        sortOrder: 6,
+        sortOrder: 4,
       },
     ];
 

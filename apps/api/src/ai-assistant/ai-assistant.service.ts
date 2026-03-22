@@ -325,9 +325,6 @@ export class AiAssistantService {
       case 'ventas':
       case 'venta':
         return 'ventas';
-      case 'operacion':
-      case 'operaciones':
-        return 'operaciones';
       case 'cotizacion':
       case 'cotizaciones':
         return 'cotizaciones';
@@ -382,20 +379,6 @@ export class AiAssistantService {
     if (path.startsWith('/catalogo')) return { module: 'catalogo', screenName: 'Catálogo' };
     if (path === '/ventas/nueva') return { module: 'ventas', screenName: 'Registrar venta' };
     if (path.startsWith('/ventas')) return { module: 'ventas', screenName: 'Ventas' };
-    if (path === '/operaciones/agenda') return { module: 'operaciones', screenName: 'Agenda de operaciones' };
-    if (path === '/operaciones/mapa-clientes') return { module: 'operaciones', screenName: 'Mapa de clientes' };
-    if (path === '/operaciones/reglas') return { module: 'operaciones', screenName: 'Reglas operativas' };
-    if (path.startsWith('/operaciones')) {
-      if (segments.length >= 2 && !['agenda', 'mapa-clientes', 'reglas'].includes(segments[1])) {
-        return {
-          module: 'operaciones',
-          screenName: 'Detalle de servicio',
-          entityType: 'service',
-          entityId: segments[1],
-        };
-      }
-      return { module: 'operaciones', screenName: 'Operaciones' };
-    }
     if (path === '/contabilidad/cierres-diarios') return { module: 'contabilidad', screenName: 'Cierres diarios' };
     if (path === '/contabilidad/factura-fiscal') return { module: 'contabilidad', screenName: 'Facturas fiscales' };
     if (path === '/contabilidad/pagos-pendientes') return { module: 'contabilidad', screenName: 'Pagos pendientes' };
@@ -425,7 +408,6 @@ export class AiAssistantService {
       };
     }
     if (path === '/users' || path === '/user') return { module: 'administracion', screenName: 'Usuarios' };
-    if (path === '/salidas-tecnicas') return { module: 'operaciones', screenName: 'Salidas técnicas' };
     if (path === '/horarios') return { module: 'horarios', screenName: 'Horarios' };
     if (path === '/profile') return { module: 'profile', screenName: 'Perfil' };
     if (path === '/ponche') return { module: 'ponche', screenName: 'Ponche' };
@@ -458,8 +440,6 @@ export class AiAssistantService {
     if (path === '/mis-pagos') return true;
     if (path === '/horarios') return true;
     if (path === '/ponche') return true;
-    if (path === '/salidas-tecnicas') return role === Role.TECNICO;
-    if (path.startsWith('/operaciones')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING, Role.TECNICO]);
     if (path.startsWith('/catalogo')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING]);
     if (path.startsWith('/ventas')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR]);
     if (path.startsWith('/cotizaciones')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING]);
@@ -482,8 +462,6 @@ export class AiAssistantService {
       case 'ponche':
       case 'horarios':
         return true;
-      case 'operaciones':
-        return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING, Role.TECNICO]);
       case 'catalogo':
         return true;
       case 'ventas':
@@ -582,10 +560,6 @@ export class AiAssistantService {
 
   private canAccessSalesData(role: Role) {
     return this.canAccessModule(role, 'ventas');
-  }
-
-  private canAccessOperationsData(role: Role) {
-    return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO]);
   }
 
   private canAccessAccountingData(role: Role) {
@@ -716,7 +690,7 @@ export class AiAssistantService {
         'general',
         'guia-app',
         'Cómo pedir ayuda al asistente',
-        'Puedes preguntarme sobre cómo usar módulos, qué significa una opción, qué dice el Manual Interno y dónde encontrar información. Si estás en una pantalla específica, dime el módulo (clientes, catálogo, operaciones, ventas, cotizaciones, nómina, manual interno, configuración) y qué estás intentando lograr.',
+        'Puedes preguntarme sobre cómo usar módulos, qué significa una opción, qué dice el Manual Interno y dónde encontrar información. Si estás en una pantalla específica, dime el módulo (clientes, catálogo, ventas, cotizaciones, nómina, manual interno, configuración) y qué estás intentando lograr.',
       ),
       this.createAppKnowledgeRecord(
         'app-help:clientes',
@@ -744,14 +718,7 @@ export class AiAssistantService {
         'ventas',
         'guia-app',
         'Uso del módulo de ventas',
-        'En Ventas puedes registrar operaciones comerciales y revisar tus ventas autorizadas. Si necesitas soporte operativo, indica si estás registrando una venta nueva o revisando ventas anteriores.',
-      ),
-      this.createAppKnowledgeRecord(
-        'app-help:operaciones',
-        'operaciones',
-        'guia-app',
-        'Uso del módulo de operaciones',
-        'En Operaciones puedes consultar servicios, fases, asignaciones, archivos y garantías según permisos. Si me dices el número de servicio o el cliente, puedo orientarte sobre el flujo permitido.',
+        'En Ventas puedes registrar ventas y revisar tus ventas autorizadas. Si necesitas ayuda, indica si estás registrando una venta nueva o revisando ventas anteriores.',
       ),
       this.createAppKnowledgeRecord(
         'app-help:contabilidad',
@@ -812,7 +779,6 @@ export class AiAssistantService {
     const wantsContracts = includeModuleContext || this.hasAnyToken(tokens, ['contrato', 'nomina', 'nómina', 'salario', 'clausula', 'cláusula']);
     const wantsQuotes = includeModuleContext || this.hasAnyToken(tokens, ['cotizacion', 'cotizaciones', 'ticket', 'propuesta']);
     const wantsSales = includeModuleContext || this.hasAnyToken(tokens, ['venta', 'ventas', 'comision', 'comisión']);
-    const wantsOperations = includeModuleContext || this.hasAnyToken(tokens, ['servicio', 'servicios', 'operacion', 'operaciones', 'garantia', 'garantía']);
     const wantsAccounting = includeModuleContext || this.hasAnyToken(tokens, ['contabilidad', 'cierre', 'cierres', 'deposito', 'depósito', 'factura', 'pago']);
     const wantsSelf = includeModuleContext || this.isSelfInfoRequest(dto.message, dto.context);
     const wantsAdaptiveLearning = includeModuleContext || this.isAdaptiveLearningQuestion(dto.message, dto.context);
@@ -861,11 +827,6 @@ export class AiAssistantService {
       knowledge.push(...salesKnowledge);
     }
 
-    if ((wantsOperations || dto.context.module === 'operaciones') && this.canAccessOperationsData(user.role)) {
-      const operationsKnowledge = await this.buildOperationsKnowledge(user, dto);
-      knowledge.push(...operationsKnowledge);
-    }
-
     if ((wantsAccounting || dto.context.module === 'contabilidad') && this.canAccessAccountingData(user.role)) {
       const accountingKnowledge = await this.buildAccountingKnowledge(user, dto);
       knowledge.push(...accountingKnowledge);
@@ -882,7 +843,6 @@ export class AiAssistantService {
     if (this.hasAnyToken(tokens, ['manual', 'interno', 'politica', 'política', 'regla', 'reglas', 'protocolo'])) return 'manual';
     if (this.hasAnyToken(tokens, ['cliente', 'clientes', 'telefono', 'teléfono', 'direccion', 'dirección'])) return 'clients';
     if (this.hasAnyToken(tokens, ['producto', 'productos', 'catalogo', 'catálogo', 'precio', 'precios', 'stock', 'inventario'])) return 'catalog';
-    if (this.hasAnyToken(tokens, ['servicio', 'servicios', 'operacion', 'operaciones', 'fase', 'técnico', 'tecnico', 'orden'])) return 'operations';
     return 'general';
   }
 
@@ -998,8 +958,6 @@ export class AiAssistantService {
         return 'Ventas';
       case 'cotizaciones':
         return 'Cotizaciones';
-      case 'operaciones':
-        return 'Operaciones';
       case 'contabilidad':
         return 'Contabilidad';
       case 'nomina':
@@ -1017,12 +975,6 @@ export class AiAssistantService {
 
   private staticModuleOverview(module: string): string | null {
     switch (this.normalizeModuleKey(module)) {
-      case 'operaciones':
-        return (
-          'Este módulo gestiona órdenes/servicios.\n' +
-          'Aquí normalmente puedes: ver servicios, revisar detalles, cambiar fase/estado según reglas, asignar técnicos (si tu rol lo permite) y registrar evidencias/referencias.\n' +
-          'Si me dices el número de servicio o el cliente, puedo orientarte con pasos concretos.'
-        );
       case 'clientes':
         return (
           'Este módulo gestiona la información de clientes.\n' +
@@ -1063,34 +1015,6 @@ export class AiAssistantService {
   private staticScreenHelp(module: string, screenName?: string): string | null {
     const screen = (screenName ?? '').trim().toLowerCase();
     const mod = this.normalizeModuleKey(module);
-
-    if (mod === 'operaciones') {
-      if (screen.includes('agenda')) {
-        return (
-          'En Agenda de operaciones puedes ver y organizar servicios por fecha/hora.\n' +
-          'Pasos típicos: 1) selecciona rango/fecha, 2) abre una orden, 3) revisa detalle y fase, 4) si aplica, reagenda o asigna técnico, 5) guarda.'
-        );
-      }
-      if (screen.includes('mapa')) {
-        return (
-          'En Mapa de clientes puedes visualizar ubicaciones para planificar visitas.\n' +
-          'Pasos típicos: 1) busca/filtra por cliente o servicio, 2) abre un punto, 3) revisa datos, 4) navega al detalle de la orden.'
-        );
-      }
-      if (screen.includes('regla')) {
-        return (
-          'En Reglas operativas se consultan reglas del flujo de operaciones (requisitos, fases, validaciones).\n' +
-          'Si me dices qué regla te está bloqueando, te indico qué falta y dónde completarlo.'
-        );
-      }
-      if (screen.includes('operaciones')) {
-        return (
-          'En Operaciones puedes gestionar órdenes de servicio.\n' +
-          'Qué puedes hacer: ver servicios, abrir detalle, cambiar fase/estado (según reglas), asignar técnico (si aplica) y registrar referencias/evidencias.\n' +
-          'Dime qué estás intentando hacer y te guío paso a paso.'
-        );
-      }
-    }
 
     if (mod === 'clientes') {
       if (screen.includes('nuevo')) {
@@ -1223,7 +1147,7 @@ export class AiAssistantService {
     });
     const phoneTerms = this.extractNumericQueryTerms(dto.message);
 
-    if (['clientes', 'operaciones', 'ventas', 'cotizaciones'].includes(module)) {
+    if (['clientes', 'ventas', 'cotizaciones'].includes(module)) {
       return searchTerms.length > 0 || phoneTerms.length > 0;
     }
 
@@ -1274,33 +1198,22 @@ export class AiAssistantService {
           }
         : { isDeleted: false };
     const salesWhere: Prisma.SaleWhereInput = user.role === Role.ADMIN ? {} : { userId: user.id };
-    const servicesWhere: Prisma.ServiceWhereInput =
-      user.role === Role.ADMIN || user.role === Role.ASISTENTE
-        ? { isDeleted: false }
-        : user.role === Role.VENDEDOR
-          ? { isDeleted: false, createdByUserId: user.id }
-          : user.role === Role.TECNICO
-            ? { isDeleted: false, assignments: { some: { userId: user.id } } }
-            : { id: '__none__' };
     const quotesWhere: Prisma.CotizacionWhereInput = user.role === Role.ADMIN ? {} : { createdByUserId: user.id };
 
     const [
       manualCount,
       clientCount,
       salesCount,
-      serviceCount,
       quoteCount,
       latestManual,
       latestClient,
       latestSale,
-      latestService,
       latestQuote,
       fallbackProductCount,
     ] = await this.prisma.$transaction([
       this.prisma.companyManualEntry.count({ where: { ownerId, published: true } }),
       this.prisma.client.count({ where: clientWhere }),
       this.prisma.sale.count({ where: salesWhere }),
-      this.prisma.service.count({ where: servicesWhere }),
       this.prisma.cotizacion.count({ where: quotesWhere }),
       this.prisma.companyManualEntry.findFirst({
         where: { ownerId, published: true },
@@ -1316,11 +1229,6 @@ export class AiAssistantService {
         where: salesWhere,
         orderBy: { updatedAt: 'desc' },
         select: { saleDate: true, customer: { select: { nombre: true } } },
-      }),
-      this.prisma.service.findFirst({
-        where: servicesWhere,
-        orderBy: { updatedAt: 'desc' },
-        select: { title: true, updatedAt: true },
       }),
       this.prisma.cotizacion.findFirst({
         where: quotesWhere,
@@ -1343,7 +1251,7 @@ export class AiAssistantService {
     const summary = [
       'El asistente usa conocimiento vivo del sistema, no solo respuestas estaticas.',
       'Por eso su contexto crece cuando aumentan los datos autorizados y las entradas publicadas del Manual Interno.',
-      `Ahora mismo puede apoyarse en ${manualCount} normas publicadas, ${clientCount} clientes, ${productCount} productos, ${salesCount} ventas, ${serviceCount} servicios y ${quoteCount} cotizaciones visibles para tu alcance.`,
+      `Ahora mismo puede apoyarse en ${manualCount} normas publicadas, ${clientCount} clientes, ${productCount} productos, ${salesCount} ventas y ${quoteCount} cotizaciones visibles para tu alcance.`,
       'Cada nueva consulta vuelve a leer estos datos y por eso el asistente puede crecer junto con las tablas del sistema.',
     ].join(' ');
 
@@ -1351,7 +1259,6 @@ export class AiAssistantService {
       latestManual ? `Manual actualizado recientemente: ${latestManual.title} (${this.formatKnowledgeDate(latestManual.updatedAt)}).` : null,
       latestClient ? `Cliente reciente: ${latestClient.nombre} (${this.formatKnowledgeDate(latestClient.updatedAt)}).` : null,
       latestSale ? `Venta reciente: ${latestSale.customer?.nombre ?? 'N/D'} (${this.formatKnowledgeDate(latestSale.saleDate)}).` : null,
-      latestService ? `Servicio reciente: ${latestService.title} (${this.formatKnowledgeDate(latestService.updatedAt)}).` : null,
       latestQuote ? `Cotizacion reciente: ${latestQuote.customerName} (${this.formatKnowledgeDate(latestQuote.updatedAt)}).` : null,
     ].filter((item): item is string => !!item);
 
@@ -1377,7 +1284,7 @@ export class AiAssistantService {
         'general',
         'politica-app',
         'Como crece el conocimiento del asistente',
-        'El asistente puede crecer con datos nuevos del sistema, productos nuevos, clientes nuevos, operaciones nuevas y nuevas entradas publicadas del Manual Interno. La conversacion actual le aporta memoria reciente, pero las reglas oficiales y los datos autorizados tienen prioridad.',
+        'El asistente puede crecer con datos nuevos del sistema, productos nuevos, clientes nuevos, ventas nuevas y nuevas entradas publicadas del Manual Interno. La conversacion actual le aporta memoria reciente, pero las reglas oficiales y los datos autorizados tienen prioridad.',
       ),
     ];
   }
@@ -1735,8 +1642,6 @@ export class AiAssistantService {
         return 'Catalogo';
       case 'clientes':
         return 'Clientes';
-      case 'operaciones':
-        return 'Operaciones';
       case 'ventas':
         return 'Ventas';
       case 'cotizaciones':
@@ -2010,7 +1915,7 @@ export class AiAssistantService {
         'Alcance autorizado de clientes',
         isAdmin
           ? 'Como ADMIN puedes consultar clientes del sistema según las pantallas permitidas.'
-          : 'Solo puedes consultar clientes bajo tu gestión o relacionados con tus servicios/operaciones asignadas.',
+          : 'Solo puedes consultar clientes bajo tu gestión o relacionados con tu alcance autorizado dentro del sistema.',
       ),
       this.createAppKnowledgeRecord(
         'app-data:clients-count',
@@ -2124,17 +2029,12 @@ export class AiAssistantService {
 
       const detailedMatches = await Promise.all(
         rankedClients.slice(0, 3).map(async (client) => {
-          const [salesAgg, servicesAgg, quotesAgg, latestSale, latestService, latestQuote] = await this.prisma.$transaction([
+          const [salesAgg, quotesAgg, latestSale, latestQuote] = await this.prisma.$transaction([
             this.prisma.sale.aggregate({
               where: { customerId: client.id, isDeleted: false },
               _count: { _all: true },
               _sum: { totalSold: true },
               _max: { saleDate: true },
-            }),
-            this.prisma.service.aggregate({
-              where: { customerId: client.id, isDeleted: false },
-              _count: { _all: true },
-              _max: { updatedAt: true },
             }),
             this.prisma.cotizacion.aggregate({
               where: { customerId: client.id },
@@ -2146,11 +2046,6 @@ export class AiAssistantService {
               where: { customerId: client.id, isDeleted: false },
               orderBy: { saleDate: 'desc' },
               select: { saleDate: true, totalSold: true },
-            }),
-            this.prisma.service.findFirst({
-              where: { customerId: client.id, isDeleted: false },
-              orderBy: { updatedAt: 'desc' },
-              select: { updatedAt: true, title: true, status: true, currentPhase: true },
             }),
             this.prisma.cotizacion.findFirst({
               where: { customerId: client.id },
@@ -2170,10 +2065,9 @@ export class AiAssistantService {
               (client.email ?? '').trim().length > 0 ? `Email: ${client.email}` : null,
               (client.direccion ?? '').trim().length > 0 ? `Direccion: ${this.buildExcerpt(client.direccion ?? '')}` : null,
               client.lastActivityAt != null ? `Ultima actividad: ${client.lastActivityAt.toISOString().slice(0, 10)}` : null,
-              `Movimientos: ${salesAgg._count._all} ventas, ${servicesAgg._count._all} servicios y ${quotesAgg._count._all} cotizaciones`,
+              `Movimientos: ${salesAgg._count._all} ventas y ${quotesAgg._count._all} cotizaciones`,
               salesAgg._sum.totalSold != null ? `Total vendido: ${Number(salesAgg._sum.totalSold).toFixed(2)}` : null,
               latestSale != null ? `Ultima venta: ${latestSale.saleDate.toISOString().slice(0, 10)} por ${Number(latestSale.totalSold).toFixed(2)}` : null,
-              latestService != null ? `Ultimo servicio: ${latestService.title} (${latestService.status} / fase ${latestService.currentPhase}) actualizado el ${latestService.updatedAt.toISOString().slice(0, 10)}` : null,
               latestQuote != null ? `Ultima cotizacion: ${Number(latestQuote.total).toFixed(2)} actualizada el ${latestQuote.updatedAt.toISOString().slice(0, 10)}` : null,
             ].filter((item): item is string => !!item).join('\n'),
           );
@@ -2231,7 +2125,6 @@ export class AiAssistantService {
       return base;
     }
 
-    const serviceCount = await this.prisma.service.count({ where: { customerId: client.id } });
     const saleCount = await this.prisma.sale.count({ where: { customerId: client.id, isDeleted: false } });
 
     base.push(
@@ -2240,7 +2133,7 @@ export class AiAssistantService {
         'clientes',
         'dato-autorizado',
         `Cliente seleccionado: ${client.nombre}`,
-        `Cliente: ${client.nombre}. Servicios registrados: ${serviceCount}. Ventas registradas: ${saleCount}. Última actividad: ${client.lastActivityAt ? client.lastActivityAt.toISOString() : 'N/D'}.`,
+        `Cliente: ${client.nombre}. Ventas registradas: ${saleCount}. Última actividad: ${client.lastActivityAt ? client.lastActivityAt.toISOString() : 'N/D'}.`,
       ),
     );
 
@@ -2712,111 +2605,6 @@ export class AiAssistantService {
           'dato-autorizado',
           'Ventas del cliente seleccionado',
           `Ventas autorizadas relacionadas con el cliente actual: ${clientSalesCount}.`,
-        ),
-      );
-    }
-
-    return result;
-  }
-
-  private async buildOperationsKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
-    if (user.role === Role.MARKETING) {
-      return [
-        this.createAppKnowledgeRecord(
-          'app-data:operations-scope-marketing',
-          'operaciones',
-          'dato-autorizado',
-          'Alcance operativo limitado',
-          'Tu rol puede recibir guía general del módulo, pero no datos operativos detallados desde el asistente.',
-        ),
-      ];
-    }
-
-    const where: Prisma.ServiceWhereInput =
-      user.role === Role.ADMIN || user.role === Role.ASISTENTE
-        ? { isDeleted: false }
-        : user.role === Role.VENDEDOR
-          ? { isDeleted: false, createdByUserId: user.id }
-          : user.role === Role.TECNICO
-            ? { isDeleted: false, assignments: { some: { userId: user.id } } }
-            : { id: '__none__' };
-
-    const [count, latest] = await this.prisma.$transaction([
-      this.prisma.service.count({ where }),
-      this.prisma.service.findFirst({
-        where,
-        orderBy: { updatedAt: 'desc' },
-        select: {
-          id: true,
-          title: true,
-          status: true,
-          currentPhase: true,
-          updatedAt: true,
-          customer: { select: { nombre: true } },
-        },
-      }),
-    ]);
-
-    const result: KnowledgeRecord[] = [
-      this.createAppKnowledgeRecord(
-        'app-data:operations-count',
-        'operaciones',
-        'dato-autorizado',
-        'Resumen autorizado de servicios',
-        user.role === Role.ADMIN || user.role === Role.ASISTENTE
-          ? `Actualmente hay ${count} servicios activos visibles para tu rol.`
-          : `Actualmente tienes acceso a ${count} servicios operativos relacionados con tu usuario.`,
-      ),
-    ];
-
-    if (latest) {
-      result.push(
-        this.createAppKnowledgeRecord(
-          `app-data:service:latest:${latest.id}`,
-          'operaciones',
-          'dato-autorizado',
-          'Servicio operativo reciente',
-          `Servicio: ${latest.title}. Cliente: ${latest.customer.nombre}. Estado: ${latest.status}. Fase actual: ${latest.currentPhase}. Última actualización: ${latest.updatedAt.toISOString()}.`,
-        ),
-      );
-    }
-
-    const entityType = (dto.context.entityType ?? '').toLowerCase();
-    const entityId = (dto.context.entityId ?? '').trim();
-    if (entityType === 'service' && entityId) {
-      const service = await this.prisma.service.findFirst({
-        where: { ...where, id: entityId },
-        select: {
-          id: true,
-          title: true,
-          status: true,
-          currentPhase: true,
-          paymentStatus: true,
-          scheduledStart: true,
-          customer: { select: { nombre: true } },
-        },
-      });
-
-      if (!service) {
-        result.push(
-          this.createAppKnowledgeRecord(
-            'app-data:service-denied',
-            'operaciones',
-            'dato-autorizado',
-            'Servicio no accesible',
-            'No tengo autorización para acceder a ese servicio o no existe dentro de tu alcance.',
-          ),
-        );
-        return result;
-      }
-
-      result.push(
-        this.createAppKnowledgeRecord(
-          `app-data:service:${service.id}`,
-          'operaciones',
-          'dato-autorizado',
-          `Servicio seleccionado: ${service.title}`,
-          `Cliente: ${service.customer.nombre}. Estado: ${service.status}. Fase: ${service.currentPhase}. Estado de pago: ${service.paymentStatus}. Inicio programado: ${service.scheduledStart ? service.scheduledStart.toISOString() : 'N/D'}.`,
         ),
       );
     }

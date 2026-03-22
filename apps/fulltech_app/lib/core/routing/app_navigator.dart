@@ -86,7 +86,7 @@ class AppNavigator {
     final normalized = location.trim();
     final path = (Uri.tryParse(normalized)?.path ?? normalized).trim();
 
-    if (path.isEmpty) return Routes.operaciones;
+    if (path.isEmpty) return Routes.profile;
 
     if (path == Routes.registrarVenta) return Routes.ventas;
     if (path == Routes.cotizacionesHistorial) return Routes.cotizaciones;
@@ -95,14 +95,6 @@ class AppNavigator {
       return Routes.clientes;
     }
     if (path.startsWith('/clientes/')) return Routes.clientes;
-    if (path == Routes.operacionesAgenda) return Routes.operaciones;
-    if (path == Routes.operacionesMapaClientes) return Routes.operaciones;
-    if (path == Routes.operacionesReglas) return Routes.operaciones;
-    if (path == Routes.operacionesChecklistConfig) return Routes.operaciones;
-    if (path == Routes.operacionesWarrantyConfig) return Routes.operaciones;
-    if (path.startsWith('/operaciones/tecnico/')) {
-      return Routes.operacionesTecnico;
-    }
     if (path == Routes.contabilidadCierresDiarios ||
         path == Routes.contabilidadFacturaFiscal ||
         path == Routes.contabilidadPagosPendientes) {

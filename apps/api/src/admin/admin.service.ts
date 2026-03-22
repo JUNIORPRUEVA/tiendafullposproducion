@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, PunchType, Role, ServiceStatus } from '@prisma/client';
+import { Prisma, PunchType, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 type Severity = 'high' | 'medium' | 'info';
@@ -98,20 +98,6 @@ export class AdminPanelService {
       },
     });
 
-    const openOperations = await this.prisma.service.count({
-      where: {
-        status: {
-          in: [
-            ServiceStatus.RESERVED,
-            ServiceStatus.SURVEY,
-            ServiceStatus.SCHEDULED,
-            ServiceStatus.IN_PROGRESS,
-            ServiceStatus.WARRANTY,
-          ],
-        },
-      },
-    });
-
     const byUserPunchCount = new Map<string, number>();
     const firstEntradaByUser = new Map<string, Date>();
 
@@ -190,7 +176,6 @@ export class AdminPanelService {
         salesInWindow: salesWindow.length,
         noSalesInWindow: noSalesUsers.length,
         lateArrivalsToday: lateUsers.length,
-        openOperations,
       },
       alerts,
     };

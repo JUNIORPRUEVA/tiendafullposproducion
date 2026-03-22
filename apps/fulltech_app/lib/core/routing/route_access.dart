@@ -18,18 +18,6 @@ class RouteAccess {
         return AppPermission.viewMyPayments;
       case Routes.horarios:
         return AppPermission.viewWorkScheduling;
-      case Routes.operaciones:
-      case Routes.operacionesAgenda:
-      case Routes.operacionesMapaClientes:
-      case Routes.operacionesReglas:
-      case Routes.operacionesChecklistConfig:
-      case Routes.operacionesWarrantyConfig:
-        return AppPermission.viewOperations;
-      case Routes.operacionesTecnico:
-      case Routes.operacionesTecnicoDetalle:
-        return AppPermission.viewTechOperations;
-      case Routes.salidasTecnicas:
-        return AppPermission.viewTechDepartures;
       case Routes.ponche:
         return AppPermission.viewPunch;
       case Routes.catalogo:
@@ -74,27 +62,20 @@ class RouteAccess {
     if (path.startsWith('${Routes.administracion}/')) {
       return AppPermission.viewAdminPanel;
     }
-    if (path.startsWith('${Routes.operacionesTecnico}/') ||
-        path.startsWith(Routes.operacionesTecnico)) {
-      return AppPermission.viewTechOperations;
-    }
-    if (path.startsWith('${Routes.operaciones}/')) {
-      return AppPermission.viewOperations;
-    }
-    if (path.startsWith('${Routes.salidasTecnicas}/')) {
-      return AppPermission.viewTechDepartures;
-    }
-
     return null;
   }
 
   static String defaultHomeForRole(AppRole role) {
-    // UX requirement: app always opens on Operaciones.
-    if (hasPermission(role, AppPermission.viewOperations)) {
-      return Routes.operaciones;
+    if (hasPermission(role, AppPermission.viewClients)) {
+      return Routes.clientes;
+    }
+    if (hasPermission(role, AppPermission.viewSales)) {
+      return Routes.ventas;
+    }
+    if (hasPermission(role, AppPermission.viewCatalog)) {
+      return Routes.catalogo;
     }
 
-    // Safe fallback if permissions are misconfigured.
     return Routes.profile;
   }
 }

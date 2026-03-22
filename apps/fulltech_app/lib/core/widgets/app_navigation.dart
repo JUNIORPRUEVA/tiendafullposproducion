@@ -55,24 +55,6 @@ List<AppNavigationSection> buildAppNavigationSections(
     AppNavigationSection(
       title: 'Principal',
       items: [
-        if (can(AppPermission.viewOperations))
-          const AppNavigationItem(
-            icon: Icons.build_outlined,
-            title: 'Operaciones',
-            route: Routes.operaciones,
-          ),
-        if (can(AppPermission.viewTechOperations))
-          const AppNavigationItem(
-            icon: Icons.engineering_outlined,
-            title: 'Operaciones (Técnico)',
-            route: Routes.operacionesTecnico,
-          ),
-        if (can(AppPermission.viewTechDepartures))
-          const AppNavigationItem(
-            icon: Icons.route_outlined,
-            title: 'Salidas técnicas',
-            route: Routes.salidasTecnicas,
-          ),
         if (can(AppPermission.viewPunch))
           const AppNavigationItem(
             icon: Icons.access_time_rounded,
@@ -125,22 +107,7 @@ List<AppNavigationSection> buildAppNavigationSections(
     ),
     AppNavigationSection(
       title: 'Administración',
-      items: [
-        if (can(AppPermission.viewAdminPanel) &&
-            can(AppPermission.viewOperations))
-          const AppNavigationItem(
-            icon: Icons.fact_check_outlined,
-            title: 'Checklist operativo',
-            route: Routes.operacionesChecklistConfig,
-          ),
-        if (can(AppPermission.viewAdminPanel) &&
-            can(AppPermission.viewOperations))
-          const AppNavigationItem(
-            icon: Icons.verified_user_outlined,
-            title: 'Garantías operativas',
-            route: Routes.operacionesWarrantyConfig,
-          ),
-      ],
+      items: const [],
     ),
     AppNavigationSection(
       title: 'Nómina',
@@ -224,15 +191,6 @@ String resolveNavigationTitle(
   if (path == Routes.cotizacionesHistorial) return 'Historial de cotizaciones';
   if (path == Routes.clienteNuevo) return 'Nuevo cliente';
   if (path == Routes.profile) return 'Perfil';
-  if (path == Routes.operacionesAgenda) return 'Agenda de operaciones';
-  if (path == Routes.operacionesMapaClientes) return 'Mapa de clientes';
-  if (path == Routes.operacionesReglas) return 'Reglas operativas';
-  if (path == Routes.operacionesWarrantyConfig) return 'Garantías operativas';
-  if (path == Routes.operacionesTecnico) return 'Mis servicios';
-  if (path.startsWith('${Routes.operacionesTecnico}/')) {
-    if (path.endsWith('/orden')) return 'Orden de servicio';
-    return 'Gestionar servicio';
-  }
   if (path.startsWith('/clientes/') && path.endsWith('/editar')) {
     return 'Editar cliente';
   }
@@ -250,11 +208,6 @@ String resolveNavigationTitle(
 bool desktopShellShouldShowOwnAppBar(String location) {
   final path = Uri.tryParse(location)?.path ?? location;
   const routesWithOwnAppBar = <String>[
-    Routes.operaciones,
-    Routes.operacionesChecklistConfig,
-    Routes.operacionesWarrantyConfig,
-    Routes.operacionesTecnico,
-    Routes.salidasTecnicas,
     Routes.ponche,
     Routes.horarios,
     Routes.catalogo,

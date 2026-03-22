@@ -110,22 +110,7 @@ class GlobalAiAssistantEntryPoint extends ConsumerWidget {
 
   bool _shouldHideEntryPoint(String location) {
     final candidates = _routeCandidates(location);
-    return candidates.any((path) {
-      return path == Routes.operaciones ||
-          path.startsWith('${Routes.operaciones}/') ||
-          path == Routes.operacionesTecnico ||
-          path.startsWith('${Routes.operacionesTecnico}/') ||
-          path == Routes.operacionesAgenda ||
-          path.startsWith('${Routes.operacionesAgenda}/') ||
-          path == Routes.operacionesMapaClientes ||
-          path.startsWith('${Routes.operacionesMapaClientes}/') ||
-          path == Routes.operacionesReglas ||
-          path.startsWith('${Routes.operacionesReglas}/') ||
-          path == Routes.operacionesChecklistConfig ||
-          path.startsWith('${Routes.operacionesChecklistConfig}/') ||
-          path == Routes.operacionesWarrantyConfig ||
-          path.startsWith('${Routes.operacionesWarrantyConfig}/');
-    });
+    return candidates.isEmpty;
   }
 
   Iterable<String> _routeCandidates(String location) sync* {

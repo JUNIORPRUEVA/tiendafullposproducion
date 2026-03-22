@@ -27,15 +27,6 @@ AiChatContext buildAiChatContextFromLocation(String location) {
     module = 'catalogo';
   } else if (path.startsWith('/ventas')) {
     module = 'ventas';
-  } else if (path.startsWith('/operaciones')) {
-    module = 'operaciones';
-    if (segments.length >= 2 &&
-        segments[1] != 'agenda' &&
-        segments[1] != 'mapa-clientes' &&
-        segments[1] != 'reglas') {
-      entityType = 'service';
-      entityId = segments[1];
-    }
   } else if (path.startsWith('/contabilidad')) {
     module = 'contabilidad';
   } else if (path.startsWith('/nomina') || path.startsWith('/mis-pagos')) {
@@ -80,14 +71,6 @@ String? _screenNameFromPath(String path) {
       return 'Perfil';
     case Routes.horarios:
       return 'Horarios';
-    case Routes.operaciones:
-      return 'Operaciones';
-    case Routes.operacionesAgenda:
-      return 'Agenda de operaciones';
-    case Routes.operacionesMapaClientes:
-      return 'Mapa de clientes';
-    case Routes.operacionesReglas:
-      return 'Reglas operativas';
     case Routes.catalogo:
       return 'Catálogo';
     case Routes.contabilidad:
@@ -120,8 +103,6 @@ String? _screenNameFromPath(String path) {
       return 'Configuración';
     case Routes.administracion:
       return 'Administración';
-    case Routes.salidasTecnicas:
-      return 'Salidas técnicas';
     case Routes.users:
     case Routes.user:
       return 'Usuarios';

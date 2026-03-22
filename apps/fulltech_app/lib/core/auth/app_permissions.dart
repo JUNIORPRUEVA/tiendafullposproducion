@@ -113,8 +113,6 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
   AppRole.unknown: {
     // Least privilege (still allow self areas to avoid redirect loops)
     AppPermission.viewProfile,
-    // App should still land on Operaciones by default.
-    AppPermission.viewOperations,
   },
 };
 

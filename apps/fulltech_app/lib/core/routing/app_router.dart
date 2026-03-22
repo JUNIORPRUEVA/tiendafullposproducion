@@ -7,16 +7,7 @@ import '../../features/home/home_shell.dart';
 import '../../features/user/profile_screen.dart';
 import '../../features/user/users_screen.dart';
 import '../../features/ponche/ponche_screen.dart';
-import '../../features/operaciones/operaciones_screen.dart';
-import '../../features/operaciones/tecnico/operaciones_tecnico_screen.dart';
-import '../../features/operaciones/tecnico/service_order_detail_screen.dart';
-import '../../features/operaciones/tecnico/technical_service_phase_router_screen.dart';
 import '../../features/splash/splash_screen.dart';
-import '../../features/salidas_tecnicas/tecnico_salidas_screen.dart';
-import '../../features/operaciones/operaciones_mapa_clientes_screen.dart';
-import '../../features/operaciones/operaciones_checklist_config_screen.dart';
-import '../../features/operaciones/operaciones_warranty_config_screen.dart';
-import '../../features/operaciones/operaciones_reglas_screen.dart';
 import '../../features/contabilidad/contabilidad_screen.dart';
 import '../../features/contabilidad/cierres_diarios_screen.dart';
 import '../../features/contabilidad/factura_fiscal_screen.dart';
@@ -88,7 +79,9 @@ final routerProvider = Provider<GoRouter>((ref) {
         redirect: (context, state) {
           final auth = ref.read(authStateProvider);
           if (!auth.isAuthenticated) return Routes.login;
-          return Routes.operaciones;
+          return RouteAccess.defaultHomeForRole(
+            auth.user?.appRole ?? AppRole.unknown,
+          );
         },
       ),
       GoRoute(
@@ -125,63 +118,6 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.horarios,
             builder: (context, state) => const HorariosScreen(),
-          ),
-          GoRoute(
-            path: Routes.operaciones,
-            builder: (context, state) =>
-                hideGlobalAiAssistant(const OperacionesScreen()),
-          ),
-          GoRoute(
-            path: Routes.operacionesTecnico,
-            builder: (context, state) =>
-                hideGlobalAiAssistant(const OperacionesTecnicoScreen()),
-          ),
-          GoRoute(
-            path: Routes.operacionesTecnicoDetalle,
-            builder: (context, state) {
-              final id = state.pathParameters['id'] ?? '';
-              return hideGlobalAiAssistant(
-                TechnicalServicePhaseRouterScreen(serviceId: id),
-              );
-            },
-          ),
-          GoRoute(
-            path: Routes.operacionesTecnicoOrden,
-            builder: (context, state) {
-              final id = state.pathParameters['id'] ?? '';
-              return hideGlobalAiAssistant(
-                ServiceOrderDetailScreen(serviceId: id),
-              );
-            },
-          ),
-          GoRoute(
-            path: Routes.salidasTecnicas,
-            builder: (context, state) => const TecnicoSalidasScreen(),
-          ),
-          GoRoute(
-            path: Routes.operacionesAgenda,
-            builder: (context, state) =>
-                hideGlobalAiAssistant(const OperacionesAgendaScreen()),
-          ),
-          GoRoute(
-            path: Routes.operacionesMapaClientes,
-            builder: (context, state) =>
-                hideGlobalAiAssistant(const OperacionesMapaClientesScreen()),
-          ),
-          GoRoute(
-            path: Routes.operacionesReglas,
-            builder: (context, state) =>
-                hideGlobalAiAssistant(const OperacionesReglasScreen()),
-          ),
-          GoRoute(
-            path: Routes.operacionesChecklistConfig,
-            builder: (context, state) =>
-                hideGlobalAiAssistant(const OperacionesChecklistConfigScreen()),
-          ),
-          GoRoute(
-            path: Routes.operacionesWarrantyConfig,
-            builder: (context, state) =>
-                hideGlobalAiAssistant(const OperacionesWarrantyConfigScreen()),
           ),
           GoRoute(
             path: Routes.catalogo,
@@ -274,9 +210,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       final isSplashRoute = path == Routes.splash;
 
       String defaultAuthedRoute() {
-        return role == AppRole.tecnico
-            ? Routes.operacionesTecnico
-            : Routes.operaciones;
+        return RouteAccess.defaultHomeForRole(role);
       }
 
       if (!auth.initialized || auth.restoringSession) {
@@ -295,19 +229,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         return defaultAuthedRoute();
       }
 
-      if (role == AppRole.tecnico && path == Routes.operaciones) {
-        return Routes.operacionesTecnico;
-      }
-
       final required = RouteAccess.permissionForLocation(loc);
       if (required != null && !hasPermission(role, required)) {
-        // Prefer sending users to Operaciones as the safe default.
-        if (path != Routes.operaciones &&
-            hasPermission(role, AppPermission.viewOperations)) {
-          return Routes.operaciones;
+        final fallback = RouteAccess.defaultHomeForRole(role);
+        if (path != fallback) {
+          return fallback;
         }
 
-        // If even Operaciones is not allowed (shouldn't happen), fall back.
         if (path != Routes.profile &&
             hasPermission(role, AppPermission.viewProfile)) {
           return Routes.profile;

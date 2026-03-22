@@ -11,20 +11,16 @@ import { ClientsModule } from './clients/clients.module';
 import { PunchModule } from './punch/punch.module';
 import { ContabilidadModule } from './contabilidad/contabilidad.module';
 import { SalesModule } from './sales/sales.module';
-import { OperationsModule } from './operations/operations.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { AdminModule } from './admin/admin.module';
 import { SettingsModule } from './settings/settings.module';
 import { CotizacionesModule } from './cotizaciones/cotizaciones.module';
 import { LocationsModule } from './locations/locations.module';
-import { SalidasTecnicasModule } from './salidas-tecnicas/salidas-tecnicas.module';
 import { WorkSchedulingModule } from './work-scheduling/work-scheduling.module';
 import { CompanyManualModule } from './company-manual/company-manual.module';
 import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { StorageModule } from './storage/storage.module';
-import { ServiceClosingModule } from './service-closing/service-closing.module';
-import { TechnicalVisitsModule } from './technical-visits/technical-visits.module';
 import { WarrantyConfigsModule } from './warranty-configs/warranty-configs.module';
 
 @Module({
@@ -47,20 +43,16 @@ import { WarrantyConfigsModule } from './warranty-configs/warranty-configs.modul
     PunchModule,
     ContabilidadModule,
     SalesModule,
-    OperationsModule,
     PayrollModule,
     AdminModule,
     SettingsModule,
     CotizacionesModule,
     LocationsModule,
-    SalidasTecnicasModule,
     WorkSchedulingModule,
     CompanyManualModule,
     AiAssistantModule,
     NotificationsModule,
     StorageModule,
-    ServiceClosingModule,
-    TechnicalVisitsModule,
     WarrantyConfigsModule,
   ]
 })

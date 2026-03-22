@@ -802,7 +802,7 @@ export class CotizacionesService {
         'ventas',
         'guia-app',
         'Uso del modulo de ventas',
-        'En ventas puedes registrar ventas, consultar resúmenes, revisar historiales y trabajar con clientes vinculados a tus operaciones autorizadas.',
+        'En ventas puedes registrar ventas, consultar resúmenes, revisar historiales y trabajar con clientes autorizados dentro de tu alcance.',
       ),
       this.createAppKnowledgeRecord(
         'app-knowledge:clientes',
@@ -810,13 +810,6 @@ export class CotizacionesService {
         'guia-app',
         'Uso del modulo de clientes',
         'El modulo de clientes permite buscar, crear y consultar clientes. Los usuarios no administradores solo deben trabajar con informacion permitida por su alcance dentro del sistema.',
-      ),
-      this.createAppKnowledgeRecord(
-        'app-knowledge:operaciones',
-        'operaciones',
-        'guia-app',
-        'Uso del modulo de operaciones',
-        'En operaciones puedes consultar servicios, revisar fases, asignaciones, archivos, garantias y estado de ordenes segun los permisos del usuario.',
       ),
       this.createAppKnowledgeRecord(
         'app-knowledge:manual-interno',
@@ -845,7 +838,6 @@ export class CotizacionesService {
     const wantsSales = includeAll || this.hasAnyToken(tokens, ['venta', 'ventas', 'comision']);
     const wantsClients = includeAll || this.hasAnyToken(tokens, ['cliente', 'clientes']);
     const wantsQuotes = includeAll || this.hasAnyToken(tokens, ['cotizacion', 'cotizaciones', 'ticket']);
-    const wantsServices = includeAll || this.hasAnyToken(tokens, ['servicio', 'servicios', 'operacion', 'operaciones', 'garantia']);
 
     const knowledge: BusinessRuleRecord[] = [];
 
@@ -896,23 +888,6 @@ export class CotizacionesService {
           user.role === Role.ADMIN
             ? `Actualmente hay ${totalQuotes} cotizaciones registradas en el sistema.`
             : `Actualmente tienes ${totalQuotes} cotizaciones registradas bajo tu usuario.`,
-        ),
-      );
-    }
-
-    if (wantsServices) {
-      const totalServices = await this.prisma.service.count({
-        where: user.role === Role.ADMIN ? {} : { OR: [{ createdByUserId: user.id }, { technicianId: user.id }] },
-      });
-      knowledge.push(
-        this.createAppKnowledgeRecord(
-          'app-data:services-summary',
-          'operaciones',
-          'dato-autorizado',
-          'Resumen autorizado de servicios',
-          user.role === Role.ADMIN
-            ? `Actualmente hay ${totalServices} servicios registrados en operaciones.`
-            : `Actualmente tienes acceso a ${totalServices} servicios relacionados con tu usuario en operaciones.`,
         ),
       );
     }

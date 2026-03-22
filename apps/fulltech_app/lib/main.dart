@@ -14,11 +14,9 @@ import 'core/debug/app_error_reporter.dart';
 import 'core/debug/app_error_overlay.dart';
 import 'core/offline/sync_queue_service.dart';
 import 'core/realtime/catalog_realtime_service.dart';
-import 'features/operaciones/application/operations_realtime_bootstrap_provider.dart';
 import 'core/startup/app_startup_controller.dart';
 import 'core/ai_assistant/presentation/widgets/global_ai_assistant_entry_point.dart';
 import 'core/widgets/fulltech_global_background.dart';
-import 'features/operaciones/application/operations_prefetch_provider.dart';
 import 'features/contabilidad/contabilidad_init.dart';
 
 class _GlobalErrorFallback extends StatefulWidget {
@@ -182,8 +180,6 @@ class _MyAppState extends ConsumerState<MyApp> {
   Widget build(BuildContext context) {
     if (_backgroundStartupStarted) {
       ref.watch(syncQueueBootstrapProvider);
-      ref.watch(operationsPrefetchBootstrapProvider);
-      ref.watch(operationsRealtimeBootstrapProvider);
     }
     final router = ref.watch(routerProvider);
     ref.watch(authStateProvider);

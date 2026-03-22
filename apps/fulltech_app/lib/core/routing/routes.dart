@@ -8,17 +8,7 @@ class Routes {
   static const users = '/users';
   static const userDetail = '/users/:id';
   static const ponche = '/ponche';
-  static const operaciones = '/operaciones';
-  static const operacionesTecnico = '/operaciones/tecnico';
-  static const operacionesTecnicoDetalle = '/operaciones/tecnico/:id';
-  static const operacionesTecnicoOrden = '/operaciones/tecnico/:id/orden';
-  static const salidasTecnicas = '/salidas-tecnicas';
   static const horarios = '/horarios';
-  static const operacionesAgenda = '/operaciones/agenda';
-  static const operacionesMapaClientes = '/operaciones/mapa-clientes';
-  static const operacionesReglas = '/operaciones/reglas';
-  static const operacionesChecklistConfig = '/operaciones/checklist-config';
-  static const operacionesWarrantyConfig = '/operaciones/warranty-config';
   static const catalogo = '/catalogo';
   static const contabilidad = '/contabilidad';
   static const contabilidadCierresDiarios = '/contabilidad/cierres-diarios';
@@ -40,10 +30,4 @@ class Routes {
 
   static String clienteDetail(String id) => '/clientes/$id';
   static String clienteEdit(String id) => '/clientes/$id/editar';
-
-  static String operacionesTecnicoDetail(String id) =>
-      '/operaciones/tecnico/$id';
-
-  static String operacionesTecnicoOrder(String id) =>
-      '/operaciones/tecnico/$id/orden';
 }

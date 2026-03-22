@@ -463,13 +463,6 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
           'Que acciones puedo hacer aqui',
           'Resumen del cliente seleccionado',
         ];
-      case 'operaciones':
-        return const [
-          'Explicame esta pantalla',
-          'Resumen del servicio actual',
-          'Que puedo hacer en este modulo',
-          'Cual es el siguiente paso recomendado',
-        ];
       case 'cotizaciones':
         return const [
           'Explicame esta pantalla',
@@ -521,8 +514,6 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
   String _prettyModule(String module) {
     final normalized = module.trim().toLowerCase();
     switch (normalized) {
-      case 'operaciones':
-        return 'Operaciones';
       case 'clientes':
         return 'Clientes';
       case 'catalogo':
