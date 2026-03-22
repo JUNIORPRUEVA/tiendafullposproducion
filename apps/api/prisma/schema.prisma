@@ -261,6 +261,43 @@ enum WarrantyDurationUnit {
   YEARS
 }
 
+enum ServiceOrderCategory {
+  CAMARA          @map("camara")
+  MOTOR_PORTON    @map("motor_porton")
+  ALARMA          @map("alarma")
+  CERCO_ELECTRICO @map("cerco_electrico")
+  INTERCOM        @map("intercom")
+  PUNTO_VENTA     @map("punto_venta")
+
+  @@map("service_order_category")
+}
+
+enum ServiceOrderType {
+  INSTALACION   @map("instalacion")
+  MANTENIMIENTO @map("mantenimiento")
+  LEVANTAMIENTO @map("levantamiento")
+  GARANTIA      @map("garantia")
+
+  @@map("service_order_type")
+}
+
+enum ServiceOrderStatus {
+  PENDIENTE  @map("pendiente")
+  EN_PROCESO @map("en_proceso")
+  FINALIZADO @map("finalizado")
+  CANCELADO  @map("cancelado")
+
+  @@map("service_order_status")
+}
+
+enum ServiceEvidenceType {
+  TEXTO  @map("texto")
+  IMAGEN @map("imagen")
+  VIDEO  @map("video")
+
+  @@map("service_evidence_type")
+}
+
 model User {
   id               String   @id @default(uuid()) @db.Uuid
   email            String   @unique
@@ -316,6 +353,10 @@ model User {
   serviceUpdates ServiceUpdate[]
   servicePhaseHistory ServicePhaseHistory[]
   uploadedServiceFiles ServiceFile[]
+  createdServiceOrders ServiceOrder[] @relation("ServiceOrderCreatedBy")
+  assignedServiceOrders ServiceOrder[] @relation("ServiceOrderAssignedTo")
+  createdServiceEvidences ServiceEvidence[] @relation("ServiceEvidenceCreatedBy")
+  createdServiceReports ServiceReport[] @relation("ServiceReportCreatedBy")
   serviceExecutionReports ServiceExecutionReport[]
   serviceExecutionChanges ServiceExecutionChange[]
   checklistExecutionsChecked ChecklistExecution[] @relation("ChecklistExecutionCheckedBy")
@@ -595,6 +636,7 @@ model Client {
   owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   sales Sale[]
   services Service[]
+  serviceOrders ServiceOrder[]
   cotizaciones Cotizacion[]
 
   @@index([ownerId])
@@ -1257,6 +1299,77 @@ model ServiceFile {
   @@index([uploadedByUserId])
 }
 
+model ServiceOrder {
+  id                String               @id @default(uuid()) @db.Uuid
+  clientId          String               @db.Uuid @map("client_id")
+  quotationId       String               @db.Uuid @map("quotation_id")
+  category          ServiceOrderCategory
+  serviceType       ServiceOrderType     @map("service_type")
+  status            ServiceOrderStatus   @default(PENDIENTE)
+  technicalNote     String?              @db.Text @map("technical_note")
+  extraRequirements String?              @db.Text @map("extra_requirements")
+  parentOrderId     String?              @db.Uuid @map("parent_order_id")
+  createdById       String               @db.Uuid @map("created_by")
+  assignedToId      String?              @db.Uuid @map("assigned_to")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+
+  client      Client          @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  quotation   Cotizacion      @relation(fields: [quotationId], references: [id], onDelete: Restrict)
+  parentOrder ServiceOrder?   @relation("ServiceOrderParent", fields: [parentOrderId], references: [id], onDelete: SetNull)
+  childOrders ServiceOrder[]  @relation("ServiceOrderParent")
+  createdBy   User            @relation("ServiceOrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  assignedTo  User?           @relation("ServiceOrderAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  evidences   ServiceEvidence[]
+  reports     ServiceReport[]
+
+  @@index([clientId])
+  @@index([quotationId])
+  @@index([category])
+  @@index([serviceType])
+  @@index([status])
+  @@index([createdById])
+  @@index([assignedToId])
+  @@index([parentOrderId])
+  @@index([status, assignedToId])
+  @@index([clientId, createdAt])
+  @@map("service_orders")
+}
+
+model ServiceEvidence {
+  id             String              @id @default(uuid()) @db.Uuid
+  serviceOrderId String              @db.Uuid @map("service_order_id")
+  type           ServiceEvidenceType
+  content        String              @db.Text
+  createdById    String              @db.Uuid @map("created_by")
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation("ServiceEvidenceCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([serviceOrderId])
+  @@index([serviceOrderId, createdAt])
+  @@index([type])
+  @@index([createdById])
+  @@map("service_evidences")
+}
+
+model ServiceReport {
+  id             String   @id @default(uuid()) @db.Uuid
+  serviceOrderId String   @db.Uuid @map("service_order_id")
+  report         String   @db.Text
+  createdById    String   @db.Uuid @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation("ServiceReportCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([serviceOrderId])
+  @@index([serviceOrderId, createdAt])
+  @@index([createdById])
+  @@map("service_reports")
+}
+
 model Cotizacion {
   id              String   @id @default(uuid()) @db.Uuid
   createdByUserId String   @db.Uuid
@@ -1276,6 +1389,7 @@ model Cotizacion {
   createdBy User    @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
   customer  Client? @relation(fields: [customerId], references: [id], onDelete: SetNull)
   items     CotizacionItem[]
+  serviceOrders ServiceOrder[]
 
   @@index([createdByUserId])
   @@index([customerId])

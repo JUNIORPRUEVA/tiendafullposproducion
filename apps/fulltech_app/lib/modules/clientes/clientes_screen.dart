@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/auth/auth_provider.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/sync_status_banner.dart';
@@ -37,12 +38,13 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final currentUser = ref.watch(authStateProvider).user;
     final state = ref.watch(clientesControllerProvider);
     final controller = ref.read(clientesControllerProvider.notifier);
     final theme = Theme.of(context);
 
     return Scaffold(
-      drawer: const AppDrawer(),
+      drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
       appBar: AppBar(
         title: const Text('Clientes'),
         actions: [

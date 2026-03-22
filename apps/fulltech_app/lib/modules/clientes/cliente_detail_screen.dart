@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/auth/auth_provider.dart';
 import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
@@ -112,11 +113,12 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final currentUser = ref.watch(authStateProvider).user;
     final profile = _profile;
     final theme = Theme.of(context);
 
     return Scaffold(
-      drawer: const AppDrawer(),
+      drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
       appBar: AppBar(
         leading: AppNavigator.maybeBackButton(
           context,

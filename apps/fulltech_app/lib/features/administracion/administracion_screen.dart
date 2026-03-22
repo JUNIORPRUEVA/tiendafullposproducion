@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/auth/auth_provider.dart';
 import '../../core/widgets/app_drawer.dart';
 import 'data/administracion_repository.dart';
 import 'models/admin_panel_models.dart';
@@ -52,12 +53,13 @@ class _AdministracionScreenState extends ConsumerState<AdministracionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final currentUser = ref.watch(authStateProvider).user;
     final theme = Theme.of(context);
     final overview = _overview;
     final metrics = overview?.metrics ?? const <String, dynamic>{};
 
     return Scaffold(
-      drawer: const AppDrawer(),
+      drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
       appBar: AppBar(
         title: const Text('Administración'),
         actions: [
