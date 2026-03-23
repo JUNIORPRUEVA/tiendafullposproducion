@@ -26,13 +26,11 @@ export class ServiceOrdersController {
   }
 
   @Get()
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   list(@Req() req: Request) {
     return this.serviceOrders.list(req.user as JwtUser);
   }
 
   @Get(':id')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   findOne(@Req() req: Request, @Param('id') id: string) {
     return this.serviceOrders.findOne(req.user as JwtUser, id);
   }

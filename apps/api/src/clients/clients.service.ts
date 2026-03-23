@@ -43,26 +43,6 @@ export class ClientsService {
     };
   }
 
-  private buildClientAccessWhere(user: AuthUser): Prisma.ClientWhereInput {
-    if (this.isAdminLike(user)) {
-      return {};
-    }
-
-    if (user.role === Role.VENDEDOR) {
-      return { ownerId: user.id };
-    }
-
-    if (user.role === Role.TECNICO) {
-      return {
-        serviceOrders: {
-          some: this.buildTechnicianServiceOrderWhere(user),
-        },
-      };
-    }
-
-    return { ownerId: user.id };
-  }
-
   private combineWhere(...parts: Array<Prisma.ClientWhereInput | null | undefined>): Prisma.ClientWhereInput {
     const filters = parts.filter((part): part is Prisma.ClientWhereInput => part != null);
     if (filters.length === 0) {
@@ -348,11 +328,7 @@ export class ClientsService {
       ...(phoneNormalizedSearch ? [{ phoneNormalized: { contains: phoneNormalizedSearch } }] : []),
     ];
 
-    const where = this.combineWhere(
-      this.buildClientAccessWhere(user),
-      baseWhere,
-      or.length ? { OR: or } : null,
-    );
+    const where = this.combineWhere(baseWhere, or.length ? { OR: or } : null);
 
     const [items, total] = await Promise.all([
       this.prisma.client.findMany({

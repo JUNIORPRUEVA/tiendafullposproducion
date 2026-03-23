@@ -12,7 +12,6 @@ import { UpdateClientLocationDto } from './dto/update-client-location.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
 @Controller('clients')
 export class ClientsController {
   constructor(private readonly clients: ClientsService) {}
@@ -26,6 +25,7 @@ export class ClientsController {
   }
 
   @Post()
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   create(@Req() req: Request, @Body() dto: CreateClientDto) {
     return this.clients.create(this.userOrThrow(req), dto);
   }
@@ -36,29 +36,28 @@ export class ClientsController {
   }
 
   @Get(':id/profile')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   profile(@Req() req: Request, @Param('id') id: string) {
     return this.clients.getProfile(this.userOrThrow(req), id);
   }
 
   @Get(':id/timeline')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   timeline(@Req() req: Request, @Param('id') id: string, @Query() query: ClientTimelineQueryDto) {
     return this.clients.getTimeline(this.userOrThrow(req), id, query);
   }
 
   @Get(':id')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   findOne(@Req() req: Request, @Param('id') id: string) {
     return this.clients.findOne(this.userOrThrow(req), id);
   }
 
   @Patch(':id')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   update(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateClientDto) {
     return this.clients.update(this.userOrThrow(req), id, dto);
   }
 
   @Patch(':id/location')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   updateLocation(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateClientLocationDto) {
     return this.clients.updateLocation(this.userOrThrow(req), id, dto);
   }
