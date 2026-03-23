@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma, Role, type Client } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CloneServiceOrderDto } from './dto/clone-service-order.dto';
 import { CreateEvidenceDto } from './dto/create-evidence.dto';
@@ -32,8 +32,15 @@ type AuthUser = { id: string; role: Role };
 
 type ServiceOrderWithRelations = Prisma.ServiceOrderGetPayload<{
   include: {
+    client: true;
     evidences: { orderBy: { createdAt: 'asc' } };
     reports: { orderBy: { createdAt: 'asc' } };
+  };
+}>;
+
+type ServiceOrderWithClient = Prisma.ServiceOrderGetPayload<{
+  include: {
+    client: true;
   };
 }>;
 
@@ -47,7 +54,10 @@ export class ServiceOrdersService {
     const payload = await this.buildCreatePayload(user, dto);
 
     try {
-      const created = await this.prisma.serviceOrder.create({ data: payload });
+      const created = await this.prisma.serviceOrder.create({
+        data: payload,
+        include: { client: true },
+      });
       return this.mapOrder(created);
     } catch (error) {
       this.rethrowWriteError(error);
@@ -58,6 +68,7 @@ export class ServiceOrdersService {
     const where = await this.buildAccessWhere(user);
     const items = await this.prisma.serviceOrder.findMany({
       where,
+      include: { client: true },
       orderBy: [{ createdAt: 'desc' }],
     });
     return { items: items.map((item) => this.mapOrder(item)) };
@@ -92,6 +103,7 @@ export class ServiceOrdersService {
     try {
       const updated = await this.prisma.serviceOrder.update({
         where: { id },
+        include: { client: true },
         data: {
           clientId,
           quotationId,
@@ -126,6 +138,7 @@ export class ServiceOrdersService {
     try {
       const updated = await this.prisma.serviceOrder.update({
         where: { id },
+        include: { client: true },
         data: { status: SERVICE_ORDER_STATUS_TO_DB[nextStatus] },
       });
       return this.mapOrder(updated);
@@ -188,6 +201,7 @@ export class ServiceOrdersService {
 
     try {
       const cloned = await this.prisma.serviceOrder.create({
+        include: { client: true },
         data: {
           clientId: original.clientId,
           quotationId: original.quotationId,
@@ -235,6 +249,7 @@ export class ServiceOrdersService {
     try {
       const updated = await this.prisma.serviceOrder.update({
         where: { id: current.id },
+        include: { client: true },
         data,
       });
       return this.mapOrder(updated);
@@ -272,7 +287,17 @@ export class ServiceOrdersService {
   }
 
   private async buildAccessWhere(user: AuthUser): Promise<Prisma.ServiceOrderWhereInput> {
-    return {};
+    if (user.role === Role.ADMIN || user.role === Role.ASISTENTE) {
+      return {};
+    }
+
+    if (user.role === Role.TECNICO) {
+      return {
+        OR: [{ assignedToId: user.id }, { createdById: user.id }],
+      };
+    }
+
+    return { createdById: user.id };
   }
 
   private async findOrderOrThrow(
@@ -308,6 +333,7 @@ export class ServiceOrdersService {
     const item = await this.prisma.serviceOrder.findFirst({
       where: { id, ...where },
       include: {
+        client: true,
         evidences: { orderBy: { createdAt: 'asc' } },
         reports: { orderBy: { createdAt: 'asc' } },
       },
@@ -565,7 +591,30 @@ export class ServiceOrdersService {
     return SERVICE_ORDER_STATUS_FROM_DB[status];
   }
 
-  private mapOrder(item: ServiceOrderWithRelations | ServiceOrderRecord) {
+  private toNullableNumber(
+    value: Prisma.Decimal | number | string | null | undefined,
+  ): number | null {
+    if (value == null) return null;
+    if (value instanceof Prisma.Decimal) return value.toNumber();
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  private mapClient(client: Client) {
+    const latitude = this.toNullableNumber(client.latitude);
+    const longitude = this.toNullableNumber(client.longitude);
+    const locationUrl = client.locationUrl ?? null;
+
+    return {
+      ...client,
+      latitude,
+      longitude,
+      locationUrl,
+      location_url: locationUrl,
+    };
+  }
+
+  private mapOrder(item: ServiceOrderWithRelations | ServiceOrderWithClient | ServiceOrderRecord) {
     const base = {
       id: item.id,
       clientId: item.clientId,
@@ -580,6 +629,7 @@ export class ServiceOrdersService {
       assignedToId: item.assignedToId,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
+      ...('client' in item ? { client: this.mapClient(item.client) } : {}),
     };
 
     if ('evidences' in item || 'reports' in item) {

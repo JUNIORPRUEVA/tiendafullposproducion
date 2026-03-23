@@ -77,19 +77,35 @@ export class ClientsService {
   private async findAccessibleClientOrThrow(user: AuthUser, id: string) {
     this.ensureValidClientId(id);
 
-    const client = await this.prisma.client.findFirst({
-      where: this.combineWhere({ id }, this.buildClientAccessWhere(user)),
+    const client = await this.prisma.client.findUnique({
+      where: { id },
     });
-    if (client) {
+    if (!client) {
+      throw new NotFoundException('Client not found');
+    }
+
+    if (this.isAdminLike(user)) {
       return client;
     }
 
-    const exists = await this.prisma.client.findUnique({
-      where: { id },
-      select: { id: true },
-    });
-    if (!exists) {
-      throw new NotFoundException('Client not found');
+    if (user.role === Role.TECNICO) {
+      const relatedOrder = await this.prisma.serviceOrder.findFirst({
+        where: {
+          clientId: id,
+          ...this.buildTechnicianServiceOrderWhere(user),
+        },
+        select: { id: true },
+      });
+
+      if (!relatedOrder) {
+        throw new ForbiddenException('No tienes permiso para ver este cliente');
+      }
+
+      return client;
+    }
+
+    if (client.ownerId === user.id) {
+      return client;
     }
 
     throw new ForbiddenException('Not authorized to access this client');
