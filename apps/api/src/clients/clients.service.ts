@@ -15,10 +15,6 @@ export class ClientsService {
   private static readonly uuidPattern =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-  private hasOwn(source: object, key: string) {
-    return Object.prototype.hasOwnProperty.call(source, key);
-  }
-
   private ensureValidClientId(id: string) {
     if (ClientsService.uuidPattern.test(id)) {
       return;
@@ -76,19 +72,35 @@ export class ClientsService {
   }
 
   private resolveLocationPayload(dto: ClientLocationFieldsDto, allowClear = false) {
-    const latitudeWasProvided = this.hasOwn(dto, 'latitude');
-    const longitudeWasProvided = this.hasOwn(dto, 'longitude');
-    const locationUrlWasProvided = this.hasOwn(dto, 'location_url') || this.hasOwn(dto, 'locationUrl');
+    const latitude = dto.latitude;
+    const longitude = dto.longitude;
+    const locationUrlInput = dto.location_url ?? dto.locationUrl;
 
-    if (!latitudeWasProvided && !longitudeWasProvided && !locationUrlWasProvided) {
+    const latitudeWasProvided = latitude !== undefined;
+    const longitudeWasProvided = longitude !== undefined;
+    const locationUrlWasProvided = locationUrlInput !== undefined;
+
+    if (
+      !latitudeWasProvided &&
+      !longitudeWasProvided &&
+      !locationUrlWasProvided
+    ) {
       return null;
     }
 
-    const latitude = dto.latitude ?? null;
-    const longitude = dto.longitude ?? null;
-    const locationUrl = this.normalizeLocationUrl(dto.location_url ?? dto.locationUrl);
+    const normalizedLatitude = latitude ?? null;
+    const normalizedLongitude = longitude ?? null;
+    const locationUrl = this.normalizeLocationUrl(locationUrlInput);
 
-    if (allowClear && latitude == null && longitude == null && locationUrl == null) {
+    if (
+      allowClear &&
+      latitudeWasProvided &&
+      longitudeWasProvided &&
+      locationUrlWasProvided &&
+      normalizedLatitude == null &&
+      normalizedLongitude == null &&
+      locationUrl == null
+    ) {
       return {
         latitude: null,
         longitude: null,
@@ -96,12 +108,12 @@ export class ClientsService {
       };
     }
 
-    if ((latitude == null) != (longitude == null)) {
+    if ((normalizedLatitude == null) != (normalizedLongitude == null)) {
       throw new BadRequestException('latitude y longitude deben enviarse juntos.');
     }
 
-    let resolvedLatitude = latitude;
-    let resolvedLongitude = longitude;
+    let resolvedLatitude = normalizedLatitude;
+    let resolvedLongitude = normalizedLongitude;
 
     // If explicit coordinates are provided, use them and build URL if needed.
     if (resolvedLatitude != null && resolvedLongitude != null) {

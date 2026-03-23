@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/auth/auth_repository.dart';
 import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/safe_url_launcher.dart';
@@ -31,6 +32,7 @@ class ClienteDetailScreen extends ConsumerStatefulWidget {
 
 class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
   bool _loading = true;
+  bool _deleting = false;
   String? _error;
   ClienteModel? _cliente;
   ClienteProfileResponse? _profile;
@@ -123,6 +125,52 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
     }
   }
 
+  Future<void> _deleteClient() async {
+    final client = _cliente;
+    if (client == null || _deleting) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Eliminar cliente'),
+          content: Text(
+            'Se eliminara el cliente ${client.nombre}. Esta accion no se puede deshacer.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Eliminar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _deleting = true);
+    try {
+      await ref.read(clientesControllerProvider.notifier).remove(client.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Cliente eliminado')));
+      context.go(Routes.clientes);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => _deleting = false);
+    }
+  }
+
   String _formatMoney(num? value) {
     return NumberFormat.currency(
       symbol: 'RD\$ ',
@@ -131,7 +179,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
   }
 
   String _formatDate(DateTime? value) {
-    if (value == null) return '—';
+    if (value == null) return '-';
     return DateFormat('yyyy-MM-dd h:mm a', 'es_DO').format(value.toLocal());
   }
 
@@ -166,10 +214,21 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
         actions: [
           IconButton(
             tooltip: 'Editar',
-            onPressed: _cliente == null
+            onPressed: _cliente == null || _deleting
                 ? null
                 : () => context.push(Routes.clienteEdit(_cliente!.id)),
             icon: const Icon(Icons.edit_outlined),
+          ),
+          IconButton(
+            tooltip: 'Eliminar',
+            onPressed: _cliente == null || _deleting ? null : _deleteClient,
+            icon: _deleting
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.delete_outline_rounded),
           ),
           IconButton(
             tooltip: 'Actualizar',
@@ -203,37 +262,36 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                           ),
                           const SizedBox(height: 12),
                           _DetailLine(
-                            'Teléfono',
+                            'Telefono',
                             profile?.client.telefono ??
                                 _cliente?.telefono ??
-                                '—',
+                                '-',
                           ),
                           _DetailLine(
                             'Correo',
                             (profile?.client.email ?? _cliente?.correo ?? '')
                                     .trim()
                                     .isEmpty
-                                ? '—'
+                                ? '-'
                                 : (profile?.client.email ??
                                           _cliente?.correo ??
                                           '')
                                       .trim(),
                           ),
                           _DetailLine(
-                            'Dirección',
+                            'Direccion',
                             (profile?.client.direccion ??
                                         _cliente?.direccion ??
                                         '')
                                     .trim()
                                     .isEmpty
-                                ? '—'
+                                ? '-'
                                 : (profile?.client.direccion ??
                                           _cliente?.direccion ??
                                           '')
                                       .trim(),
                           ),
-                          _LocationDetailLine(
-                            label: 'Ubicación',
+                          _LocationDetailCard(
                             locationUrl:
                                 profile?.client.locationUrl ??
                                 _cliente?.locationUrl,
@@ -246,10 +304,10 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                           ),
                           _DetailLine(
                             'Creado por',
-                            profile?.createdBy?.label ?? '—',
+                            profile?.createdBy?.label ?? '-',
                           ),
                           _DetailLine(
-                            'Última actividad',
+                            'Ultima actividad',
                             _formatDate(
                               profile?.metrics.lastActivityAt ??
                                   profile?.client.lastActivityAt,
@@ -326,91 +384,146 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
   }
 }
 
-class _LocationDetailLine extends StatelessWidget {
-  const _LocationDetailLine({
-    required this.label,
+class _LocationDetailCard extends ConsumerWidget {
+  const _LocationDetailCard({
     required this.locationUrl,
     this.latitude,
     this.longitude,
   });
 
-  final String label;
   final String? locationUrl;
   final double? latitude;
   final double? longitude;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final urlValue = (locationUrl ?? '').trim();
-    final uri = urlValue.isEmpty ? null : Uri.tryParse(urlValue);
-    final hasCoords =
-        latitude != null &&
-        longitude != null &&
-        latitude!.isFinite &&
-        longitude!.isFinite;
+    final normalizedUrl = normalizeClientLocationUrl(locationUrl);
+    final uri = normalizedUrl.isEmpty ? null : Uri.tryParse(normalizedUrl);
+    final directPreview = ClientLocationPreview(
+      latitude: latitude,
+      longitude: longitude,
+      resolvedUrl: normalizedUrl.isEmpty ? null : normalizedUrl,
+    );
 
-    if (urlValue.isEmpty && !hasCoords) return const SizedBox.shrink();
+    if (normalizedUrl.isEmpty && !directPreview.hasCoordinates) {
+      return const SizedBox.shrink();
+    }
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            label,
+            'Ubicacion',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 6),
-          if (hasCoords) ...[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: SizedBox(
-                height: 200,
-                child: FlutterMap(
-                  options: MapOptions(
-                    initialCenter: LatLng(latitude!, longitude!),
-                    initialZoom: 15,
-                    interactionOptions: const InteractionOptions(
-                      flags: InteractiveFlag.none,
+          const SizedBox(height: 8),
+          Card(
+            margin: EdgeInsets.zero,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  FutureBuilder<ClientLocationPreview>(
+                    future: resolveClientLocationPreview(
+                      normalizedUrl,
+                      dio: ref.read(dioProvider),
                     ),
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate:
-                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'com.fulltech.app',
-                    ),
-                    MarkerLayer(
-                      markers: [
-                        Marker(
-                          point: LatLng(latitude!, longitude!),
-                          width: 40,
-                          height: 40,
-                          child: Icon(
-                            Icons.location_pin,
-                            color: theme.colorScheme.error,
-                            size: 40,
-                          ),
+                    initialData: directPreview,
+                    builder: (context, snapshot) {
+                      final preview = snapshot.data ?? directPreview;
+
+                      if (preview.hasCoordinates) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: SizedBox(
+                                height: 220,
+                                child: FlutterMap(
+                                  options: MapOptions(
+                                    initialCenter: LatLng(
+                                      preview.latitude!,
+                                      preview.longitude!,
+                                    ),
+                                    initialZoom: 15,
+                                  ),
+                                  children: [
+                                    TileLayer(
+                                      urlTemplate:
+                                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                      userAgentPackageName: 'com.fulltech.app',
+                                    ),
+                                    MarkerLayer(
+                                      markers: [
+                                        Marker(
+                                          point: LatLng(
+                                            preview.latitude!,
+                                            preview.longitude!,
+                                          ),
+                                          width: 40,
+                                          height: 40,
+                                          child: Icon(
+                                            Icons.location_pin,
+                                            color: theme.colorScheme.error,
+                                            size: 40,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '${preview.latitude!.toStringAsFixed(6)}, ${preview.longitude!.toStringAsFixed(6)}',
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        );
+                      }
+
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: LinearProgressIndicator(),
+                        );
+                      }
+
+                      return Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                      ],
+                        child: Text(
+                          'No se pudieron resolver coordenadas del enlace, pero la ubicacion sigue vinculada al cliente.',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      );
+                    },
+                  ),
+                  if (uri != null) ...[
+                    const SizedBox(height: 8),
+                    FilledButton.tonalIcon(
+                      onPressed: () => safeOpenUrl(context, uri),
+                      icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                      label: const Text('Abrir en mapa'),
                     ),
                   ],
-                ),
+                ],
               ),
             ),
-            const SizedBox(height: 8),
-          ],
-          if (uri != null)
-            FilledButton.tonalIcon(
-              onPressed: () => safeOpenUrl(context, uri),
-              icon: const Icon(Icons.open_in_new_rounded, size: 18),
-              label: const Text('Abrir en mapa'),
-            ),
-          const SizedBox(height: 8),
+          ),
         ],
       ),
     );

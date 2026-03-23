@@ -400,6 +400,9 @@ class ClientesRepository {
     required String ownerId,
     required String id,
   }) async {
+    if (_isLocalId(id)) {
+      return;
+    }
     try {
       await _dio.delete(
         ApiRoutes.clientDetail(id),

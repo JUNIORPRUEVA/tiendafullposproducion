@@ -6,10 +6,11 @@ import 'package:latlong2/latlong.dart';
 import 'package:validators/validators.dart' as validators;
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/auth/auth_repository.dart';
 import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
-import '../../core/widgets/app_drawer.dart';
 import '../../core/utils/safe_url_launcher.dart';
+import '../../core/widgets/app_drawer.dart';
 import 'application/clientes_controller.dart';
 import 'client_location_utils.dart';
 import 'cliente_model.dart';
@@ -60,17 +61,20 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
       final cliente = await ref
           .read(clientesControllerProvider.notifier)
           .getById(widget.clienteId!);
-      _cliente = cliente;
-      _nombreCtrl.text = cliente.nombre;
-      _telefonoCtrl.text = cliente.telefono;
-      _direccionCtrl.text = cliente.direccion ?? '';
-      _locationUrlCtrl.text = cliente.locationUrl ?? '';
-      _correoCtrl.text = cliente.correo ?? '';
+      if (!mounted) return;
+      setState(() {
+        _cliente = cliente;
+        _nombreCtrl.text = cliente.nombre;
+        _telefonoCtrl.text = cliente.telefono;
+        _direccionCtrl.text = cliente.direccion ?? '';
+        _locationUrlCtrl.text = cliente.locationUrl ?? '';
+        _correoCtrl.text = cliente.correo ?? '';
+      });
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('No se pudo cargar el cliente para edición'),
+          content: Text('No se pudo cargar el cliente para edicion'),
         ),
       );
     } finally {
@@ -82,14 +86,15 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     try {
+      final targetId = (_cliente?.id ?? widget.clienteId ?? '').trim();
       final saved = await ref
           .read(clientesControllerProvider.notifier)
           .saveCliente(
-            id: _cliente?.id,
+            id: targetId.isEmpty ? null : targetId,
             nombre: _nombreCtrl.text,
             telefono: _telefonoCtrl.text,
             direccion: _direccionCtrl.text,
-            locationUrl: _locationUrlCtrl.text,
+            locationUrl: normalizeClientLocationUrl(_locationUrlCtrl.text),
             correo: _correoCtrl.text,
           );
       if (!mounted) return;
@@ -111,8 +116,11 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(clientesControllerProvider);
     final user = ref.watch(authStateProvider).user;
-    final locationPreview = parseClientLocationPreview(_locationUrlCtrl.text);
-    final locationUri = Uri.tryParse(_locationUrlCtrl.text.trim());
+    final normalizedLocationUrl = normalizeClientLocationUrl(
+      _locationUrlCtrl.text,
+    );
+    final locationPreview = parseClientLocationPreview(normalizedLocationUrl);
+    final locationUri = Uri.tryParse(normalizedLocationUrl);
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: user),
@@ -143,7 +151,7 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
                           final text = (value ?? '').trim();
                           if (text.isEmpty) return 'El nombre es obligatorio';
                           if (text.length < 2) {
-                            return 'Ingresa un nombre válido';
+                            return 'Ingresa un nombre valido';
                           }
                           return null;
                         },
@@ -153,22 +161,22 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
                         controller: _telefonoCtrl,
                         keyboardType: TextInputType.phone,
                         decoration: const InputDecoration(
-                          labelText: 'Teléfono *',
+                          labelText: 'Telefono *',
                           hintText: 'Ej: +1 809 555 1234',
                         ),
                         validator: (value) {
                           final text = (value ?? '').trim();
-                          if (text.isEmpty) return 'El teléfono es obligatorio';
+                          if (text.isEmpty) return 'El telefono es obligatorio';
                           final sanitized = text.replaceAll(
                             RegExp(r'[^0-9+]'),
                             '',
                           );
                           if (sanitized.length < 7) {
-                            return 'Teléfono demasiado corto';
+                            return 'Telefono demasiado corto';
                           }
                           final allowed = RegExp(r'^[0-9+()\-\s]+$');
                           if (!allowed.hasMatch(text)) {
-                            return 'Formato de teléfono inválido';
+                            return 'Formato de telefono invalido';
                           }
                           return null;
                         },
@@ -178,7 +186,7 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
                         controller: _direccionCtrl,
                         textCapitalization: TextCapitalization.sentences,
                         decoration: const InputDecoration(
-                          labelText: 'Dirección',
+                          labelText: 'Direccion',
                           hintText: 'Opcional',
                         ),
                       ),
@@ -187,11 +195,11 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
                         controller: _locationUrlCtrl,
                         keyboardType: TextInputType.url,
                         decoration: InputDecoration(
-                          labelText: 'Link de ubicación',
+                          labelText: 'Link de ubicacion',
                           hintText: 'https://maps.google.com/...',
                           suffixIcon: IconButton(
                             tooltip: 'Abrir link',
-                            onPressed: (_locationUrlCtrl.text).trim().isEmpty
+                            onPressed: normalizedLocationUrl.isEmpty
                                 ? null
                                 : () async {
                                     final uri = locationUri;
@@ -203,23 +211,23 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
                         ),
                         onChanged: (_) => setState(() {}),
                         validator: (value) {
-                          final text = (value ?? '').trim();
-                          if (text.isEmpty) return null;
-                          final uri = Uri.tryParse(text);
+                          final normalized = normalizeClientLocationUrl(value);
+                          if (normalized.isEmpty) return null;
+                          final uri = Uri.tryParse(normalized);
                           final looksValid =
                               uri != null &&
                               uri.hasScheme &&
                               (uri.host.isNotEmpty || uri.scheme == 'geo');
                           if (!looksValid) {
-                            return 'Ingresa un link de ubicación válido';
+                            return 'Ingresa un link de ubicacion valido';
                           }
                           return null;
                         },
                       ),
-                      if ((_locationUrlCtrl.text).trim().isNotEmpty) ...[
+                      if (normalizedLocationUrl.isNotEmpty) ...[
                         const SizedBox(height: 12),
                         _LocationPreviewCard(
-                          locationUrl: _locationUrlCtrl.text.trim(),
+                          locationUrl: normalizedLocationUrl,
                           latitude: locationPreview.latitude,
                           longitude: locationPreview.longitude,
                         ),
@@ -236,7 +244,7 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
                           final text = (value ?? '').trim();
                           if (text.isEmpty) return null;
                           if (!validators.isEmail(text)) {
-                            return 'Correo inválido';
+                            return 'Correo invalido';
                           }
                           return null;
                         },
@@ -279,7 +287,7 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
   }
 }
 
-class _LocationPreviewCard extends StatelessWidget {
+class _LocationPreviewCard extends ConsumerWidget {
   const _LocationPreviewCard({
     required this.locationUrl,
     this.latitude,
@@ -291,14 +299,14 @@ class _LocationPreviewCard extends StatelessWidget {
   final double? longitude;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final uri = Uri.tryParse(locationUrl);
-    final hasCoords =
-        latitude != null &&
-        longitude != null &&
-        latitude!.isFinite &&
-        longitude!.isFinite;
+    final directPreview = ClientLocationPreview(
+      latitude: latitude,
+      longitude: longitude,
+      resolvedUrl: locationUrl,
+    );
 
     return Card(
       child: Padding(
@@ -307,59 +315,89 @@ class _LocationPreviewCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Vista previa de ubicación',
+              'Vista previa de ubicacion',
               style: theme.textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 8),
-            if (hasCoords) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: SizedBox(
-                  height: 180,
-                  child: FlutterMap(
-                    options: MapOptions(
-                      initialCenter: LatLng(latitude!, longitude!),
-                      initialZoom: 15,
-                      interactionOptions: const InteractionOptions(
-                        flags: InteractiveFlag.none,
-                      ),
-                    ),
+            FutureBuilder<ClientLocationPreview>(
+              future: resolveClientLocationPreview(
+                locationUrl,
+                dio: ref.read(dioProvider),
+              ),
+              initialData: directPreview,
+              builder: (context, snapshot) {
+                final preview = snapshot.data ?? directPreview;
+
+                if (preview.hasCoordinates) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      TileLayer(
-                        urlTemplate:
-                            'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                        userAgentPackageName: 'com.fulltech.app',
-                      ),
-                      MarkerLayer(
-                        markers: [
-                          Marker(
-                            point: LatLng(latitude!, longitude!),
-                            width: 40,
-                            height: 40,
-                            child: Icon(
-                              Icons.location_pin,
-                              color: theme.colorScheme.error,
-                              size: 40,
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: SizedBox(
+                          height: 180,
+                          child: FlutterMap(
+                            options: MapOptions(
+                              initialCenter: LatLng(
+                                preview.latitude!,
+                                preview.longitude!,
+                              ),
+                              initialZoom: 15,
+                              interactionOptions: const InteractionOptions(
+                                flags: InteractiveFlag.none,
+                              ),
                             ),
+                            children: [
+                              TileLayer(
+                                urlTemplate:
+                                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                userAgentPackageName: 'com.fulltech.app',
+                              ),
+                              MarkerLayer(
+                                markers: [
+                                  Marker(
+                                    point: LatLng(
+                                      preview.latitude!,
+                                      preview.longitude!,
+                                    ),
+                                    width: 40,
+                                    height: 40,
+                                    child: Icon(
+                                      Icons.location_pin,
+                                      color: theme.colorScheme.error,
+                                      size: 40,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '${preview.latitude!.toStringAsFixed(6)}, ${preview.longitude!.toStringAsFixed(6)}',
+                        style: theme.textTheme.bodySmall,
                       ),
                     ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '${latitude!.toStringAsFixed(6)}, ${longitude!.toStringAsFixed(6)}',
-                style: theme.textTheme.bodySmall,
-              ),
-            ] else
-              Text(
-                'El enlace se guardará, pero no se pudieron extraer coordenadas para mostrar el mapa aquí.',
-                style: theme.textTheme.bodyMedium,
-              ),
+                  );
+                }
+
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: LinearProgressIndicator(),
+                  );
+                }
+
+                return Text(
+                  'El enlace se guardara, pero no se pudieron extraer coordenadas para mostrar el mapa aqui.',
+                  style: theme.textTheme.bodyMedium,
+                );
+              },
+            ),
             if (uri != null) ...[
               const SizedBox(height: 8),
               FilledButton.tonalIcon(
