@@ -65,9 +65,7 @@ export class ServiceOrdersService {
   }
 
   async list(user: AuthUser) {
-    const where = await this.buildAccessWhere(user);
     const items = await this.prisma.serviceOrder.findMany({
-      where,
       include: { client: true },
       orderBy: [{ createdAt: 'desc' }],
     });
@@ -286,40 +284,16 @@ export class ServiceOrdersService {
     };
   }
 
-  private async buildAccessWhere(user: AuthUser): Promise<Prisma.ServiceOrderWhereInput> {
-    if (user.role === Role.ADMIN || user.role === Role.ASISTENTE) {
-      return {};
-    }
-
-    if (user.role === Role.TECNICO) {
-      return {
-        OR: [{ assignedToId: user.id }, { createdById: user.id }],
-      };
-    }
-
-    return { createdById: user.id };
-  }
-
   private async findOrderOrThrow(
     user: AuthUser,
     id: string,
   ): Promise<ServiceOrderRecord> {
-    const where = await this.buildAccessWhere(user);
-    const item = await this.prisma.serviceOrder.findFirst({
-      where: { id, ...where },
+    const item = await this.prisma.serviceOrder.findUnique({
+      where: { id },
     });
 
     if (!item) {
-      const exists = await this.prisma.serviceOrder.findUnique({
-        where: { id },
-        select: { id: true },
-      });
-
-      if (!exists) {
-        throw new NotFoundException('Orden de servicio no encontrada');
-      }
-
-      throw new ForbiddenException('Not authorized to access this order');
+      throw new NotFoundException('Orden de servicio no encontrada');
     }
 
     return item;
@@ -329,9 +303,8 @@ export class ServiceOrdersService {
     user: AuthUser,
     id: string,
   ): Promise<ServiceOrderWithRelations> {
-    const where = await this.buildAccessWhere(user);
-    const item = await this.prisma.serviceOrder.findFirst({
-      where: { id, ...where },
+    const item = await this.prisma.serviceOrder.findUnique({
+      where: { id },
       include: {
         client: true,
         evidences: { orderBy: { createdAt: 'asc' } },
@@ -340,16 +313,7 @@ export class ServiceOrdersService {
     });
 
     if (!item) {
-      const exists = await this.prisma.serviceOrder.findUnique({
-        where: { id },
-        select: { id: true },
-      });
-
-      if (!exists) {
-        throw new NotFoundException('Orden de servicio no encontrada');
-      }
-
-      throw new ForbiddenException('Not authorized to access this order');
+      throw new NotFoundException('Orden de servicio no encontrada');
     }
 
     return item;

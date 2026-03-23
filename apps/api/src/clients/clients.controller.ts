@@ -36,16 +36,19 @@ export class ClientsController {
   }
 
   @Get(':id/profile')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   profile(@Req() req: Request, @Param('id') id: string) {
     return this.clients.getProfile(this.userOrThrow(req), id);
   }
 
   @Get(':id/timeline')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   timeline(@Req() req: Request, @Param('id') id: string, @Query() query: ClientTimelineQueryDto) {
     return this.clients.getTimeline(this.userOrThrow(req), id, query);
   }
 
   @Get(':id')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   findOne(@Req() req: Request, @Param('id') id: string) {
     return this.clients.findOne(this.userOrThrow(req), id);
   }

@@ -74,15 +74,22 @@ export class ClientsService {
     return { AND: filters };
   }
 
-  private async findAccessibleClientOrThrow(user: AuthUser, id: string) {
+  private async findClientOrThrow(id: string) {
     this.ensureValidClientId(id);
 
     const client = await this.prisma.client.findUnique({
       where: { id },
     });
+
     if (!client) {
       throw new NotFoundException('Client not found');
     }
+
+    return client;
+  }
+
+  private async findAccessibleClientOrThrow(user: AuthUser, id: string) {
+    const client = await this.findClientOrThrow(id);
 
     if (this.isAdminLike(user)) {
       return client;
@@ -367,7 +374,7 @@ export class ClientsService {
   }
 
   async findOne(user: AuthUser, id: string) {
-    const client = await this.findAccessibleClientOrThrow(user, id);
+    const client = await this.findClientOrThrow(id);
     return this.serializeClient(client);
   }
 
@@ -426,8 +433,8 @@ export class ClientsService {
   }
 
   async getProfile(user: AuthUser, id: string) {
-    const client = await this.prisma.client.findFirst({
-      where: this.combineWhere({ id }, this.buildClientAccessWhere(user)),
+    const client = await this.prisma.client.findUnique({
+      where: { id },
       select: {
         id: true,
         nombre: true,
@@ -448,7 +455,6 @@ export class ClientsService {
     });
 
     if (!client) {
-      await this.findAccessibleClientOrThrow(user, id);
       throw new NotFoundException('Client not found');
     }
 
@@ -491,7 +497,7 @@ export class ClientsService {
     id: string,
     options: { take?: number; before?: string; types?: string },
   ) {
-    await this.findAccessibleClientOrThrow(user, id);
+    await this.findClientOrThrow(id);
 
     const take = Math.min(Math.max(options.take ?? 100, 1), 300);
     const before = options.before ? new Date(options.before) : new Date();
