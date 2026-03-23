@@ -138,7 +138,7 @@ export class StorageController {
       mm,
       `${randomUUID()}-${fileStem}${safeExt}`,
     ]
-      .filter((segment) => segment.trim().isNotEmpty)
+      .filter((segment) => segment.trim().length > 0)
       .join('/');
 
     const uploadDir = this.resolveUploadDir();
