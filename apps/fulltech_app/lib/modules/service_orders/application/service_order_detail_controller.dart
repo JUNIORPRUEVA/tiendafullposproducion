@@ -93,13 +93,14 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
     );
     try {
       final order = await ref.read(serviceOrdersApiProvider).getOrder(orderId);
-      final futures = <Future<dynamic>>[
-        ref
-            .read(clientesRepositoryProvider)
-            .getClientById(ownerId: '', id: order.clientId),
-        ref.read(usersRepositoryProvider).getAllUsers(),
-      ];
-      final results = await Future.wait<dynamic>(futures);
+      final clientFuture = ref
+          .read(clientesRepositoryProvider)
+          .getClientById(ownerId: '', id: order.clientId);
+      final usersFuture = ref
+          .read(usersRepositoryProvider)
+          .getAllUsers()
+          .catchError((_) => <UserModel>[]);
+      final results = await Future.wait<dynamic>([clientFuture, usersFuture]);
       final client = results[0] as ClienteModel;
       final users = results[1] as List<UserModel>;
       state = state.copyWith(
