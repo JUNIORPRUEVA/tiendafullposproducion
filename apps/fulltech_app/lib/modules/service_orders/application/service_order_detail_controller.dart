@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/errors/api_exception.dart';
@@ -65,6 +68,7 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
 
   final Ref ref;
   final String orderId;
+  Future<void> _uploadQueue = Future<void>.value();
 
   Future<void> load() async {
     state = state.copyWith(
@@ -146,28 +150,44 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
     required String fileName,
     String? path,
   }) async {
-    state = state.copyWith(working: true, clearActionError: true);
-    try {
-      final uploaded = await ref.read(uploadRepositoryProvider).uploadImage(
-            bytes: bytes,
-            path: path,
-            fileName: fileName,
-          );
-      await ref.read(serviceOrdersApiProvider).addEvidence(
-            orderId,
-            CreateServiceOrderEvidenceRequest(
-              type: ServiceEvidenceType.evidenciaImagen,
-              content: uploaded.url,
-            ),
-          );
-      await load();
-    } catch (error) {
-      final message = error is ApiException
-          ? error.message
-          : 'No se pudo subir la imagen';
-      state = state.copyWith(working: false, actionError: message);
-      rethrow;
+    final order = state.order;
+    if (order == null) {
+      throw ApiException('No hay una orden cargada para adjuntar evidencias');
     }
+
+    state = state.copyWith(clearActionError: true);
+    final optimistic = _buildOptimisticEvidence(
+      type: ServiceEvidenceType.evidenciaImagen,
+      fileName: fileName,
+      path: path,
+      bytes: bytes,
+    );
+    _upsertOptimisticEvidence(optimistic);
+
+    unawaited(
+      _enqueueUpload(() async {
+        try {
+          final uploaded = await ref.read(uploadRepositoryProvider).uploadImage(
+                bytes: bytes,
+                path: path,
+                fileName: fileName,
+              );
+          final saved = await ref.read(serviceOrdersApiProvider).addEvidence(
+                orderId,
+                CreateServiceOrderEvidenceRequest(
+                  type: ServiceEvidenceType.evidenciaImagen,
+                  content: uploaded.url,
+                ),
+              );
+          _replaceEvidence(temporaryId: optimistic.id, persisted: saved);
+        } catch (error) {
+          final message = error is ApiException
+              ? error.message
+              : 'No se pudo subir la imagen';
+          _markEvidenceUploadFailed(optimistic.id, message);
+        }
+      }),
+    );
   }
 
   Future<void> addVideoEvidence({
@@ -175,28 +195,44 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
     List<int>? bytes,
     String? path,
   }) async {
-    state = state.copyWith(working: true, clearActionError: true);
-    try {
-      final uploaded = await ref.read(uploadRepositoryProvider).uploadVideo(
-            fileName: fileName,
-            bytes: bytes,
-            path: path,
-          );
-      await ref.read(serviceOrdersApiProvider).addEvidence(
-            orderId,
-            CreateServiceOrderEvidenceRequest(
-              type: ServiceEvidenceType.evidenciaVideo,
-              content: uploaded.url,
-            ),
-          );
-      await load();
-    } catch (error) {
-      final message = error is ApiException
-          ? error.message
-          : 'No se pudo subir el video';
-      state = state.copyWith(working: false, actionError: message);
-      rethrow;
+    final order = state.order;
+    if (order == null) {
+      throw ApiException('No hay una orden cargada para adjuntar evidencias');
     }
+
+    state = state.copyWith(clearActionError: true);
+    final optimistic = _buildOptimisticEvidence(
+      type: ServiceEvidenceType.evidenciaVideo,
+      fileName: fileName,
+      path: path,
+      bytes: bytes,
+    );
+    _upsertOptimisticEvidence(optimistic);
+
+    unawaited(
+      _enqueueUpload(() async {
+        try {
+          final uploaded = await ref.read(uploadRepositoryProvider).uploadVideo(
+                fileName: fileName,
+                bytes: bytes,
+                path: path,
+              );
+          final saved = await ref.read(serviceOrdersApiProvider).addEvidence(
+                orderId,
+                CreateServiceOrderEvidenceRequest(
+                  type: ServiceEvidenceType.evidenciaVideo,
+                  content: uploaded.url,
+                ),
+              );
+          _replaceEvidence(temporaryId: optimistic.id, persisted: saved);
+        } catch (error) {
+          final message = error is ApiException
+              ? error.message
+              : 'No se pudo subir el video';
+          _markEvidenceUploadFailed(optimistic.id, message);
+        }
+      }),
+    );
   }
 
   Future<void> addReport(String report) async {
@@ -225,5 +261,76 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
       state = state.copyWith(working: false, actionError: message);
       rethrow;
     }
+  }
+
+  Future<void> _enqueueUpload(Future<void> Function() task) {
+    _uploadQueue = _uploadQueue
+        .then((_) => task())
+        .catchError((_) {});
+    return _uploadQueue;
+  }
+
+  ServiceOrderEvidenceModel _buildOptimisticEvidence({
+    required ServiceEvidenceType type,
+    required String fileName,
+    required String? path,
+    required List<int>? bytes,
+  }) {
+    return ServiceOrderEvidenceModel(
+      id: 'local_${DateTime.now().microsecondsSinceEpoch}',
+      serviceOrderId: orderId,
+      type: type,
+      content: '',
+      createdById: state.order?.createdById ?? '',
+      createdAt: DateTime.now(),
+      localPath: (path ?? '').trim().isEmpty ? null : path,
+      previewBytes: bytes == null ? null : Uint8List.fromList(bytes),
+      fileName: fileName,
+      isPendingUpload: true,
+      hasUploadError: false,
+    );
+  }
+
+  void _upsertOptimisticEvidence(ServiceOrderEvidenceModel item) {
+    final order = state.order;
+    if (order == null) return;
+    final next = List<ServiceOrderEvidenceModel>.from(order.evidences)..add(item);
+    state = state.copyWith(
+      order: order.copyWith(evidences: next),
+      clearActionError: true,
+    );
+  }
+
+  void _replaceEvidence({
+    required String temporaryId,
+    required ServiceOrderEvidenceModel persisted,
+  }) {
+    final order = state.order;
+    if (order == null) return;
+    final next = order.evidences
+        .map((evidence) => evidence.id == temporaryId ? persisted : evidence)
+        .toList(growable: false);
+    final updatedOrder = order.copyWith(evidences: next);
+    state = state.copyWith(order: updatedOrder, clearActionError: true);
+    ref.read(serviceOrdersListControllerProvider.notifier).upsertOrder(updatedOrder);
+  }
+
+  void _markEvidenceUploadFailed(String temporaryId, String message) {
+    final order = state.order;
+    if (order == null) return;
+    final next = order.evidences
+        .map(
+          (evidence) => evidence.id == temporaryId
+              ? evidence.copyWith(
+                  isPendingUpload: false,
+                  hasUploadError: true,
+                )
+              : evidence,
+        )
+        .toList(growable: false);
+    state = state.copyWith(
+      order: order.copyWith(evidences: next),
+      actionError: message,
+    );
   }
 }

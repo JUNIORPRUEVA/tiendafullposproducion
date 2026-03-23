@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:video_player/video_player.dart';
@@ -253,6 +254,9 @@ class _EvidenceVideoState extends State<_EvidenceVideo> {
 
   Future<void> _initialize() async {
     final rawSource = widget.source.trim();
+    if (kDebugMode) {
+      debugPrint('MEDIA URL (video): $rawSource');
+    }
     if (rawSource.isEmpty) {
       setState(() {
         _loading = false;
@@ -493,6 +497,9 @@ String _resolveMediaUrl(String raw) {
 
   final uri = Uri.tryParse(value);
   if (uri != null && uri.hasScheme) {
+    if (kDebugMode) {
+      debugPrint('MEDIA URL (image/video absolute): ${uri.toString()}');
+    }
     return uri.toString();
   }
 
@@ -509,7 +516,13 @@ String _resolveMediaUrl(String raw) {
     return '$baseUrl/${normalized.substring(2)}';
   }
 
-  return normalized.startsWith('/') ? '$baseUrl$normalized' : '$baseUrl/$normalized';
+  final resolved = normalized.startsWith('/')
+      ? '$baseUrl$normalized'
+      : '$baseUrl/$normalized';
+  if (kDebugMode) {
+    debugPrint('MEDIA URL (image/video resolved): $resolved');
+  }
+  return resolved;
 }
 
 String _formatDuration(Duration duration) {

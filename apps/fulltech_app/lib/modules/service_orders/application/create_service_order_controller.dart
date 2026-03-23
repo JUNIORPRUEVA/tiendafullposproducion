@@ -277,6 +277,20 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
     }
   }
 
+  Future<void> applyCreatedClient(ClienteModel client) async {
+    final nextClients = [
+      client,
+      for (final item in state.clients)
+        if (item.id != client.id) item,
+    ];
+    state = state.copyWith(
+      clients: nextClients,
+      clearActionError: true,
+      clearError: true,
+    );
+    await selectClient(client);
+  }
+
   void selectQuotation(CotizacionModel? quotation) {
     state = state.copyWith(
       selectedQuotation: quotation,
@@ -284,6 +298,20 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
       quotationMessage: quotation == null
           ? state.quotationMessage
           : 'Cotización lista para crear la orden',
+    );
+  }
+
+  void applyCreatedQuotation(CotizacionModel quotation) {
+    final nextQuotations = [
+      quotation,
+      for (final item in state.quotations)
+        if (item.id != quotation.id) item,
+    ];
+    state = state.copyWith(
+      quotations: nextQuotations,
+      selectedQuotation: quotation,
+      clearActionError: true,
+      quotationMessage: 'Cotización lista para crear la orden',
     );
   }
 

@@ -55,7 +55,7 @@ async function bootstrap() {
     : (volumeExists ? volumeDir : path.join(process.cwd(), 'uploads'));
 
   fs.mkdirSync(uploadDir, { recursive: true });
-  app.use('/uploads', express.static(uploadDir));
+  app.useStaticAssets(uploadDir, { prefix: '/uploads' });
   // eslint-disable-next-line no-console
   console.log(`[uploads] serving static files from: ${uploadDir}`);
 

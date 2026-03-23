@@ -17,8 +17,13 @@ import 'cliente_model.dart';
 
 class ClienteFormScreen extends ConsumerStatefulWidget {
   final String? clienteId;
+  final bool returnSavedClient;
 
-  const ClienteFormScreen({super.key, this.clienteId});
+  const ClienteFormScreen({
+    super.key,
+    this.clienteId,
+    this.returnSavedClient = false,
+  });
 
   @override
   ConsumerState<ClienteFormScreen> createState() => _ClienteFormScreenState();
@@ -98,6 +103,10 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
             correo: _correoCtrl.text,
           );
       if (!mounted) return;
+      if (widget.returnSavedClient) {
+        Navigator.of(context).pop(saved);
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(_isEdit ? 'Cliente actualizado' : 'Cliente creado'),

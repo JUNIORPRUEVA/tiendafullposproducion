@@ -15,7 +15,6 @@ import 'core/debug/app_error_overlay.dart';
 import 'core/offline/sync_queue_service.dart';
 import 'core/realtime/catalog_realtime_service.dart';
 import 'core/startup/app_startup_controller.dart';
-import 'core/ai_assistant/presentation/widgets/global_ai_assistant_entry_point.dart';
 import 'core/widgets/fulltech_global_background.dart';
 import 'features/contabilidad/contabilidad_init.dart';
 
@@ -225,8 +224,7 @@ class _MyAppState extends ConsumerState<MyApp> {
               enableBlurEffects:
                   widget.enableBackgroundStartup && _backgroundStartupStarted,
             ),
-            if (effectiveChild != null)
-              GlobalAiAssistantEntryPoint(child: effectiveChild),
+            if (effectiveChild != null) effectiveChild,
             const AppLoadingOverlay(),
             const AppErrorOverlay(),
           ],

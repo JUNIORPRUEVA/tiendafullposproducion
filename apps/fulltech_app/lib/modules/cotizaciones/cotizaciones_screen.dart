@@ -26,7 +26,6 @@ import 'ai/application/quotation_ai_controller.dart';
 import 'ai/domain/models/ai_warning.dart';
 import 'ai/domain/models/quotation_context.dart';
 import 'ai/presentation/widgets/ai_chat_sheet.dart';
-import 'ai/presentation/widgets/ai_fab_button.dart';
 import 'ai/presentation/widgets/ai_warning_banner.dart';
 import 'ai/presentation/widgets/quotation_rule_detail_sheet.dart';
 import 'cotizacion_models.dart';
@@ -35,7 +34,14 @@ import 'data/cotizaciones_repository.dart';
 import 'utils/cotizacion_pdf_service.dart';
 
 class CotizacionesScreen extends ConsumerStatefulWidget {
-  const CotizacionesScreen({super.key});
+  const CotizacionesScreen({
+    super.key,
+    this.initialClient,
+    this.returnSavedQuotation = false,
+  });
+
+  final ClienteModel? initialClient;
+  final bool returnSavedQuotation;
 
   @override
   ConsumerState<CotizacionesScreen> createState() => _CotizacionesScreenState();
@@ -97,9 +103,12 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     _activeDesktopTicketId = initialDraft.id;
     WidgetsBinding.instance.addObserver(this);
     _subscribeRealtime();
+    _applyInitialClient();
     unawaited(_bootstrapCatalog());
     _startLiveSync();
-    unawaited(_restorePersistedEditorDraftIfAny());
+    if (!widget.returnSavedQuotation) {
+      unawaited(_restorePersistedEditorDraftIfAny());
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(_syncQuotationAi(triggerAi: false));
@@ -112,6 +121,10 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     _subscribeRouteObserver();
     _scheduleAutoSync();
 
+    if (widget.returnSavedQuotation) {
+      return;
+    }
+
     if (_prefillFromRouteApplied) return;
     _prefillFromRouteApplied = true;
 
@@ -119,6 +132,14 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       if (!mounted) return;
       _applyClientPrefillFromRoute();
     });
+  }
+
+  void _applyInitialClient() {
+    final client = widget.initialClient;
+    if (client == null) return;
+    _selectedClientId = client.id;
+    _selectedClientName = client.nombre;
+    _selectedClientPhone = client.telefono;
   }
 
   void _subscribeRouteObserver() {
@@ -1667,24 +1688,35 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
     final wasEditing = (_editingId ?? '').trim().isNotEmpty;
     final cotizacion = _buildDraftCotizacion();
+    CotizacionModel? savedQuotation;
+    var queued = false;
     try {
-      final queued = (_editingId ?? '').trim().isEmpty
-          ? await ref
-                .read(cotizacionesRepositoryProvider)
-                .createOrQueue(cotizacion)
-          : await ref
-                .read(cotizacionesRepositoryProvider)
-                .updateOrQueue(_editingId!, cotizacion);
+      final repository = ref.read(cotizacionesRepositoryProvider);
+      if (widget.returnSavedQuotation) {
+        savedQuotation = (_editingId ?? '').trim().isEmpty
+            ? await repository.create(cotizacion)
+            : await repository.update(_editingId!, cotizacion);
+      } else {
+        queued = (_editingId ?? '').trim().isEmpty
+            ? await repository.createOrQueue(cotizacion)
+            : await repository.updateOrQueue(_editingId!, cotizacion);
+      }
 
       if (!mounted) return;
 
-      _commitEditorChange(_resetEditorState);
-      _schedulePersistEditorDraft(immediate: true);
+      if (!widget.returnSavedQuotation) {
+        _commitEditorChange(_resetEditorState);
+        _schedulePersistEditorDraft(immediate: true);
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            queued
+            widget.returnSavedQuotation
+                ? wasEditing
+                    ? 'Cotización actualizada'
+                    : 'Cotización creada'
+                : queued
                 ? 'Cotización guardada localmente. Se sincronizará en segundo plano.'
                 : wasEditing
                 ? 'Cotización actualizada en nube'
@@ -1697,6 +1729,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e is ApiException ? e.message : '$e')),
       );
+      return;
+    }
+
+    if (widget.returnSavedQuotation && mounted) {
+      context.pop(savedQuotation);
       return;
     }
 
@@ -2135,10 +2172,6 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     return Scaffold(
       appBar: isDesktop ? _buildDesktopAppBar() : _buildMobileAppBar(),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
-      floatingActionButton: AiFabButton(
-        onPressed: _openAiAssistantSheet,
-        isDesktop: isDesktop,
-      ),
       body: SafeArea(
         child: isDesktop
             ? _buildDesktopBody(aiState)

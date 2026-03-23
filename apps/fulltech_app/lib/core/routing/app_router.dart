@@ -30,6 +30,7 @@ import '../../modules/service_orders/service_orders_list_screen.dart';
 import '../../modules/ventas/mis_ventas_screen.dart';
 import '../../modules/ventas/registrar_venta_screen.dart';
 import '../../modules/horarios/horarios_screen.dart';
+import '../ai_assistant/presentation/ai_screen.dart';
 import '../auth/auth_provider.dart';
 import '../auth/app_permissions.dart';
 import '../auth/app_role.dart';
@@ -188,6 +189,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.manualInterno,
             builder: (context, state) => const ManualInternoScreen(),
+          ),
+          GoRoute(
+            path: Routes.ai,
+            builder: (context, state) => const AiScreen(),
           ),
           GoRoute(
             path: Routes.configuracion,

@@ -12,6 +12,7 @@ import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
 import 'application/service_order_detail_controller.dart';
 import 'service_order_models.dart';
+import 'widgets/client_location_card.dart';
 import 'widgets/evidence_item_widget.dart';
 
 class ServiceOrderDetailScreen extends ConsumerWidget {
@@ -25,6 +26,8 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
     final state = ref.watch(provider);
     final controller = ref.read(provider.notifier);
     final order = state.order;
+    final pendingUploads =
+      order?.evidences.where((item) => item.isPendingUpload).length ?? 0;
     final currentUser = ref.watch(authStateProvider).user;
     final role = currentUser?.appRole ?? AppRole.unknown;
     final canSeeTechnicalArea = role.isTechnician || role.isAdmin;
@@ -38,7 +41,9 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
         title: const Text('Detalle de orden'),
         actions: [
           IconButton(
-            onPressed: state.loading || state.working ? null : controller.refresh,
+            onPressed: state.loading || state.working
+                ? null
+                : controller.refresh,
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -49,268 +54,339 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
           child: state.loading && order == null
               ? const Center(child: CircularProgressIndicator())
               : order == null
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Text(state.error ?? 'No se pudo cargar la orden'),
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(state.error ?? 'No se pudo cargar la orden'),
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: controller.refresh,
+                  child: ListView(
+                    key: ValueKey(order.id),
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 132),
+                    children: [
+                      _HeroHeader(
+                        order: order,
+                        clientName: state.client?.nombre,
                       ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: controller.refresh,
-                      child: ListView(
-                        key: ValueKey(order.id),
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 132),
-                        children: [
-                          _HeroHeader(order: order, clientName: state.client?.nombre),
-                          const SizedBox(height: 20),
-                          if (state.actionError != null) ...[
-                            _MessageBanner(message: state.actionError!),
-                            const SizedBox(height: 16),
-                          ],
-                          SectionCard(
-                            icon: Icons.tune_rounded,
-                            title: 'Estado operativo',
-                            subtitle: 'Actualiza el avance de la orden y revisa su contexto operativo.',
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                DropdownButtonFormField<ServiceOrderStatus>(
-                                  initialValue: order.status,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Estado',
-                                    border: OutlineInputBorder(),
-                                  ),
-                                  items: [order.status, ...order.status.allowedNextStatuses]
+                      const SizedBox(height: 20),
+                      if (state.actionError != null) ...[
+                        _MessageBanner(message: state.actionError!),
+                        const SizedBox(height: 16),
+                      ],
+                      SectionCard(
+                        icon: Icons.tune_rounded,
+                        title: 'Estado operativo',
+                        subtitle:
+                            'Actualiza el avance de la orden y revisa su contexto operativo.',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            DropdownButtonFormField<ServiceOrderStatus>(
+                              initialValue: order.status,
+                              decoration: const InputDecoration(
+                                labelText: 'Estado',
+                                border: OutlineInputBorder(),
+                              ),
+                              items:
+                                  [
+                                        order.status,
+                                        ...order.status.allowedNextStatuses,
+                                      ]
                                       .map(
-                                        (status) => DropdownMenuItem<ServiceOrderStatus>(
-                                          value: status,
-                                          child: Text(status.label),
+                                        (status) =>
+                                            DropdownMenuItem<
+                                              ServiceOrderStatus
+                                            >(
+                                              value: status,
+                                              child: Text(status.label),
+                                            ),
+                                      )
+                                      .toList(growable: false),
+                              onChanged: state.working
+                                  ? null
+                                  : (value) async {
+                                      if (value == null ||
+                                          value == order.status) {
+                                        return;
+                                      }
+                                      try {
+                                        await controller.updateStatus(value);
+                                        if (!context.mounted) return;
+                                        await AppFeedback.showInfo(
+                                          context,
+                                          'Estado actualizado',
+                                        );
+                                      } catch (_) {
+                                        if (!context.mounted) return;
+                                        await AppFeedback.showError(
+                                          context,
+                                          ref.read(provider).actionError ??
+                                              'No se pudo actualizar el estado',
+                                        );
+                                      }
+                                    },
+                            ),
+                            const SizedBox(height: 14),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: [
+                                _MetaPill(
+                                  icon: Icons.person_outline,
+                                  text: state.client?.nombre ?? order.clientId,
+                                ),
+                                _MetaPill(
+                                  icon: Icons.build_outlined,
+                                  text: order.serviceType.label,
+                                ),
+                                _MetaPill(
+                                  icon: Icons.category_outlined,
+                                  text: order.category.label,
+                                ),
+                              ],
+                            ),
+                            if (state.client != null) ...[
+                              const SizedBox(height: 16),
+                              ClientLocationCard(
+                                client: state.client,
+                                title: 'Ubicacion del cliente',
+                              ),
+                            ],
+                            if (canSeeTechnicalArea) ...[
+                              const SizedBox(height: 16),
+                              _ReadOnlyField(
+                                label: 'Nota técnica',
+                                value: order.technicalNote,
+                              ),
+                              const SizedBox(height: 12),
+                              _ReadOnlyField(
+                                label: 'Requisitos extra',
+                                value: order.extraRequirements,
+                              ),
+                              const SizedBox(height: 12),
+                              _ReadOnlyField(
+                                label: 'Técnico asignado',
+                                value: order.assignedToId == null
+                                    ? null
+                                    : state
+                                              .usersById[order.assignedToId!]
+                                              ?.nombreCompleto ??
+                                          order.assignedToId,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      SectionCard(
+                        icon: Icons.forum_rounded,
+                        title: 'Referencia',
+                        subtitle:
+                            'Información base y contexto compartido para preparar el trabajo.',
+                        child: order.referenceItems.isEmpty
+                            ? const _EmptySectionState(
+                                icon: Icons.chat_bubble_outline_rounded,
+                                title: 'Sin referencia aún',
+                                message:
+                                    'Todavía no se han cargado referencias para esta orden.',
+                              )
+                            : Column(
+                                children: order.referenceItems
+                                    .asMap()
+                                    .entries
+                                    .map(
+                                      (entry) => Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 12,
+                                        ),
+                                        child: _FadeSlideIn(
+                                          delayMs: 40 * entry.key,
+                                          child: EvidenceCard(
+                                            evidence: entry.value,
+                                            variant:
+                                                EvidenceCardVariant.reference,
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                    .toList(growable: false),
+                              ),
+                      ),
+                      const SizedBox(height: 18),
+                      if (canSeeTechnicalArea)
+                        SectionCard(
+                          icon: Icons.hardware_rounded,
+                          title: 'Evidencia técnica',
+                          subtitle:
+                              'Archivos y notas del trabajo ejecutado en campo.',
+                          trailing: MenuAnchor(
+                            menuChildren: [
+                              MenuItemButton(
+                                onPressed: () =>
+                                    _addTextEvidence(context, ref, provider),
+                                child: const Text('Agregar texto'),
+                              ),
+                              MenuItemButton(
+                                onPressed: () =>
+                                    _addImageEvidence(context, ref, provider),
+                                child: const Text('Subir imagen'),
+                              ),
+                              MenuItemButton(
+                                onPressed: () =>
+                                    _addVideoEvidence(context, ref, provider),
+                                child: const Text('Subir video'),
+                              ),
+                            ],
+                            builder: (context, menuController, child) {
+                              return OutlinedButton.icon(
+                                onPressed: state.working
+                                    ? null
+                                    : () {
+                                        if (menuController.isOpen) {
+                                          menuController.close();
+                                        } else {
+                                          menuController.open();
+                                        }
+                                      },
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                icon: const Icon(
+                                  Icons.add_photo_alternate_outlined,
+                                ),
+                                label: const Text('Nueva evidencia'),
+                              );
+                            },
+                          ),
+                          child: order.technicalEvidenceItems.isEmpty
+                              ? const _EmptySectionState(
+                                  icon: Icons.camera_alt_outlined,
+                                  title: 'Sin evidencia técnica',
+                                  message:
+                                      'Agrega archivos del trabajo cuando el técnico empiece a documentar la visita.',
+                                )
+                              : Column(
+                                  children: order.technicalEvidenceItems
+                                      .asMap()
+                                      .entries
+                                      .map(
+                                        (entry) => Padding(
+                                          padding: const EdgeInsets.only(
+                                            bottom: 12,
+                                          ),
+                                          child: _FadeSlideIn(
+                                            delayMs: 40 * entry.key,
+                                            child: EvidenceCard(
+                                              evidence: entry.value,
+                                              variant:
+                                                  EvidenceCardVariant.technical,
+                                            ),
+                                          ),
                                         ),
                                       )
                                       .toList(growable: false),
-                                  onChanged: state.working
-                                      ? null
-                                      : (value) async {
-                                          if (value == null || value == order.status) {
-                                            return;
-                                          }
-                                          try {
-                                            await controller.updateStatus(value);
-                                            if (!context.mounted) return;
-                                            await AppFeedback.showInfo(
-                                              context,
-                                              'Estado actualizado',
-                                            );
-                                          } catch (_) {
-                                            if (!context.mounted) return;
-                                            await AppFeedback.showError(
-                                              context,
-                                              ref.read(provider).actionError ??
-                                                  'No se pudo actualizar el estado',
-                                            );
-                                          }
-                                        },
                                 ),
-                                const SizedBox(height: 14),
-                                Wrap(
-                                  spacing: 10,
-                                  runSpacing: 10,
-                                  children: [
-                                    _MetaPill(
-                                      icon: Icons.person_outline,
-                                      text: state.client?.nombre ?? order.clientId,
-                                    ),
-                                    _MetaPill(
-                                      icon: Icons.build_outlined,
-                                      text: order.serviceType.label,
-                                    ),
-                                    _MetaPill(
-                                      icon: Icons.category_outlined,
-                                      text: order.category.label,
-                                    ),
-                                  ],
-                                ),
-                                if (canSeeTechnicalArea) ...[
-                                  const SizedBox(height: 16),
-                                  _ReadOnlyField(
-                                    label: 'Nota técnica',
-                                    value: order.technicalNote,
-                                  ),
-                                  const SizedBox(height: 12),
-                                  _ReadOnlyField(
-                                    label: 'Requisitos extra',
-                                    value: order.extraRequirements,
-                                  ),
-                                  const SizedBox(height: 12),
-                                  _ReadOnlyField(
-                                    label: 'Técnico asignado',
-                                    value: order.assignedToId == null
-                                        ? null
-                                        : state.usersById[order.assignedToId!]?.nombreCompleto ??
-                                            order.assignedToId,
-                                  ),
-                                ],
-                              ],
-                            ),
+                        )
+                      else
+                        const SectionCard(
+                          icon: Icons.lock_outline_rounded,
+                          title: 'Evidencia técnica',
+                          subtitle: 'Acceso restringido',
+                          child: _EmptySectionState(
+                            icon: Icons.admin_panel_settings_outlined,
+                            title: 'Solo técnico y administración',
+                            message:
+                                'Este bloque se habilita para cargar evidencias técnicas y reportes de campo.',
                           ),
-                          const SizedBox(height: 18),
-                          SectionCard(
-                            icon: Icons.forum_rounded,
-                            title: 'Referencia',
-                            subtitle: 'Información base y contexto compartido para preparar el trabajo.',
-                            child: order.referenceItems.isEmpty
-                                ? const _EmptySectionState(
-                                    icon: Icons.chat_bubble_outline_rounded,
-                                    title: 'Sin referencia aún',
-                                    message: 'Todavía no se han cargado referencias para esta orden.',
-                                  )
-                                : Column(
-                                    children: order.referenceItems
-                                        .asMap()
-                                        .entries
-                                        .map(
-                                          (entry) => Padding(
-                                            padding: const EdgeInsets.only(bottom: 12),
-                                            child: _FadeSlideIn(
-                                              delayMs: 40 * entry.key,
-                                              child: EvidenceCard(
-                                                evidence: entry.value,
-                                                variant: EvidenceCardVariant.reference,
-                                              ),
-                                            ),
-                                          ),
-                                        )
-                                        .toList(growable: false),
-                                  ),
-                          ),
-                          const SizedBox(height: 18),
-                          if (canSeeTechnicalArea)
-                            SectionCard(
-                              icon: Icons.hardware_rounded,
-                              title: 'Evidencia técnica',
-                              subtitle: 'Archivos y notas del trabajo ejecutado en campo.',
-                              trailing: MenuAnchor(
-                                menuChildren: [
-                                  MenuItemButton(
-                                    onPressed: () => _addTextEvidence(context, ref, provider),
-                                    child: const Text('Agregar texto'),
-                                  ),
-                                  MenuItemButton(
-                                    onPressed: () => _addImageEvidence(context, ref, provider),
-                                    child: const Text('Subir imagen'),
-                                  ),
-                                  MenuItemButton(
-                                    onPressed: () => _addVideoEvidence(context, ref, provider),
-                                    child: const Text('Subir video'),
-                                  ),
-                                ],
-                                builder: (context, menuController, child) {
-                                  return OutlinedButton.icon(
-                                    onPressed: state.working
-                                        ? null
-                                        : () {
-                                            if (menuController.isOpen) {
-                                              menuController.close();
-                                            } else {
-                                              menuController.open();
-                                            }
-                                          },
-                                    style: OutlinedButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(14),
-                                      ),
-                                    ),
-                                    icon: const Icon(Icons.add_photo_alternate_outlined),
-                                    label: const Text('Nueva evidencia'),
-                                  );
-                                },
+                        ),
+                      const SizedBox(height: 18),
+                      if (pendingUploads > 0) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Row(
+                            children: [
+                              const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
                               ),
-                              child: order.technicalEvidenceItems.isEmpty
-                                  ? const _EmptySectionState(
-                                      icon: Icons.camera_alt_outlined,
-                                      title: 'Sin evidencia técnica',
-                                      message: 'Agrega archivos del trabajo cuando el técnico empiece a documentar la visita.',
+                              const SizedBox(width: 10),
+                              Text(
+                                pendingUploads == 1
+                                    ? '1 archivo subiendose en segundo plano...'
+                                    : '$pendingUploads archivos subiendose en segundo plano...',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      SectionCard(
+                        icon: Icons.description_outlined,
+                        title: 'Reporte técnico',
+                        subtitle:
+                            'Resumen final del trabajo realizado en la orden.',
+                        trailing: canSeeTechnicalArea
+                            ? FilledButton.tonalIcon(
+                                onPressed: state.working
+                                    ? null
+                                    : () => _addReport(context, ref, provider),
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.note_add_outlined),
+                                label: const Text('Agregar reporte'),
+                              )
+                            : null,
+                        child: order.reports.isEmpty
+                            ? const _EmptySectionState(
+                                icon: Icons.note_alt_outlined,
+                                title: 'Sin reporte aún',
+                                message:
+                                    'Cuando el trabajo esté documentado, el reporte aparecerá aquí.',
+                              )
+                            : Column(
+                                children: order.reports
+                                    .asMap()
+                                    .entries
+                                    .map(
+                                      (entry) => Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 12,
+                                        ),
+                                        child: _FadeSlideIn(
+                                          delayMs: 50 * entry.key,
+                                          child: _ReportCard(
+                                            report: entry.value,
+                                            authorName: state
+                                                .usersById[entry
+                                                    .value
+                                                    .createdById]
+                                                ?.nombreCompleto,
+                                          ),
+                                        ),
+                                      ),
                                     )
-                                  : Column(
-                                      children: order.technicalEvidenceItems
-                                          .asMap()
-                                          .entries
-                                          .map(
-                                            (entry) => Padding(
-                                              padding: const EdgeInsets.only(bottom: 12),
-                                              child: _FadeSlideIn(
-                                                delayMs: 40 * entry.key,
-                                                child: EvidenceCard(
-                                                  evidence: entry.value,
-                                                  variant: EvidenceCardVariant.technical,
-                                                ),
-                                              ),
-                                            ),
-                                          )
-                                          .toList(growable: false),
-                                    ),
-                            )
-                          else
-                            const SectionCard(
-                              icon: Icons.lock_outline_rounded,
-                              title: 'Evidencia técnica',
-                              subtitle: 'Acceso restringido',
-                              child: _EmptySectionState(
-                                icon: Icons.admin_panel_settings_outlined,
-                                title: 'Solo técnico y administración',
-                                message: 'Este bloque se habilita para cargar evidencias técnicas y reportes de campo.',
+                                    .toList(growable: false),
                               ),
-                            ),
-                          const SizedBox(height: 18),
-                          SectionCard(
-                            icon: Icons.description_outlined,
-                            title: 'Reporte técnico',
-                            subtitle: 'Resumen final del trabajo realizado en la orden.',
-                            trailing: canSeeTechnicalArea
-                                ? FilledButton.tonalIcon(
-                                    onPressed: state.working
-                                        ? null
-                                        : () => _addReport(context, ref, provider),
-                                    style: FilledButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(14),
-                                      ),
-                                    ),
-                                    icon: const Icon(Icons.note_add_outlined),
-                                    label: const Text('Agregar reporte'),
-                                  )
-                                : null,
-                            child: order.reports.isEmpty
-                                ? const _EmptySectionState(
-                                    icon: Icons.note_alt_outlined,
-                                    title: 'Sin reporte aún',
-                                    message: 'Cuando el trabajo esté documentado, el reporte aparecerá aquí.',
-                                  )
-                                : Column(
-                                    children: order.reports
-                                        .asMap()
-                                        .entries
-                                        .map(
-                                          (entry) => Padding(
-                                            padding: const EdgeInsets.only(bottom: 12),
-                                            child: _FadeSlideIn(
-                                              delayMs: 50 * entry.key,
-                                              child: _ReportCard(
-                                                report: entry.value,
-                                                authorName: state.usersById[entry.value.createdById]
-                                                    ?.nombreCompleto,
-                                              ),
-                                            ),
-                                          ),
-                                        )
-                                        .toList(growable: false),
-                                  ),
-                          ),
-                        ],
                       ),
-                    ),
+                    ],
+                  ),
+                ),
         ),
       ),
       bottomNavigationBar: order == null || !order.isCloneSourceAllowed
@@ -321,7 +397,9 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                 decoration: BoxDecoration(
                   boxShadow: [
                     BoxShadow(
-                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.22),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.primary.withValues(alpha: 0.22),
                       blurRadius: 18,
                       offset: const Offset(0, 8),
                     ),
@@ -356,13 +434,17 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
 Future<void> _addTextEvidence(
   BuildContext context,
   WidgetRef ref,
-  AutoDisposeStateNotifierProvider<ServiceOrderDetailController, ServiceOrderDetailState>
-      provider,
+  AutoDisposeStateNotifierProvider<
+    ServiceOrderDetailController,
+    ServiceOrderDetailState
+  >
+  provider,
 ) async {
   final text = await _promptMultilineInput(
     context,
     title: 'Nueva evidencia en texto',
-    hintText: 'Describe el trabajo realizado, hallazgos o avances del servicio.',
+    hintText:
+        'Describe el trabajo realizado, hallazgos o avances del servicio.',
     confirmLabel: 'Guardar',
   );
   if (text == null || text.trim().isEmpty) {
@@ -385,13 +467,16 @@ Future<void> _addTextEvidence(
 Future<void> _addImageEvidence(
   BuildContext context,
   WidgetRef ref,
-  AutoDisposeStateNotifierProvider<ServiceOrderDetailController, ServiceOrderDetailState>
-      provider,
+  AutoDisposeStateNotifierProvider<
+    ServiceOrderDetailController,
+    ServiceOrderDetailState
+  >
+  provider,
 ) async {
   final result = await FilePicker.platform.pickFiles(
     allowMultiple: false,
     type: FileType.image,
-    withData: true,
+    withData: kIsWeb,
   );
   final file = result?.files.singleOrNull;
   if (file == null) {
@@ -399,20 +484,29 @@ Future<void> _addImageEvidence(
   }
 
   final bytes = file.bytes;
-  if (bytes == null) {
+  final path = kIsWeb ? null : file.path;
+  if ((bytes == null || bytes.isEmpty) && (path == null || path.trim().isEmpty)) {
     if (!context.mounted) return;
-    await AppFeedback.showError(context, 'No se pudo leer la imagen seleccionada');
+    await AppFeedback.showError(
+      context,
+      'No se pudo leer la imagen seleccionada',
+    );
     return;
   }
 
   try {
-    await ref.read(provider.notifier).addImageEvidence(
-          bytes: bytes,
+    await ref
+        .read(provider.notifier)
+        .addImageEvidence(
+          bytes: bytes ?? const <int>[],
           fileName: file.name,
-          path: kIsWeb ? null : file.path,
+          path: path,
         );
     if (!context.mounted) return;
-    await AppFeedback.showInfo(context, 'Imagen subida correctamente');
+    await AppFeedback.showInfo(
+      context,
+      'Imagen agregada. Se esta subiendo en segundo plano.',
+    );
   } catch (_) {
     if (!context.mounted) return;
     await AppFeedback.showError(
@@ -425,27 +519,46 @@ Future<void> _addImageEvidence(
 Future<void> _addVideoEvidence(
   BuildContext context,
   WidgetRef ref,
-  AutoDisposeStateNotifierProvider<ServiceOrderDetailController, ServiceOrderDetailState>
-      provider,
+  AutoDisposeStateNotifierProvider<
+    ServiceOrderDetailController,
+    ServiceOrderDetailState
+  >
+  provider,
 ) async {
   final result = await FilePicker.platform.pickFiles(
     allowMultiple: false,
     type: FileType.video,
-    withData: true,
+    withData: kIsWeb,
   );
   final file = result?.files.singleOrNull;
   if (file == null) {
     return;
   }
 
+  final bytes = file.bytes;
+  final path = kIsWeb ? null : file.path;
+  if ((bytes == null || bytes.isEmpty) && (path == null || path.trim().isEmpty)) {
+    if (!context.mounted) return;
+    await AppFeedback.showError(
+      context,
+      'No se pudo leer el video seleccionado',
+    );
+    return;
+  }
+
   try {
-    await ref.read(provider.notifier).addVideoEvidence(
+    await ref
+        .read(provider.notifier)
+        .addVideoEvidence(
           fileName: file.name,
-          bytes: file.bytes,
-          path: kIsWeb ? null : file.path,
+          bytes: bytes,
+          path: path,
         );
     if (!context.mounted) return;
-    await AppFeedback.showInfo(context, 'Video subido correctamente');
+    await AppFeedback.showInfo(
+      context,
+      'Video agregado. Se esta subiendo en segundo plano.',
+    );
   } catch (_) {
     if (!context.mounted) return;
     await AppFeedback.showError(
@@ -458,13 +571,17 @@ Future<void> _addVideoEvidence(
 Future<void> _addReport(
   BuildContext context,
   WidgetRef ref,
-  AutoDisposeStateNotifierProvider<ServiceOrderDetailController, ServiceOrderDetailState>
-      provider,
+  AutoDisposeStateNotifierProvider<
+    ServiceOrderDetailController,
+    ServiceOrderDetailState
+  >
+  provider,
 ) async {
   final report = await _promptMultilineInput(
     context,
     title: 'Reporte técnico',
-    hintText: 'Resume el trabajo realizado, materiales usados y resultado final.',
+    hintText:
+        'Resume el trabajo realizado, materiales usados y resultado final.',
     confirmLabel: 'Guardar reporte',
   );
   if (report == null || report.trim().isEmpty) {
@@ -603,8 +720,10 @@ class _HeroHeader extends StatelessWidget {
               ),
               _HeaderTag(
                 icon: Icons.schedule_rounded,
-                text: DateFormat('dd/MM/yyyy h:mm a', 'es_DO')
-                    .format(order.createdAt.toLocal()),
+                text: DateFormat(
+                  'dd/MM/yyyy h:mm a',
+                  'es_DO',
+                ).format(order.createdAt.toLocal()),
               ),
             ],
           ),
@@ -669,7 +788,10 @@ class _HeaderTag extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             text,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -748,10 +870,7 @@ class SectionCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (trailing != null) ...[
-                  const SizedBox(width: 12),
-                  trailing!,
-                ],
+                if (trailing != null) ...[const SizedBox(width: 12), trailing!],
               ],
             ),
             const SizedBox(height: 18),
@@ -786,8 +905,8 @@ class EvidenceCard extends StatelessWidget {
     final iconColor = evidence.type.isText
         ? const Color(0xFF5B5F97)
         : evidence.type.isImage
-            ? const Color(0xFF0F8C6B)
-            : const Color(0xFF2563EB);
+        ? const Color(0xFF0F8C6B)
+        : const Color(0xFF2563EB);
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -813,8 +932,8 @@ class EvidenceCard extends StatelessWidget {
                     evidence.type.isText
                         ? Icons.notes_rounded
                         : evidence.type.isImage
-                            ? Icons.image_outlined
-                            : Icons.videocam_outlined,
+                        ? Icons.image_outlined
+                        : Icons.videocam_outlined,
                     size: 18,
                     color: iconColor,
                   ),
@@ -829,11 +948,29 @@ class EvidenceCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  DateFormat('dd/MM h:mm a', 'es_DO').format(evidence.createdAt.toLocal()),
+                  DateFormat(
+                    'dd/MM h:mm a',
+                    'es_DO',
+                  ).format(evidence.createdAt.toLocal()),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
+                if (evidence.isPendingUpload) ...[
+                  const SizedBox(width: 8),
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ] else if (evidence.hasUploadError) ...[
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.error_outline,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 12),
@@ -842,9 +979,31 @@ class EvidenceCard extends StatelessWidget {
               url: evidence.type.isText ? null : evidence.content,
               text: evidence.type.isText ? evidence.content : null,
               createdAt: evidence.createdAt,
+              localPath: evidence.localPath,
+              previewBytes: evidence.previewBytes,
+              fileName: evidence.fileName,
               showHeader: false,
               showSurface: false,
             ),
+            if (evidence.isPendingUpload) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Subiendo al servidor en segundo plano...',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ] else if (evidence.hasUploadError) ...[
+              const SizedBox(height: 8),
+              Text(
+                'La subida fallo. Puedes reintentar agregando el archivo nuevamente.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.error,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -872,7 +1031,9 @@ class _ReadOnlyField extends StatelessWidget {
             color: Theme.of(context).colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(16),
           ),
-          child: Text((value ?? '').trim().isEmpty ? 'Sin información' : value!),
+          child: Text(
+            (value ?? '').trim().isEmpty ? 'Sin información' : value!,
+          ),
         ),
       ],
     );
@@ -895,11 +1056,7 @@ class _MetaPill extends StatelessWidget {
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16),
-          const SizedBox(width: 8),
-          Text(text),
-        ],
+        children: [Icon(icon, size: 16), const SizedBox(width: 8), Text(text)],
       ),
     );
   }
@@ -980,7 +1137,9 @@ class _EmptySectionState extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        color: theme.colorScheme.surfaceContainerHighest.withValues(
+          alpha: 0.45,
+        ),
         borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
@@ -989,7 +1148,9 @@ class _EmptySectionState extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             title,
-            style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 6),
@@ -1007,10 +1168,7 @@ class _EmptySectionState extends StatelessWidget {
 }
 
 class _FadeSlideIn extends StatelessWidget {
-  const _FadeSlideIn({
-    required this.child,
-    this.delayMs = 0,
-  });
+  const _FadeSlideIn({required this.child, this.delayMs = 0});
 
   final Widget child;
   final int delayMs;
@@ -1025,10 +1183,7 @@ class _FadeSlideIn extends StatelessWidget {
         final dy = (1 - value) * 10;
         return Opacity(
           opacity: value,
-          child: Transform.translate(
-            offset: Offset(0, dy),
-            child: innerChild,
-          ),
+          child: Transform.translate(offset: Offset(0, dy), child: innerChild),
         );
       },
       child: child,

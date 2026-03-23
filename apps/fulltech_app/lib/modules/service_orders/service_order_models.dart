@@ -283,6 +283,11 @@ class ServiceOrderEvidenceModel {
   final String content;
   final String createdById;
   final DateTime createdAt;
+  final String? localPath;
+  final Uint8List? previewBytes;
+  final String? fileName;
+  final bool isPendingUpload;
+  final bool hasUploadError;
 
   const ServiceOrderEvidenceModel({
     required this.id,
@@ -291,6 +296,11 @@ class ServiceOrderEvidenceModel {
     required this.content,
     required this.createdById,
     required this.createdAt,
+    this.localPath,
+    this.previewBytes,
+    this.fileName,
+    this.isPendingUpload = false,
+    this.hasUploadError = false,
   });
 
   factory ServiceOrderEvidenceModel.fromJson(Map<String, dynamic> json) {
@@ -303,6 +313,42 @@ class ServiceOrderEvidenceModel {
       createdAt:
           DateTime.tryParse((json['createdAt'] ?? '').toString()) ??
           DateTime.now(),
+      localPath: null,
+      previewBytes: null,
+      fileName: null,
+      isPendingUpload: false,
+      hasUploadError: false,
+    );
+  }
+
+  ServiceOrderEvidenceModel copyWith({
+    String? id,
+    String? serviceOrderId,
+    ServiceEvidenceType? type,
+    String? content,
+    String? createdById,
+    DateTime? createdAt,
+    String? localPath,
+    Uint8List? previewBytes,
+    String? fileName,
+    bool? isPendingUpload,
+    bool? hasUploadError,
+    bool clearLocalPath = false,
+    bool clearPreviewBytes = false,
+    bool clearFileName = false,
+  }) {
+    return ServiceOrderEvidenceModel(
+      id: id ?? this.id,
+      serviceOrderId: serviceOrderId ?? this.serviceOrderId,
+      type: type ?? this.type,
+      content: content ?? this.content,
+      createdById: createdById ?? this.createdById,
+      createdAt: createdAt ?? this.createdAt,
+      localPath: clearLocalPath ? null : (localPath ?? this.localPath),
+      previewBytes: clearPreviewBytes ? null : (previewBytes ?? this.previewBytes),
+      fileName: clearFileName ? null : (fileName ?? this.fileName),
+      isPendingUpload: isPendingUpload ?? this.isPendingUpload,
+      hasUploadError: hasUploadError ?? this.hasUploadError,
     );
   }
 }

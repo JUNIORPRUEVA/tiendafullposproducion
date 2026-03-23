@@ -3,9 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
-import '../ai_assistant/application/ai_assistant_controller.dart';
-import '../ai_assistant/presentation/ai_chat_context_resolver.dart';
-import '../ai_assistant/presentation/widgets/ai_assistant_dock_button.dart';
 import '../auth/auth_provider.dart';
 import '../location/location_tracker_provider.dart';
 import '../models/user_model.dart';
@@ -45,10 +42,6 @@ BoxDecoration _desktopSurfaceDecoration(ThemeData theme) {
       ),
     ],
   );
-}
-
-bool _shouldShowDesktopAiAssistant(String location) {
-  return true;
 }
 
 class ResponsiveShell extends ConsumerStatefulWidget {
@@ -147,10 +140,6 @@ class DesktopShellFooter extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final now = DateTime.now();
-    final location = safeCurrentLocation(context);
-    final showAiAssistant = _shouldShowDesktopAiAssistant(location);
-
-    final open = ref.watch(desktopAiAssistantPanelOpenProvider);
 
     return StreamBuilder<DateTime>(
       stream: Stream<DateTime>.periodic(
@@ -195,23 +184,6 @@ class DesktopShellFooter extends ConsumerWidget {
                   letterSpacing: 0.3,
                 ),
               ),
-              if (showAiAssistant) ...[
-                const SizedBox(width: 14),
-                AiAssistantDockButton(
-                  compact: true,
-                  isActive: open,
-                  onPressed: () {
-                    final ctx = buildAiChatContextFromLocation(location);
-                    ref
-                        .read(aiAssistantControllerProvider.notifier)
-                        .setContext(ctx);
-                    ref
-                            .read(desktopAiAssistantPanelOpenProvider.notifier)
-                            .state =
-                        !open;
-                  },
-                ),
-              ],
             ],
           ),
         );

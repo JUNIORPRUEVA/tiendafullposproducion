@@ -9,10 +9,14 @@ import '../../core/errors/api_exception.dart';
 import '../../core/models/user_model.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
+import '../../core/utils/safe_url_launcher.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/app_navigation.dart';
+import '../clientes/client_location_utils.dart';
+import '../clientes/cliente_model.dart';
 import 'application/service_orders_list_controller.dart';
 import 'service_order_models.dart';
+import 'widgets/client_location_card.dart';
 
 class ServiceOrdersListScreen extends ConsumerStatefulWidget {
   const ServiceOrdersListScreen({super.key});
@@ -26,6 +30,7 @@ class _ServiceOrdersListScreenState
     extends ConsumerState<ServiceOrdersListScreen> {
   ServiceOrdersFilter _filter = const ServiceOrdersFilter.today();
   final Set<String> _busyOrderIds = <String>{};
+  final Set<String> _creatingFromOrderIds = <String>{};
 
   @override
   Widget build(BuildContext context) {
@@ -42,9 +47,14 @@ class _ServiceOrdersListScreenState
       drawer: isDesktop
           ? null
           : buildAdaptiveDrawer(context, currentUser: currentUser),
+      floatingActionButton: _CreateOrderFab(
+        onPressed: _createOrder,
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       appBar: AppBar(
         toolbarHeight: 54,
-        centerTitle: true,
+        centerTitle: false,
+        titleSpacing: isDesktop ? 16 : 0,
         leading: isDesktop
             ? null
             : Builder(
@@ -95,133 +105,132 @@ class _ServiceOrdersListScreenState
           child: Divider(
             height: 1,
             thickness: 1,
-            color: Theme.of(context)
-                .colorScheme
-                .outlineVariant
-                .withValues(alpha: 0.7),
+            color: Theme.of(
+              context,
+            ).colorScheme.outlineVariant.withValues(alpha: 0.7),
           ),
         ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'service-orders-new-order',
-        elevation: 2,
-        extendedPadding: const EdgeInsets.symmetric(horizontal: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        onPressed: () async {
-          final created = await context.push<bool>(Routes.serviceOrderCreate);
-          if (created == true) {
-            await controller.refresh();
-            if (!context.mounted) return;
-            await AppFeedback.showInfo(
-              context,
-              'Lista actualizada con la nueva orden',
-            );
-          }
-        },
-        icon: const Icon(Icons.add_rounded, size: 18),
-        label: const Text('Nueva orden'),
       ),
       body: RefreshIndicator(
         onRefresh: controller.refresh,
         child: state.loading
             ? const Center(child: CircularProgressIndicator())
             : state.error != null && state.items.isEmpty
-                ? ListView(
-                    children: [
-                      const SizedBox(height: 120),
-                      Center(
+            ? ListView(
+                children: [
+                  const SizedBox(height: 120),
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(state.error!, textAlign: TextAlign.center),
+                    ),
+                  ),
+                ],
+              )
+            : ListView.builder(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 88),
+                itemCount: visibleOrders.isEmpty ? 2 : visibleOrders.length + 1,
+                itemBuilder: (context, index) {
+                  if (index == 0) {
+                    return Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: contentMaxWidth),
                         child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(state.error!, textAlign: TextAlign.center),
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _OperationsControlPanel(
+                            filter: _filter,
+                            onReset: _filter.hasActiveFilters
+                                ? () {
+                                    setState(() {
+                                      _filter =
+                                          const ServiceOrdersFilter.today();
+                                    });
+                                  }
+                                : null,
+                            onToggleStatus: (status) {
+                              setState(() {
+                                final nextStatuses = {..._filter.statuses};
+                                if (nextStatuses.contains(status)) {
+                                  nextStatuses.remove(status);
+                                } else {
+                                  nextStatuses.add(status);
+                                }
+                                _filter = _filter.copyWith(
+                                  statuses: nextStatuses,
+                                );
+                              });
+                            },
+                            onToggleServiceType: (serviceType) {
+                              setState(() {
+                                final nextTypes = {..._filter.serviceTypes};
+                                if (nextTypes.contains(serviceType)) {
+                                  nextTypes.remove(serviceType);
+                                } else {
+                                  nextTypes.add(serviceType);
+                                }
+                                _filter = _filter.copyWith(
+                                  serviceTypes: nextTypes,
+                                );
+                              });
+                            },
+                          ),
                         ),
                       ),
-                    ],
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-                    itemCount: visibleOrders.isEmpty ? 3 : visibleOrders.length + 2,
-                    itemBuilder: (context, index) {
-                      if (index == 0) {
-                        return Center(
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(maxWidth: contentMaxWidth),
-                            child: Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: _OperationalHeader(
-                                totalOrders: visibleOrders.length,
-                                filterLabel: _filter.summaryLabel,
-                              ),
-                            ),
-                          ),
-                        );
-                      }
+                    );
+                  }
 
-                      if (index == 1) {
-                        return Center(
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(maxWidth: contentMaxWidth),
-                            child: Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: _ActiveFiltersRow(
-                                filter: _filter,
-                                onClear: _filter.hasActiveFilters
-                                    ? () {
-                                        setState(() {
-                                          _filter = const ServiceOrdersFilter.today();
-                                        });
-                                      }
-                                    : null,
-                              ),
-                            ),
-                          ),
-                        );
-                      }
-
-                      if (visibleOrders.isEmpty) {
-                        return Center(
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(maxWidth: contentMaxWidth),
-                            child: const Padding(
-                              padding: EdgeInsets.only(top: 28),
-                              child: _EmptyOrdersState(),
-                            ),
-                          ),
-                        );
-                      }
-
-                      final order = visibleOrders[index - 2];
-                      final client = state.clientsById[order.clientId];
-                      return Center(
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(maxWidth: contentMaxWidth),
-                          child: Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: _ServiceOrderListCard(
-                              order: order,
-                              clientName:
-                                  client?.nombre ?? 'Cliente ${order.clientId}',
-                              trailing: isAdmin
-                                  ? _AdminOrderActions(
-                                      order: order,
-                                      busy: _busyOrderIds.contains(order.id),
-                                      onEdit: () => _editOrder(order),
-                                      onDelete: () => _deleteOrder(order),
-                                    )
-                                  : null,
-                              onTap: () async {
-                                final updated = await context.push<bool>(
-                                  Routes.serviceOrderById(order.id),
-                                );
-                                if (updated == true) {
-                                  await controller.refresh();
-                                }
-                              },
-                            ),
-                          ),
+                  if (visibleOrders.isEmpty) {
+                    return Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                        child: const Padding(
+                          padding: EdgeInsets.only(top: 28),
+                          child: _EmptyOrdersState(),
                         ),
-                      );
-                    },
-                  ),
+                      ),
+                    );
+                  }
+
+                  final order = visibleOrders[index - 1];
+                  final client = state.clientsById[order.clientId];
+                  return Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _ServiceOrderListCard(
+                          order: order,
+                          client: client,
+                          clientName:
+                              client?.nombre ?? 'Cliente ${order.clientId}',
+                          creatingNewOrder: _creatingFromOrderIds.contains(
+                            order.id,
+                          ),
+                          onCreateNewOrder: order.isCloneSourceAllowed
+                              ? () => _createOrderFromSource(order)
+                              : null,
+                          trailing: isAdmin
+                              ? _AdminOrderActions(
+                                  order: order,
+                                  busy: _busyOrderIds.contains(order.id),
+                                  onEdit: () => _editOrder(order),
+                                  onDelete: () => _deleteOrder(order),
+                                )
+                              : null,
+                          onTap: () async {
+                            final updated = await context.push<bool>(
+                              Routes.serviceOrderById(order.id),
+                            );
+                            if (updated == true) {
+                              await controller.refresh();
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
       ),
     );
   }
@@ -235,6 +244,46 @@ class _ServiceOrdersListScreenState
       await ref.read(serviceOrdersListControllerProvider.notifier).refresh();
       if (!mounted) return;
       await AppFeedback.showInfo(context, 'Orden actualizada');
+    }
+  }
+
+  Future<void> _createOrderFromSource(ServiceOrderModel order) async {
+    if (_creatingFromOrderIds.contains(order.id)) {
+      return;
+    }
+
+    setState(() {
+      _creatingFromOrderIds.add(order.id);
+    });
+
+    try {
+      final created = await context.push<bool>(
+        Routes.serviceOrderCreate,
+        extra: ServiceOrderCreateArgs(cloneSource: order),
+      );
+      if (created == true) {
+        await ref.read(serviceOrdersListControllerProvider.notifier).refresh();
+        if (!mounted) return;
+        await AppFeedback.showInfo(context, 'Nueva orden creada');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _creatingFromOrderIds.remove(order.id);
+        });
+      }
+    }
+  }
+
+  Future<void> _createOrder() async {
+    final created = await context.push<bool>(Routes.serviceOrderCreate);
+    if (created == true) {
+      await ref.read(serviceOrdersListControllerProvider.notifier).refresh();
+      if (!mounted) return;
+      await AppFeedback.showInfo(
+        context,
+        'Lista actualizada con la nueva orden',
+      );
     }
   }
 
@@ -270,18 +319,16 @@ class _ServiceOrdersListScreenState
     });
 
     try {
-      await ref.read(serviceOrdersListControllerProvider.notifier).deleteOrder(
-            order.id,
-          );
+      await ref
+          .read(serviceOrdersListControllerProvider.notifier)
+          .deleteOrder(order.id);
       if (!mounted) return;
       await AppFeedback.showInfo(context, 'Orden eliminada');
     } catch (error) {
       if (!mounted) return;
       await AppFeedback.showError(
         context,
-        error is ApiException
-            ? error.message
-            : 'No se pudo eliminar la orden',
+        error is ApiException ? error.message : 'No se pudo eliminar la orden',
       );
     } finally {
       if (mounted) {
@@ -299,24 +346,39 @@ class ServiceOrdersFilter {
   const ServiceOrdersFilter({
     required this.datePreset,
     this.statuses = const <ServiceOrderStatus>{},
-    this.categories = const <ServiceOrderCategory>{},
+    this.serviceTypes = const <ServiceOrderType>{},
     this.customRange,
   });
 
   const ServiceOrdersFilter.today()
-      : datePreset = ServiceOrdersDatePreset.today,
-        statuses = const <ServiceOrderStatus>{},
-        categories = const <ServiceOrderCategory>{},
-        customRange = null;
+    : datePreset = ServiceOrdersDatePreset.today,
+      statuses = const <ServiceOrderStatus>{},
+      serviceTypes = const <ServiceOrderType>{},
+      customRange = null;
 
   final ServiceOrdersDatePreset datePreset;
   final Set<ServiceOrderStatus> statuses;
-  final Set<ServiceOrderCategory> categories;
+  final Set<ServiceOrderType> serviceTypes;
   final DateTimeRange? customRange;
+
+  ServiceOrdersFilter copyWith({
+    ServiceOrdersDatePreset? datePreset,
+    Set<ServiceOrderStatus>? statuses,
+    Set<ServiceOrderType>? serviceTypes,
+    DateTimeRange? customRange,
+    bool clearCustomRange = false,
+  }) {
+    return ServiceOrdersFilter(
+      datePreset: datePreset ?? this.datePreset,
+      statuses: statuses ?? this.statuses,
+      serviceTypes: serviceTypes ?? this.serviceTypes,
+      customRange: clearCustomRange ? null : (customRange ?? this.customRange),
+    );
+  }
 
   bool get hasActiveFilters {
     return statuses.isNotEmpty ||
-        categories.isNotEmpty ||
+        serviceTypes.isNotEmpty ||
         datePreset != ServiceOrdersDatePreset.today;
   }
 
@@ -336,7 +398,7 @@ class ServiceOrdersFilter {
   List<String> get activeChips {
     final chips = <String>[summaryLabel];
     chips.addAll(statuses.map((status) => status.label));
-    chips.addAll(categories.map((category) => category.label));
+    chips.addAll(serviceTypes.map((serviceType) => serviceType.label));
     return chips;
   }
 
@@ -363,31 +425,34 @@ class ServiceOrdersFilter {
             customRange!.end.day,
           ).add(const Duration(days: 1));
 
-    return source.where((order) {
-      final createdAt = order.createdAt.toLocal();
-      final matchesDate = switch (datePreset) {
-        ServiceOrdersDatePreset.today =>
-          !createdAt.isBefore(todayStart) && createdAt.isBefore(todayEnd),
-        ServiceOrdersDatePreset.thisWeek =>
-          !createdAt.isBefore(weekStart) && createdAt.isBefore(weekEnd),
-        ServiceOrdersDatePreset.custom =>
-          customStart != null &&
-              customEnd != null &&
-              !createdAt.isBefore(customStart) &&
-              createdAt.isBefore(customEnd),
-      };
+    return source
+        .where((order) {
+          final createdAt = order.createdAt.toLocal();
+          final matchesDate = switch (datePreset) {
+            ServiceOrdersDatePreset.today =>
+              !createdAt.isBefore(todayStart) && createdAt.isBefore(todayEnd),
+            ServiceOrdersDatePreset.thisWeek =>
+              !createdAt.isBefore(weekStart) && createdAt.isBefore(weekEnd),
+            ServiceOrdersDatePreset.custom =>
+              customStart != null &&
+                  customEnd != null &&
+                  !createdAt.isBefore(customStart) &&
+                  createdAt.isBefore(customEnd),
+          };
 
-      if (!matchesDate) {
-        return false;
-      }
-      if (statuses.isNotEmpty && !statuses.contains(order.status)) {
-        return false;
-      }
-      if (categories.isNotEmpty && !categories.contains(order.category)) {
-        return false;
-      }
-      return true;
-    }).toList(growable: false);
+          if (!matchesDate) {
+            return false;
+          }
+          if (statuses.isNotEmpty && !statuses.contains(order.status)) {
+            return false;
+          }
+          if (serviceTypes.isNotEmpty &&
+              !serviceTypes.contains(order.serviceType)) {
+            return false;
+          }
+          return true;
+        })
+        .toList(growable: false);
   }
 }
 
@@ -409,10 +474,9 @@ class _ProfileAvatarButton extends ConsumerWidget {
         child: CircleAvatar(
           radius: 17,
           backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-          backgroundImage:
-              (photoUrl != null && photoUrl.isNotEmpty)
-                  ? NetworkImage(photoUrl)
-                  : null,
+          backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
+              ? NetworkImage(photoUrl)
+              : null,
           child: (photoUrl == null || photoUrl.isEmpty)
               ? Text(
                   initial,
@@ -440,7 +504,7 @@ class _FiltersSheet extends StatefulWidget {
 
 class _FiltersSheetState extends State<_FiltersSheet> {
   late Set<ServiceOrderStatus> _statuses;
-  late Set<ServiceOrderCategory> _categories;
+  late Set<ServiceOrderType> _serviceTypes;
   late ServiceOrdersDatePreset _datePreset;
   DateTimeRange? _customRange;
 
@@ -448,7 +512,7 @@ class _FiltersSheetState extends State<_FiltersSheet> {
   void initState() {
     super.initState();
     _statuses = {...widget.initialFilter.statuses};
-    _categories = {...widget.initialFilter.categories};
+    _serviceTypes = {...widget.initialFilter.serviceTypes};
     _datePreset = widget.initialFilter.datePreset;
     _customRange = widget.initialFilter.customRange;
   }
@@ -484,58 +548,62 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                 child: Wrap(
                   spacing: 8,
                   runSpacing: 8,
-                  children: ServiceOrderStatus.values.map((status) {
-                    final selected = _statuses.contains(status);
-                    return FilterChip(
-                      selected: selected,
-                      label: Text(status.label),
-                      selectedColor: status.color.withValues(alpha: 0.12),
-                      side: BorderSide(
-                        color: selected
-                            ? status.color.withValues(alpha: 0.35)
-                            : theme.colorScheme.outlineVariant,
-                      ),
-                      labelStyle: TextStyle(
-                        color: selected ? status.color : null,
-                        fontWeight: selected
-                            ? FontWeight.w700
-                            : FontWeight.w500,
-                      ),
-                      onSelected: (_) {
-                        setState(() {
-                          if (selected) {
-                            _statuses.remove(status);
-                          } else {
-                            _statuses.add(status);
-                          }
-                        });
-                      },
-                    );
-                  }).toList(growable: false),
+                  children: ServiceOrderStatus.values
+                      .map((status) {
+                        final selected = _statuses.contains(status);
+                        return FilterChip(
+                          selected: selected,
+                          label: Text(status.label),
+                          selectedColor: status.color.withValues(alpha: 0.12),
+                          side: BorderSide(
+                            color: selected
+                                ? status.color.withValues(alpha: 0.35)
+                                : theme.colorScheme.outlineVariant,
+                          ),
+                          labelStyle: TextStyle(
+                            color: selected ? status.color : null,
+                            fontWeight: selected
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
+                          onSelected: (_) {
+                            setState(() {
+                              if (selected) {
+                                _statuses.remove(status);
+                              } else {
+                                _statuses.add(status);
+                              }
+                            });
+                          },
+                        );
+                      })
+                      .toList(growable: false),
                 ),
               ),
               const SizedBox(height: 16),
               _FilterSection(
-                title: 'Categoría',
+                title: 'Tipo de servicio',
                 child: Wrap(
                   spacing: 8,
                   runSpacing: 8,
-                  children: ServiceOrderCategory.values.map((category) {
-                    final selected = _categories.contains(category);
-                    return FilterChip(
-                      selected: selected,
-                      label: Text(category.label),
-                      onSelected: (_) {
-                        setState(() {
-                          if (selected) {
-                            _categories.remove(category);
-                          } else {
-                            _categories.add(category);
-                          }
-                        });
-                      },
-                    );
-                  }).toList(growable: false),
+                  children: ServiceOrderType.values
+                      .map((serviceType) {
+                        final selected = _serviceTypes.contains(serviceType);
+                        return FilterChip(
+                          selected: selected,
+                          label: Text(serviceType.label),
+                          onSelected: (_) {
+                            setState(() {
+                              if (selected) {
+                                _serviceTypes.remove(serviceType);
+                              } else {
+                                _serviceTypes.add(serviceType);
+                              }
+                            });
+                          },
+                        );
+                      })
+                      .toList(growable: false),
                 ),
               ),
               const SizedBox(height: 16),
@@ -617,8 +685,8 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                   Expanded(
                     child: FilledButton(
                       onPressed: () {
-                        final effectivePreset = _datePreset ==
-                                    ServiceOrdersDatePreset.custom &&
+                        final effectivePreset =
+                            _datePreset == ServiceOrdersDatePreset.custom &&
                                 _customRange == null
                             ? ServiceOrdersDatePreset.today
                             : _datePreset;
@@ -626,8 +694,9 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                           ServiceOrdersFilter(
                             datePreset: effectivePreset,
                             statuses: _statuses,
-                            categories: _categories,
-                            customRange: effectivePreset ==
+                            serviceTypes: _serviceTypes,
+                            customRange:
+                                effectivePreset ==
                                     ServiceOrdersDatePreset.custom
                                 ? _customRange
                                 : null,
@@ -678,9 +747,9 @@ class _FilterSection extends StatelessWidget {
       children: [
         Text(
           title,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 10),
         child,
@@ -689,64 +758,104 @@ class _FilterSection extends StatelessWidget {
   }
 }
 
-class _OperationalHeader extends StatelessWidget {
-  const _OperationalHeader({
-    required this.totalOrders,
-    required this.filterLabel,
+class _OperationsControlPanel extends StatelessWidget {
+  const _OperationsControlPanel({
+    required this.filter,
+    required this.onToggleStatus,
+    required this.onToggleServiceType,
+    required this.onReset,
   });
 
-  final int totalOrders;
-  final String filterLabel;
+  final ServiceOrdersFilter filter;
+  final ValueChanged<ServiceOrderStatus> onToggleStatus;
+  final ValueChanged<ServiceOrderType> onToggleServiceType;
+  final VoidCallback? onReset;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDesktop = MediaQuery.sizeOf(context).width >= kDesktopShellBreakpoint;
+    final now = DateTime.now();
+    final dateLabel = DateFormat('EEEE d MMM', 'es_DO').format(now);
+    final timeLabel = DateFormat('h:mm a', 'es_DO').format(now);
     return DecoratedBox(
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF11304A), Color(0xFF27667B)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.shadow.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.8),
         ),
-        borderRadius: BorderRadius.circular(18),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Control operativo',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        filter.summaryLabel,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: colorScheme.onSurface,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.1,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${_capitalize(dateLabel)} · $timeLabel',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (onReset != null)
+                  IconButton(
+                    tooltip: 'Limpiar filtros',
+                    visualDensity: VisualDensity.compact,
+                    splashRadius: 18,
+                    onPressed: onReset,
+                    icon: Icon(
+                      Icons.restart_alt_rounded,
+                      color: colorScheme.onSurfaceVariant,
+                      size: 19,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '$totalOrders órdenes · $filterLabel',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.78),
-                    ),
-                  ),
-                ],
-              ),
+              ],
             ),
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: const Icon(
-                Icons.assignment_turned_in_outlined,
-                color: Colors.white,
-                size: 20,
-              ),
+            const SizedBox(height: 8),
+            _CompactFilterLine<ServiceOrderStatus>(
+              label: 'Estado',
+              items: ServiceOrderStatus.values,
+              isSelected: filter.statuses.contains,
+              onToggle: onToggleStatus,
+              labelBuilder: (status) => status.label,
+              colorBuilder: (status) => status.color,
+              centered: isDesktop,
+            ),
+            const SizedBox(height: 6),
+            _CompactFilterLine<ServiceOrderType>(
+              label: 'Tipo',
+              items: ServiceOrderType.values,
+              isSelected: filter.serviceTypes.contains,
+              onToggle: onToggleServiceType,
+              labelBuilder: (serviceType) => serviceType.label,
+              centered: isDesktop,
             ),
           ],
         ),
@@ -755,40 +864,230 @@ class _OperationalHeader extends StatelessWidget {
   }
 }
 
-class _ActiveFiltersRow extends StatelessWidget {
-  const _ActiveFiltersRow({required this.filter, required this.onClear});
+String _capitalize(String value) {
+  if (value.isEmpty) return value;
+  return value[0].toUpperCase() + value.substring(1);
+}
 
-  final ServiceOrdersFilter filter;
-  final VoidCallback? onClear;
+class _CompactFilterLine<T> extends StatelessWidget {
+  const _CompactFilterLine({
+    required this.label,
+    required this.items,
+    required this.isSelected,
+    required this.onToggle,
+    required this.labelBuilder,
+    this.centered = false,
+    this.colorBuilder,
+  });
+
+  final String label;
+  final List<T> items;
+  final bool Function(T value) isSelected;
+  final ValueChanged<T> onToggle;
+  final String Function(T value) labelBuilder;
+  final bool centered;
+  final Color Function(T value)? colorBuilder;
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      crossAxisAlignment: WrapCrossAlignment.center,
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        ...filter.activeChips.map(
-          (chip) => Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(999),
-            ),
+        SizedBox(
+          width: 42,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 2),
             child: Text(
-              chip,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+              label,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+                height: 1,
+              ),
             ),
           ),
         ),
-        if (onClear != null)
-          TextButton(
-            onPressed: onClear,
-            child: const Text('Limpiar'),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final chips = items
+                  .map((item) {
+                    final selected = isSelected(item);
+                    final accent = colorBuilder?.call(item);
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: _CompactFilterChip(
+                        label: labelBuilder(item),
+                        selected: selected,
+                        accent: accent,
+                        onTap: () => onToggle(item),
+                      ),
+                    );
+                  })
+                  .toList(growable: false);
+
+              return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                  child: Row(
+                    mainAxisAlignment: centered
+                        ? MainAxisAlignment.center
+                        : MainAxisAlignment.start,
+                    children: chips,
+                  ),
+                ),
+              );
+            },
           ),
+        ),
       ],
+    );
+  }
+}
+
+class _CompactFilterChip extends StatelessWidget {
+  const _CompactFilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.accent,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Color? accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final baseColor = accent ?? Colors.white;
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected
+              ? baseColor.withValues(alpha: accent == null ? 0.12 : 0.18)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected
+                ? baseColor.withValues(alpha: accent == null ? 0.36 : 0.48)
+                : Theme.of(context).colorScheme.outlineVariant,
+          ),
+        ),
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: selected
+                ? (accent ?? Theme.of(context).colorScheme.primary)
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            height: 1,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CreateOrderFab extends StatelessWidget {
+  const _CreateOrderFab({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Semantics(
+      button: true,
+      label: 'Agregar orden de servicio',
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              colorScheme.primary,
+              Color.alphaBlend(
+                Colors.black.withValues(alpha: 0.16),
+                colorScheme.primary,
+              ),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: [
+            BoxShadow(
+              color: colorScheme.primary.withValues(alpha: 0.28),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: BorderRadius.circular(22),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.18),
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.note_add_rounded,
+                      color: Colors.white,
+                      size: 19,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Agregar',
+                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: Colors.white.withValues(alpha: 0.80),
+                          fontWeight: FontWeight.w600,
+                          height: 1,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Orden de servicio',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          height: 1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -796,19 +1095,30 @@ class _ActiveFiltersRow extends StatelessWidget {
 class _ServiceOrderListCard extends StatelessWidget {
   const _ServiceOrderListCard({
     required this.order,
+    required this.client,
     required this.clientName,
     required this.onTap,
+    required this.creatingNewOrder,
+    this.onCreateNewOrder,
     this.trailing,
   });
 
   final ServiceOrderModel order;
+  final ClienteModel? client;
   final String clientName;
   final VoidCallback onTap;
+  final bool creatingNewOrder;
+  final VoidCallback? onCreateNewOrder;
   final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final locationPreview = parseClientLocationPreview(client?.locationUrl);
+    final navigationUri = buildClientNavigationUri(
+      locationPreview,
+      client?.locationUrl,
+    );
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -871,6 +1181,38 @@ class _ServiceOrderListCard extends StatelessWidget {
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
+                      if (onCreateNewOrder != null) ...[
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: FilledButton.tonalIcon(
+                            onPressed: creatingNewOrder
+                                ? null
+                                : onCreateNewOrder,
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                            ),
+                            icon: creatingNewOrder
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.add_rounded, size: 16),
+                            label: const Text('Nueva orden'),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -878,6 +1220,14 @@ class _ServiceOrderListCard extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
+                    if (navigationUri != null)
+                      IconButton(
+                        onPressed: () => safeOpenUrl(context, navigationUri),
+                        tooltip: 'Ir a la ubicacion',
+                        icon: const Icon(Icons.location_on_outlined),
+                      ),
+                    if (navigationUri != null && trailing != null)
+                      const SizedBox(height: 4),
                     if (trailing != null) trailing!,
                     if (trailing != null) const SizedBox(height: 8),
                     _StatusBadge(status: order.status),
@@ -970,9 +1320,9 @@ class _CompactInfoChip extends StatelessWidget {
           const SizedBox(width: 5),
           Text(
             text,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
         ],
       ),

@@ -58,8 +58,8 @@ List<AppNavigationSection> buildAppNavigationSections(
         if (can(AppPermission.viewOperations))
           const AppNavigationItem(
             icon: Icons.assignment_outlined,
-            title: 'Órdenes',
-            route: Routes.serviceOrderCreate,
+            title: 'Operaciones',
+            route: Routes.serviceOrders,
           ),
         if (can(AppPermission.viewClients))
           const AppNavigationItem(
@@ -123,10 +123,7 @@ List<AppNavigationSection> buildAppNavigationSections(
           ),
       ],
     ),
-    AppNavigationSection(
-      title: 'Administración',
-      items: const [],
-    ),
+    AppNavigationSection(title: 'Administración', items: const []),
     AppNavigationSection(
       title: 'Nómina',
       items: [
@@ -154,6 +151,11 @@ List<AppNavigationSection> buildAppNavigationSections(
             route: Routes.manualInterno,
             showIndicator: showManualIndicator,
           ),
+        const AppNavigationItem(
+          icon: Icons.smart_toy_outlined,
+          title: 'IA',
+          route: Routes.ai,
+        ),
       ],
     ),
   ];
@@ -177,9 +179,9 @@ String safeCurrentLocation(BuildContext context) {
 }
 
 bool isNavigationRouteActive(String location, String route) {
-  if (route == Routes.serviceOrderCreate) {
-    return location == Routes.serviceOrderCreate ||
-        location == Routes.serviceOrders ||
+  if (route == Routes.serviceOrders) {
+    return location == Routes.serviceOrders ||
+        location == Routes.serviceOrderCreate ||
         location.startsWith('${Routes.serviceOrders}/');
   }
   return location == route || location.startsWith('$route/');
@@ -199,10 +201,11 @@ String resolveNavigationTitle(
 
   final path = Uri.tryParse(location)?.path ?? location;
   if (path == Routes.registrarVenta) return 'Nueva venta';
-  if (path == Routes.serviceOrders) return 'Órdenes de servicio';
+  if (path == Routes.serviceOrders) return 'Operaciones';
   if (path == Routes.serviceOrderCreate) return 'Crear orden';
   if (path == Routes.cotizacionesHistorial) return 'Historial de cotizaciones';
   if (path == Routes.clienteNuevo) return 'Nuevo cliente';
+  if (path == Routes.ai) return 'IA';
   if (path == Routes.profile) return 'Perfil';
   if (path.startsWith('${Routes.serviceOrders}/')) return 'Detalle de orden';
   if (path.startsWith('/clientes/') && path.endsWith('/editar')) {
@@ -233,6 +236,7 @@ bool desktopShellShouldShowOwnAppBar(String location) {
     Routes.nomina,
     Routes.misPagos,
     Routes.manualInterno,
+    Routes.ai,
     Routes.configuracion,
     Routes.administracion,
     Routes.users,

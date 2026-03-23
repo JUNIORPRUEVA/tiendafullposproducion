@@ -33,6 +33,8 @@ AiChatContext buildAiChatContextFromLocation(String location) {
     module = 'nomina';
   } else if (path.startsWith('/manual-interno')) {
     module = 'manual-interno';
+  } else if (path.startsWith('/ia')) {
+    module = 'general';
   } else if (path.startsWith('/configuracion')) {
     module = 'configuracion';
   } else if (path.startsWith('/administracion')) {
@@ -99,6 +101,8 @@ String? _screenNameFromPath(String path) {
       return 'Mis pagos';
     case Routes.manualInterno:
       return 'Manual interno';
+    case Routes.ai:
+      return 'IA';
     case Routes.configuracion:
       return 'Configuración';
     case Routes.administracion:

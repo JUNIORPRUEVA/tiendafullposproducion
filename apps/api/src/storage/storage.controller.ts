@@ -12,6 +12,8 @@ import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
+import { join, posix } from 'node:path';
+import * as fs from 'node:fs';
 import type { Request } from 'express';
 import type { Express } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -56,6 +58,28 @@ function inferMediaFolder(contentType: string): 'images' | 'videos' {
 @Controller('upload')
 export class StorageController {
   constructor(private readonly r2: R2Service) {}
+
+  private resolveUploadDir(): string {
+    const fromEnv = (process.env.UPLOAD_DIR ?? '').trim();
+    const volumeDir = '/uploads';
+    const volumeExists = fs.existsSync(volumeDir);
+
+    if (fromEnv.length > 0) {
+      if ((fromEnv === './uploads' || fromEnv === 'uploads') && volumeExists) {
+        return volumeDir;
+      }
+      return fromEnv;
+    }
+
+    return volumeExists ? volumeDir : join(process.cwd(), 'uploads');
+  }
+
+  private buildAbsoluteUrl(req: Request, relativePath: string): string {
+    const host = (req.get('host') ?? '').trim();
+    const protocol = (req.protocol ?? 'http').trim();
+    if (!host) return relativePath;
+    return `${protocol}://${host}${relativePath}`;
+  }
 
   @Post()
   @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
@@ -104,26 +128,52 @@ export class StorageController {
     const now = new Date();
     const yyyy = String(now.getUTCFullYear());
     const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const kindFolder = kind.replace(/[^a-z0-9_-]/g, '-');
     const objectKey = [
-      'uploads',
       'media',
       mediaFolder,
-      kind.replace(/[^a-z0-9_-]/g, '-'),
+      kindFolder,
       userId,
       yyyy,
       mm,
       `${randomUUID()}-${fileStem}${safeExt}`,
-    ].join('/');
+    ]
+      .filter((segment) => segment.trim().isNotEmpty)
+      .join('/');
 
-    await this.r2.putObject({
-      objectKey,
-      body: file.buffer,
-      contentType,
-    });
+    const uploadDir = this.resolveUploadDir();
+    const absoluteFilePath = join(uploadDir, ...objectKey.split('/'));
+    const absoluteDir = join(uploadDir, 'media', mediaFolder, kindFolder, userId, yyyy, mm);
+    fs.mkdirSync(absoluteDir, { recursive: true });
+    fs.writeFileSync(absoluteFilePath, file.buffer);
+
+    if (!fs.existsSync(absoluteFilePath)) {
+      // eslint-disable-next-line no-console
+      console.error(`[upload] file not found after write: ${absoluteFilePath}`);
+      throw new BadRequestException('No se pudo persistir el archivo en disco');
+    }
+
+    // Optional mirror to R2; local file is source of truth for /uploads serving.
+    try {
+      await this.r2.putObject({
+        objectKey: `uploads/${objectKey}`,
+        body: file.buffer,
+        contentType,
+      });
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[upload] R2 mirror failed, continuing with local storage only', error);
+    }
+
+    const relativePath = `/${posix.join('uploads', objectKey)}`;
+    const url = this.buildAbsoluteUrl(req, relativePath);
+    // eslint-disable-next-line no-console
+    console.log(`[upload] saved file=${absoluteFilePath} url=${url}`);
 
     return {
-      url: this.r2.buildPublicUrl(objectKey),
-      objectKey,
+      url,
+      objectKey: `uploads/${objectKey}`,
+      relativePath,
       fileName: original,
       kind,
       contentType,

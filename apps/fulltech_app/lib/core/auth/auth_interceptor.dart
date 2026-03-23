@@ -14,7 +14,7 @@ class AuthInterceptor extends Interceptor {
   final Dio _refreshDio;
 
   static const String _retryFlagKey = '__auth_retry';
-  Future<_RefreshResult?>? _refreshFuture;
+  Future<_RefreshAttempt>? _refreshFuture;
 
   AuthInterceptor(this.tokenStorage, this.sessionEvents, this.dio)
     : _refreshDio = Dio(dio.options);
@@ -71,7 +71,7 @@ class AuthInterceptor extends Interceptor {
     return path == ApiRoutes.refresh || path.endsWith(ApiRoutes.refresh);
   }
 
-  Future<_RefreshResult?> _ensureRefreshed({required int seq}) {
+  Future<_RefreshAttempt> _ensureRefreshed({required int seq}) {
     _refreshFuture ??=
         () async {
           String? refreshToken;
@@ -95,13 +95,17 @@ class AuthInterceptor extends Interceptor {
             );
           }
 
-          if (refreshToken == null || refreshToken.isEmpty) return null;
+          if (refreshToken == null || refreshToken.isEmpty) {
+            return const _RefreshAttempt.invalid();
+          }
 
           final refreshed = await _refresh(refreshToken);
-          if (refreshed == null || refreshed.accessToken.isEmpty) return null;
+          if (!refreshed.isSuccess) {
+            return refreshed;
+          }
 
           await tokenStorage.saveTokens(
-            refreshed.accessToken,
+            refreshed.accessToken!,
             (refreshed.refreshToken != null &&
                     refreshed.refreshToken!.isNotEmpty)
                 ? refreshed.refreshToken
@@ -115,7 +119,7 @@ class AuthInterceptor extends Interceptor {
     return _refreshFuture!;
   }
 
-  Future<_RefreshResult?> _refresh(String refreshToken) async {
+  Future<_RefreshAttempt> _refresh(String refreshToken) async {
     try {
       final response = await _refreshDio.post(
         ApiRoutes.refresh,
@@ -126,16 +130,22 @@ class AuthInterceptor extends Interceptor {
         final newAccess = data['accessToken'] as String?;
         final newRefresh = data['refreshToken'] as String?;
         if (newAccess != null && newAccess.isNotEmpty) {
-          return _RefreshResult(
+          return _RefreshAttempt.success(
             accessToken: newAccess,
             refreshToken: newRefresh,
           );
         }
       }
+      return const _RefreshAttempt.failed();
+    } on DioException catch (error) {
+      final status = error.response?.statusCode ?? 0;
+      if (status == 400 || status == 401 || status == 403) {
+        return const _RefreshAttempt.invalid();
+      }
+      return const _RefreshAttempt.failed();
     } catch (_) {
-      // Ignore
+      return const _RefreshAttempt.failed();
     }
-    return null;
   }
 
   @override
@@ -153,7 +163,7 @@ class AuthInterceptor extends Interceptor {
 
       try {
         final refreshed = await _ensureRefreshed(seq: seq);
-        if (refreshed != null && refreshed.accessToken.isNotEmpty) {
+        if (refreshed.isSuccess && refreshed.accessToken != null) {
           final opts = err.requestOptions;
           opts.headers['Authorization'] = 'Bearer ${refreshed.accessToken}';
           opts.extra[_retryFlagKey] = true;
@@ -168,19 +178,42 @@ class AuthInterceptor extends Interceptor {
           final retryResponse = await dio.fetch(opts);
           return handler.resolve(retryResponse);
         }
+        if (refreshed.shouldLogout) {
+          sessionEvents.requestUnauthorizedLogout();
+        }
       } catch (_) {
         // Fall through to original error.
       }
-
-      sessionEvents.requestUnauthorizedLogout();
     }
     handler.next(err);
   }
 }
 
-class _RefreshResult {
-  final String accessToken;
+class _RefreshAttempt {
+  final String? accessToken;
   final String? refreshToken;
+  final bool shouldLogout;
 
-  _RefreshResult({required this.accessToken, this.refreshToken});
+  const _RefreshAttempt({
+    required this.accessToken,
+    required this.refreshToken,
+    required this.shouldLogout,
+  });
+
+  const _RefreshAttempt.success({
+    required String accessToken,
+    String? refreshToken,
+  }) : this(
+         accessToken: accessToken,
+         refreshToken: refreshToken,
+         shouldLogout: false,
+       );
+
+  const _RefreshAttempt.failed()
+    : this(accessToken: null, refreshToken: null, shouldLogout: false);
+
+  const _RefreshAttempt.invalid()
+    : this(accessToken: null, refreshToken: null, shouldLogout: true);
+
+  bool get isSuccess => accessToken != null && accessToken!.isNotEmpty;
 }
