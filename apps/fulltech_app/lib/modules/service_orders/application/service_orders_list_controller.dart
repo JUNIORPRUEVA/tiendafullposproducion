@@ -51,49 +51,70 @@ class ServiceOrdersListController extends StateNotifier<ServiceOrdersListState> 
   }
 
   final Ref ref;
+  Future<void>? _inFlightLoad;
+
+  String _friendlyListMessage(Object error) {
+    if (error is ApiException) {
+      if (error.type == ApiErrorType.forbidden || error.code == 403) {
+        return 'No tienes permiso para ver las órdenes de servicio';
+      }
+      return error.message;
+    }
+    return 'No se pudieron cargar las órdenes. Error inesperado.';
+  }
 
   String get _ownerId => ref.read(authStateProvider).user?.id ?? '';
 
   Future<void> load({bool refresh = false}) async {
+    if (_inFlightLoad != null) {
+      return _inFlightLoad!;
+    }
+
     state = state.copyWith(
       loading: !refresh && state.items.isEmpty,
       refreshing: refresh || state.items.isNotEmpty,
       clearError: true,
     );
-    try {
-      final results = await Future.wait<dynamic>([
-        ref.read(serviceOrdersApiProvider).listOrders(),
-        ref.read(clientesRepositoryProvider).listClients(
-              ownerId: _ownerId,
-              pageSize: 200,
-            ),
-      ]);
-      final orders = results[0] as List<ServiceOrderModel>;
-      final clients = results[1] as List<ClienteModel>;
-      final clientMap = <String, ClienteModel>{
-        for (final client in clients) client.id: client,
-      };
+    _inFlightLoad = () async {
+      try {
+        final results = await Future.wait<dynamic>([
+          ref.read(serviceOrdersApiProvider).listOrders(),
+          ref.read(clientesRepositoryProvider).listClients(
+                ownerId: _ownerId,
+                pageSize: 200,
+              ),
+        ]);
+        final orders = results[0] as List<ServiceOrderModel>;
+        final clients = results[1] as List<ClienteModel>;
+        final clientMap = <String, ClienteModel>{
+          for (final client in clients) client.id: client,
+        };
 
-      orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      state = state.copyWith(
-        loading: false,
-        refreshing: false,
-        items: orders,
-        clientsById: clientMap,
-      );
-    } catch (error) {
-      final message = error is ApiException
-          ? error.message
-          : 'No se pudieron cargar las órdenes';
-      state = state.copyWith(
-        loading: false,
-        refreshing: false,
-        error: message,
-      );
-    }
+        orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        state = state.copyWith(
+          loading: false,
+          refreshing: false,
+          items: orders,
+          clientsById: clientMap,
+        );
+      } catch (error) {
+        final message = _friendlyListMessage(error);
+        state = state.copyWith(
+          loading: false,
+          refreshing: false,
+          error: message,
+        );
+      } finally {
+        _inFlightLoad = null;
+      }
+    }();
+
+    return _inFlightLoad!;
   }
 
   Future<void> refresh() => load(refresh: true);
+
+  Future<void> retry() => load(refresh: true);
 
   Future<void> deleteOrder(String id) async {
     await ref.read(serviceOrdersApiProvider).deleteOrder(id);

@@ -20,7 +20,7 @@ export class ServiceOrdersController {
   constructor(private readonly serviceOrders: ServiceOrdersService) {}
 
   @Post()
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
   create(@Req() req: Request, @Body() dto: CreateServiceOrderDto) {
     return this.serviceOrders.create(req.user as JwtUser, dto);
   }

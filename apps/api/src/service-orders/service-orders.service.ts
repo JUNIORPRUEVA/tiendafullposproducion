@@ -269,9 +269,12 @@ export class ServiceOrdersService {
         where: { id: 'global' },
         select: { operationsTechCanViewAllServices: true },
       });
-      return appConfig?.operationsTechCanViewAllServices === true;
+      if (appConfig == null) {
+        return true;
+      }
+      return appConfig.operationsTechCanViewAllServices !== false;
     } catch {
-      return false;
+      return true;
     }
   }
 

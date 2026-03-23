@@ -9,14 +9,12 @@ import '../../core/errors/api_exception.dart';
 import '../../core/models/user_model.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
-import '../../core/utils/safe_url_launcher.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/app_navigation.dart';
-import '../clientes/client_location_utils.dart';
 import '../clientes/cliente_model.dart';
 import 'application/service_orders_list_controller.dart';
+import 'data/service_orders_api.dart';
 import 'service_order_models.dart';
-import 'widgets/client_location_card.dart';
 
 class ServiceOrdersListScreen extends ConsumerStatefulWidget {
   const ServiceOrdersListScreen({super.key});
@@ -33,10 +31,22 @@ class _ServiceOrdersListScreenState
   final Set<String> _creatingFromOrderIds = <String>{};
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(serviceOrdersListControllerProvider.notifier).refresh();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final state = ref.watch(serviceOrdersListControllerProvider);
     final controller = ref.read(serviceOrdersListControllerProvider.notifier);
     final currentUser = ref.watch(authStateProvider).user;
+    final canManageStatus =
+        currentUser?.appRole.isAdmin == true ||
+        currentUser?.appRole.isTechnician == true;
     final isAdmin = currentUser?.appRole.isAdmin ?? false;
     final width = MediaQuery.sizeOf(context).width;
     final isDesktop = width >= kDesktopShellBreakpoint;
@@ -122,7 +132,29 @@ class _ServiceOrdersListScreenState
                   Center(
                     child: Padding(
                       padding: const EdgeInsets.all(24),
-                      child: Text(state.error!, textAlign: TextAlign.center),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.error_outline_rounded,
+                            size: 30,
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            state.error!,
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 14),
+                          FilledButton.icon(
+                            onPressed: state.refreshing
+                                ? null
+                                : controller.retry,
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('Reintentar'),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -203,6 +235,10 @@ class _ServiceOrdersListScreenState
                           client: client,
                           clientName:
                               client?.nombre ?? 'Cliente ${order.clientId}',
+                          statusBusy: _busyOrderIds.contains(order.id),
+                          onChangeStatus: canManageStatus
+                              ? (status) => _changeOrderStatus(order, status)
+                              : null,
                           creatingNewOrder: _creatingFromOrderIds.contains(
                             order.id,
                           ),
@@ -329,6 +365,45 @@ class _ServiceOrdersListScreenState
       await AppFeedback.showError(
         context,
         error is ApiException ? error.message : 'No se pudo eliminar la orden',
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busyOrderIds.remove(order.id);
+        });
+      }
+    }
+  }
+
+  Future<void> _changeOrderStatus(
+    ServiceOrderModel order,
+    ServiceOrderStatus status,
+  ) async {
+    if (_busyOrderIds.contains(order.id) || status == order.status) {
+      return;
+    }
+
+    final previousOrder = order;
+    setState(() {
+      _busyOrderIds.add(order.id);
+    });
+    ref
+        .read(serviceOrdersListControllerProvider.notifier)
+        .replaceOrderStatus(orderId: order.id, status: status);
+
+    try {
+      final updated = await ref
+          .read(serviceOrdersApiProvider)
+          .updateStatus(order.id, status);
+      ref.read(serviceOrdersListControllerProvider.notifier).upsertOrder(updated);
+      if (!mounted) return;
+      await AppFeedback.showInfo(context, 'Estado actualizado');
+    } catch (error) {
+      ref.read(serviceOrdersListControllerProvider.notifier).upsertOrder(previousOrder);
+      if (!mounted) return;
+      await AppFeedback.showError(
+        context,
+        error is ApiException ? error.message : 'No se pudo actualizar el estado',
       );
     } finally {
       if (mounted) {
@@ -1098,8 +1173,10 @@ class _ServiceOrderListCard extends StatelessWidget {
     required this.client,
     required this.clientName,
     required this.onTap,
+    required this.statusBusy,
     required this.creatingNewOrder,
     this.onCreateNewOrder,
+    this.onChangeStatus,
     this.trailing,
   });
 
@@ -1107,18 +1184,15 @@ class _ServiceOrderListCard extends StatelessWidget {
   final ClienteModel? client;
   final String clientName;
   final VoidCallback onTap;
+  final bool statusBusy;
   final bool creatingNewOrder;
   final VoidCallback? onCreateNewOrder;
+  final ValueChanged<ServiceOrderStatus>? onChangeStatus;
   final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final locationPreview = parseClientLocationPreview(client?.locationUrl);
-    final navigationUri = buildClientNavigationUri(
-      locationPreview,
-      client?.locationUrl,
-    );
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1126,21 +1200,25 @@ class _ServiceOrderListCard extends StatelessWidget {
         onTap: onTap,
         child: Ink(
           decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(14),
+            gradient: const LinearGradient(
+              colors: [Color(0xFFF9FAFC), Color(0xFFF5F7FA)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(15),
             boxShadow: [
               BoxShadow(
-                color: theme.colorScheme.shadow.withValues(alpha: 0.06),
-                blurRadius: 14,
-                offset: const Offset(0, 4),
+                color: theme.colorScheme.shadow.withValues(alpha: 0.045),
+                blurRadius: 12,
+                offset: const Offset(0, 3),
               ),
             ],
             border: Border.all(
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.7),
+              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.52),
             ),
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1152,14 +1230,15 @@ class _ServiceOrderListCard extends StatelessWidget {
                         clientName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleSmall?.copyWith(
+                        style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w800,
+                          letterSpacing: 0.1,
                         ),
                       ),
                       const SizedBox(height: 6),
                       Wrap(
                         spacing: 6,
-                        runSpacing: 6,
+                        runSpacing: 4,
                         children: [
                           _CompactInfoChip(
                             icon: Icons.category_outlined,
@@ -1178,11 +1257,11 @@ class _ServiceOrderListCard extends StatelessWidget {
                           'es_DO',
                         ).format(order.createdAt.toLocal()),
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
+                          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.86),
                         ),
                       ),
                       if (onCreateNewOrder != null) ...[
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 8),
                         Align(
                           alignment: Alignment.centerLeft,
                           child: FilledButton.tonalIcon(
@@ -1191,8 +1270,8 @@ class _ServiceOrderListCard extends StatelessWidget {
                                 : onCreateNewOrder,
                             style: FilledButton.styleFrom(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
+                                horizontal: 10,
+                                vertical: 7,
                               ),
                               minimumSize: Size.zero,
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -1216,28 +1295,121 @@ class _ServiceOrderListCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(width: 12),
-                Column(
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 116,
+                  child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    if (navigationUri != null)
-                      IconButton(
-                        onPressed: () => safeOpenUrl(context, navigationUri),
-                        tooltip: 'Ir a la ubicacion',
-                        icon: const Icon(Icons.location_on_outlined),
-                      ),
-                    if (navigationUri != null && trailing != null)
-                      const SizedBox(height: 4),
-                    if (trailing != null) trailing!,
-                    if (trailing != null) const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      mainAxisSize: MainAxisSize.max,
+                      children: [
+                        if (trailing != null)
+                          SizedBox(
+                            width: 30,
+                            height: 30,
+                            child: Center(child: trailing!),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
                     _StatusBadge(status: order.status),
+                    if (onChangeStatus != null) ...[
+                      const SizedBox(height: 6),
+                      _InlineStatusButton(
+                        order: order,
+                        busy: statusBusy,
+                        onSelected: onChangeStatus!,
+                      ),
+                    ],
                   ],
+                ),
                 ),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _InlineStatusButton extends StatelessWidget {
+  const _InlineStatusButton({
+    required this.order,
+    required this.busy,
+    required this.onSelected,
+  });
+
+  final ServiceOrderModel order;
+  final bool busy;
+  final ValueChanged<ServiceOrderStatus> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final statuses = [order.status, ...order.status.allowedNextStatuses]
+        .fold<List<ServiceOrderStatus>>(<ServiceOrderStatus>[], (acc, item) {
+          if (!acc.contains(item)) acc.add(item);
+          return acc;
+        });
+
+    return PopupMenuButton<ServiceOrderStatus>(
+      enabled: !busy,
+      tooltip: 'Cambiar estado',
+      onSelected: onSelected,
+      itemBuilder: (context) => statuses
+          .map(
+            (status) => PopupMenuItem<ServiceOrderStatus>(
+              value: status,
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.circle,
+                    size: 12,
+                    color: status.color,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(status.label),
+                ],
+              ),
+            ),
+          )
+          .toList(growable: false),
+      child: busy
+          ? const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.55),
+                ),
+                color: Theme.of(context).colorScheme.surface,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.sync_alt_rounded,
+                    size: 14,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    'Estado',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
     );
   }
 }

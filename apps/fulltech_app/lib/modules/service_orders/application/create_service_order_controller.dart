@@ -483,9 +483,7 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
                   assignedToId: assignedToId,
                 ),
               );
-      final warningMessage = state.isEditMode
-          ? null
-          : await _sendDraftReferences(result.id);
+      final warningMessage = await _sendDraftReferences(result.id);
       state = state.copyWith(submitting: false);
       return CreateServiceOrderSubmissionResult(
         order: result,

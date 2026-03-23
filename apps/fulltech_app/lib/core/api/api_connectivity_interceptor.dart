@@ -37,22 +37,13 @@ class ApiConnectivityInterceptor extends Interceptor {
     }
 
     final probe = await reachability.probe(options.uri);
+
+    // Advisory-only connectivity probe: do not block the real HTTP request.
+    // On some Windows/mobile networks DNS lookup can timeout intermittently
+    // while the backend is still reachable via HTTP.
     if (!probe.isReachable) {
-      final apiError = ApiErrorMapper.fromNetworkProbe(
-        probe: probe,
-        fallbackMessage: 'No fue posible conectar con el servidor',
-        uri: options.uri,
-        method: options.method.toUpperCase(),
-      );
-      handler.reject(
-        DioException(
-          requestOptions: options,
-          error: apiError,
-          message: probe.detail,
-          type: DioExceptionType.connectionError,
-        ),
-      );
-      return;
+      options.extra['connectivityProbeStatus'] = probe.status.name;
+      options.extra['connectivityProbeDetail'] = probe.detail;
     }
 
     handler.next(options);

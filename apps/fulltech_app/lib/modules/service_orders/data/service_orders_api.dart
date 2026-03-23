@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/api_error_mapper.dart';
 import '../../../core/api/api_routes.dart';
 import '../../../core/auth/auth_repository.dart';
 import '../../../core/errors/api_exception.dart';
@@ -15,28 +17,37 @@ class ServiceOrdersApi {
 
   ServiceOrdersApi(this._dio);
 
-  String _extractMessage(dynamic data, String fallback) {
-    if (data is Map) {
-      final message = data['message'];
-      if (message is String && message.trim().isNotEmpty) return message;
-      if (message is List && message.isNotEmpty) {
-        final first = message.first;
-        if (first is String && first.trim().isNotEmpty) return first;
-      }
-    }
-    return fallback;
+  Never _rethrow(DioException error, String fallback) {
+    throw ApiErrorMapper.fromDio(error, fallbackMessage: fallback, dio: _dio);
   }
 
-  Never _rethrow(DioException error, String fallback) {
-    throw ApiException(
-      _extractMessage(error.response?.data, fallback),
-      error.response?.statusCode,
-    );
+  void _logRequest(String method, String path) {
+    if (!kDebugMode) return;
+    final tokenHeader = _dio.options.headers['Authorization'];
+    final tokenState = tokenHeader == null
+        ? 'missing'
+        : tokenHeader.toString().trim().isEmpty
+        ? 'empty'
+        : 'present';
+    debugPrint('SERVICE_ORDERS REQUEST: $method ${_dio.options.baseUrl}$path token=$tokenState');
+  }
+
+  void _logResponse(String method, String path, int? statusCode) {
+    if (!kDebugMode) return;
+    debugPrint('SERVICE_ORDERS RESPONSE: $method ${_dio.options.baseUrl}$path status=${statusCode ?? 'unknown'}');
+  }
+
+  void _logError(String method, String path, Object error) {
+    if (!kDebugMode) return;
+    debugPrint('SERVICE_ORDERS ERROR: $method ${_dio.options.baseUrl}$path error=$error');
   }
 
   Future<List<ServiceOrderModel>> listOrders() async {
+    const path = ApiRoutes.serviceOrders;
+    _logRequest('GET', path);
     try {
-      final res = await _dio.get(ApiRoutes.serviceOrders);
+      final res = await _dio.get(path);
+      _logResponse('GET', path, res.statusCode);
       final raw = res.data;
       final rows = raw is List
           ? raw
@@ -48,7 +59,18 @@ class ServiceOrdersApi {
           .map((row) => ServiceOrderModel.fromJson(row.cast<String, dynamic>()))
           .toList(growable: false);
     } on DioException catch (error) {
+      _logError('GET', path, error);
       _rethrow(error, 'No se pudieron cargar las órdenes');
+    } catch (error) {
+      _logError('GET', path, error);
+      throw ApiException.detailed(
+        message:
+            'No se pudieron cargar las órdenes. El servidor respondió con un formato inválido.',
+        type: ApiErrorType.parse,
+        displayCode: 'PARSE_ERROR',
+        technicalDetails: error.toString(),
+        retryable: false,
+      );
     }
   }
 

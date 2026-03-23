@@ -70,6 +70,20 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
   final String orderId;
   Future<void> _uploadQueue = Future<void>.value();
 
+  String _friendlyOrderMessage(
+    Object error, {
+    required String fallback,
+    required String forbiddenMessage,
+  }) {
+    if (error is ApiException) {
+      if (error.type == ApiErrorType.forbidden || error.code == 403) {
+        return forbiddenMessage;
+      }
+      return error.message;
+    }
+    return fallback;
+  }
+
   Future<void> load() async {
     state = state.copyWith(
       loading: state.order == null,
@@ -95,9 +109,11 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
         usersById: {for (final user in users) user.id: user},
       );
     } catch (error) {
-      final message = error is ApiException
-          ? error.message
-          : 'No se pudo cargar la orden';
+      final message = _friendlyOrderMessage(
+        error,
+        fallback: 'No se pudo cargar la orden',
+        forbiddenMessage: 'No tienes permiso para ver esta orden',
+      );
       state = state.copyWith(loading: false, error: message);
     }
   }
@@ -121,9 +137,11 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
       state = state.copyWith(working: false, order: updated);
       ref.read(serviceOrdersListControllerProvider.notifier).upsertOrder(updated);
     } catch (error) {
-      final message = error is ApiException
-          ? error.message
-          : 'No se pudo actualizar el estado';
+      final message = _friendlyOrderMessage(
+        error,
+        fallback: 'No se pudo actualizar el estado',
+        forbiddenMessage: 'No tienes permiso para cambiar el estado de esta orden',
+      );
       state = state.copyWith(
         working: false,
         order: previousOrder,
@@ -241,9 +259,11 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
       await ref.read(serviceOrdersApiProvider).addReport(orderId, report);
       await load();
     } catch (error) {
-      final message = error is ApiException
-          ? error.message
-          : 'No se pudo guardar el reporte';
+      final message = _friendlyOrderMessage(
+        error,
+        fallback: 'No se pudo guardar el reporte',
+        forbiddenMessage: 'No tienes permiso para agregar reportes en esta orden',
+      );
       state = state.copyWith(working: false, actionError: message);
       rethrow;
     }
@@ -255,9 +275,11 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
       await ref.read(serviceOrdersApiProvider).addEvidence(orderId, request);
       await load();
     } catch (error) {
-      final message = error is ApiException
-          ? error.message
-          : 'No se pudo guardar la evidencia';
+      final message = _friendlyOrderMessage(
+        error,
+        fallback: 'No se pudo guardar la evidencia',
+        forbiddenMessage: 'No tienes permiso para agregar evidencias en esta orden',
+      );
       state = state.copyWith(working: false, actionError: message);
       rethrow;
     }

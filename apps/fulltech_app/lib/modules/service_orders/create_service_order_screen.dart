@@ -82,9 +82,7 @@ class _CreateServiceOrderScreenState
           ? null
           : buildAdaptiveDrawer(context, currentUser: user),
       backgroundColor: const Color(0xFFF4F7FB),
-      floatingActionButton: state.isEditMode
-          ? null
-          : FloatingActionButton.extended(
+        floatingActionButton: FloatingActionButton.extended(
               heroTag: 'service-order-reference-fab',
               onPressed: state.submitting || state.uploadingEvidence
                   ? null
@@ -245,6 +243,20 @@ class _CreateServiceOrderScreenState
   }) {
     final inputDecoration = _inputDecoration(context);
     final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final existingReferences = (state.editSource?.referenceItems ?? const [])
+        .map(
+          (reference) => ServiceOrderDraftReference(
+            id: reference.id,
+            type: reference.type,
+            content: reference.content,
+            createdAt: reference.createdAt,
+            uploadedUrl: reference.type.isText ? null : reference.content,
+            previewBytes: reference.previewBytes,
+            localPath: reference.localPath,
+            fileName: reference.fileName,
+          ),
+        )
+        .toList(growable: false);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -428,15 +440,45 @@ class _CreateServiceOrderScreenState
           ),
         ),
         const SizedBox(height: 14),
-        if (!state.isEditMode) ...[
-          SectionCard(
-            title: 'Referencia',
-            child: ReferenceGallery(
-              references: state.references,
-              onRemove: controller.removeReference,
-            ),
+        SectionCard(
+          title: 'Referencia',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (existingReferences.isNotEmpty) ...[
+                Text(
+                  'Referencias actuales',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                ReferenceGallery(references: existingReferences),
+              ],
+              if (existingReferences.isNotEmpty && state.references.isNotEmpty)
+                const SizedBox(height: 14),
+              if (state.references.isNotEmpty) ...[
+                if (existingReferences.isNotEmpty)
+                  Text(
+                    'Nuevas referencias',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                if (existingReferences.isNotEmpty) const SizedBox(height: 10),
+                ReferenceGallery(
+                  references: state.references,
+                  onRemove: controller.removeReference,
+                ),
+              ],
+              if (existingReferences.isEmpty && state.references.isEmpty)
+                const _EmptyInlineState(
+                  icon: Icons.add_photo_alternate_outlined,
+                  label: 'Sin referencias',
+                ),
+            ],
           ),
-        ],
+        ),
         if (canManageOperationalFields) ...[
           const SizedBox(height: 14),
           SectionCard(
