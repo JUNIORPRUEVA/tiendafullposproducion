@@ -69,8 +69,12 @@ export class ServiceOrdersService {
   }
 
   async update(user: AuthUser, id: string, dto: UpdateServiceOrderDto) {
-    this.assertAdmin(user);
     const current = await this.findOrderOrThrow(user, id);
+    if (user.role === Role.TECNICO) {
+      return this.updateAsTechnician(user, current, dto);
+    }
+
+    this.assertAdminEdit(user);
 
     const clientId = this.cleanOptionalText(dto.clientId, dto.client_id) ?? current.clientId;
     const quotationId = this.cleanOptionalText(dto.quotationId, dto.quotation_id) ?? current.quotationId;
@@ -114,7 +118,7 @@ export class ServiceOrdersService {
 
   async updateStatus(user: AuthUser, id: string, dto: UpdateStatusDto) {
     const item = await this.findOrderOrThrow(user, id);
-    this.assertCanOperate(user, item);
+    this.assertCanModifyOrder(user, item);
 
     const nextStatus = dto.status as ApiServiceOrderStatus;
     this.assertValidStatusTransition(this.toApiStatus(item.status), nextStatus);
@@ -132,7 +136,7 @@ export class ServiceOrdersService {
 
   async addEvidence(user: AuthUser, id: string, dto: CreateEvidenceDto) {
     const item = await this.findOrderOrThrow(user, id);
-    this.assertCanOperate(user, item);
+    this.assertCanModifyOrder(user, item);
     this.assertCanAddEvidenceType(user, dto.type as ApiServiceEvidenceType);
 
     const content = this.cleanRequiredText(dto.content, 'content');
@@ -154,8 +158,8 @@ export class ServiceOrdersService {
 
   async addReport(user: AuthUser, id: string, dto: CreateReportDto) {
     const item = await this.findOrderOrThrow(user, id);
-    this.assertCanOperate(user, item);
-    this.assertCanManageTechnicalOutputs(user);
+    this.assertCanModifyOrder(user, item);
+    this.assertTechnicalOutputAccess(user);
 
     const report = this.cleanRequiredText(dto.report, 'report');
 
@@ -204,12 +208,36 @@ export class ServiceOrdersService {
   }
 
   async remove(user: AuthUser, id: string) {
-    this.assertAdmin(user);
+    this.assertAdminDelete(user);
     await this.findOrderOrThrow(user, id);
 
     try {
       await this.prisma.serviceOrder.delete({ where: { id } });
       return { ok: true };
+    } catch (error) {
+      this.rethrowWriteError(error);
+    }
+  }
+
+  private async updateAsTechnician(
+    user: AuthUser,
+    current: ServiceOrderRecord,
+    dto: UpdateServiceOrderDto,
+  ) {
+    this.assertCanModifyOrder(user, current);
+    this.assertTecnicoUpdateDoesNotChangeProtectedFields(current, dto);
+
+    const data = this.buildTecnicoUpdateData(dto, current);
+    if (!data) {
+      return this.mapOrder(current);
+    }
+
+    try {
+      const updated = await this.prisma.serviceOrder.update({
+        where: { id: current.id },
+        data,
+      });
+      return this.mapOrder(updated);
     } catch (error) {
       this.rethrowWriteError(error);
     }
@@ -253,29 +281,16 @@ export class ServiceOrdersService {
     }
 
     if (user.role === Role.TECNICO) {
-      const canViewAll = await this.canTechnicianViewAllServices();
-      if (canViewAll) return {};
-      return {
-        OR: [{ assignedToId: user.id }, { createdById: user.id }],
-      };
+      return this.buildTechnicianAccessWhere(user);
     }
 
     return { createdById: user.id };
   }
 
-  private async canTechnicianViewAllServices() {
-    try {
-      const appConfig = await this.prisma.appConfig.findUnique({
-        where: { id: 'global' },
-        select: { operationsTechCanViewAllServices: true },
-      });
-      if (appConfig == null) {
-        return true;
-      }
-      return appConfig.operationsTechCanViewAllServices !== false;
-    } catch {
-      return true;
-    }
+  private buildTechnicianAccessWhere(user: AuthUser): Prisma.ServiceOrderWhereInput {
+    return {
+      OR: [{ assignedToId: user.id }, { createdById: user.id }],
+    };
   }
 
   private async findOrderOrThrow(
@@ -297,7 +312,7 @@ export class ServiceOrdersService {
         throw new NotFoundException('Orden de servicio no encontrada');
       }
 
-      throw new ForbiddenException('No tienes acceso a esta orden de servicio');
+      throw new ForbiddenException('Not authorized to access this order');
     }
 
     return item;
@@ -326,7 +341,7 @@ export class ServiceOrdersService {
         throw new NotFoundException('Orden de servicio no encontrada');
       }
 
-      throw new ForbiddenException('No tienes acceso a esta orden de servicio');
+      throw new ForbiddenException('Not authorized to access this order');
     }
 
     return item;
@@ -356,8 +371,102 @@ export class ServiceOrdersService {
       Object.prototype.hasOwnProperty.call(dto, 'assigned_to');
   }
 
+  private assertAdminEdit(user: AuthUser) {
+    if (user.role !== Role.ADMIN) {
+      throw new ForbiddenException('Not authorized to modify this order');
+    }
+  }
+
+  private assertAdminDelete(user: AuthUser) {
+    if (user.role !== Role.ADMIN) {
+      throw new ForbiddenException('Only admin can delete orders');
+    }
+  }
+
+  private assertCanModifyOrder(user: AuthUser, item: { createdById: string; assignedToId: string | null }) {
+    if (user.role === Role.ADMIN || user.role === Role.ASISTENTE) {
+      return;
+    }
+    if (user.role === Role.VENDEDOR && item.createdById === user.id) {
+      return;
+    }
+    if (user.role === Role.TECNICO && (item.assignedToId === user.id || item.createdById === user.id)) {
+      return;
+    }
+    throw new ForbiddenException('Not authorized to modify this order');
+  }
+
+  private assertTechnicalOutputAccess(user: AuthUser) {
+    if (user.role === Role.ADMIN || user.role === Role.TECNICO) {
+      return;
+    }
+    throw new ForbiddenException('Not authorized to modify this order');
+  }
+
   private hasTextInput(dto: UpdateServiceOrderDto, ...keys: Array<keyof UpdateServiceOrderDto>) {
     return keys.some((key) => Object.prototype.hasOwnProperty.call(dto, key));
+  }
+
+  private buildTecnicoUpdateData(
+    dto: UpdateServiceOrderDto,
+    current: ServiceOrderRecord,
+  ): Prisma.ServiceOrderUncheckedUpdateInput | null {
+    const data: Prisma.ServiceOrderUncheckedUpdateInput = {};
+
+    if (this.hasTextInput(dto, 'technicalNote', 'technical_note')) {
+      const nextTechnicalNote = this.cleanOptionalText(dto.technicalNote, dto.technical_note);
+      if (nextTechnicalNote !== current.technicalNote) {
+        data.technicalNote = nextTechnicalNote;
+      }
+    }
+
+    if (this.hasTextInput(dto, 'extraRequirements', 'extra_requirements')) {
+      const nextExtraRequirements = this.cleanOptionalText(dto.extraRequirements, dto.extra_requirements);
+      if (nextExtraRequirements !== current.extraRequirements) {
+        data.extraRequirements = nextExtraRequirements;
+      }
+    }
+
+    return Object.keys(data).length > 0 ? data : null;
+  }
+
+  private assertTecnicoUpdateDoesNotChangeProtectedFields(
+    current: ServiceOrderRecord,
+    dto: UpdateServiceOrderDto,
+  ) {
+    const nextClientId = this.cleanOptionalText(dto.clientId, dto.client_id);
+    if ((dto.clientId !== undefined || dto.client_id !== undefined) && nextClientId !== current.clientId) {
+      throw new ForbiddenException('Not authorized to modify this order');
+    }
+
+    const nextQuotationId = this.cleanOptionalText(dto.quotationId, dto.quotation_id);
+    if (
+      (dto.quotationId !== undefined || dto.quotation_id !== undefined) &&
+      nextQuotationId !== current.quotationId
+    ) {
+      throw new ForbiddenException('Not authorized to modify this order');
+    }
+
+    const nextCategory = this.cleanOptionalText(dto.category);
+    if (dto.category !== undefined && nextCategory !== SERVICE_ORDER_CATEGORY_FROM_DB[current.category]) {
+      throw new ForbiddenException('Not authorized to modify this order');
+    }
+
+    const nextServiceType = this.cleanOptionalText(dto.serviceType, dto.service_type);
+    if (
+      (dto.serviceType !== undefined || dto.service_type !== undefined) &&
+      nextServiceType !== SERVICE_ORDER_TYPE_FROM_DB[current.serviceType]
+    ) {
+      throw new ForbiddenException('Not authorized to modify this order');
+    }
+
+    const nextAssignedToId = this.cleanOptionalText(dto.assignedToId, dto.assigned_to);
+    if (
+      (dto.assignedToId !== undefined || dto.assigned_to !== undefined) &&
+      nextAssignedToId !== current.assignedToId
+    ) {
+      throw new ForbiddenException('Not authorized to modify this order');
+    }
   }
 
   private assertCanAddEvidenceType(user: AuthUser, type: ApiServiceEvidenceType) {
@@ -365,7 +474,7 @@ export class ServiceOrdersService {
       return;
     }
 
-    this.assertCanManageTechnicalOutputs(user);
+    this.assertTechnicalOutputAccess(user);
   }
 
   private assertCanManageTechnicalOutputs(user: AuthUser) {

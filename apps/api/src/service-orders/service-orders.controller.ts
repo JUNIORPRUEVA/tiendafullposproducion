@@ -38,7 +38,7 @@ export class ServiceOrdersController {
   }
 
   @Patch(':id')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.TECNICO)
   update(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateServiceOrderDto) {
     return this.serviceOrders.update(req.user as JwtUser, id, dto);
   }

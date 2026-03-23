@@ -1,5 +1,11 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, type Client } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma, Role, type Client } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizePhone } from '../common/utils/normalize-phone';
 import { ClientLocationFieldsDto } from './dto/client-location-fields.dto';
@@ -8,9 +14,13 @@ import { ClientsQueryDto } from './dto/clients-query.dto';
 import { UpdateClientLocationDto } from './dto/update-client-location.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 
+type AuthUser = { id: string; role: Role };
+
 @Injectable()
 export class ClientsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private static readonly adminLikeRoles = new Set<Role>([Role.ADMIN, Role.ASISTENTE]);
 
   private static readonly uuidPattern =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -21,6 +31,74 @@ export class ClientsService {
     }
 
     throw new NotFoundException('Client not found');
+  }
+
+  private isAdminLike(user: AuthUser) {
+    return ClientsService.adminLikeRoles.has(user.role);
+  }
+
+  private buildTechnicianServiceOrderWhere(user: AuthUser): Prisma.ServiceOrderWhereInput {
+    return {
+      OR: [{ assignedToId: user.id }, { createdById: user.id }],
+    };
+  }
+
+  private buildClientAccessWhere(user: AuthUser): Prisma.ClientWhereInput {
+    if (this.isAdminLike(user)) {
+      return {};
+    }
+
+    if (user.role === Role.VENDEDOR) {
+      return { ownerId: user.id };
+    }
+
+    if (user.role === Role.TECNICO) {
+      return {
+        serviceOrders: {
+          some: this.buildTechnicianServiceOrderWhere(user),
+        },
+      };
+    }
+
+    return { ownerId: user.id };
+  }
+
+  private combineWhere(...parts: Array<Prisma.ClientWhereInput | null | undefined>): Prisma.ClientWhereInput {
+    const filters = parts.filter((part): part is Prisma.ClientWhereInput => part != null);
+    if (filters.length === 0) {
+      return {};
+    }
+    if (filters.length === 1) {
+      return filters[0];
+    }
+    return { AND: filters };
+  }
+
+  private async findAccessibleClientOrThrow(user: AuthUser, id: string) {
+    this.ensureValidClientId(id);
+
+    const client = await this.prisma.client.findFirst({
+      where: this.combineWhere({ id }, this.buildClientAccessWhere(user)),
+    });
+    if (client) {
+      return client;
+    }
+
+    const exists = await this.prisma.client.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!exists) {
+      throw new NotFoundException('Client not found');
+    }
+
+    throw new ForbiddenException('Not authorized to access this client');
+  }
+
+  private assertAdmin(user: AuthUser, message: string) {
+    if (user.role !== Role.ADMIN) {
+      throw new ForbiddenException(message);
+    }
   }
 
   private toNullableNumber(
@@ -192,7 +270,7 @@ export class ClientsService {
     }
   }
 
-  async create(ownerId: string, dto: CreateClientDto) {
+  async create(user: AuthUser, dto: CreateClientDto) {
     const phoneNormalized = normalizePhone(dto.telefono);
     const locationData = this.resolveLocationPayload(dto);
     await this.assertNoActiveDuplicatePhoneNormalized(phoneNormalized);
@@ -204,7 +282,7 @@ export class ClientsService {
           email: dto.email,
           direccion: dto.direccion,
           notas: dto.notas,
-          ownerId,
+          ownerId: user.id,
           phoneNormalized,
           lastActivityAt: new Date(),
           ...(locationData ?? {}),
@@ -219,7 +297,7 @@ export class ClientsService {
     }
   }
 
-  async findAll(query: ClientsQueryDto) {
+  async findAll(user: AuthUser, query: ClientsQueryDto) {
     const page = query.page && query.page > 0 ? query.page : 1;
     const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : 20;
     const skip = (page - 1) * pageSize;
@@ -247,7 +325,11 @@ export class ClientsService {
       ...(phoneNormalizedSearch ? [{ phoneNormalized: { contains: phoneNormalizedSearch } }] : []),
     ];
 
-    const where: Prisma.ClientWhereInput = or.length ? { ...baseWhere, OR: or } : baseWhere;
+    const where = this.combineWhere(
+      this.buildClientAccessWhere(user),
+      baseWhere,
+      or.length ? { OR: or } : null,
+    );
 
     const [items, total] = await Promise.all([
       this.prisma.client.findMany({
@@ -268,15 +350,13 @@ export class ClientsService {
     };
   }
 
-  async findOne(id: string) {
-    this.ensureValidClientId(id);
-    const client = await this.prisma.client.findFirst({ where: { id } });
-    if (!client) throw new NotFoundException('Client not found');
+  async findOne(user: AuthUser, id: string) {
+    const client = await this.findAccessibleClientOrThrow(user, id);
     return this.serializeClient(client);
   }
 
-  async update(id: string, dto: UpdateClientDto) {
-    await this.findOne(id);
+  async update(user: AuthUser, id: string, dto: UpdateClientDto) {
+    await this.findAccessibleClientOrThrow(user, id);
     const telefonoWasProvided = Object.prototype.hasOwnProperty.call(dto, 'telefono');
     const phoneNormalized = telefonoWasProvided ? normalizePhone(dto.telefono) : undefined;
     const locationData = this.resolveLocationPayload(dto, true);
@@ -306,8 +386,8 @@ export class ClientsService {
     }
   }
 
-  async updateLocation(id: string, dto: UpdateClientLocationDto) {
-    await this.findOne(id);
+  async updateLocation(user: AuthUser, id: string, dto: UpdateClientLocationDto) {
+    await this.findAccessibleClientOrThrow(user, id);
     const locationData = this.resolveLocationPayload(dto, true);
 
     if (!locationData) {
@@ -322,16 +402,16 @@ export class ClientsService {
     return this.serializeClient(client);
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  async remove(user: AuthUser, id: string) {
+    this.assertAdmin(user, 'Only admin can delete clients');
+    await this.findAccessibleClientOrThrow(user, id);
     await this.prisma.client.update({ where: { id }, data: { isDeleted: true } });
     return { ok: true };
   }
 
-  async getProfile(id: string) {
-    this.ensureValidClientId(id);
+  async getProfile(user: AuthUser, id: string) {
     const client = await this.prisma.client.findFirst({
-      where: { id },
+      where: this.combineWhere({ id }, this.buildClientAccessWhere(user)),
       select: {
         id: true,
         nombre: true,
@@ -351,7 +431,10 @@ export class ClientsService {
       },
     });
 
-    if (!client) throw new NotFoundException('Client not found');
+    if (!client) {
+      await this.findAccessibleClientOrThrow(user, id);
+      throw new NotFoundException('Client not found');
+    }
 
     const [createdBy, salesAgg, cotizacionesAgg] = await this.prisma.$transaction([
       this.prisma.user.findUnique({
@@ -388,11 +471,11 @@ export class ClientsService {
   }
 
   async getTimeline(
+    user: AuthUser,
     id: string,
     options: { take?: number; before?: string; types?: string },
   ) {
-    this.ensureValidClientId(id);
-    await this.findOne(id);
+    await this.findAccessibleClientOrThrow(user, id);
 
     const take = Math.min(Math.max(options.take ?? 100, 1), 300);
     const before = options.before ? new Date(options.before) : new Date();

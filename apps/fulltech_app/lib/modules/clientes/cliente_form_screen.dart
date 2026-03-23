@@ -7,6 +7,7 @@ import 'package:validators/validators.dart' as validators;
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/auth/auth_repository.dart';
+import '../../core/errors/api_exception.dart';
 import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/safe_url_launcher.dart';
@@ -115,9 +116,12 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
       context.go(Routes.clienteDetail(saved.id));
     } catch (e) {
       if (!mounted) return;
+      final message = e is ApiException && (e.code == 403 || e.type == ApiErrorType.forbidden)
+          ? 'No tienes permiso para crear o editar clientes'
+          : e.toString();
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(e.toString())));
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 

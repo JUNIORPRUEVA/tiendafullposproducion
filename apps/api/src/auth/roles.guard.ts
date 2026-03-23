@@ -10,15 +10,29 @@ export class RolesGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const requiredRoles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, [
       context.getHandler(),
-      context.getClass()
+      context.getClass(),
     ]);
-    if (!requiredRoles || requiredRoles.length === 0) return true;
+    if (!requiredRoles || requiredRoles.length === 0) {
+      return true;
+    }
 
     const request = context.switchToHttp().getRequest();
-    const user = request.user as { role?: Role } | undefined;
-    if (!user?.role) throw new ForbiddenException('Missing role');
-    if (!requiredRoles.includes(user.role)) throw new ForbiddenException('Insufficient role');
+    const user = request.user as { role?: Role | string } | undefined;
+    const role = this.normalizeRole(user?.role);
+    if (!role) {
+      throw new ForbiddenException('Missing role');
+    }
+    if (role === Role.ADMIN) {
+      return true;
+    }
+    if (!requiredRoles.some((requiredRole) => this.normalizeRole(requiredRole) === role)) {
+      throw new ForbiddenException('Insufficient role');
+    }
     return true;
   }
-}
 
+  private normalizeRole(role?: Role | string | null): Role | null {
+    const normalized = `${role ?? ''}`.trim().toUpperCase();
+    return normalized ? (normalized as Role) : null;
+  }
+}

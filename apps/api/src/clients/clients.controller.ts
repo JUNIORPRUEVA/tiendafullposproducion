@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client';
 import { Request } from 'express';
@@ -12,57 +12,57 @@ import { UpdateClientLocationDto } from './dto/update-client-location.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+@Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
 @Controller('clients')
 export class ClientsController {
   constructor(private readonly clients: ClientsService) {}
 
-  private ownerIdOrThrow(req: Request) {
-    const user = req.user as { id?: string } | undefined;
-    if (!user?.id) {
-      throw new Error('Usuario no autenticado');
+  private userOrThrow(req: Request) {
+    const user = req.user as { id?: string; role?: Role } | undefined;
+    if (!user?.id || !user.role) {
+      throw new UnauthorizedException('Usuario no autenticado');
     }
-    return user.id;
+    return { id: user.id, role: user.role };
   }
 
   @Post()
   create(@Req() req: Request, @Body() dto: CreateClientDto) {
-    return this.clients.create(this.ownerIdOrThrow(req), dto);
+    return this.clients.create(this.userOrThrow(req), dto);
   }
 
   @Get()
   findAll(@Req() req: Request, @Query() query: ClientsQueryDto) {
-    return this.clients.findAll(query);
+    return this.clients.findAll(this.userOrThrow(req), query);
   }
 
   @Get(':id/profile')
-  profile(@Param('id') id: string) {
-    return this.clients.getProfile(id);
+  profile(@Req() req: Request, @Param('id') id: string) {
+    return this.clients.getProfile(this.userOrThrow(req), id);
   }
 
   @Get(':id/timeline')
-  timeline(@Param('id') id: string, @Query() query: ClientTimelineQueryDto) {
-    return this.clients.getTimeline(id, query);
+  timeline(@Req() req: Request, @Param('id') id: string, @Query() query: ClientTimelineQueryDto) {
+    return this.clients.getTimeline(this.userOrThrow(req), id, query);
   }
 
   @Get(':id')
   findOne(@Req() req: Request, @Param('id') id: string) {
-    return this.clients.findOne(id);
+    return this.clients.findOne(this.userOrThrow(req), id);
   }
 
   @Patch(':id')
   update(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateClientDto) {
-    return this.clients.update(id, dto);
+    return this.clients.update(this.userOrThrow(req), id, dto);
   }
 
   @Patch(':id/location')
-  updateLocation(@Param('id') id: string, @Body() dto: UpdateClientLocationDto) {
-    return this.clients.updateLocation(id, dto);
+  updateLocation(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateClientLocationDto) {
+    return this.clients.updateLocation(this.userOrThrow(req), id, dto);
   }
 
   @Delete(':id')
+  @Roles(Role.ADMIN)
   remove(@Req() req: Request, @Param('id') id: string) {
-    return this.clients.remove(id);
+    return this.clients.remove(this.userOrThrow(req), id);
   }
 }
-

@@ -65,6 +65,10 @@ class _CreateServiceOrderScreenState
     final user = ref.watch(authStateProvider).user;
     final canManageOperationalFields =
         user?.appRole.isTechnician == true || user?.appRole.isAdmin == true;
+    final canCreateClients =
+      user?.appRole == AppRole.admin ||
+      user?.appRole == AppRole.asistente ||
+      user?.appRole == AppRole.vendedor;
     final width = MediaQuery.sizeOf(context).width;
     final isDesktop = width >= kDesktopShellBreakpoint;
     final shellFallback = widget.args?.isEditMode == true
@@ -108,6 +112,7 @@ class _CreateServiceOrderScreenState
                   state: state,
                   controller: controller,
                   canManageOperationalFields: canManageOperationalFields,
+                  canCreateClients: canCreateClients,
                 );
                 final horizontalPadding = desktop ? 20.0 : 16.0;
                 final floatingTop = MediaQuery.paddingOf(context).top + 10;
@@ -240,6 +245,7 @@ class _CreateServiceOrderScreenState
     required CreateServiceOrderState state,
     required CreateServiceOrderController controller,
     required bool canManageOperationalFields,
+    required bool canCreateClients,
   }) {
     final inputDecoration = _inputDecoration(context);
     final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
@@ -302,7 +308,7 @@ class _CreateServiceOrderScreenState
                     ? null
                     : () => _pickClient(context, state, controller),
               ),
-              if (!state.isCloneMode) ...[
+              if (!state.isCloneMode && canCreateClients) ...[
                 const SizedBox(height: 10),
                 Align(
                   alignment: Alignment.centerLeft,
