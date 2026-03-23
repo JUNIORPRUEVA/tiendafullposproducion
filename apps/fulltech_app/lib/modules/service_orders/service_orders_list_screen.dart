@@ -11,10 +11,14 @@ import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/app_navigation.dart';
+import '../../core/utils/safe_url_launcher.dart';
 import '../clientes/cliente_model.dart';
+import '../clientes/client_location_utils.dart';
 import 'application/service_orders_list_controller.dart';
 import 'data/service_orders_api.dart';
 import 'service_order_models.dart';
+import 'widgets/client_location_card.dart';
+import 'widgets/service_order_quick_actions_modal.dart';
 
 class ServiceOrdersListScreen extends ConsumerStatefulWidget {
   const ServiceOrdersListScreen({super.key});
@@ -224,7 +228,7 @@ class _ServiceOrdersListScreenState
                   }
 
                   final order = visibleOrders[index - 1];
-                  final client = state.clientsById[order.clientId];
+                  final client = order.client ?? state.clientsById[order.clientId];
                   return Center(
                     child: ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: contentMaxWidth),
@@ -236,12 +240,14 @@ class _ServiceOrdersListScreenState
                           clientName:
                               client?.nombre ?? 'Cliente ${order.clientId}',
                           statusBusy: _busyOrderIds.contains(order.id),
+                          isTechnician: currentUser?.appRole.isTechnician ?? false,
                           onChangeStatus: canManageStatus
                               ? (status) => _changeOrderStatus(order, status)
                               : null,
                           creatingNewOrder: _creatingFromOrderIds.contains(
                             order.id,
                           ),
+                          showManageHint: canManageStatus,
                           onCreateNewOrder: order.isCloneSourceAllowed
                               ? () => _createOrderFromSource(order)
                               : null,
@@ -1175,6 +1181,8 @@ class _ServiceOrderListCard extends StatelessWidget {
     required this.onTap,
     required this.statusBusy,
     required this.creatingNewOrder,
+    required this.showManageHint,
+    required this.isTechnician,
     this.onCreateNewOrder,
     this.onChangeStatus,
     this.trailing,
@@ -1186,6 +1194,8 @@ class _ServiceOrderListCard extends StatelessWidget {
   final VoidCallback onTap;
   final bool statusBusy;
   final bool creatingNewOrder;
+  final bool showManageHint;
+  final bool isTechnician;
   final VoidCallback? onCreateNewOrder;
   final ValueChanged<ServiceOrderStatus>? onChangeStatus;
   final Widget? trailing;
@@ -1193,6 +1203,9 @@ class _ServiceOrderListCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final locationUrl = client?.locationUrl;
+    final locationPreview = parseClientLocationPreview(locationUrl);
+    final locationUri = buildClientNavigationUri(locationPreview, locationUrl);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1248,6 +1261,12 @@ class _ServiceOrderListCard extends StatelessWidget {
                             icon: Icons.build_circle_outlined,
                             text: order.serviceType.label,
                           ),
+                          if (locationUri != null)
+                            _CompactInfoChip(
+                              icon: Icons.location_on_outlined,
+                              text: 'Ubicación',
+                              onTap: () => safeOpenUrl(context, locationUri),
+                            ),
                         ],
                       ),
                       const SizedBox(height: 6),
@@ -1292,6 +1311,25 @@ class _ServiceOrderListCard extends StatelessWidget {
                           ),
                         ),
                       ],
+                      if (showManageHint) ...[
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _MiniActionChip(
+                              icon: Icons.sync_alt_rounded,
+                              label: 'Cambiar estado',
+                              enabled: onChangeStatus != null && !statusBusy,
+                            ),
+                            _MiniActionChip(
+                              icon: Icons.assignment_turned_in_outlined,
+                              label: 'Gestionar orden',
+                              enabled: true,
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -1301,18 +1339,12 @@ class _ServiceOrderListCard extends StatelessWidget {
                   child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      mainAxisSize: MainAxisSize.max,
-                      children: [
-                        if (trailing != null)
-                          SizedBox(
-                            width: 30,
-                            height: 30,
-                            child: Center(child: trailing!),
-                          ),
-                      ],
-                    ),
+                    if (trailing != null && !isTechnician)
+                      SizedBox(
+                        width: 30,
+                        height: 30,
+                        child: Center(child: trailing!),
+                      ),
                     const SizedBox(height: 6),
                     _StatusBadge(status: order.status),
                     if (onChangeStatus != null) ...[
@@ -1321,6 +1353,12 @@ class _ServiceOrderListCard extends StatelessWidget {
                         order: order,
                         busy: statusBusy,
                         onSelected: onChangeStatus!,
+                      ),
+                    ],
+                    if (isTechnician) ...[
+                      const SizedBox(height: 6),
+                      _TechnicianQuickActionButton(
+                        order: order,
                       ),
                     ],
                   ],
@@ -1472,14 +1510,15 @@ class _AdminOrderActions extends StatelessWidget {
 }
 
 class _CompactInfoChip extends StatelessWidget {
-  const _CompactInfoChip({required this.icon, required this.text});
+  const _CompactInfoChip({required this.icon, required this.text, this.onTap});
 
   final IconData icon;
   final String text;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final child = Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -1495,6 +1534,68 @@ class _CompactInfoChip extends StatelessWidget {
             style: Theme.of(
               context,
             ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+
+    if (onTap == null) {
+      return child;
+    }
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: child,
+    );
+  }
+}
+
+class _MiniActionChip extends StatelessWidget {
+  const _MiniActionChip({
+    required this.icon,
+    required this.label,
+    required this.enabled,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: enabled
+            ? colorScheme.primaryContainer.withValues(alpha: 0.55)
+            : colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: enabled
+              ? colorScheme.primary.withValues(alpha: 0.18)
+              : colorScheme.outlineVariant,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 14,
+            color: enabled ? colorScheme.primary : colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: enabled
+                  ? colorScheme.primary
+                  : colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       ),
@@ -1566,6 +1667,36 @@ class _EmptyOrdersState extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Botón de "Mini Prompt" (3 puntos) para técnicos.
+/// Solo visible para usuarios con rol técnico.
+class _TechnicianQuickActionButton extends ConsumerWidget {
+  const _TechnicianQuickActionButton({required this.order});
+
+  final ServiceOrderModel order;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return IconButton(
+      icon: const Icon(Icons.more_vert_rounded),
+      iconSize: 20,
+      tooltip: 'Acciones técnicas',
+      onPressed: () async {
+        await showServiceOrderQuickActionsModal(
+          context: context,
+          ref: ref,
+          orderId: order.id,
+          order: order,
+          onOrderUpdated: () {
+            // Refresh the list when order is updated
+            final controller = ref.read(serviceOrdersListControllerProvider.notifier);
+            controller.refresh();
+          },
+        );
+      },
     );
   }
 }

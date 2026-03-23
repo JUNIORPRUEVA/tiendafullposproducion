@@ -93,15 +93,22 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
     );
     try {
       final order = await ref.read(serviceOrdersApiProvider).getOrder(orderId);
-      final clientFuture = ref
-          .read(clientesRepositoryProvider)
-          .getClientById(ownerId: '', id: order.clientId);
       final usersFuture = ref
           .read(usersRepositoryProvider)
           .getAllUsers()
           .catchError((_) => <UserModel>[]);
-      final results = await Future.wait<dynamic>([clientFuture, usersFuture]);
-      final client = results[0] as ClienteModel;
+      final fallbackClientFuture = order.client != null
+          ? Future<ClienteModel?>.value(order.client)
+          : ref
+              .read(clientesRepositoryProvider)
+              .getClientById(ownerId: '', id: order.clientId)
+              .then<ClienteModel?>((value) => value)
+              .catchError((_) => null);
+      final results = await Future.wait<dynamic>([
+        fallbackClientFuture,
+        usersFuture,
+      ]);
+      final client = results[0] as ClienteModel?;
       final users = results[1] as List<UserModel>;
       state = state.copyWith(
         loading: false,
@@ -120,6 +127,41 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
   }
 
   Future<void> refresh() => load();
+
+  Future<void> updateOperationalDetails({
+    required String? technicalNote,
+    required String? extraRequirements,
+  }) async {
+    final currentOrder = state.order;
+    if (currentOrder == null) return;
+
+    state = state.copyWith(working: true, clearActionError: true);
+    try {
+      final updated = await ref.read(serviceOrdersApiProvider).updateOrder(
+        orderId,
+        UpdateServiceOrderRequest(
+          clientId: currentOrder.clientId,
+          quotationId: currentOrder.quotationId ?? '',
+          category: currentOrder.category,
+          serviceType: currentOrder.serviceType,
+          assignedToId: currentOrder.assignedToId,
+          technicalNote: technicalNote,
+          extraRequirements: extraRequirements,
+        ),
+      );
+      state = state.copyWith(working: false, order: updated);
+      ref.read(serviceOrdersListControllerProvider.notifier).upsertOrder(updated);
+    } catch (error) {
+      final message = _friendlyOrderMessage(
+        error,
+        fallback: 'No se pudieron guardar los cambios operativos',
+        forbiddenMessage:
+            'No tienes permiso para actualizar las notas operativas de esta orden',
+      );
+      state = state.copyWith(working: false, actionError: message);
+      rethrow;
+    }
+  }
 
   Future<void> updateStatus(ServiceOrderStatus status) async {
     final currentOrder = state.order;

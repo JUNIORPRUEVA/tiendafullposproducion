@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../clientes/cliente_model.dart';
+
 enum ServiceOrderCategory {
   camara,
   motorPorton,
@@ -384,6 +386,7 @@ class ServiceOrderReportModel {
 class ServiceOrderModel {
   final String id;
   final String clientId;
+  final ClienteModel? client;
   final String? quotationId;
   final ServiceOrderCategory category;
   final ServiceOrderType serviceType;
@@ -401,6 +404,7 @@ class ServiceOrderModel {
   const ServiceOrderModel({
     required this.id,
     required this.clientId,
+    this.client,
     required this.quotationId,
     required this.category,
     required this.serviceType,
@@ -430,6 +434,7 @@ class ServiceOrderModel {
   ServiceOrderModel copyWith({
     String? id,
     String? clientId,
+    ClienteModel? client,
     String? quotationId,
     ServiceOrderCategory? category,
     ServiceOrderType? serviceType,
@@ -448,10 +453,12 @@ class ServiceOrderModel {
     bool clearExtraRequirements = false,
     bool clearParentOrderId = false,
     bool clearAssignedToId = false,
+    bool clearClient = false,
   }) {
     return ServiceOrderModel(
       id: id ?? this.id,
       clientId: clientId ?? this.clientId,
+      client: clearClient ? null : (client ?? this.client),
       quotationId: clearQuotationId ? null : (quotationId ?? this.quotationId),
       category: category ?? this.category,
       serviceType: serviceType ?? this.serviceType,
@@ -482,6 +489,9 @@ class ServiceOrderModel {
     return ServiceOrderModel(
       id: (json['id'] ?? '').toString(),
       clientId: (json['clientId'] ?? '').toString(),
+      client: json['client'] is Map
+          ? ClienteModel.fromJson((json['client'] as Map).cast<String, dynamic>())
+          : null,
       quotationId: json['quotationId']?.toString(),
       category: serviceOrderCategoryFromApi((json['category'] ?? '').toString()),
       serviceType: serviceOrderTypeFromApi(

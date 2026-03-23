@@ -80,6 +80,28 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                         title: 'Estado operativo',
                         subtitle:
                             'Actualiza el avance de la orden y revisa su contexto operativo.',
+                        trailing: canSeeTechnicalArea
+                            ? FilledButton.tonalIcon(
+                                onPressed: state.working
+                                    ? null
+                                    : () => _editOperationalNotes(
+                                        context,
+                                        ref,
+                                        provider,
+                                      ),
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.edit_note_rounded),
+                                label: const Text('Gestionar orden'),
+                              )
+                            : null,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -653,6 +675,118 @@ Future<String?> _promptMultilineInput(
   );
   controller.dispose();
   return result;
+}
+
+Future<Map<String, String?>?> _promptOperationalNotes(
+  BuildContext context, {
+  required String? initialTechnicalNote,
+  required String? initialExtraRequirements,
+}) async {
+  final technicalController = TextEditingController(
+    text: initialTechnicalNote ?? '',
+  );
+  final requirementsController = TextEditingController(
+    text: initialExtraRequirements ?? '',
+  );
+
+  final result = await showDialog<Map<String, String?>>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: const Text('Gestionar orden'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: technicalController,
+                minLines: 3,
+                maxLines: 5,
+                decoration: const InputDecoration(
+                  labelText: 'Nota técnica',
+                  hintText: 'Detalle del trabajo técnico o seguimiento interno',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: requirementsController,
+                minLines: 3,
+                maxLines: 5,
+                decoration: const InputDecoration(
+                  labelText: 'Solicitudes del cliente',
+                  hintText: 'Requisitos, observaciones o solicitudes adicionales',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop({
+                'technicalNote': technicalController.text.trim(),
+                'extraRequirements': requirementsController.text.trim(),
+              });
+            },
+            child: const Text('Guardar cambios'),
+          ),
+        ],
+      );
+    },
+  );
+
+  technicalController.dispose();
+  requirementsController.dispose();
+  return result;
+}
+
+Future<void> _editOperationalNotes(
+  BuildContext context,
+  WidgetRef ref,
+  AutoDisposeStateNotifierProvider<
+    ServiceOrderDetailController,
+    ServiceOrderDetailState
+  >
+  provider,
+) async {
+  final state = ref.read(provider);
+  final order = state.order;
+  if (order == null) {
+    return;
+  }
+
+  final payload = await _promptOperationalNotes(
+    context,
+    initialTechnicalNote: order.technicalNote,
+    initialExtraRequirements: order.extraRequirements,
+  );
+  if (payload == null) {
+    return;
+  }
+
+  try {
+    await ref
+        .read(provider.notifier)
+        .updateOperationalDetails(
+          technicalNote: payload['technicalNote'],
+          extraRequirements: payload['extraRequirements'],
+        );
+    if (!context.mounted) return;
+    await AppFeedback.showInfo(context, 'Orden actualizada');
+  } catch (_) {
+    if (!context.mounted) return;
+    await AppFeedback.showError(
+      context,
+      ref.read(provider).actionError ??
+          'No se pudieron guardar los cambios operativos',
+    );
+  }
 }
 
 class _HeroHeader extends StatelessWidget {

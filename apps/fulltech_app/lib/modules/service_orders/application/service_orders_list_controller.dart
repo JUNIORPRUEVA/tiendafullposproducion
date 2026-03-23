@@ -40,13 +40,17 @@ class ServiceOrdersListState {
   }
 }
 
-final serviceOrdersListControllerProvider = StateNotifierProvider<
-    ServiceOrdersListController, ServiceOrdersListState>((ref) {
-  return ServiceOrdersListController(ref);
-});
+final serviceOrdersListControllerProvider =
+    StateNotifierProvider<ServiceOrdersListController, ServiceOrdersListState>((
+      ref,
+    ) {
+      return ServiceOrdersListController(ref);
+    });
 
-class ServiceOrdersListController extends StateNotifier<ServiceOrdersListState> {
-  ServiceOrdersListController(this.ref) : super(const ServiceOrdersListState()) {
+class ServiceOrdersListController
+    extends StateNotifier<ServiceOrdersListState> {
+  ServiceOrdersListController(this.ref)
+    : super(const ServiceOrdersListState()) {
     load();
   }
 
@@ -77,18 +81,21 @@ class ServiceOrdersListController extends StateNotifier<ServiceOrdersListState> 
     );
     _inFlightLoad = () async {
       try {
-        final results = await Future.wait<dynamic>([
-          ref.read(serviceOrdersApiProvider).listOrders(),
-          ref.read(clientesRepositoryProvider).listClients(
-                ownerId: _ownerId,
-                pageSize: 200,
-              ),
-        ]);
-        final orders = results[0] as List<ServiceOrderModel>;
-        final clients = results[1] as List<ClienteModel>;
+        final orders = await ref.read(serviceOrdersApiProvider).listOrders();
+        final clients = await ref
+            .read(clientesRepositoryProvider)
+            .listClients(ownerId: _ownerId, pageSize: 200)
+            .catchError((_) => <ClienteModel>[]);
         final clientMap = <String, ClienteModel>{
           for (final client in clients) client.id: client,
         };
+
+        for (final order in orders) {
+          final embeddedClient = order.client;
+          if (embeddedClient != null) {
+            clientMap[embeddedClient.id] = embeddedClient;
+          }
+        }
 
         orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
         state = state.copyWith(
@@ -125,6 +132,10 @@ class ServiceOrdersListController extends StateNotifier<ServiceOrdersListState> 
   }
 
   void upsertOrder(ServiceOrderModel order) {
+    final nextClientMap = {...state.clientsById};
+    if (order.client != null) {
+      nextClientMap[order.client!.id] = order.client!;
+    }
     final items = [...state.items];
     final index = items.indexWhere((item) => item.id == order.id);
     if (index >= 0) {
@@ -133,7 +144,7 @@ class ServiceOrdersListController extends StateNotifier<ServiceOrdersListState> 
       items.add(order);
     }
     items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    state = state.copyWith(items: items);
+    state = state.copyWith(items: items, clientsById: nextClientMap);
   }
 
   void replaceOrderStatus({
