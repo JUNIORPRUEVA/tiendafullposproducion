@@ -26,25 +26,25 @@ export class ServiceOrdersController {
   }
 
   @Get()
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   list(@Req() req: Request) {
     return this.serviceOrders.list(req.user as JwtUser);
   }
 
   @Get(':id')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   findOne(@Req() req: Request, @Param('id') id: string) {
     return this.serviceOrders.findOne(req.user as JwtUser, id);
   }
 
   @Patch(':id')
-  @Roles(Role.ADMIN, Role.TECNICO)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   update(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateServiceOrderDto) {
     return this.serviceOrders.update(req.user as JwtUser, id, dto);
   }
 
   @Patch(':id/status')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   updateStatus(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateStatusDto) {
     return this.serviceOrders.updateStatus(req.user as JwtUser, id, dto);
   }

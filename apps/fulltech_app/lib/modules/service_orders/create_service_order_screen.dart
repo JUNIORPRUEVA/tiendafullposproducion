@@ -65,10 +65,12 @@ class _CreateServiceOrderScreenState
     final user = ref.watch(authStateProvider).user;
     final canManageOperationalFields =
         user?.appRole.isTechnician == true || user?.appRole.isAdmin == true;
+    final canAssignTechnician = user?.appRole.isAdmin == true;
     final canCreateClients =
-      user?.appRole == AppRole.admin ||
-      user?.appRole == AppRole.asistente ||
-      user?.appRole == AppRole.vendedor;
+        user?.appRole == AppRole.admin ||
+        user?.appRole == AppRole.asistente ||
+        user?.appRole == AppRole.vendedor ||
+        user?.appRole == AppRole.tecnico;
     final width = MediaQuery.sizeOf(context).width;
     final isDesktop = width >= kDesktopShellBreakpoint;
     final shellFallback = widget.args?.isEditMode == true
@@ -86,20 +88,18 @@ class _CreateServiceOrderScreenState
           ? null
           : buildAdaptiveDrawer(context, currentUser: user),
       backgroundColor: const Color(0xFFF4F7FB),
-        floatingActionButton: FloatingActionButton.extended(
-              heroTag: 'service-order-reference-fab',
-              onPressed: state.submitting || state.uploadingEvidence
-                  ? null
-                  : () => _showReferenceActions(context, controller),
-              elevation: 8,
-              backgroundColor: Theme.of(context).colorScheme.primary,
-              foregroundColor: Theme.of(context).colorScheme.onPrimary,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
-              ),
-              icon: const Icon(Icons.add_photo_alternate_rounded),
-              label: const Text('Referencia'),
-            ),
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'service-order-reference-fab',
+        onPressed: state.submitting || state.uploadingEvidence
+            ? null
+            : () => _showReferenceActions(context, controller),
+        elevation: 8,
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        icon: const Icon(Icons.add_photo_alternate_rounded),
+        label: const Text('Referencia'),
+      ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: state.loading && !state.initialized
           ? const Center(child: CircularProgressIndicator())
@@ -112,6 +112,7 @@ class _CreateServiceOrderScreenState
                   state: state,
                   controller: controller,
                   canManageOperationalFields: canManageOperationalFields,
+                  canAssignTechnician: canAssignTechnician,
                   canCreateClients: canCreateClients,
                 );
                 final horizontalPadding = desktop ? 20.0 : 16.0;
@@ -144,7 +145,9 @@ class _CreateServiceOrderScreenState
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.34),
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.primary.withValues(alpha: 0.34),
                                 blurRadius: 18,
                                 offset: const Offset(0, 8),
                               ),
@@ -154,7 +157,10 @@ class _CreateServiceOrderScreenState
                             data: Theme.of(context).copyWith(
                               iconButtonTheme: const IconButtonThemeData(
                                 style: ButtonStyle(
-                                  foregroundColor: WidgetStatePropertyAll<Color>(Colors.white),
+                                  foregroundColor:
+                                      WidgetStatePropertyAll<Color>(
+                                        Colors.white,
+                                      ),
                                 ),
                               ),
                             ),
@@ -172,7 +178,9 @@ class _CreateServiceOrderScreenState
           decoration: BoxDecoration(
             boxShadow: [
               BoxShadow(
-                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.18),
+                color: Theme.of(
+                  context,
+                ).colorScheme.primary.withValues(alpha: 0.18),
                 blurRadius: 18,
                 offset: const Offset(0, 10),
               ),
@@ -245,6 +253,7 @@ class _CreateServiceOrderScreenState
     required CreateServiceOrderState state,
     required CreateServiceOrderController controller,
     required bool canManageOperationalFields,
+    required bool canAssignTechnician,
     required bool canCreateClients,
   }) {
     final inputDecoration = _inputDecoration(context);
@@ -362,7 +371,11 @@ class _CreateServiceOrderScreenState
                     label: 'Crear cotización',
                     onTap: _inlineFlowBusy || state.loading
                         ? null
-                        : () => _createQuotationInline(context, state, controller),
+                        : () => _createQuotationInline(
+                            context,
+                            state,
+                            controller,
+                          ),
                   ),
                 ),
               ] else ...[
@@ -430,7 +443,7 @@ class _CreateServiceOrderScreenState
                     .toList(growable: false),
                 onChanged: (value) => controller.setServiceType(value),
               ),
-              if (canManageOperationalFields) ...[
+              if (canAssignTechnician) ...[
                 const SizedBox(height: 12),
                 InputSelector(
                   label: 'Técnico',
@@ -454,9 +467,9 @@ class _CreateServiceOrderScreenState
               if (existingReferences.isNotEmpty) ...[
                 Text(
                   'Referencias actuales',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 10),
                 ReferenceGallery(references: existingReferences),
@@ -494,7 +507,9 @@ class _CreateServiceOrderScreenState
                 TextField(
                   controller: _technicalNoteController,
                   maxLines: 4,
-                  decoration: inputDecoration.copyWith(labelText: 'Nota técnica'),
+                  decoration: inputDecoration.copyWith(
+                    labelText: 'Nota técnica',
+                  ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -537,8 +552,10 @@ class _CreateServiceOrderScreenState
       context,
       title: 'Seleccionar cotización',
       items: state.quotations,
-      itemTitle: (quotation) => 'Cotización ${quotation.id.substring(0, quotation.id.length >= 6 ? 6 : quotation.id.length).toUpperCase()}',
-      itemSubtitle: (quotation) => '${quotation.items.length} items · ${NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(quotation.total)}',
+      itemTitle: (quotation) =>
+          'Cotización ${quotation.id.substring(0, quotation.id.length >= 6 ? 6 : quotation.id.length).toUpperCase()}',
+      itemSubtitle: (quotation) =>
+          '${quotation.items.length} items · ${NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(quotation.total)}',
     );
     if (!mounted) return;
     controller.selectQuotation(selected);
@@ -785,8 +802,13 @@ class _CreateServiceOrderScreenState
       context: context,
       builder: (dialogContext) {
         return Dialog(
-          insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 28,
+            vertical: 24,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(18),
             child: Column(
@@ -1116,9 +1138,7 @@ class _CloneBanner extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             '${source.category.label} · ${source.serviceType.label}',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
@@ -1211,7 +1231,8 @@ class InputSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final selected = value.trim().isNotEmpty &&
+    final selected =
+        value.trim().isNotEmpty &&
         value.trim().toLowerCase() != 'buscar cliente' &&
         value.trim().toLowerCase() != 'seleccionar técnico';
 
@@ -1353,19 +1374,19 @@ class _SummaryChip extends StatelessWidget {
 }
 
 class ReferenceGallery extends StatelessWidget {
-  const ReferenceGallery({
-    super.key,
-    required this.references,
-    this.onRemove,
-  });
+  const ReferenceGallery({super.key, required this.references, this.onRemove});
 
   final List<ServiceOrderDraftReference> references;
   final ValueChanged<String>? onRemove;
 
   @override
   Widget build(BuildContext context) {
-    final textReferences = references.where((item) => item.isText).toList(growable: false);
-    final mediaReferences = references.where((item) => !item.isText).toList(growable: false);
+    final textReferences = references
+        .where((item) => item.isText)
+        .toList(growable: false);
+    final mediaReferences = references
+        .where((item) => !item.isText)
+        .toList(growable: false);
 
     if (references.isEmpty) {
       return const _EmptyInlineState(
@@ -1386,7 +1407,9 @@ class ReferenceGallery extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 10),
                 child: _TextReferenceCard(
                   reference: reference,
-                  onRemove: onRemove == null ? null : () => onRemove!(reference.id),
+                  onRemove: onRemove == null
+                      ? null
+                      : () => onRemove!(reference.id),
                 ),
               ),
             ),
@@ -1636,9 +1659,7 @@ class _TextReferenceCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFF4F7FF),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: colorScheme.primary.withValues(alpha: 0.18),
-        ),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.18)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1663,9 +1684,9 @@ class _TextReferenceCard extends StatelessWidget {
               children: [
                 Text(
                   'Texto',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -1797,8 +1818,14 @@ class _VideoDurationBadgeState extends State<_VideoDurationBadge> {
       await controller.initialize();
       if (!mounted) return;
       final duration = controller.value.duration;
-      final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
-      final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+      final minutes = duration.inMinutes
+          .remainder(60)
+          .toString()
+          .padLeft(2, '0');
+      final seconds = duration.inSeconds
+          .remainder(60)
+          .toString()
+          .padLeft(2, '0');
       setState(() {
         _durationLabel = '$minutes:$seconds';
       });
@@ -1854,7 +1881,9 @@ class _ReferenceSheetOption extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
           color: colorScheme.primary.withValues(alpha: 0.06),
-          border: Border.all(color: colorScheme.primary.withValues(alpha: 0.14)),
+          border: Border.all(
+            color: colorScheme.primary.withValues(alpha: 0.14),
+          ),
         ),
         child: Row(
           children: [
@@ -1871,9 +1900,9 @@ class _ReferenceSheetOption extends StatelessWidget {
             Expanded(
               child: Text(
                 title,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
               ),
             ),
             Icon(

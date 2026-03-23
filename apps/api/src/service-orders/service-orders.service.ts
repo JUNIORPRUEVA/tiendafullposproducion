@@ -74,7 +74,7 @@ export class ServiceOrdersService {
       return this.updateAsTechnician(user, current, dto);
     }
 
-    this.assertAdminEdit(user);
+    this.assertCanFullyEditOrder(user, current);
 
     const clientId = this.cleanOptionalText(dto.clientId, dto.client_id) ?? current.clientId;
     const quotationId = this.cleanOptionalText(dto.quotationId, dto.quotation_id) ?? current.quotationId;
@@ -272,25 +272,7 @@ export class ServiceOrdersService {
   }
 
   private async buildAccessWhere(user: AuthUser): Promise<Prisma.ServiceOrderWhereInput> {
-    if (user.role === Role.ADMIN || user.role === Role.ASISTENTE) {
-      return {};
-    }
-
-    if (user.role === Role.VENDEDOR) {
-      return { createdById: user.id };
-    }
-
-    if (user.role === Role.TECNICO) {
-      return this.buildTechnicianAccessWhere(user);
-    }
-
-    return { createdById: user.id };
-  }
-
-  private buildTechnicianAccessWhere(user: AuthUser): Prisma.ServiceOrderWhereInput {
-    return {
-      OR: [{ assignedToId: user.id }, { createdById: user.id }],
-    };
+    return {};
   }
 
   private async findOrderOrThrow(
@@ -371,6 +353,16 @@ export class ServiceOrdersService {
       Object.prototype.hasOwnProperty.call(dto, 'assigned_to');
   }
 
+  private assertCanFullyEditOrder(
+    user: AuthUser,
+    item: { createdById: string },
+  ) {
+    if (user.role === Role.ADMIN || item.createdById === user.id) {
+      return;
+    }
+    throw new ForbiddenException('Not authorized to modify this order');
+  }
+
   private assertAdminEdit(user: AuthUser) {
     if (user.role !== Role.ADMIN) {
       throw new ForbiddenException('Not authorized to modify this order');
@@ -384,13 +376,13 @@ export class ServiceOrdersService {
   }
 
   private assertCanModifyOrder(user: AuthUser, item: { createdById: string; assignedToId: string | null }) {
-    if (user.role === Role.ADMIN || user.role === Role.ASISTENTE) {
+    if (user.role === Role.ADMIN) {
       return;
     }
-    if (user.role === Role.VENDEDOR && item.createdById === user.id) {
+    if (item.createdById === user.id) {
       return;
     }
-    if (user.role === Role.TECNICO && (item.assignedToId === user.id || item.createdById === user.id)) {
+    if (user.role === Role.TECNICO && item.assignedToId === user.id) {
       return;
     }
     throw new ForbiddenException('Not authorized to modify this order');

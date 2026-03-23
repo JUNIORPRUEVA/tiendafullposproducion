@@ -111,7 +111,7 @@ class CreateServiceOrderState {
       category: category ?? this.category,
       serviceType: serviceType ?? this.serviceType,
       cloneSource: cloneSource ?? this.cloneSource,
-        editSource: editSource ?? this.editSource,
+      editSource: editSource ?? this.editSource,
       quotationMessage: clearQuotationMessage
           ? null
           : (quotationMessage ?? this.quotationMessage),
@@ -133,23 +133,27 @@ class CreateServiceOrderSubmissionResult {
 }
 
 final createServiceOrderControllerProvider = StateNotifierProvider.autoDispose
-    .family<CreateServiceOrderController, CreateServiceOrderState,
-        ServiceOrderCreateArgs?>((ref, args) {
-  return CreateServiceOrderController(ref, args)..load();
-});
+    .family<
+      CreateServiceOrderController,
+      CreateServiceOrderState,
+      ServiceOrderCreateArgs?
+    >((ref, args) {
+      return CreateServiceOrderController(ref, args)..load();
+    });
 
-class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState> {
+class CreateServiceOrderController
+    extends StateNotifier<CreateServiceOrderState> {
   CreateServiceOrderController(this.ref, this.args)
-      : super(
-          CreateServiceOrderState(
-            cloneSource: args?.cloneSource,
-            editSource: args?.editSource,
-            category:
-                args?.editSource?.category ??
-                args?.cloneSource?.category ??
-                ServiceOrderCategory.camara,
-          ),
-        );
+    : super(
+        CreateServiceOrderState(
+          cloneSource: args?.cloneSource,
+          editSource: args?.editSource,
+          category:
+              args?.editSource?.category ??
+              args?.cloneSource?.category ??
+              ServiceOrderCategory.camara,
+        ),
+      );
 
   final Ref ref;
   final ServiceOrderCreateArgs? args;
@@ -157,50 +161,55 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
   String get _ownerId => ref.read(authStateProvider).user?.id ?? '';
   AppRole get _currentRole =>
       ref.read(authStateProvider).user?.appRole ?? AppRole.unknown;
-    bool get _canManageOperationalFields =>
+  bool get _canEditOperationalNotes =>
       _currentRole == AppRole.tecnico || _currentRole == AppRole.admin;
+  bool get _canAssignTechnician => _currentRole == AppRole.admin;
 
   Future<void> load() async {
     if (state.initialized || state.loading) return;
-    state = state.copyWith(loading: true, clearError: true, clearActionError: true);
+    state = state.copyWith(
+      loading: true,
+      clearError: true,
+      clearActionError: true,
+    );
     try {
-      final results = await Future.wait<dynamic>([
-        ref.read(clientesRepositoryProvider).listClients(
-              ownerId: _ownerId,
-              pageSize: 200,
-            ),
-        ref.read(usersRepositoryProvider).getAllUsers(),
-      ]);
-      final clients = results[0] as List<ClienteModel>;
-      final users = results[1] as List<UserModel>;
-      final technicians = users
-          .where((user) => user.appRole == AppRole.tecnico)
-          .toList(growable: false);
+      final clients = await ref
+          .read(clientesRepositoryProvider)
+          .listClients(ownerId: _ownerId, pageSize: 200);
+      final technicians = _canAssignTechnician
+          ? (await ref.read(usersRepositoryProvider).getAllUsers())
+                .where((user) => user.appRole == AppRole.tecnico)
+                .toList(growable: false)
+          : const <UserModel>[];
       final seedOrder = args?.editSource ?? args?.cloneSource;
       final selectedClient = seedOrder == null
           ? null
-          : clients.where((item) => item.id == seedOrder.clientId).firstWhere(
-                (item) => true,
-                orElse: () => ClienteModel(
-                  id: seedOrder.clientId,
-                  ownerId: _ownerId,
-                  nombre: 'Cliente vinculado',
-                  telefono: '',
-                ),
-              );
+          : clients
+                .where((item) => item.id == seedOrder.clientId)
+                .firstWhere(
+                  (item) => true,
+                  orElse: () => ClienteModel(
+                    id: seedOrder.clientId,
+                    ownerId: _ownerId,
+                    nombre: 'Cliente vinculado',
+                    telefono: '',
+                  ),
+                );
       final assignedToId = seedOrder?.assignedToId;
       final selectedTechnician = assignedToId == null
           ? null
-          : technicians.where((item) => item.id == assignedToId).firstWhere(
-                (item) => true,
-                orElse: () => UserModel(
-                  id: assignedToId,
-                  email: '',
-                  nombreCompleto: 'Técnico asignado',
-                  telefono: '',
-                  role: 'TECNICO',
-                ),
-              );
+          : technicians
+                .where((item) => item.id == assignedToId)
+                .firstWhere(
+                  (item) => true,
+                  orElse: () => UserModel(
+                    id: assignedToId,
+                    email: '',
+                    nombreCompleto: 'Técnico asignado',
+                    telefono: '',
+                    role: 'TECNICO',
+                  ),
+                );
       state = state.copyWith(
         loading: false,
         initialized: true,
@@ -211,7 +220,10 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
         serviceType: seedOrder?.serviceType,
       );
       if (selectedClient != null) {
-        await selectClient(selectedClient, preserveQuotationId: seedOrder?.quotationId);
+        await selectClient(
+          selectedClient,
+          preserveQuotationId: seedOrder?.quotationId,
+        );
       }
     } catch (error) {
       final message = error is ApiException
@@ -245,9 +257,9 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
     }
 
     try {
-      final quotations = await ref.read(cotizacionesRepositoryProvider).list(
-            customerPhone: client.telefono.trim(),
-          );
+      final quotations = await ref
+          .read(cotizacionesRepositoryProvider)
+          .list(customerPhone: client.telefono.trim());
       CotizacionModel? selectedQuotation;
       if ((preserveQuotationId ?? '').trim().isNotEmpty) {
         for (final quotation in quotations) {
@@ -316,10 +328,7 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
   }
 
   void selectTechnician(UserModel? user) {
-    state = state.copyWith(
-      selectedTechnician: user,
-      clearActionError: true,
-    );
+    state = state.copyWith(selectedTechnician: user, clearActionError: true);
   }
 
   void setCategory(ServiceOrderCategory category) {
@@ -337,10 +346,7 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
     state = state.copyWith(
       references: [
         ...state.references,
-        ServiceOrderDraftReference.text(
-          id: _draftId(),
-          content: normalized,
-        ),
+        ServiceOrderDraftReference.text(id: _draftId(), content: normalized),
       ],
       clearActionError: true,
     );
@@ -355,7 +361,9 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
     await _withUploadState(
       label: 'Subiendo video',
       action: () async {
-        final uploaded = await ref.read(uploadRepositoryProvider).uploadVideo(
+        final uploaded = await ref
+            .read(uploadRepositoryProvider)
+            .uploadVideo(
               fileName: fileName,
               bytes: bytes,
               path: path,
@@ -388,7 +396,9 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
     await _withUploadState(
       label: 'Subiendo imagen',
       action: () async {
-        final uploaded = await ref.read(uploadRepositoryProvider).uploadImage(
+        final uploaded = await ref
+            .read(uploadRepositoryProvider)
+            .uploadImage(
               fileName: fileName,
               bytes: bytes,
               path: path,
@@ -441,48 +451,58 @@ class CreateServiceOrderController extends StateNotifier<CreateServiceOrderState
       throw ApiException('Debes seleccionar una cotización');
     }
 
-    final technicalNoteValue = _canManageOperationalFields ? technicalNote.trim() : '';
-    final extraRequirementsValue = _canManageOperationalFields
+    final technicalNoteValue = _canEditOperationalNotes
+        ? technicalNote.trim()
+        : '';
+    final extraRequirementsValue = _canEditOperationalNotes
         ? extraRequirements.trim()
         : '';
-    final assignedToId = _canManageOperationalFields ? state.selectedTechnician?.id : null;
+    final assignedToId = _canAssignTechnician
+        ? state.selectedTechnician?.id
+        : null;
 
     state = state.copyWith(submitting: true, clearActionError: true);
     try {
       final result = state.isEditMode
-          ? await ref.read(serviceOrdersApiProvider).updateOrder(
-                state.editSource!.id,
-                UpdateServiceOrderRequest(
-                  clientId: client.id,
-                  quotationId: effectiveQuotationId!,
-                  category: state.category,
-                  serviceType: serviceType,
-                  technicalNote: technicalNoteValue,
-                  extraRequirements: extraRequirementsValue,
-                  assignedToId: assignedToId,
-                ),
-              )
+          ? await ref
+                .read(serviceOrdersApiProvider)
+                .updateOrder(
+                  state.editSource!.id,
+                  UpdateServiceOrderRequest(
+                    clientId: client.id,
+                    quotationId: effectiveQuotationId!,
+                    category: state.category,
+                    serviceType: serviceType,
+                    technicalNote: technicalNoteValue,
+                    extraRequirements: extraRequirementsValue,
+                    assignedToId: assignedToId,
+                  ),
+                )
           : state.isCloneMode
-          ? await ref.read(serviceOrdersApiProvider).cloneOrder(
-                state.cloneSource!.id,
-                CloneServiceOrderRequest(
-                  serviceType: serviceType,
-                  technicalNote: technicalNoteValue,
-                  extraRequirements: extraRequirementsValue,
-                  assignedToId: assignedToId,
-                ),
-              )
-          : await ref.read(serviceOrdersApiProvider).createOrder(
-                CreateServiceOrderRequest(
-                  clientId: client.id,
-                  quotationId: quotation!.id,
-                  category: state.category,
-                  serviceType: serviceType,
-                  technicalNote: technicalNoteValue,
-                  extraRequirements: extraRequirementsValue,
-                  assignedToId: assignedToId,
-                ),
-              );
+          ? await ref
+                .read(serviceOrdersApiProvider)
+                .cloneOrder(
+                  state.cloneSource!.id,
+                  CloneServiceOrderRequest(
+                    serviceType: serviceType,
+                    technicalNote: technicalNoteValue,
+                    extraRequirements: extraRequirementsValue,
+                    assignedToId: assignedToId,
+                  ),
+                )
+          : await ref
+                .read(serviceOrdersApiProvider)
+                .createOrder(
+                  CreateServiceOrderRequest(
+                    clientId: client.id,
+                    quotationId: quotation!.id,
+                    category: state.category,
+                    serviceType: serviceType,
+                    technicalNote: technicalNoteValue,
+                    extraRequirements: extraRequirementsValue,
+                    assignedToId: assignedToId,
+                  ),
+                );
       final warningMessage = await _sendDraftReferences(result.id);
       state = state.copyWith(submitting: false);
       return CreateServiceOrderSubmissionResult(
