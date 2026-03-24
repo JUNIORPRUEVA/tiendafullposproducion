@@ -80,7 +80,7 @@ export class ServiceOrdersService {
   async list(user: AuthUser) {
     const cacheKey = this.buildListCacheKey(user);
     const cached = await this.redis.get<{ items: unknown[] }>(cacheKey);
-    if (cached?.items is Array) {
+    if (Array.isArray(cached?.items)) {
       return cached;
     }
 
