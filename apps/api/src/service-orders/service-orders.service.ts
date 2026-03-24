@@ -333,7 +333,7 @@ export class ServiceOrdersService {
   ) {
     if (user.role === Role.ADMIN || user.role === Role.ASISTENTE) return;
     if (user.role === Role.VENDEDOR && item.createdById === user.id) return;
-    if (user.role === Role.TECNICO && (item.assignedToId === user.id || item.createdById === user.id)) return;
+    if (user.role === Role.TECNICO) return;
     throw new ForbiddenException('No puedes operar esta orden de servicio');
   }
 
@@ -374,10 +374,10 @@ export class ServiceOrdersService {
     if (user.role === Role.ADMIN) {
       return;
     }
-    if (item.createdById === user.id) {
+    if (user.role === Role.TECNICO) {
       return;
     }
-    if (user.role === Role.TECNICO && item.assignedToId === user.id) {
+    if (item.createdById === user.id) {
       return;
     }
     throw new ForbiddenException('Not authorized to modify this order');
