@@ -1,10 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/errors/api_exception.dart';
+import '../../../core/models/user_model.dart';
+import '../../../features/user/data/users_repository.dart';
 import '../../clientes/cliente_model.dart';
 import '../../clientes/data/clientes_repository.dart';
 import '../data/service_orders_api.dart';
+import '../data/service_orders_local_cache.dart';
 import '../service_order_models.dart';
 
 class ServiceOrdersListState {
@@ -13,6 +18,7 @@ class ServiceOrdersListState {
   final String? error;
   final List<ServiceOrderModel> items;
   final Map<String, ClienteModel> clientsById;
+  final Map<String, UserModel> usersById;
 
   const ServiceOrdersListState({
     this.loading = false,
@@ -20,6 +26,7 @@ class ServiceOrdersListState {
     this.error,
     this.items = const [],
     this.clientsById = const {},
+    this.usersById = const {},
   });
 
   ServiceOrdersListState copyWith({
@@ -28,6 +35,7 @@ class ServiceOrdersListState {
     String? error,
     List<ServiceOrderModel>? items,
     Map<String, ClienteModel>? clientsById,
+    Map<String, UserModel>? usersById,
     bool clearError = false,
   }) {
     return ServiceOrdersListState(
@@ -36,6 +44,7 @@ class ServiceOrdersListState {
       error: clearError ? null : (error ?? this.error),
       items: items ?? this.items,
       clientsById: clientsById ?? this.clientsById,
+      usersById: usersById ?? this.usersById,
     );
   }
 }
@@ -57,6 +66,17 @@ class ServiceOrdersListController
   final Ref ref;
   Future<void>? _inFlightLoad;
 
+  Map<String, ClienteModel> _clientMapFromOrders(List<ServiceOrderModel> orders) {
+    return {
+      for (final order in orders)
+        if (order.client != null) order.client!.id: order.client!,
+    };
+  }
+
+  Future<void> _persistItems(List<ServiceOrderModel> items) {
+    return ref.read(serviceOrdersLocalCacheProvider).saveListSnapshot(items);
+  }
+
   String _friendlyListMessage(Object error) {
     if (error is ApiException) {
       if (error.type == ApiErrorType.forbidden || error.code == 403) {
@@ -74,6 +94,20 @@ class ServiceOrdersListController
       return _inFlightLoad!;
     }
 
+    if (!refresh && state.items.isEmpty) {
+      final cachedOrders = await ref.read(serviceOrdersLocalCacheProvider).getCachedList();
+      if (cachedOrders.isNotEmpty) {
+        cachedOrders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        state = state.copyWith(
+          loading: false,
+          refreshing: true,
+          items: cachedOrders,
+          clientsById: _clientMapFromOrders(cachedOrders),
+          clearError: true,
+        );
+      }
+    }
+
     state = state.copyWith(
       loading: !refresh && state.items.isEmpty,
       refreshing: refresh || state.items.isNotEmpty,
@@ -86,9 +120,14 @@ class ServiceOrdersListController
             .read(clientesRepositoryProvider)
             .listClients(ownerId: _ownerId, pageSize: 200)
             .catchError((_) => <ClienteModel>[]);
+        final users = await ref
+            .read(usersRepositoryProvider)
+            .getAllUsers()
+            .catchError((_) => <UserModel>[]);
         final clientMap = <String, ClienteModel>{
           for (final client in clients) client.id: client,
         };
+        final userMap = <String, UserModel>{for (final user in users) user.id: user};
 
         for (final order in orders) {
           final embeddedClient = order.client;
@@ -98,11 +137,13 @@ class ServiceOrdersListController
         }
 
         orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        await _persistItems(orders);
         state = state.copyWith(
           loading: false,
           refreshing: false,
           items: orders,
           clientsById: clientMap,
+          usersById: userMap,
         );
       } catch (error) {
         final message = _friendlyListMessage(error);
@@ -129,6 +170,8 @@ class ServiceOrdersListController
         .where((item) => item.id != id)
         .toList(growable: false);
     state = state.copyWith(items: items);
+    await _persistItems(items);
+    await ref.read(serviceOrdersLocalCacheProvider).removeOrder(id);
   }
 
   void upsertOrder(ServiceOrderModel order) {
@@ -144,7 +187,12 @@ class ServiceOrdersListController
       items.add(order);
     }
     items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    state = state.copyWith(items: items, clientsById: nextClientMap);
+    state = state.copyWith(
+      items: items,
+      clientsById: nextClientMap,
+    );
+    unawaited(_persistItems(items));
+    unawaited(ref.read(serviceOrdersLocalCacheProvider).saveOrder(order));
   }
 
   void replaceOrderStatus({
@@ -157,5 +205,6 @@ class ServiceOrdersListController
         )
         .toList(growable: false);
     state = state.copyWith(items: items);
+    unawaited(_persistItems(items));
   }
 }

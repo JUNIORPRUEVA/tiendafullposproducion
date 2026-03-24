@@ -705,8 +705,8 @@ Future<String?> _promptMultilineInput(
   required String hintText,
   required String confirmLabel,
 }) async {
-  final controller = TextEditingController();
   final formKey = GlobalKey<FormState>();
+  var draftValue = '';
   final result = await showDialog<String>(
     context: context,
     builder: (dialogContext) {
@@ -715,7 +715,7 @@ Future<String?> _promptMultilineInput(
         content: Form(
           key: formKey,
           child: TextFormField(
-            controller: controller,
+            initialValue: draftValue,
             minLines: 4,
             maxLines: 7,
             autofocus: true,
@@ -723,6 +723,7 @@ Future<String?> _promptMultilineInput(
               hintText: hintText,
               border: const OutlineInputBorder(),
             ),
+            onChanged: (value) => draftValue = value,
             validator: (value) {
               if ((value ?? '').trim().isEmpty) {
                 return 'Este campo es obligatorio';
@@ -741,7 +742,7 @@ Future<String?> _promptMultilineInput(
               if (!formKey.currentState!.validate()) {
                 return;
               }
-              Navigator.of(dialogContext).pop(controller.text.trim());
+              Navigator.of(dialogContext).pop(draftValue.trim());
             },
             child: Text(confirmLabel),
           ),
@@ -749,7 +750,6 @@ Future<String?> _promptMultilineInput(
       );
     },
   );
-  controller.dispose();
   return result;
 }
 

@@ -14,6 +14,7 @@ import 'core/debug/app_error_reporter.dart';
 import 'core/debug/app_error_overlay.dart';
 import 'core/offline/sync_queue_service.dart';
 import 'core/realtime/catalog_realtime_service.dart';
+import 'core/realtime/operations_realtime_service.dart';
 import 'core/startup/app_startup_controller.dart';
 import 'core/widgets/fulltech_global_background.dart';
 import 'features/contabilidad/contabilidad_init.dart';
@@ -172,8 +173,10 @@ class _MyAppState extends ConsumerState<MyApp> {
       final authState = ref.read(authStateProvider);
       if (authState.isAuthenticated) {
         unawaited(ref.read(catalogRealtimeServiceProvider).connect(authState));
+        unawaited(ref.read(operationsRealtimeServiceProvider).connect(authState));
       } else {
         ref.read(catalogRealtimeServiceProvider).disconnect();
+        ref.read(operationsRealtimeServiceProvider).disconnect();
       }
     });
   }
@@ -194,8 +197,10 @@ class _MyAppState extends ConsumerState<MyApp> {
         if (!mounted) return;
         if (next.isAuthenticated) {
           unawaited(ref.read(catalogRealtimeServiceProvider).connect(next));
+          unawaited(ref.read(operationsRealtimeServiceProvider).connect(next));
         } else if (previous?.isAuthenticated == true && !next.isAuthenticated) {
           ref.read(catalogRealtimeServiceProvider).disconnect();
+          ref.read(operationsRealtimeServiceProvider).disconnect();
         }
       });
     });

@@ -603,8 +603,8 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     required String hintText,
     required String confirmLabel,
   }) async {
-    final controller = TextEditingController();
     final formKey = GlobalKey<FormState>();
+    var draftValue = '';
 
     final result = await showModalBottomSheet<String>(
       context: context,
@@ -667,7 +667,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                       const SizedBox(height: 14),
                       Expanded(
                         child: TextFormField(
-                          controller: controller,
+                          initialValue: draftValue,
                           minLines: null,
                           maxLines: null,
                           expands: true,
@@ -682,6 +682,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                             filled: true,
                             fillColor: colorScheme.surface,
                           ),
+                          onChanged: (value) => draftValue = value,
                           validator: (value) {
                             if ((value ?? '').trim().isEmpty) {
                               return 'Este campo es obligatorio';
@@ -706,7 +707,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                                 if (!formKey.currentState!.validate()) {
                                   return;
                                 }
-                                Navigator.pop(modalContext, controller.text.trim());
+                                Navigator.pop(modalContext, draftValue.trim());
                               },
                               child: Text(confirmLabel),
                             ),
@@ -723,7 +724,6 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
       },
     );
 
-    controller.dispose();
     return result;
   }
 }

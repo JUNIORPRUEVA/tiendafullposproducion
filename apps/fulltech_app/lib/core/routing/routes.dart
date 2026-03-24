@@ -8,7 +8,6 @@ class Routes {
   static const users = '/users';
   static const userDetail = '/users/:id';
   static const ponche = '/ponche';
-  static const horarios = '/horarios';
   static const catalogo = '/catalogo';
   static const contabilidad = '/contabilidad';
   static const contabilidadCierresDiarios = '/contabilidad/cierres-diarios';

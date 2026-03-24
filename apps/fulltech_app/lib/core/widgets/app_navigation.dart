@@ -91,12 +91,6 @@ List<AppNavigationSection> buildAppNavigationSections(
             title: 'Ponche',
             route: Routes.ponche,
           ),
-        if (can(AppPermission.viewWorkScheduling))
-          const AppNavigationItem(
-            icon: Icons.calendar_month_outlined,
-            title: 'Horarios',
-            route: Routes.horarios,
-          ),
         if (can(AppPermission.viewCatalog))
           const AppNavigationItem(
             icon: Icons.storefront_outlined,
@@ -226,7 +220,6 @@ bool desktopShellShouldShowOwnAppBar(String location) {
   final path = Uri.tryParse(location)?.path ?? location;
   const routesWithOwnAppBar = <String>[
     Routes.ponche,
-    Routes.horarios,
     Routes.catalogo,
     Routes.contabilidad,
     Routes.clientes,

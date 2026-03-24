@@ -71,8 +71,6 @@ String? _screenNameFromPath(String path) {
   switch (path) {
     case Routes.profile:
       return 'Perfil';
-    case Routes.horarios:
-      return 'Horarios';
     case Routes.catalogo:
       return 'Catálogo';
     case Routes.contabilidad:

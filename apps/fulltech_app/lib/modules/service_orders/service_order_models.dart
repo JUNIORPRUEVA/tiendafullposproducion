@@ -371,6 +371,17 @@ class ServiceOrderEvidenceModel {
       hasUploadError: hasUploadError ?? this.hasUploadError,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'serviceOrderId': serviceOrderId,
+      'type': type.apiValue,
+      'content': content,
+      'createdById': createdById,
+      'createdAt': createdAt.toIso8601String(),
+    };
+  }
 }
 
 extension ServiceReportTypeX on ServiceReportType {
@@ -436,6 +447,17 @@ class ServiceOrderReportModel {
           DateTime.tryParse((json['createdAt'] ?? '').toString()) ??
           DateTime.now(),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'serviceOrderId': serviceOrderId,
+      'type': type.apiValue,
+      'report': report,
+      'createdById': createdById,
+      'createdAt': createdAt.toIso8601String(),
+    };
   }
 }
 
@@ -580,6 +602,27 @@ class ServiceOrderModel {
           )
           .toList(growable: false),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'clientId': clientId,
+      if (client != null) 'client': client!.toJson(),
+      'quotationId': quotationId,
+      'category': category.apiValue,
+      'serviceType': serviceType.apiValue,
+      'status': status.apiValue,
+      'technicalNote': technicalNote,
+      'extraRequirements': extraRequirements,
+      'parentOrderId': parentOrderId,
+      'createdById': createdById,
+      'assignedToId': assignedToId,
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt.toIso8601String(),
+      'evidences': evidences.map((item) => item.toJson()).toList(growable: false),
+      'reports': reports.map((item) => item.toJson()).toList(growable: false),
+    };
   }
 }
 

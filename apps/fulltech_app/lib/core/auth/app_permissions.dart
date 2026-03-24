@@ -7,10 +7,6 @@ enum AppPermission {
   viewProfile,
   viewMyPayments,
 
-  // Scheduling
-  viewWorkScheduling,
-  manageWorkScheduling,
-
   // Core modules
   viewOperations,
   viewPunch,
@@ -46,8 +42,6 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
   AppRole.admin: {
     AppPermission.viewProfile,
     AppPermission.viewMyPayments,
-    AppPermission.viewWorkScheduling,
-    AppPermission.manageWorkScheduling,
     AppPermission.viewOperations,
     AppPermission.viewTechOperations,
     AppPermission.viewPunch,
@@ -67,7 +61,6 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
   AppRole.asistente: {
     AppPermission.viewProfile,
     AppPermission.viewMyPayments,
-    AppPermission.viewWorkScheduling,
     AppPermission.viewOperations,
     AppPermission.viewPunch,
     AppPermission.viewCatalog,
@@ -80,7 +73,6 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
   AppRole.vendedor: {
     AppPermission.viewProfile,
     AppPermission.viewMyPayments,
-    AppPermission.viewWorkScheduling,
     AppPermission.viewOperations,
     AppPermission.viewPunch,
     AppPermission.viewCatalog,
@@ -92,7 +84,6 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
   AppRole.marketing: {
     AppPermission.viewProfile,
     AppPermission.viewMyPayments,
-    AppPermission.viewWorkScheduling,
     AppPermission.viewOperations,
     AppPermission.viewPunch,
     AppPermission.viewCatalog,
@@ -103,7 +94,6 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
   AppRole.tecnico: {
     AppPermission.viewProfile,
     AppPermission.viewMyPayments,
-    AppPermission.viewWorkScheduling,
     AppPermission.viewOperations,
     AppPermission.viewTechOperations,
     AppPermission.viewPunch,

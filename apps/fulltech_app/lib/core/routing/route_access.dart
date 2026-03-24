@@ -16,8 +16,6 @@ class RouteAccess {
         return AppPermission.viewProfile;
       case Routes.misPagos:
         return AppPermission.viewMyPayments;
-      case Routes.horarios:
-        return AppPermission.viewWorkScheduling;
       case Routes.ponche:
         return AppPermission.viewPunch;
       case Routes.catalogo:

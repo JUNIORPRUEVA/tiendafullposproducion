@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ForbiddenException,
@@ -5,7 +6,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, Role, type Client } from '@prisma/client';
+import { RedisService } from '../common/redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CatalogRealtimeRelayService } from '../products/catalog-realtime-relay.service';
 import { CloneServiceOrderDto } from './dto/clone-service-order.dto';
 import { CreateEvidenceDto } from './dto/create-evidence.dto';
 import { CreateReportDto } from './dto/create-report.dto';
@@ -51,7 +54,11 @@ type ServiceOrderRecord = Prisma.ServiceOrderGetPayload<object>;
 
 @Injectable()
 export class ServiceOrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+    private readonly realtime: CatalogRealtimeRelayService,
+  ) {}
 
   async create(user: AuthUser, dto: CreateServiceOrderDto) {
     const payload = await this.buildCreatePayload(user, dto);
@@ -61,23 +68,42 @@ export class ServiceOrdersService {
         data: payload,
         include: { client: true },
       });
-      return this.mapOrder(created);
+      const mapped = this.mapOrder(created);
+      await this.invalidateCachesForOrder(created.id);
+      this.emitOrderEvent('service.created', created.id, mapped);
+      return mapped;
     } catch (error) {
       this.rethrowWriteError(error);
     }
   }
 
   async list(user: AuthUser) {
+    const cacheKey = this.buildListCacheKey(user);
+    const cached = await this.redis.get<{ items: unknown[] }>(cacheKey);
+    if (cached?.items is Array) {
+      return cached;
+    }
+
     const items = await this.prisma.serviceOrder.findMany({
       include: { client: true },
       orderBy: [{ createdAt: 'desc' }],
     });
-    return { items: items.map((item) => this.mapOrder(item)) };
+    const response = { items: items.map((item) => this.mapOrder(item)) };
+    await this.redis.set(cacheKey, response, 30);
+    return response;
   }
 
   async findOne(user: AuthUser, id: string) {
+    const cacheKey = this.buildDetailCacheKey(user, id);
+    const cached = await this.redis.get<Record<string, unknown>>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const item = await this.findOrderWithRelationsOrThrow(user, id);
-    return this.mapOrder(item);
+    const response = this.mapOrder(item);
+    await this.redis.set(cacheKey, response, 30);
+    return response;
   }
 
   async update(user: AuthUser, id: string, dto: UpdateServiceOrderDto) {
@@ -123,7 +149,10 @@ export class ServiceOrdersService {
           assignedToId,
         },
       });
-      return this.mapOrder(updated);
+      const mapped = this.mapOrder(updated);
+      await this.invalidateCachesForOrder(updated.id);
+      this.emitOrderEvent('service.updated', updated.id, mapped);
+      return mapped;
     } catch (error) {
       this.rethrowWriteError(error);
     }
@@ -142,7 +171,10 @@ export class ServiceOrdersService {
         include: { client: true },
         data: { status: SERVICE_ORDER_STATUS_TO_DB[nextStatus] },
       });
-      return this.mapOrder(updated);
+      const mapped = this.mapOrder(updated);
+      await this.invalidateCachesForOrder(updated.id);
+      this.emitOrderEvent('service.status_changed', updated.id, mapped);
+      return mapped;
     } catch (error) {
       this.rethrowWriteError(error);
     }
@@ -164,6 +196,9 @@ export class ServiceOrdersService {
           createdById: user.id,
         },
       });
+      await this.invalidateCachesForOrder(item.id);
+      const snapshot = await this.findOrderWithRelationsOrThrow(user, item.id);
+      this.emitOrderEvent('service.updated', item.id, this.mapOrder(snapshot));
       return this.mapEvidence(created);
     } catch (error) {
       this.rethrowWriteError(error);
@@ -187,6 +222,9 @@ export class ServiceOrdersService {
           createdById: user.id,
         },
       });
+      await this.invalidateCachesForOrder(item.id);
+      const snapshot = await this.findOrderWithRelationsOrThrow(user, item.id);
+      this.emitOrderEvent('service.updated', item.id, this.mapOrder(snapshot));
       return this.mapReport(created);
     } catch (error) {
       this.rethrowWriteError(error);
@@ -218,7 +256,10 @@ export class ServiceOrdersService {
           assignedToId,
         },
       });
-      return this.mapOrder(cloned);
+      const mapped = this.mapOrder(cloned);
+      await this.invalidateCachesForOrder(cloned.id);
+      this.emitOrderEvent('service.created', cloned.id, mapped);
+      return mapped;
     } catch (error) {
       this.rethrowWriteError(error);
     }
@@ -230,6 +271,8 @@ export class ServiceOrdersService {
 
     try {
       await this.prisma.serviceOrder.delete({ where: { id } });
+      await this.invalidateCachesForOrder(id);
+      this.emitOrderEvent('service.deleted', id);
       return { ok: true };
     } catch (error) {
       this.rethrowWriteError(error);
@@ -255,10 +298,36 @@ export class ServiceOrdersService {
         include: { client: true },
         data,
       });
-      return this.mapOrder(updated);
+      const mapped = this.mapOrder(updated);
+      await this.invalidateCachesForOrder(updated.id);
+      this.emitOrderEvent('service.updated', updated.id, mapped);
+      return mapped;
     } catch (error) {
       this.rethrowWriteError(error);
     }
+  }
+
+  private buildListCacheKey(user: AuthUser) {
+    return `service-orders:list:${user.role}:${user.id}`;
+  }
+
+  private buildDetailCacheKey(user: AuthUser, id: string) {
+    return `service-orders:detail:${user.role}:${user.id}:${id}`;
+  }
+
+  private async invalidateCachesForOrder(id: string) {
+    await this.redis.delByPattern('service-orders:list:*');
+    await this.redis.delByPattern(`service-orders:detail:*:*:${id}`);
+  }
+
+  private emitOrderEvent(type: string, serviceId: string, service?: unknown) {
+    this.realtime.emitOps('service.event', {
+      eventId: randomUUID(),
+      type,
+      serviceId,
+      ...(service == null ? {} : { service }),
+      occurredAt: new Date().toISOString(),
+    });
   }
 
   private async buildCreatePayload(

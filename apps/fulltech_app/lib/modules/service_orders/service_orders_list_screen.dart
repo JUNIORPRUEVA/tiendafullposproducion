@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +9,7 @@ import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/models/user_model.dart';
+import '../../core/realtime/operations_realtime_service.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
 import '../../core/widgets/app_drawer.dart';
@@ -33,14 +36,46 @@ class _ServiceOrdersListScreenState
   ServiceOrdersFilter _filter = const ServiceOrdersFilter.mainDefault();
   final Set<String> _busyOrderIds = <String>{};
   final Set<String> _creatingFromOrderIds = <String>{};
+  StreamSubscription<OperationsRealtimeMessage>? _operationsRealtimeSubscription;
 
   @override
   void initState() {
     super.initState();
+    _operationsRealtimeSubscription = ref
+        .read(operationsRealtimeServiceProvider)
+        .stream
+        .listen(_handleRealtimeMessage);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(serviceOrdersListControllerProvider.notifier).refresh();
     });
+  }
+
+  @override
+  void dispose() {
+    _operationsRealtimeSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _handleRealtimeMessage(OperationsRealtimeMessage message) {
+    if (!mounted) return;
+    final controller = ref.read(serviceOrdersListControllerProvider.notifier);
+    if (message.type == 'service.deleted') {
+      unawaited(controller.refresh());
+      return;
+    }
+
+    final payload = message.service;
+    if (payload == null) {
+      unawaited(controller.refresh());
+      return;
+    }
+
+    try {
+      controller.upsertOrder(ServiceOrderModel.fromJson(payload));
+    } catch (_) {
+      unawaited(controller.refresh());
+    }
   }
 
   @override
@@ -175,6 +210,7 @@ class _ServiceOrdersListScreenState
                           padding: const EdgeInsets.only(bottom: 8),
                           child: _OperationsControlPanel(
                             filter: _filter,
+                            activeCount: visibleOrders.length,
                             onReset: _filter.hasActiveFilters
                                 ? () {
                                     setState(() {
@@ -239,6 +275,9 @@ class _ServiceOrdersListScreenState
                           client: client,
                           clientName:
                               client?.nombre ?? 'Cliente ${order.clientId}',
+                          creatorName:
+                            state.usersById[order.createdById]?.nombreCompleto ??
+                            order.createdById,
                           statusBusy: _busyOrderIds.contains(order.id),
                           isTechnician: currentUser?.appRole.isTechnician ?? false,
                           onChangeStatus: canManageStatus
@@ -247,7 +286,6 @@ class _ServiceOrdersListScreenState
                           creatingNewOrder: _creatingFromOrderIds.contains(
                             order.id,
                           ),
-                          showManageHint: canManageStatus,
                           onCreateNewOrder: order.isCloneSourceAllowed
                               ? () => _createOrderFromSource(order)
                               : null,
@@ -875,12 +913,14 @@ class _FilterSection extends StatelessWidget {
 class _OperationsControlPanel extends StatelessWidget {
   const _OperationsControlPanel({
     required this.filter,
+    required this.activeCount,
     required this.onToggleStatus,
     required this.onToggleServiceType,
     required this.onReset,
   });
 
   final ServiceOrdersFilter filter;
+  final int activeCount;
   final ValueChanged<ServiceOrderStatus> onToggleStatus;
   final ValueChanged<ServiceOrderType> onToggleServiceType;
   final VoidCallback? onReset;
@@ -895,13 +935,20 @@ class _OperationsControlPanel extends StatelessWidget {
     final timeLabel = DateFormat('h:mm a', 'es_DO').format(now);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
+        gradient: LinearGradient(
+          colors: [
+            colorScheme.surface,
+            colorScheme.surfaceContainerLowest,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
             color: colorScheme.shadow.withValues(alpha: 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 3),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
           ),
         ],
         border: Border.all(
@@ -909,33 +956,41 @@ class _OperationsControlPanel extends StatelessWidget {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        filter.summaryLabel,
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          color: colorScheme.onSurface,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.1,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: Row(
+                      children: [
+                        _PanelMetaPill(
+                          icon: Icons.dashboard_customize_rounded,
+                          text: filter.summaryLabel,
+                          accent: colorScheme.primary,
                         ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${_capitalize(dateLabel)} · $timeLabel',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w500,
+                        const SizedBox(width: 6),
+                        _PanelMetaPill(
+                          icon: Icons.calendar_today_outlined,
+                          text: _capitalize(dateLabel),
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 6),
+                        _PanelMetaPill(
+                          icon: Icons.schedule_rounded,
+                          text: timeLabel,
+                        ),
+                        const SizedBox(width: 6),
+                        _PanelMetaPill(
+                          icon: Icons.layers_outlined,
+                          text: '$activeCount activas',
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 if (onReset != null)
@@ -954,7 +1009,7 @@ class _OperationsControlPanel extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             _CompactFilterLine<ServiceOrderStatus>(
-              label: 'Estado',
+              label: '',
               items: ServiceOrderStatus.values,
               isSelected: filter.statuses.contains,
               onToggle: onToggleStatus,
@@ -964,7 +1019,7 @@ class _OperationsControlPanel extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             _CompactFilterLine<ServiceOrderType>(
-              label: 'Tipo',
+              label: '',
               items: ServiceOrderType.values,
               isSelected: filter.serviceTypes.contains,
               onToggle: onToggleServiceType,
@@ -1005,24 +1060,27 @@ class _CompactFilterLine<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final hasLabel = label.trim().isNotEmpty;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        SizedBox(
-          width: 42,
-          child: Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w700,
-                height: 1,
+        if (hasLabel)
+          SizedBox(
+            width: 42,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                  height: 1,
+                ),
               ),
             ),
           ),
-        ),
+        if (hasLabel) const SizedBox(width: 2),
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
@@ -1211,10 +1269,10 @@ class _ServiceOrderListCard extends StatelessWidget {
     required this.order,
     required this.client,
     required this.clientName,
+    required this.creatorName,
     required this.onTap,
     required this.statusBusy,
     required this.creatingNewOrder,
-    required this.showManageHint,
     required this.isTechnician,
     this.onCreateNewOrder,
     this.onChangeStatus,
@@ -1224,10 +1282,10 @@ class _ServiceOrderListCard extends StatelessWidget {
   final ServiceOrderModel order;
   final ClienteModel? client;
   final String clientName;
+  final String creatorName;
   final VoidCallback onTap;
   final bool statusBusy;
   final bool creatingNewOrder;
-  final bool showManageHint;
   final bool isTechnician;
   final VoidCallback? onCreateNewOrder;
   final ValueChanged<ServiceOrderStatus>? onChangeStatus;
@@ -1239,10 +1297,22 @@ class _ServiceOrderListCard extends StatelessWidget {
     final locationUrl = client?.locationUrl;
     final locationPreview = parseClientLocationPreview(locationUrl);
     final locationUri = buildClientNavigationUri(locationPreview, locationUrl);
+    final createdAt = order.createdAt.toLocal();
+    final topLineText = DateFormat('dd/MM/yyyy · h:mm a', 'es_DO').format(createdAt);
+    final isPriorityInstallation = order.serviceType == ServiceOrderType.instalacion;
+    final creatorDisplayName = creatorName.trim();
+    final hasCreatorName = creatorDisplayName.isNotEmpty;
+    final clientDisplayName = clientName.trim();
+    final hasClientName = clientDisplayName.isNotEmpty;
+    final clientPhone = (client?.telefono ?? '').trim();
+    final hasClientPhone = clientPhone.isNotEmpty;
+    final hasClientInfo = hasClientName || hasClientPhone;
+    final callUri = _buildPhoneUri(clientPhone);
+    final whatsappUri = _buildWhatsAppUri(clientPhone);
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: Ink(
           decoration: BoxDecoration(
@@ -1251,11 +1321,11 @@ class _ServiceOrderListCard extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
-            borderRadius: BorderRadius.circular(15),
+            borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: theme.colorScheme.shadow.withValues(alpha: 0.045),
-                blurRadius: 12,
+                color: theme.colorScheme.shadow.withValues(alpha: 0.04),
+                blurRadius: 10,
                 offset: const Offset(0, 3),
               ),
             ],
@@ -1264,139 +1334,266 @@ class _ServiceOrderListCard extends StatelessWidget {
             ),
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: Row(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerLowest,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: theme.colorScheme.outlineVariant.withValues(alpha: 0.7),
+                    ),
+                  ),
+                  child: Row(
                     children: [
-                      Text(
-                        clientName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.1,
+                      Expanded(
+                        child: Text(
+                          topLineText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
+                            height: 1,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        children: [
-                          _CompactInfoChip(
-                            icon: Icons.category_outlined,
-                            text: order.category.label,
-                          ),
-                          _CompactInfoChip(
-                            icon: Icons.build_circle_outlined,
-                            text: order.serviceType.label,
-                          ),
-                          if (locationUri != null)
-                            _CompactInfoChip(
-                              icon: Icons.location_on_outlined,
-                              text: 'Ubicación',
-                              onTap: () => safeOpenUrl(context, locationUri),
+                      if (hasCreatorName) ...[
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            creatorDisplayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.end,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w800,
+                              height: 1,
                             ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        DateFormat(
-                          'dd/MM/yyyy · h:mm a',
-                          'es_DO',
-                        ).format(order.createdAt.toLocal()),
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.86),
-                        ),
-                      ),
-                      if (onCreateNewOrder != null) ...[
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: FilledButton.tonalIcon(
-                            onPressed: creatingNewOrder
-                                ? null
-                                : onCreateNewOrder,
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 7,
-                              ),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                            ),
-                            icon: creatingNewOrder
-                                ? const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.add_rounded, size: 16),
-                            label: const Text('Nueva orden'),
                           ),
                         ),
                       ],
-                      if (showManageHint) ...[
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _MiniActionChip(
-                              icon: Icons.sync_alt_rounded,
-                              label: 'Cambiar estado',
-                              enabled: onChangeStatus != null && !statusBusy,
+                      if (isPriorityInstallation)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFD97706).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: const Color(0xFFD97706).withValues(alpha: 0.28),
+                              ),
                             ),
-                            _MiniActionChip(
-                              icon: Icons.assignment_turned_in_outlined,
-                              label: 'Gestionar orden',
-                              enabled: true,
+                            child: const Text(
+                              'Prioridad',
+                              style: TextStyle(
+                                color: Color(0xFFB45309),
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                                height: 1,
+                              ),
                             ),
-                          ],
+                          ),
                         ),
-                      ],
                     ],
                   ),
                 ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 116,
-                  child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                const SizedBox(height: 8),
+                Stack(
                   children: [
-                    if (trailing != null && !isTechnician)
-                      SizedBox(
-                        width: 30,
-                        height: 30,
-                        child: Center(child: trailing!),
+                    Padding(
+                      padding: EdgeInsets.only(
+                        right: !isTechnician && onChangeStatus != null ? 116 : 36,
                       ),
-                    const SizedBox(height: 6),
-                    _StatusBadge(status: order.status),
-                    if (onChangeStatus != null) ...[
-                      const SizedBox(height: 6),
-                      _InlineStatusButton(
-                        order: order,
-                        busy: statusBusy,
-                        onSelected: onChangeStatus!,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  physics: const BouncingScrollPhysics(),
+                                  child: Row(
+                                    children: [
+                                      _CompactInfoChip(
+                                        icon: Icons.category_outlined,
+                                        text: order.category.label,
+                                      ),
+                                      const SizedBox(width: 5),
+                                      _CompactInfoChip(
+                                        icon: Icons.build_circle_outlined,
+                                        text: order.serviceType.label,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              if (isTechnician) ...[
+                                const SizedBox(width: 8),
+                                if (locationUri != null)
+                                  _TechnicianLocationButton(
+                                    locationUri: locationUri,
+                                    compact: true,
+                                  ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainerLowest,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.7),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                if (hasClientInfo) ...[
+                                  Icon(
+                                    Icons.person_outline_rounded,
+                                    size: 14,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                          ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: RichText(
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      text: TextSpan(
+                                        children: [
+                                          if (hasClientName)
+                                            TextSpan(
+                                              text: clientDisplayName,
+                                              style: theme.textTheme.bodySmall?.copyWith(
+                                                color: theme.colorScheme.onSurface,
+                                                fontWeight: FontWeight.w800,
+                                                letterSpacing: 0.1,
+                                              ),
+                                            ),
+                                          if (hasClientPhone)
+                                            TextSpan(
+                                              text: hasClientName
+                                                  ? '  ·  $clientPhone'
+                                                  : clientPhone,
+                                              style: theme.textTheme.bodySmall?.copyWith(
+                                                color: theme.colorScheme.onSurfaceVariant,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                ] else
+                                  const Spacer(),
+                                _StatusBadge(status: order.status, compact: true),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                    if (isTechnician) ...[
-                      const SizedBox(height: 6),
-                      _TechnicianQuickActionButton(
-                        order: order,
+                    ),
+                    Positioned(
+                      top: 0,
+                      right: 0,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (trailing != null && !isTechnician) ...[
+                                SizedBox(
+                                  width: 26,
+                                  height: 26,
+                                  child: Center(child: trailing!),
+                                ),
+                                const SizedBox(width: 6),
+                              ],
+                            ],
+                          ),
+                          if (!isTechnician && onChangeStatus != null) ...[
+                            const SizedBox(height: 8),
+                            _InlineStatusButton(
+                              order: order,
+                              busy: statusBusy,
+                              onSelected: onChangeStatus!,
+                            ),
+                          ],
+                        ],
                       ),
-                    ],
+                    ),
                   ],
                 ),
-                ),
+                if (onCreateNewOrder != null) ...[
+                  const SizedBox(height: 9),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilledButton.tonalIcon(
+                      onPressed: creatingNewOrder ? null : onCreateNewOrder,
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 7,
+                        ),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                      icon: creatingNewOrder
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.add_rounded, size: 16),
+                      label: const Text('Nueva orden'),
+                    ),
+                  ),
+                ],
+                if (isTechnician) ...[
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      if (callUri != null) ...[
+                        _ContactIconButton(
+                          icon: Icons.call_outlined,
+                          tooltip: 'Llamar cliente',
+                          onTap: () => safeOpenUrl(context, callUri),
+                          size: 42,
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      if (whatsappUri != null) ...[
+                        _ContactIconButton(
+                          icon: Icons.chat_bubble_outline_rounded,
+                          tooltip: 'Escribir por WhatsApp',
+                          onTap: () => safeOpenUrl(context, whatsappUri),
+                          size: 42,
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      Expanded(
+                        child: _TechnicianQuickActionButton(order: order),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -1404,6 +1601,117 @@ class _ServiceOrderListCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PanelMetaPill extends StatelessWidget {
+  const _PanelMetaPill({
+    required this.icon,
+    required this.text,
+    this.accent,
+  });
+
+  final IconData icon;
+  final String text;
+  final Color? accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final effectiveAccent = accent ?? colorScheme.onSurfaceVariant;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: effectiveAccent.withValues(alpha: accent == null ? 0.06 : 0.1),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: effectiveAccent.withValues(alpha: accent == null ? 0.08 : 0.18),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: effectiveAccent),
+          const SizedBox(width: 5),
+          Text(
+            text,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: effectiveAccent,
+              fontWeight: FontWeight.w700,
+              height: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ContactIconButton extends StatelessWidget {
+  const _ContactIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    this.size = 28,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: onTap == null
+                ? colorScheme.surfaceContainerHighest.withValues(alpha: 0.6)
+                : colorScheme.primary.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: onTap == null
+                  ? colorScheme.outlineVariant.withValues(alpha: 0.35)
+                  : colorScheme.primary.withValues(alpha: 0.16),
+            ),
+          ),
+          child: Icon(
+            icon,
+            size: size <= 30 ? 15 : 18,
+            color: onTap == null
+                ? colorScheme.onSurfaceVariant.withValues(alpha: 0.45)
+                : colorScheme.primary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Uri? _buildPhoneUri(String rawPhone) {
+  final digits = rawPhone.replaceAll(RegExp(r'\D'), '');
+  if (digits.isEmpty) {
+    return null;
+  }
+  return Uri.parse('tel:$digits');
+}
+
+Uri? _buildWhatsAppUri(String rawPhone) {
+  var digits = rawPhone.replaceAll(RegExp(r'\D'), '');
+  if (digits.isEmpty) {
+    return null;
+  }
+  if (digits.length == 10) {
+    digits = '1$digits';
+  }
+  return Uri.parse('https://wa.me/$digits');
 }
 
 class _InlineStatusButton extends StatelessWidget {
@@ -1425,28 +1733,59 @@ class _InlineStatusButton extends StatelessWidget {
           return acc;
         });
 
-    return PopupMenuButton<ServiceOrderStatus>(
-      enabled: !busy,
-      tooltip: 'Cambiar estado',
-      onSelected: onSelected,
-      itemBuilder: (context) => statuses
-          .map(
-            (status) => PopupMenuItem<ServiceOrderStatus>(
-              value: status,
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.circle,
-                    size: 12,
-                    color: status.color,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(status.label),
-                ],
-              ),
-            ),
-          )
-          .toList(growable: false),
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: busy
+          ? null
+          : () async {
+              final selected = await showModalBottomSheet<ServiceOrderStatus>(
+                context: context,
+                showDragHandle: true,
+                builder: (sheetContext) {
+                  final theme = Theme.of(sheetContext);
+                  return SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Cambiar estado',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Selecciona el estado actual de la orden.',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          ...statuses.map(
+                            (status) => Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _InlineStatusSheetOption(
+                                status: status,
+                                isCurrent: status == order.status,
+                                onTap: () => Navigator.pop(sheetContext, status),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+
+              if (selected == null || selected == order.status) {
+                return;
+              }
+              onSelected(selected);
+            },
       child: busy
           ? const SizedBox(
               width: 22,
@@ -1481,6 +1820,70 @@ class _InlineStatusButton extends StatelessWidget {
                 ],
               ),
             ),
+    );
+  }
+}
+
+class _InlineStatusSheetOption extends StatelessWidget {
+  const _InlineStatusSheetOption({
+    required this.status,
+    required this.isCurrent,
+    required this.onTap,
+  });
+
+  final ServiceOrderStatus status;
+  final bool isCurrent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Ink(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isCurrent
+                ? status.color.withValues(alpha: 0.45)
+                : colorScheme.outlineVariant,
+          ),
+          color: isCurrent
+              ? status.color.withValues(alpha: 0.1)
+              : colorScheme.surface,
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: status.color,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                status.label,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            if (isCurrent)
+              Icon(
+                Icons.check_circle_rounded,
+                size: 18,
+                color: status.color,
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1543,16 +1946,15 @@ class _AdminOrderActions extends StatelessWidget {
 }
 
 class _CompactInfoChip extends StatelessWidget {
-  const _CompactInfoChip({required this.icon, required this.text, this.onTap});
+  const _CompactInfoChip({required this.icon, required this.text});
 
   final IconData icon;
   final String text;
-  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final child = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(999),
@@ -1560,75 +1962,13 @@ class _CompactInfoChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 13),
-          const SizedBox(width: 5),
+          Icon(icon, size: 12),
+          const SizedBox(width: 4),
           Text(
             text,
             style: Theme.of(
               context,
-            ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
-          ),
-        ],
-      ),
-    );
-
-    if (onTap == null) {
-      return child;
-    }
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
-      onTap: onTap,
-      child: child,
-    );
-  }
-}
-
-class _MiniActionChip extends StatelessWidget {
-  const _MiniActionChip({
-    required this.icon,
-    required this.label,
-    required this.enabled,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool enabled;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: enabled
-            ? colorScheme.primaryContainer.withValues(alpha: 0.55)
-            : colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: enabled
-              ? colorScheme.primary.withValues(alpha: 0.18)
-              : colorScheme.outlineVariant,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 14,
-            color: enabled ? colorScheme.primary : colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: theme.textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: enabled
-                  ? colorScheme.primary
-                  : colorScheme.onSurfaceVariant,
-            ),
+            ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
           ),
         ],
       ),
@@ -1637,25 +1977,38 @@ class _MiniActionChip extends StatelessWidget {
 }
 
 class _StatusBadge extends StatelessWidget {
-  const _StatusBadge({required this.status});
+  const _StatusBadge({required this.status, this.compact = false});
 
   final ServiceOrderStatus status;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 8 : 10,
+        vertical: compact ? 4 : 6,
+      ),
       decoration: BoxDecoration(
         color: status.color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: status.color.withValues(alpha: 0.22)),
+        boxShadow: compact
+            ? [
+                BoxShadow(
+                  color: status.color.withValues(alpha: 0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ]
+            : null,
       ),
       child: Text(
         status.label,
         style: TextStyle(
           color: status.color,
           fontWeight: FontWeight.w700,
-          fontSize: 12,
+          fontSize: compact ? 11 : 12,
         ),
       ),
     );
@@ -1713,10 +2066,24 @@ class _TechnicianQuickActionButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return IconButton(
-      icon: const Icon(Icons.more_vert_rounded),
-      iconSize: 20,
-      tooltip: 'Acciones técnicas',
+    return FilledButton.icon(
+      style: FilledButton.styleFrom(
+        minimumSize: const Size.fromHeight(42),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        backgroundColor: const Color(0xFF1D4ED8),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        shadowColor: const Color(0xFF1D4ED8).withValues(alpha: 0.28),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+      ),
+      icon: const Icon(Icons.tune_rounded, size: 18),
+      label: const Text(
+        'Gestión técnica',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
       onPressed: () async {
         await showServiceOrderQuickActionsModal(
           context: context,
@@ -1730,6 +2097,49 @@ class _TechnicianQuickActionButton extends ConsumerWidget {
           },
         );
       },
+    );
+  }
+}
+
+class _TechnicianLocationButton extends StatelessWidget {
+  const _TechnicianLocationButton({
+    required this.locationUri,
+    this.compact = false,
+  });
+
+  final Uri? locationUri;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final targetUri = locationUri;
+    final theme = Theme.of(context);
+    return FilledButton.icon(
+      onPressed: targetUri == null ? null : () => safeOpenUrl(context, targetUri),
+      style: FilledButton.styleFrom(
+        minimumSize: Size(compact ? 0 : 120, compact ? 34 : 42),
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 12 : 14,
+          vertical: compact ? 8 : 10,
+        ),
+        backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.1),
+        foregroundColor: theme.colorScheme.primary,
+        elevation: 0,
+        side: BorderSide(color: theme.colorScheme.primary.withValues(alpha: 0.16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+      ),
+      icon: Icon(Icons.near_me_rounded, size: compact ? 16 : 18),
+      label: Text(
+        'Ubicación',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+          fontWeight: FontWeight.w700,
+          fontSize: compact ? 12 : null,
+        ),
+      ),
     );
   }
 }
