@@ -2,6 +2,7 @@ import {
   ServiceEvidenceType,
   ServiceOrderCategory,
   ServiceOrderStatus,
+  ServiceReportType,
   ServiceOrderType,
 } from '@prisma/client';
 
@@ -37,13 +38,24 @@ export const SERVICE_EVIDENCE_TYPE_VALUES = [
   'evidencia_video',
 ] as const;
 
+export const SERVICE_REPORT_TYPE_VALUES = [
+  'requerimiento_cliente',
+  'servicio_finalizado',
+  'otros',
+] as const;
+
 export type ApiServiceOrderCategory = (typeof SERVICE_ORDER_CATEGORY_VALUES)[number];
 export type ApiServiceOrderType = (typeof SERVICE_ORDER_TYPE_VALUES)[number];
 export type ApiServiceOrderStatus = (typeof SERVICE_ORDER_STATUS_VALUES)[number];
 export type ApiServiceEvidenceType = (typeof SERVICE_EVIDENCE_TYPE_VALUES)[number];
+export type ApiServiceReportType = (typeof SERVICE_REPORT_TYPE_VALUES)[number];
 
 const asServiceEvidenceType = (value: ApiServiceEvidenceType): ServiceEvidenceType => {
   return value.toUpperCase() as unknown as ServiceEvidenceType;
+};
+
+const asServiceReportType = (value: ApiServiceReportType): ServiceReportType => {
+  return value.toUpperCase() as unknown as ServiceReportType;
 };
 
 export const SERVICE_ORDER_CATEGORY_TO_DB: Record<ApiServiceOrderCategory, ServiceOrderCategory> = {
@@ -108,6 +120,18 @@ export const SERVICE_EVIDENCE_TYPE_FROM_DB: Record<string, ApiServiceEvidenceTyp
   EVIDENCIA_TEXTO: 'evidencia_texto',
   EVIDENCIA_IMAGEN: 'evidencia_imagen',
   EVIDENCIA_VIDEO: 'evidencia_video',
+};
+
+export const SERVICE_REPORT_TYPE_TO_DB: Record<ApiServiceReportType, ServiceReportType> = {
+  requerimiento_cliente: asServiceReportType('requerimiento_cliente'),
+  servicio_finalizado: asServiceReportType('servicio_finalizado'),
+  otros: asServiceReportType('otros'),
+};
+
+export const SERVICE_REPORT_TYPE_FROM_DB: Record<string, ApiServiceReportType> = {
+  REQUERIMIENTO_CLIENTE: 'requerimiento_cliente',
+  SERVICIO_FINALIZADO: 'servicio_finalizado',
+  OTROS: 'otros',
 };
 
 export const SERVICE_ORDER_ALLOWED_STATUS_TRANSITIONS: Record<

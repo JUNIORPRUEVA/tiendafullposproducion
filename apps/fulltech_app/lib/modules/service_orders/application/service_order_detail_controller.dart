@@ -296,10 +296,10 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
     );
   }
 
-  Future<void> addReport(String report) async {
+  Future<void> addReport(ServiceReportType type, String report) async {
     state = state.copyWith(working: true, clearActionError: true);
     try {
-      await ref.read(serviceOrdersApiProvider).addReport(orderId, report);
+      await ref.read(serviceOrdersApiProvider).addReport(orderId, type, report);
       await load();
     } catch (error) {
       final message = _friendlyOrderMessage(

@@ -7,6 +7,8 @@ import '../../../core/utils/app_feedback.dart';
 import '../service_order_models.dart';
 import '../application/service_order_card_actions_controller.dart';
 
+enum _EvidencePickType { image, video }
+
 /// Modal que muestra 3 opciones de acciones rápidas para una orden.
 /// 
 /// 1. Cambiar estado
@@ -21,6 +23,7 @@ Future<void> showServiceOrderQuickActionsModal({
 }) async {
   await showModalBottomSheet<void>(
     context: context,
+    isScrollControlled: true,
     showDragHandle: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
@@ -52,76 +55,190 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(serviceOrderCardActionsProvider(orderId));
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final actionCards = <Widget>[
+      _ActionButton(
+        icon: Icons.sync_alt_rounded,
+        label: 'Cambiar estado',
+        subtitle: 'Actualiza el avance real de la orden.',
+        isHighlighted: true,
+        badgeText: 'Prioritario',
+        isLoading: state.loading,
+        onTap: state.loading ? null : () => _changeStatus(context, ref),
+      ),
+      _ActionButton(
+        icon: Icons.upload_file_outlined,
+        label: 'Subir evidencia',
+        subtitle: 'Carga fotos o videos del antes y después.',
+        isLoading: state.loading,
+        onTap: state.loading ? null : () => _addEvidence(context, ref),
+      ),
+      _ActionButton(
+        icon: Icons.description_outlined,
+        label: 'Reporte técnico',
+        subtitle: 'Anota observaciones y requerimientos del cliente.',
+        isLoading: state.loading,
+        onTap: state.loading ? null : () => _addReport(context, ref),
+      ),
+    ];
 
     return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Acciones rápidas',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Gestiona el estado, evidencia y reportes de esta orden',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 20),
-            if (state.error != null) ...[
+      child: SizedBox(
+        height: screenHeight * 0.9,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  state.error!,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                    fontSize: 13,
+                  borderRadius: BorderRadius.circular(18),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF0B1220), Color(0xFF13233A)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
+                  border: Border.all(color: const Color(0xFF1F3A5F)),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x1F0B1220),
+                      blurRadius: 18,
+                      offset: Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            color: const Color(0xFF22D3EE).withValues(alpha: 0.16),
+                            border: Border.all(
+                              color: const Color(0xFF22D3EE).withValues(alpha: 0.5),
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.verified_outlined,
+                            color: Color(0xFF67E8F9),
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Gestión técnica',
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Administra la orden, documenta la ejecución y deja constancia clara del servicio realizado.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.86),
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              if (state.error != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    state.error!,
+                    style: TextStyle(
+                      color: colorScheme.error,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: colorScheme.outlineVariant),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            color: colorScheme.primary.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            Icons.rule_folder_outlined,
+                            color: colorScheme.primary,
+                            size: 18,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Evidencia requerida',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Sigue estas instrucciones de forma exacta para evitar confusiones.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        height: 1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const _InstructionBullet(text: 'Pre-instalacion: suba 1 a 2 fotos o 1 video.'),
+                    const SizedBox(height: 6),
+                    const _InstructionBullet(text: 'Post-instalacion: suba 1 a 2 videos y tambien 3 a 5 fotos.'),
+                    const SizedBox(height: 6),
+                    const _InstructionBullet(text: 'Orden obligatorio: primero pre-instalacion y luego post-instalacion.'),
+                  ],
                 ),
               ),
               const SizedBox(height: 16),
+              Expanded(
+                child: ListView.separated(
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: actionCards.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) => actionCards[index],
+                ),
+              ),
             ],
-            _ActionButton(
-              icon: Icons.sync_alt_rounded,
-              label: 'Cambiar estado',
-              subtitle: 'Actualiza el estado operativo de la orden',
-              isLoading: state.loading,
-              onTap: state.loading
-                  ? null
-                  : () => _changeStatus(context, ref),
-            ),
-            const SizedBox(height: 12),
-            _ActionButton(
-              icon: Icons.image_outlined,
-              label: 'Agregar evidencia',
-              subtitle: 'Sube imagen o video del trabajo',
-              isLoading: state.loading,
-              onTap: state.loading
-                  ? null
-                  : () => _addEvidence(context, ref),
-            ),
-            const SizedBox(height: 12),
-            _ActionButton(
-              icon: Icons.description_outlined,
-              label: 'Reporte técnico',
-              subtitle: 'Agrega un reporte de la ejecución',
-              isLoading: state.loading,
-              onTap: state.loading
-                  ? null
-                  : () => _addReport(context, ref),
-            ),
-            const SizedBox(height: 8),
-          ],
+          ),
         ),
       ),
     );
@@ -138,31 +255,56 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
 
     if (!sheetContext.mounted) return;
 
-    final selected = await showDialog<ServiceOrderStatus>(
+    final selected = await showModalBottomSheet<ServiceOrderStatus>(
       context: sheetContext,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Cambiar estado'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: statuses.map((status) {
-                final isSelected = status == order.status;
-                return ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(status.label),
-                  trailing: isSelected ? const Icon(Icons.check) : null,
-                  onTap: () => Navigator.pop(dialogContext, status),
-                );
-              }).toList(),
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (modalContext) {
+        final theme = Theme.of(modalContext);
+        final colorScheme = theme.colorScheme;
+        final screenHeight = MediaQuery.sizeOf(modalContext).height;
+
+        return SafeArea(
+          child: SizedBox(
+            height: screenHeight * 0.9,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Cambiar estado',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Selecciona el estado que representa el avance real de esta orden.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: statuses.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final status = statuses[index];
+                        final isSelected = status == order.status;
+                        return _StatusSelectionTile(
+                          status: status,
+                          isCurrent: isSelected,
+                          onTap: () => Navigator.pop(modalContext, status),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancelar'),
-            ),
-          ],
         );
       },
     );
@@ -193,10 +335,18 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
   }
 
   Future<void> _addEvidence(BuildContext sheetContext, WidgetRef ref) async {
+    final selectedType = await _pickEvidenceType(sheetContext);
+    if (selectedType == null) {
+      return;
+    }
+
+    final isVideo = selectedType == _EvidencePickType.video;
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: false,
       type: FileType.custom,
-      allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov', 'webm', 'mkv'],
+      allowedExtensions: isVideo
+          ? ['mp4', 'mov', 'webm', 'mkv']
+          : ['jpg', 'jpeg', 'png', 'webp'],
       withData: kIsWeb,
     );
 
@@ -216,10 +366,6 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
       );
       return;
     }
-
-    final isVideo = (file.extension ?? '').toLowerCase().contains(
-      RegExp(r'mp4|mov|webm|mkv'),
-    );
 
     try {
       if (isVideo) {
@@ -246,9 +392,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
       if (!parentContext.mounted) return;
       await AppFeedback.showInfo(
         parentContext,
-        isVideo
-            ? 'Video agregado. Subiendo en segundo plano...'
-            : 'Imagen agregada. Subiendo en segundo plano...',
+        isVideo ? 'Video agregado correctamente' : 'Imagen agregada correctamente',
       );
       onOrderUpdated();
     } catch (_) {
@@ -262,10 +406,16 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
   }
 
   Future<void> _addReport(BuildContext sheetContext, WidgetRef ref) async {
+    final reportType = await _pickReportType(sheetContext);
+    if (reportType == null) {
+      return;
+    }
+    if (!sheetContext.mounted) return;
+
     final reportText = await _promptMultilineInput(
       sheetContext,
-      title: 'Reporte técnico',
-      hintText: 'Resume el trabajo realizado, materiales usados y resultado final',
+      title: reportType.label,
+      hintText: _reportHintText(reportType),
       confirmLabel: 'Guardar reporte',
     );
 
@@ -276,13 +426,13 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     try {
       await ref
           .read(serviceOrderCardActionsProvider(orderId).notifier)
-          .addTechnicalReport(reportText);
+          .addTechnicalReport(reportType, reportText);
 
       if (!sheetContext.mounted) return;
       Navigator.pop(sheetContext);
 
       if (!parentContext.mounted) return;
-      await AppFeedback.showInfo(parentContext, 'Reporte added');
+      await AppFeedback.showInfo(parentContext, 'Reporte guardado');
       onOrderUpdated();
     } catch (_) {
       if (!sheetContext.mounted) return;
@@ -291,6 +441,159 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
         sheetContext,
         error ?? 'No se pudo guardar el reporte',
       );
+    }
+  }
+
+  static Future<_EvidencePickType?> _pickEvidenceType(BuildContext context) {
+    return showModalBottomSheet<_EvidencePickType>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (modalContext) {
+        final theme = Theme.of(modalContext);
+        final colorScheme = theme.colorScheme;
+        final screenHeight = MediaQuery.sizeOf(modalContext).height;
+
+        return SafeArea(
+          child: SizedBox(
+            height: screenHeight * 0.9,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Tipo de evidencia',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Selecciona el tipo de archivo que vas a cargar y sigue estas instrucciones simples.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      height: 1.25,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: colorScheme.outlineVariant),
+                    ),
+                    child: const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _InstructionBullet(text: 'Pre-instalacion: 1 a 2 fotos o 1 video.'),
+                        SizedBox(height: 6),
+                        _InstructionBullet(text: 'Post-instalacion: 1 a 2 videos y tambien 3 a 5 fotos.'),
+                        SizedBox(height: 6),
+                        _InstructionBullet(text: 'Orden obligatorio: primero pre-instalacion y luego post-instalacion.'),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _EvidenceTypeButton(
+                    icon: Icons.image_outlined,
+                    title: 'Subir imagen',
+                    subtitle: 'Usa esta opción para fotos del antes, proceso y resultado final',
+                    onTap: () => Navigator.pop(modalContext, _EvidencePickType.image),
+                  ),
+                  const SizedBox(height: 10),
+                  _EvidenceTypeButton(
+                    icon: Icons.videocam_outlined,
+                    title: 'Subir video',
+                    subtitle: 'Usa esta opción para recorridos, funcionamiento o pruebas del sistema',
+                    onTap: () => Navigator.pop(modalContext, _EvidencePickType.video),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  static Future<ServiceReportType?> _pickReportType(BuildContext context) {
+    return showModalBottomSheet<ServiceReportType>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (modalContext) {
+        final theme = Theme.of(modalContext);
+        final colorScheme = theme.colorScheme;
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Tipo de reporte',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Selecciona el tipo de reporte que vas a registrar en la orden.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                _EvidenceTypeButton(
+                  icon: Icons.assignment_ind_outlined,
+                  title: ServiceReportType.requerimientoCliente.label,
+                  subtitle: 'Para solicitudes o requerimientos adicionales del cliente',
+                  onTap: () => Navigator.pop(
+                    modalContext,
+                    ServiceReportType.requerimientoCliente,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _EvidenceTypeButton(
+                  icon: Icons.task_alt_outlined,
+                  title: ServiceReportType.servicioFinalizado.label,
+                  subtitle: 'Para documentar la ejecución final del servicio',
+                  onTap: () => Navigator.pop(
+                    modalContext,
+                    ServiceReportType.servicioFinalizado,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _EvidenceTypeButton(
+                  icon: Icons.notes_outlined,
+                  title: ServiceReportType.otros.label,
+                  subtitle: 'Para cualquier otra observación relevante de la orden',
+                  onTap: () => Navigator.pop(
+                    modalContext,
+                    ServiceReportType.otros,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  static String _reportHintText(ServiceReportType type) {
+    switch (type) {
+      case ServiceReportType.requerimientoCliente:
+        return 'Escribe el requerimiento del cliente, solicitud adicional o necesidad detectada';
+      case ServiceReportType.servicioFinalizado:
+        return 'Resume el trabajo realizado, materiales usados y resultado final del servicio';
+      case ServiceReportType.otros:
+        return 'Escribe cualquier observación, hallazgo o nota importante de la orden';
     }
   }
 
@@ -303,45 +606,119 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     final controller = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
-    final result = await showDialog<String>(
+    final result = await showModalBottomSheet<String>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: Text(title),
-          content: Form(
-            key: formKey,
-            child: TextFormField(
-              controller: controller,
-              minLines: 4,
-              maxLines: 7,
-              autofocus: true,
-              decoration: InputDecoration(
-                hintText: hintText,
-                border: const OutlineInputBorder(),
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (modalContext) {
+        final theme = Theme.of(modalContext);
+        final colorScheme = theme.colorScheme;
+        final screenHeight = MediaQuery.sizeOf(modalContext).height;
+        final bottomInset = MediaQuery.viewInsetsOf(modalContext).bottom;
+
+        return SafeArea(
+          child: AnimatedPadding(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            padding: EdgeInsets.only(bottom: bottomInset),
+            child: SizedBox(
+              height: screenHeight * 0.9,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Anote requerimiento extra del cliente, solicitudes, levantamiento y cualquier observación relevante del servicio.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                          height: 1.3,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: colorScheme.outlineVariant),
+                          color: colorScheme.surfaceContainerLow,
+                        ),
+                        child: const Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _InstructionBullet(text: 'Detalle qué se hizo en la visita técnica.'),
+                            SizedBox(height: 6),
+                            _InstructionBullet(text: 'Anote requerimientos extra del cliente o solicitudes especiales.'),
+                            SizedBox(height: 6),
+                            _InstructionBullet(text: 'Registre levantamiento, materiales faltantes o pendientes detectados.'),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Expanded(
+                        child: TextFormField(
+                          controller: controller,
+                          minLines: null,
+                          maxLines: null,
+                          expands: true,
+                          autofocus: true,
+                          textAlignVertical: TextAlignVertical.top,
+                          decoration: InputDecoration(
+                            hintText: hintText,
+                            alignLabelWithHint: true,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            filled: true,
+                            fillColor: colorScheme.surface,
+                          ),
+                          validator: (value) {
+                            if ((value ?? '').trim().isEmpty) {
+                              return 'Este campo es obligatorio';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(modalContext),
+                              child: const Text('Cancelar'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () {
+                                if (!formKey.currentState!.validate()) {
+                                  return;
+                                }
+                                Navigator.pop(modalContext, controller.text.trim());
+                              },
+                              child: Text(confirmLabel),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              validator: (value) {
-                if ((value ?? '').trim().isEmpty) {
-                  return 'Este campo es obligatorio';
-                }
-                return null;
-              },
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (!formKey.currentState!.validate()) {
-                  return;
-                }
-                Navigator.pop(dialogContext, controller.text.trim());
-              },
-              child: Text(confirmLabel),
-            ),
-          ],
         );
       },
     );
@@ -358,6 +735,8 @@ class _ActionButton extends StatelessWidget {
     required this.subtitle,
     required this.isLoading,
     required this.onTap,
+    this.isHighlighted = false,
+    this.badgeText,
   });
 
   final IconData icon;
@@ -365,52 +744,297 @@ class _ActionButton extends StatelessWidget {
   final String subtitle;
   final bool isLoading;
   final VoidCallback? onTap;
+  final bool isHighlighted;
+  final String? badgeText;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final enabled = onTap != null;
+    final cardColor = isHighlighted
+        ? const Color(0xFF0EA5E9).withValues(alpha: 0.09)
+        : colorScheme.primary.withValues(alpha: 0.06);
+    final borderColor = isHighlighted
+        ? const Color(0xFF0284C7).withValues(alpha: 0.45)
+        : colorScheme.primary.withValues(alpha: 0.12);
+    final iconContainerColor = isHighlighted
+        ? const Color(0xFF0369A1).withValues(alpha: 0.18)
+        : colorScheme.primary.withValues(alpha: 0.12);
+    final iconColor = isHighlighted ? const Color(0xFF075985) : colorScheme.primary;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         onTap: enabled && !isLoading ? onTap : null,
         child: Ink(
           decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(12),
+            color: cardColor,
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: theme.colorScheme.primary.withValues(alpha: 0.12),
+              color: borderColor,
             ),
+            boxShadow: isHighlighted
+                ? const [
+                    BoxShadow(
+                      color: Color(0x290EA5E9),
+                      blurRadius: 14,
+                      offset: Offset(0, 4),
+                    ),
+                  ]
+                : null,
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Row(
             children: [
               Container(
-                width: 44,
-                height: 44,
+                width: 38,
+                height: 38,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
+                  color: iconContainerColor,
+                  borderRadius: BorderRadius.circular(9),
                 ),
                 child: Center(
                   child: isLoading
                       ? SizedBox(
-                        width: 20,
-                        height: 20,
+                        width: 18,
+                        height: 18,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
                           valueColor: AlwaysStoppedAnimation(
-                            theme.colorScheme.primary,
+                            iconColor,
                           ),
                         ),
                       )
                       : Icon(
                         icon,
-                        color: theme.colorScheme.primary,
-                        size: 22,
+                        color: iconColor,
+                        size: 20,
                       ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            label,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        if (badgeText != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0284C7).withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: const Color(0xFF0284C7).withValues(alpha: 0.32),
+                              ),
+                            ),
+                            child: Text(
+                              badgeText!,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: const Color(0xFF075985),
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        height: 1.15,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              if (enabled)
+                Icon(
+                  Icons.arrow_forward_rounded,
+                  size: 17,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EvidenceTypeButton extends StatelessWidget {
+  const _EvidenceTypeButton({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colorScheme.outlineVariant),
+            color: colorScheme.surfaceContainerLow,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: colorScheme.primary, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 14,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InstructionBullet extends StatelessWidget {
+  const _InstructionBullet({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: colorScheme.primary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              height: 1.25,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatusSelectionTile extends StatelessWidget {
+  const _StatusSelectionTile({
+    required this.status,
+    required this.isCurrent,
+    required this.onTap,
+  });
+
+  final ServiceOrderStatus status;
+  final bool isCurrent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isCurrent
+                  ? status.color.withValues(alpha: 0.38)
+                  : colorScheme.outlineVariant,
+            ),
+            color: isCurrent
+                ? status.color.withValues(alpha: 0.10)
+                : colorScheme.surfaceContainerLow,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 16,
+                height: 16,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: status.color,
                 ),
               ),
               const SizedBox(width: 12),
@@ -419,31 +1043,60 @@ class _ActionButton extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      label,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+                      status.label,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 3),
                     Text(
-                      subtitle,
+                      _statusDescription(status),
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                        color: colorScheme.onSurfaceVariant,
+                        height: 1.25,
                       ),
                     ),
                   ],
                 ),
               ),
-              if (enabled)
+              if (isCurrent)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: status.color.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'Actual',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: status.color,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                )
+              else
                 Icon(
-                  Icons.arrow_forward_rounded,
-                  size: 18,
-                  color: theme.colorScheme.onSurfaceVariant,
+                  Icons.arrow_forward_ios_rounded,
+                  size: 14,
+                  color: colorScheme.onSurfaceVariant,
                 ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  static String _statusDescription(ServiceOrderStatus status) {
+    switch (status) {
+      case ServiceOrderStatus.pendiente:
+        return 'La orden fue creada y todavía no se ha iniciado el trabajo.';
+      case ServiceOrderStatus.enProceso:
+        return 'El técnico ya inició la ejecución o está trabajando en sitio.';
+      case ServiceOrderStatus.finalizado:
+        return 'El trabajo quedó completado y documentado correctamente.';
+      case ServiceOrderStatus.cancelado:
+        return 'La orden no continuará por cancelación o cierre sin ejecución.';
+    }
   }
 }

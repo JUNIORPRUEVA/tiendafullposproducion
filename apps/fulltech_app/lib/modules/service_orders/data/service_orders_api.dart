@@ -165,11 +165,18 @@ class ServiceOrdersApi {
     }
   }
 
-  Future<ServiceOrderReportModel> addReport(String orderId, String report) async {
+  Future<ServiceOrderReportModel> addReport(
+    String orderId,
+    ServiceReportType type,
+    String report,
+  ) async {
     try {
       final res = await _dio.post(
         ApiRoutes.serviceOrderReport(orderId),
-        data: {'report': report.trim()},
+        data: {
+          'type': type.apiValue,
+          'report': report.trim(),
+        },
       );
       return ServiceOrderReportModel.fromJson(
         (res.data as Map).cast<String, dynamic>(),

@@ -30,7 +30,7 @@ class ServiceOrdersListScreen extends ConsumerStatefulWidget {
 
 class _ServiceOrdersListScreenState
     extends ConsumerState<ServiceOrdersListScreen> {
-  ServiceOrdersFilter _filter = const ServiceOrdersFilter.today();
+  ServiceOrdersFilter _filter = const ServiceOrdersFilter.mainDefault();
   final Set<String> _busyOrderIds = <String>{};
   final Set<String> _creatingFromOrderIds = <String>{};
 
@@ -179,7 +179,7 @@ class _ServiceOrdersListScreenState
                                 ? () {
                                     setState(() {
                                       _filter =
-                                          const ServiceOrdersFilter.today();
+                                          const ServiceOrdersFilter.mainDefault();
                                     });
                                   }
                                 : null,
@@ -421,7 +421,7 @@ class _ServiceOrdersListScreenState
   }
 }
 
-enum ServiceOrdersDatePreset { today, thisWeek, custom }
+enum ServiceOrdersDatePreset { all, today, thisWeek, custom }
 
 class ServiceOrdersFilter {
   const ServiceOrdersFilter({
@@ -437,10 +437,29 @@ class ServiceOrdersFilter {
       serviceTypes = const <ServiceOrderType>{},
       customRange = null;
 
+  const ServiceOrdersFilter.mainDefault()
+    : datePreset = ServiceOrdersDatePreset.all,
+      statuses = const <ServiceOrderStatus>{
+        ServiceOrderStatus.pendiente,
+        ServiceOrderStatus.enProceso,
+        ServiceOrderStatus.cancelado,
+      },
+      serviceTypes = const <ServiceOrderType>{},
+      customRange = null;
+
   final ServiceOrdersDatePreset datePreset;
   final Set<ServiceOrderStatus> statuses;
   final Set<ServiceOrderType> serviceTypes;
   final DateTimeRange? customRange;
+
+  bool get isMainDefault {
+    return datePreset == ServiceOrdersDatePreset.all &&
+        serviceTypes.isEmpty &&
+        statuses.length == 3 &&
+        statuses.contains(ServiceOrderStatus.pendiente) &&
+        statuses.contains(ServiceOrderStatus.enProceso) &&
+        statuses.contains(ServiceOrderStatus.cancelado);
+  }
 
   ServiceOrdersFilter copyWith({
     ServiceOrdersDatePreset? datePreset,
@@ -458,13 +477,13 @@ class ServiceOrdersFilter {
   }
 
   bool get hasActiveFilters {
-    return statuses.isNotEmpty ||
-        serviceTypes.isNotEmpty ||
-        datePreset != ServiceOrdersDatePreset.today;
+    return !isMainDefault;
   }
 
   String get summaryLabel {
     switch (datePreset) {
+      case ServiceOrdersDatePreset.all:
+        return 'Órdenes activas';
       case ServiceOrdersDatePreset.today:
         return 'Hoy';
       case ServiceOrdersDatePreset.thisWeek:
@@ -510,6 +529,7 @@ class ServiceOrdersFilter {
         .where((order) {
           final createdAt = order.createdAt.toLocal();
           final matchesDate = switch (datePreset) {
+            ServiceOrdersDatePreset.all => true,
             ServiceOrdersDatePreset.today =>
               !createdAt.isBefore(todayStart) && createdAt.isBefore(todayEnd),
             ServiceOrdersDatePreset.thisWeek =>
@@ -693,6 +713,19 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                 child: Column(
                   children: [
                     RadioListTile<ServiceOrdersDatePreset>(
+                      value: ServiceOrdersDatePreset.all,
+                      groupValue: _datePreset,
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Todas las fechas'),
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setState(() {
+                          _datePreset = value;
+                        });
+                      },
+                    ),
+                    RadioListTile<ServiceOrdersDatePreset>(
                       value: ServiceOrdersDatePreset.today,
                       groupValue: _datePreset,
                       contentPadding: EdgeInsets.zero,
@@ -757,7 +790,7 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                       onPressed: () {
                         Navigator.of(
                           context,
-                        ).pop(const ServiceOrdersFilter.today());
+                        ).pop(const ServiceOrdersFilter.mainDefault());
                       },
                       child: const Text('Restablecer'),
                     ),
@@ -769,7 +802,7 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                         final effectivePreset =
                             _datePreset == ServiceOrdersDatePreset.custom &&
                                 _customRange == null
-                            ? ServiceOrdersDatePreset.today
+                          ? ServiceOrdersDatePreset.all
                             : _datePreset;
                         Navigator.of(context).pop(
                           ServiceOrdersFilter(

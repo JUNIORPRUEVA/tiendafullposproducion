@@ -26,6 +26,12 @@ enum ServiceEvidenceType {
   evidenciaVideo,
 }
 
+enum ServiceReportType {
+  requerimientoCliente,
+  servicioFinalizado,
+  otros,
+}
+
 ServiceOrderCategory serviceOrderCategoryFromApi(String value) {
   switch (value.trim()) {
     case 'camara':
@@ -91,6 +97,18 @@ ServiceEvidenceType serviceEvidenceTypeFromApi(String value) {
       return ServiceEvidenceType.evidenciaVideo;
     default:
       return ServiceEvidenceType.referenciaTexto;
+  }
+}
+
+ServiceReportType serviceReportTypeFromApi(String value) {
+  switch (value.trim()) {
+    case 'requerimiento_cliente':
+      return ServiceReportType.requerimientoCliente;
+    case 'servicio_finalizado':
+      return ServiceReportType.servicioFinalizado;
+    case 'otros':
+    default:
+      return ServiceReportType.otros;
   }
 }
 
@@ -355,9 +373,45 @@ class ServiceOrderEvidenceModel {
   }
 }
 
+extension ServiceReportTypeX on ServiceReportType {
+  String get apiValue {
+    switch (this) {
+      case ServiceReportType.requerimientoCliente:
+        return 'requerimiento_cliente';
+      case ServiceReportType.servicioFinalizado:
+        return 'servicio_finalizado';
+      case ServiceReportType.otros:
+        return 'otros';
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case ServiceReportType.requerimientoCliente:
+        return 'Requerimiento del cliente';
+      case ServiceReportType.servicioFinalizado:
+        return 'Reporte de servicio finalizado';
+      case ServiceReportType.otros:
+        return 'Otros';
+    }
+  }
+
+  Color get color {
+    switch (this) {
+      case ServiceReportType.requerimientoCliente:
+        return const Color(0xFFC2410C);
+      case ServiceReportType.servicioFinalizado:
+        return const Color(0xFF047857);
+      case ServiceReportType.otros:
+        return const Color(0xFF1D4ED8);
+    }
+  }
+}
+
 class ServiceOrderReportModel {
   final String id;
   final String serviceOrderId;
+  final ServiceReportType type;
   final String report;
   final String createdById;
   final DateTime createdAt;
@@ -365,6 +419,7 @@ class ServiceOrderReportModel {
   const ServiceOrderReportModel({
     required this.id,
     required this.serviceOrderId,
+    required this.type,
     required this.report,
     required this.createdById,
     required this.createdAt,
@@ -374,6 +429,7 @@ class ServiceOrderReportModel {
     return ServiceOrderReportModel(
       id: (json['id'] ?? '').toString(),
       serviceOrderId: (json['serviceOrderId'] ?? '').toString(),
+      type: serviceReportTypeFromApi((json['type'] ?? '').toString()),
       report: (json['report'] ?? '').toString(),
       createdById: (json['createdById'] ?? '').toString(),
       createdAt:

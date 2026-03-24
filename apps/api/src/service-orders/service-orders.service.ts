@@ -17,11 +17,14 @@ import {
   ApiServiceOrderCategory,
   ApiServiceOrderStatus,
   ApiServiceOrderType,
+  ApiServiceReportType,
   SERVICE_EVIDENCE_TYPE_FROM_DB,
   SERVICE_EVIDENCE_TYPE_TO_DB,
   SERVICE_ORDER_ALLOWED_STATUS_TRANSITIONS,
   SERVICE_ORDER_CATEGORY_FROM_DB,
   SERVICE_ORDER_CATEGORY_TO_DB,
+  SERVICE_REPORT_TYPE_FROM_DB,
+  SERVICE_REPORT_TYPE_TO_DB,
   SERVICE_ORDER_STATUS_FROM_DB,
   SERVICE_ORDER_STATUS_TO_DB,
   SERVICE_ORDER_TYPE_FROM_DB,
@@ -172,12 +175,14 @@ export class ServiceOrdersService {
     this.assertCanModifyOrder(user, item);
     this.assertTechnicalOutputAccess(user);
 
+    const type = dto.type as ApiServiceReportType;
     const report = this.cleanRequiredText(dto.report, 'report');
 
     try {
       const created = await this.prisma.serviceReport.create({
         data: {
           serviceOrderId: item.id,
+          type: SERVICE_REPORT_TYPE_TO_DB[type],
           report,
           createdById: user.id,
         },
@@ -621,9 +626,11 @@ export class ServiceOrdersService {
   }
 
   private mapReport(item: Prisma.ServiceReportGetPayload<object>) {
+    const typeKey = String(item.type ?? '').trim().toUpperCase();
     return {
       id: item.id,
       serviceOrderId: item.serviceOrderId,
+      type: SERVICE_REPORT_TYPE_FROM_DB[typeKey] ?? 'otros',
       report: item.report,
       createdById: item.createdById,
       createdAt: item.createdAt,

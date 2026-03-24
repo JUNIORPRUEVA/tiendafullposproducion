@@ -599,11 +599,16 @@ Future<void> _addReport(
   >
   provider,
 ) async {
+  final reportType = await _pickReportType(context);
+  if (reportType == null) {
+    return;
+  }
+  if (!context.mounted) return;
+
   final report = await _promptMultilineInput(
     context,
-    title: 'Reporte técnico',
-    hintText:
-        'Resume el trabajo realizado, materiales usados y resultado final.',
+    title: reportType.label,
+    hintText: _reportHintText(reportType),
     confirmLabel: 'Guardar reporte',
   );
   if (report == null || report.trim().isEmpty) {
@@ -611,7 +616,7 @@ Future<void> _addReport(
   }
 
   try {
-    await ref.read(provider.notifier).addReport(report.trim());
+    await ref.read(provider.notifier).addReport(reportType, report.trim());
     if (!context.mounted) return;
     await AppFeedback.showInfo(context, 'Reporte agregado');
   } catch (_) {
@@ -620,6 +625,77 @@ Future<void> _addReport(
       context,
       ref.read(provider).actionError ?? 'No se pudo guardar el reporte',
     );
+  }
+}
+
+Future<ServiceReportType?> _pickReportType(BuildContext context) {
+  return showModalBottomSheet<ServiceReportType>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Tipo de reporte',
+                style: Theme.of(sheetContext).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Selecciona el tipo de reporte que se agregará a esta orden.',
+                style: Theme.of(sheetContext).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(sheetContext).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 14),
+              _ReportTypeAction(
+                type: ServiceReportType.requerimientoCliente,
+                subtitle: 'Para solicitudes o requerimientos adicionales del cliente',
+                icon: Icons.assignment_ind_outlined,
+                onTap: () => Navigator.pop(
+                  sheetContext,
+                  ServiceReportType.requerimientoCliente,
+                ),
+              ),
+              const SizedBox(height: 10),
+              _ReportTypeAction(
+                type: ServiceReportType.servicioFinalizado,
+                subtitle: 'Para documentar el cierre o resultado final del servicio',
+                icon: Icons.task_alt_outlined,
+                onTap: () => Navigator.pop(
+                  sheetContext,
+                  ServiceReportType.servicioFinalizado,
+                ),
+              ),
+              const SizedBox(height: 10),
+              _ReportTypeAction(
+                type: ServiceReportType.otros,
+                subtitle: 'Para otras observaciones importantes relacionadas con la orden',
+                icon: Icons.notes_outlined,
+                onTap: () => Navigator.pop(sheetContext, ServiceReportType.otros),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+String _reportHintText(ServiceReportType type) {
+  switch (type) {
+    case ServiceReportType.requerimientoCliente:
+      return 'Describe el requerimiento del cliente, solicitud adicional o necesidad levantada';
+    case ServiceReportType.servicioFinalizado:
+      return 'Resume el trabajo finalizado, materiales usados y resultado entregado';
+    case ServiceReportType.otros:
+      return 'Describe cualquier otra observación, hallazgo o nota importante';
   }
 }
 
@@ -1215,6 +1291,24 @@ class _ReportCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: report.type.color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: report.type.color.withValues(alpha: 0.22),
+              ),
+            ),
+            child: Text(
+              report.type.label,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: report.type.color,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           Text(
             report.report,
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
@@ -1230,6 +1324,79 @@ class _ReportCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ReportTypeAction extends StatelessWidget {
+  const _ReportTypeAction({
+    required this.type,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final ServiceReportType type;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+            color: theme.colorScheme.surfaceContainerLow,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: type.color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: type.color, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      type.label,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 14,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

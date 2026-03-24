@@ -158,11 +158,14 @@ class ServiceOrderCardActionsController
   }
 
   /// Add technical report to the order.
-  Future<ServiceOrderReportModel> addTechnicalReport(String report) async {
+  Future<ServiceOrderReportModel> addTechnicalReport(
+    ServiceReportType type,
+    String report,
+  ) async {
     state = state.copyWith(loading: true, clearError: true);
     try {
       final api = ref.read(serviceOrdersApiProvider);
-      final result = await api.addReport(orderId, report.trim());
+      final result = await api.addReport(orderId, type, report.trim());
       state = state.copyWith(loading: false);
       return result;
     } catch (error) {
