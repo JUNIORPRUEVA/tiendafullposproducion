@@ -486,6 +486,7 @@ class ServiceOrderModel {
   final String? parentOrderId;
   final String createdById;
   final String? assignedToId;
+  final DateTime? finalizedAt;
   final DateTime createdAt;
   final DateTime updatedAt;
   final List<ServiceOrderEvidenceModel> evidences;
@@ -504,6 +505,7 @@ class ServiceOrderModel {
     required this.parentOrderId,
     required this.createdById,
     required this.assignedToId,
+    required this.finalizedAt,
     required this.createdAt,
     required this.updatedAt,
     this.evidences = const [],
@@ -536,6 +538,7 @@ class ServiceOrderModel {
     String? parentOrderId,
     String? createdById,
     String? assignedToId,
+    DateTime? finalizedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
     List<ServiceOrderEvidenceModel>? evidences,
@@ -568,6 +571,7 @@ class ServiceOrderModel {
       assignedToId: clearAssignedToId
           ? null
           : (assignedToId ?? this.assignedToId),
+        finalizedAt: finalizedAt ?? this.finalizedAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       evidences: evidences ?? this.evidences,
@@ -599,6 +603,9 @@ class ServiceOrderModel {
       parentOrderId: json['parentOrderId']?.toString(),
       createdById: (json['createdById'] ?? '').toString(),
       assignedToId: json['assignedToId']?.toString(),
+        finalizedAt: json['finalizedAt'] == null
+          ? null
+          : DateTime.tryParse(json['finalizedAt'].toString()),
       createdAt:
           DateTime.tryParse((json['createdAt'] ?? '').toString()) ??
           DateTime.now(),
@@ -636,6 +643,7 @@ class ServiceOrderModel {
       'parentOrderId': parentOrderId,
       'createdById': createdById,
       'assignedToId': assignedToId,
+      'finalizedAt': finalizedAt?.toIso8601String(),
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
       'evidences': evidences

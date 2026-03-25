@@ -32,6 +32,8 @@ class Routes {
   static const configuracion = '/configuracion';
   static const administracion = '/administracion';
   static const administracionPonches = '/administracion/ponches';
+  static const administracionVentas = '/administracion/ventas';
+  static const administracionCotizaciones = '/administracion/cotizaciones';
 
   static String clienteDetail(String id) => '/clientes/$id';
   static String clienteEdit(String id) => '/clientes/$id/editar';

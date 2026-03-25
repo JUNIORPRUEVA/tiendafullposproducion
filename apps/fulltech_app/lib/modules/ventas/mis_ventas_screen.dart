@@ -709,7 +709,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              'Cálculo automático desde órdenes finalizadas en ${_quincenaLabel(state.from, state.to)}. La fecha operativa usada es la última actualización de la orden.',
+              'Cálculo automático desde órdenes finalizadas en ${_quincenaLabel(state.from, state.to)} usando la fecha real de finalización de la orden.',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 10),

@@ -62,6 +62,8 @@ class CotizacionItem {
       'productImageSnapshot': imageUrl,
     'qty': qty,
     'unitPrice': unitPrice,
+    if ((costUnit ?? externalCostUnit) != null)
+      'costUnitSnapshot': costUnit ?? externalCostUnit,
   };
 
   static bool _isUuid(String? value) {
@@ -92,6 +94,11 @@ class CotizacionItem {
   }
 
   factory CotizacionItem.fromApi(Map<String, dynamic> map) {
+    final rawCostSnapshot = map['costUnitSnapshot'];
+    final parsedCostSnapshot = rawCostSnapshot == null
+        ? null
+        : _asDouble(rawCostSnapshot);
+    final isExternalItem = !_isUuid((map['productId'] ?? '').toString());
     return CotizacionItem(
       productId: (map['productId'] ?? '').toString(),
       nombre:
@@ -105,7 +112,8 @@ class CotizacionItem {
               ?.toString(),
       unitPrice: _asDouble(map['unitPrice']),
       qty: _asDouble(map['qty']),
-      externalCostUnit: null,
+      costUnit: parsedCostSnapshot,
+      externalCostUnit: isExternalItem ? parsedCostSnapshot : null,
     );
   }
 }

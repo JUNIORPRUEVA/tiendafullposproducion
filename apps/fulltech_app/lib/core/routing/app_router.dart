@@ -13,6 +13,8 @@ import '../../features/contabilidad/cierres_diarios_screen.dart';
 import '../../features/contabilidad/factura_fiscal_screen.dart';
 import '../../features/contabilidad/pagos_pendientes_screen.dart';
 import '../../features/administracion/admin_punch_registry_screen.dart';
+import '../../features/administracion/admin_sales_registry_screen.dart';
+import '../../features/administracion/admin_quotes_registry_screen.dart';
 import '../../features/administracion/administracion_screen.dart';
 import '../../features/catalogo/catalogo_screen.dart';
 import '../../modules/clientes/cliente_detail_screen.dart';
@@ -141,6 +143,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.administracionPonches,
             builder: (context, state) => const AdminPunchRegistryScreen(),
+          ),
+          GoRoute(
+            path: Routes.administracionVentas,
+            builder: (context, state) => const AdminSalesRegistryScreen(),
+          ),
+          GoRoute(
+            path: Routes.administracionCotizaciones,
+            builder: (context, state) => const AdminQuotesRegistryScreen(),
           ),
           GoRoute(
             path: Routes.clientes,

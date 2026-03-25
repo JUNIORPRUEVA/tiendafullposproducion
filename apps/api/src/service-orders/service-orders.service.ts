@@ -71,14 +71,6 @@ type ServiceSalesOrderWithRelations = Prisma.ServiceOrderGetPayload<{
     quotation: {
       include: {
         items: {
-          include: {
-            product: {
-              select: {
-                id: true;
-                costo: true;
-              };
-            };
-          };
           orderBy: {
             createdAt: 'asc';
           };
@@ -152,12 +144,12 @@ export class ServiceOrdersService {
           PrismaServiceOrderType.MANTENIMIENTO,
         ],
       },
-      ...this.buildUpdatedAtRange(from, to),
+      ...this.buildFinalizedAtRange(from, to),
     };
 
     const orders = await this.prisma.serviceOrder.findMany({
       where,
-      orderBy: { updatedAt: 'desc' },
+      orderBy: { finalizedAt: 'desc' },
       include: {
         client: true,
         assignedTo: {
@@ -171,14 +163,6 @@ export class ServiceOrdersService {
           include: {
             items: {
               orderBy: { createdAt: 'asc' },
-              include: {
-                product: {
-                  select: {
-                    id: true,
-                    costo: true,
-                  },
-                },
-              },
             },
           },
         },
@@ -292,7 +276,10 @@ export class ServiceOrdersService {
       const updated = await this.prisma.serviceOrder.update({
         where: { id },
         include: { client: true },
-        data: { status: SERVICE_ORDER_STATUS_TO_DB[nextStatus] },
+        data: {
+          status: SERVICE_ORDER_STATUS_TO_DB[nextStatus],
+          finalizedAt: nextStatus === 'finalizado' ? new Date() : item.finalizedAt,
+        },
       });
       const mapped = this.mapOrder(updated);
       await this.invalidateCachesForOrder(updated.id);
@@ -488,21 +475,12 @@ export class ServiceOrdersService {
       return this.buildSkippedServiceSalesOrder(order, 'La cotización no tiene líneas registradas');
     }
 
-    let totalCost = 0;
     let missingCostItemsCount = 0;
 
     for (const item of quotationItems) {
-      if (!item.productId) {
+      if (item.costUnitSnapshot == null || item.subtotalCost == null || item.profit == null) {
         missingCostItemsCount += 1;
-        continue;
       }
-
-      if (!item.product?.costo) {
-        missingCostItemsCount += 1;
-        continue;
-      }
-
-      totalCost += this.toNumber(item.qty) * this.toNumber(item.product.costo);
     }
 
     if (missingCostItemsCount > 0) {
@@ -515,8 +493,17 @@ export class ServiceOrdersService {
       );
     }
 
+    if (quotation.totalCost == null || quotation.totalProfit == null) {
+      return this.buildSkippedServiceSalesOrder(
+        order,
+        'La cotización no tiene utilidad histórica persistida',
+        missingCostItemsCount,
+      );
+    }
+
     const totalQuoted = this.toNumber(quotation.total);
-    const totalProfit = totalQuoted - totalCost;
+    const totalCost = this.toNumber(quotation.totalCost);
+    const totalProfit = this.toNumber(quotation.totalProfit);
     const operationalExpenseRate =
       order.serviceType === PrismaServiceOrderType.INSTALACION ? 0.3 : 0.1;
     const operationalExpenseAmount = totalProfit > 0 ? totalProfit * operationalExpenseRate : 0;
@@ -532,7 +519,7 @@ export class ServiceOrdersService {
       category: SERVICE_ORDER_CATEGORY_FROM_DB[order.category],
       serviceType: SERVICE_ORDER_TYPE_FROM_DB[order.serviceType],
       status: SERVICE_ORDER_STATUS_FROM_DB[order.status],
-      finalizedAt: order.updatedAt,
+      finalizedAt: order.finalizedAt,
       createdById: order.createdById,
       technicianId: order.assignedToId,
       technicianName: order.assignedTo?.nombreCompleto ?? null,
@@ -564,7 +551,7 @@ export class ServiceOrdersService {
       category: SERVICE_ORDER_CATEGORY_FROM_DB[order.category],
       serviceType: SERVICE_ORDER_TYPE_FROM_DB[order.serviceType],
       status: SERVICE_ORDER_STATUS_FROM_DB[order.status],
-      finalizedAt: order.updatedAt,
+      finalizedAt: order.finalizedAt,
       createdById: order.createdById,
       technicianId: order.assignedToId,
       technicianName: order.assignedTo?.nombreCompleto ?? null,
@@ -855,26 +842,26 @@ export class ServiceOrdersService {
     return Number.isFinite(numeric) ? numeric : 0;
   }
 
-  private buildUpdatedAtRange(from?: string, to?: string): { updatedAt?: Prisma.DateTimeFilter } {
+  private buildFinalizedAtRange(from?: string, to?: string): { finalizedAt?: Prisma.DateTimeFilter } {
     if (!from && !to) return {};
 
-    const updatedAt: Prisma.DateTimeFilter = {};
+    const finalizedAt: Prisma.DateTimeFilter = {};
 
     if (from) {
       const start = new Date(`${from}T00:00:00.000Z`);
       if (!Number.isNaN(start.getTime())) {
-        updatedAt.gte = start;
+        finalizedAt.gte = start;
       }
     }
 
     if (to) {
       const end = new Date(`${to}T23:59:59.999Z`);
       if (!Number.isNaN(end.getTime())) {
-        updatedAt.lte = end;
+        finalizedAt.lte = end;
       }
     }
 
-    return Object.keys(updatedAt).length ? { updatedAt } : {};
+    return Object.keys(finalizedAt).length ? { finalizedAt } : {};
   }
 
   private toNullableNumber(
@@ -908,6 +895,7 @@ export class ServiceOrdersService {
       category: SERVICE_ORDER_CATEGORY_FROM_DB[item.category],
       serviceType: SERVICE_ORDER_TYPE_FROM_DB[item.serviceType],
       status: SERVICE_ORDER_STATUS_FROM_DB[item.status],
+      finalizedAt: item.finalizedAt,
       technicalNote: item.technicalNote,
       extraRequirements: item.extraRequirements,
       parentOrderId: item.parentOrderId,

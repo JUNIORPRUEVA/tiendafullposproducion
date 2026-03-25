@@ -44,6 +44,8 @@ class RouteAccess {
         return AppPermission.viewAccounting;
       case Routes.administracion:
       case Routes.administracionPonches:
+      case Routes.administracionVentas:
+      case Routes.administracionCotizaciones:
         return AppPermission.viewAdminPanel;
       case Routes.configuracion:
         return AppPermission.manageSettings;

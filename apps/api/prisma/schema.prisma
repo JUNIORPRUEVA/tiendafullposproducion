@@ -1321,6 +1321,7 @@ model ServiceOrder {
   category          ServiceOrderCategory
   serviceType       ServiceOrderType     @map("service_type")
   status            ServiceOrderStatus   @default(PENDIENTE)
+  finalizedAt       DateTime?            @map("finalized_at")
   technicalNote     String?              @db.Text @map("technical_note")
   extraRequirements String?              @db.Text @map("extra_requirements")
   parentOrderId     String?              @db.Uuid @map("parent_order_id")
@@ -1343,6 +1344,7 @@ model ServiceOrder {
   @@index([category])
   @@index([serviceType])
   @@index([status])
+  @@index([finalizedAt])
   @@index([createdById])
   @@index([assignedToId])
   @@index([parentOrderId])
@@ -1398,8 +1400,11 @@ model Cotizacion {
   includeItbis    Boolean  @default(false)
   itbisRate       Decimal  @default(0.18) @db.Decimal(5, 4)
   subtotal        Decimal  @db.Decimal(12, 2)
+  subtotalCost    Decimal? @db.Decimal(12, 2)
   itbisAmount     Decimal  @db.Decimal(12, 2)
+  totalCost       Decimal? @db.Decimal(12, 2)
   total           Decimal  @db.Decimal(12, 2)
+  totalProfit     Decimal? @db.Decimal(12, 2)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -1423,7 +1428,10 @@ model CotizacionItem {
   productImageSnapshot String?
   qty                  Decimal  @db.Decimal(12, 3)
   unitPrice            Decimal  @db.Decimal(12, 2)
+  costUnitSnapshot     Decimal? @db.Decimal(12, 2)
+  subtotalCost         Decimal? @db.Decimal(12, 2)
   lineTotal            Decimal  @db.Decimal(12, 2)
+  profit               Decimal? @db.Decimal(12, 2)
   createdAt            DateTime @default(now())
 
   cotizacion Cotizacion @relation(fields: [cotizacionId], references: [id], onDelete: Cascade)

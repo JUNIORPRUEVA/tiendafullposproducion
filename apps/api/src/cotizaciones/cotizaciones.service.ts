@@ -217,10 +217,21 @@ export class CotizacionesService {
     const normalized = await this.normalizeItems(dto.items);
 
     let subtotal = new Prisma.Decimal(0);
-    for (const line of normalized) subtotal = subtotal.plus(line.lineTotal);
+    let subtotalCost = new Prisma.Decimal(0);
+    let hasUnknownCost = false;
+    for (const line of normalized) {
+      subtotal = subtotal.plus(line.lineTotal);
+      if (line.subtotalCost == null) {
+        hasUnknownCost = true;
+      } else {
+        subtotalCost = subtotalCost.plus(line.subtotalCost);
+      }
+    }
 
     const itbisAmount = includeItbis ? subtotal.mul(itbisRate) : new Prisma.Decimal(0);
     const total = subtotal.plus(itbisAmount);
+    const totalCost = hasUnknownCost ? null : subtotalCost;
+    const totalProfit = hasUnknownCost ? null : total.minus(subtotalCost);
 
     return this.prisma.$transaction(async (tx) => {
       const customerId = await this.resolveCustomerIdByPhone(tx, {
@@ -242,8 +253,11 @@ export class CotizacionesService {
           includeItbis,
           itbisRate,
           subtotal,
+          subtotalCost: totalCost,
           itbisAmount,
+          totalCost,
           total,
+          totalProfit,
           items: {
             create: normalized.map((item) => ({
               productId: item.productId,
@@ -251,7 +265,10 @@ export class CotizacionesService {
               productImageSnapshot: item.productImageSnapshot,
               qty: item.qty,
               unitPrice: item.unitPrice,
+              costUnitSnapshot: item.costUnitSnapshot,
+              subtotalCost: item.subtotalCost,
               lineTotal: item.lineTotal,
+              profit: item.profit,
             })),
           },
         },
@@ -282,14 +299,28 @@ export class CotizacionesService {
     const nextItems = dto.items ? await this.normalizeItems(dto.items as CreateCotizacionItemDto[]) : null;
 
     let subtotal = new Prisma.Decimal(current.subtotal);
+    let subtotalCost = current.subtotalCost == null ? null : new Prisma.Decimal(current.subtotalCost);
     let itbisAmount = new Prisma.Decimal(current.itbisAmount);
+    let totalCost = current.totalCost == null ? null : new Prisma.Decimal(current.totalCost);
     let total = new Prisma.Decimal(current.total);
+    let totalProfit = current.totalProfit == null ? null : new Prisma.Decimal(current.totalProfit);
 
     if (nextItems) {
       subtotal = new Prisma.Decimal(0);
-      for (const line of nextItems) subtotal = subtotal.plus(line.lineTotal);
+      subtotalCost = new Prisma.Decimal(0);
+      let hasUnknownCost = false;
+      for (const line of nextItems) {
+        subtotal = subtotal.plus(line.lineTotal);
+        if (line.subtotalCost == null) {
+          hasUnknownCost = true;
+        } else {
+          subtotalCost = subtotalCost.plus(line.subtotalCost);
+        }
+      }
       itbisAmount = includeItbis ? subtotal.mul(itbisRate) : new Prisma.Decimal(0);
       total = subtotal.plus(itbisAmount);
+      totalCost = hasUnknownCost ? null : subtotalCost;
+      totalProfit = hasUnknownCost ? null : total.minus(subtotalCost);
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -324,8 +355,11 @@ export class CotizacionesService {
           includeItbis,
           itbisRate,
           subtotal,
+          subtotalCost,
           itbisAmount,
+          totalCost,
           total,
+          totalProfit,
           items: nextItems
             ? {
                 create: nextItems.map((item) => ({
@@ -334,7 +368,10 @@ export class CotizacionesService {
                   productImageSnapshot: item.productImageSnapshot,
                   qty: item.qty,
                   unitPrice: item.unitPrice,
+                  costUnitSnapshot: item.costUnitSnapshot,
+                  subtotalCost: item.subtotalCost,
                   lineTotal: item.lineTotal,
+                  profit: item.profit,
                 })),
               }
             : undefined,
@@ -518,11 +555,11 @@ export class CotizacionesService {
   private async normalizeItems(items: CreateCotizacionItemDto[]) {
     const productIds = Array.from(new Set(items.map((i) => i.productId).filter((id): id is string => Boolean(id))));
 
-    let products: Array<{ id: string; nombre: string; imagen: string | null }> = [];
+    let products: Array<{ id: string; nombre: string; imagen: string | null; costo: Prisma.Decimal }> = [];
     if (productIds.length) {
       products = await this.prisma.product.findMany({
         where: { id: { in: productIds } },
-        select: { id: true, nombre: true, imagen: true },
+        select: { id: true, nombre: true, imagen: true, costo: true },
       });
     }
 
@@ -544,7 +581,14 @@ export class CotizacionesService {
       }
 
       const productImageSnapshot = product?.imagen ?? item.productImageSnapshot ?? null;
+      const costUnitSnapshot = product
+        ? new Prisma.Decimal(product.costo)
+        : item.costUnitSnapshot != null
+          ? new Prisma.Decimal(item.costUnitSnapshot)
+          : null;
+      const subtotalCost = costUnitSnapshot == null ? null : qty.mul(costUnitSnapshot);
       const lineTotal = qty.mul(unitPrice);
+      const profit = subtotalCost == null ? null : lineTotal.minus(subtotalCost);
 
       return {
         productId: product?.id ?? productId,
@@ -552,7 +596,10 @@ export class CotizacionesService {
         productImageSnapshot,
         qty,
         unitPrice,
+        costUnitSnapshot,
+        subtotalCost,
         lineTotal,
+        profit,
       };
     });
   }
