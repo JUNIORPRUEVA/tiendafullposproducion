@@ -749,57 +749,58 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                                               Icons.payments_outlined,
                                             ),
                                             label: const Text(
-                                            const SizedBox(height: 12),
-                                            Card(
-                                              child: Padding(
-                                                padding: const EdgeInsets.all(16),
-                                                child: Column(
-                                                  crossAxisAlignment:
-                                                      CrossAxisAlignment.start,
-                                                  children: [
-                                                    Row(
-                                                      children: [
-                                                        Icon(
-                                                          Icons.notifications_active_outlined,
-                                                          color: Theme.of(
-                                                            context,
-                                                          ).colorScheme.primary,
-                                                        ),
-                                                        const SizedBox(width: 10),
-                                                        Expanded(
-                                                          child: Text(
-                                                            'Comisiones técnicas pendientes',
-                                                            style: Theme.of(context)
-                                                                .textTheme
-                                                                .titleMedium
-                                                                ?.copyWith(
-                                                                  fontWeight: FontWeight.w700,
-                                                                ),
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                    const SizedBox(height: 10),
-                                                    Text(
-                                                      'Cada instalación finalizada genera una revisión administrativa. Solo al aprobarla se publica el monto en Mis Pagos del técnico.',
-                                                      style: Theme.of(context)
-                                                          .textTheme
-                                                          .bodyMedium,
-                                                    ),
-                                                    const SizedBox(height: 14),
-                                                    _buildPendingServiceCommissionContent(
-                                                      context,
-                                                      ref,
-                                                      state,
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ),
                                               'Importar a nómina',
                                             ),
                                           ),
                                         ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Card(
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(16),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Icon(
+                                                    Icons.notifications_active_outlined,
+                                                    color: Theme.of(
+                                                      context,
+                                                    ).colorScheme.primary,
+                                                  ),
+                                                  const SizedBox(width: 10),
+                                                  Expanded(
+                                                    child: Text(
+                                                      'Comisiones técnicas pendientes',
+                                                      style: Theme.of(context)
+                                                          .textTheme
+                                                          .titleMedium
+                                                          ?.copyWith(
+                                                            fontWeight:
+                                                                FontWeight.w700,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 10),
+                                              Text(
+                                                'Cada instalación finalizada genera una revisión administrativa. Solo al aprobarla se publica el monto en Mis Pagos del técnico.',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodyMedium,
+                                              ),
+                                              const SizedBox(height: 14),
+                                              _buildPendingServiceCommissionContent(
+                                                context,
+                                                ref,
+                                                state,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -3160,6 +3161,44 @@ class _NominaInfoLine extends StatelessWidget {
             style: theme.textTheme.titleSmall?.copyWith(
               fontWeight: emphasized ? FontWeight.w900 : FontWeight.w700,
               color: emphasized ? scheme.primary : scheme.onSurface,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NominaTag extends StatelessWidget {
+  const _NominaTag({
+    required this.icon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: scheme.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],

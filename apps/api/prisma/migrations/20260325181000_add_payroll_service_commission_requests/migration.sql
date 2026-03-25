@@ -11,7 +11,7 @@ CREATE TABLE "payroll_service_commission_requests" (
     "reviewed_by_user_id" UUID,
     "period_id" UUID,
     "payroll_entry_id" UUID,
-    "service_type" "ServiceOrderType" NOT NULL,
+    "service_type" "service_order_type" NOT NULL,
     "finalized_at" TIMESTAMP(3) NOT NULL,
     "profit_after_expense" DECIMAL(12,2) NOT NULL,
     "commission_rate" DECIMAL(5,4) NOT NULL DEFAULT 0.1000,
@@ -53,7 +53,7 @@ CREATE INDEX "payroll_service_commission_requests_period_id_idx"
 
 ALTER TABLE "payroll_service_commission_requests"
     ADD CONSTRAINT "payroll_service_commission_requests_ownerId_fkey"
-    FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    FOREIGN KEY ("ownerId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "payroll_service_commission_requests"
     ADD CONSTRAINT "payroll_service_commission_requests_service_order_id_fkey"
@@ -65,15 +65,15 @@ ALTER TABLE "payroll_service_commission_requests"
 
 ALTER TABLE "payroll_service_commission_requests"
     ADD CONSTRAINT "payroll_service_commission_requests_technician_user_id_fkey"
-    FOREIGN KEY ("technician_user_id") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    FOREIGN KEY ("technician_user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "payroll_service_commission_requests"
     ADD CONSTRAINT "payroll_service_commission_requests_created_by_user_id_fkey"
-    FOREIGN KEY ("created_by_user_id") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    FOREIGN KEY ("created_by_user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 ALTER TABLE "payroll_service_commission_requests"
     ADD CONSTRAINT "payroll_service_commission_requests_reviewed_by_user_id_fkey"
-    FOREIGN KEY ("reviewed_by_user_id") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    FOREIGN KEY ("reviewed_by_user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 ALTER TABLE "payroll_service_commission_requests"
     ADD CONSTRAINT "payroll_service_commission_requests_period_id_fkey"
