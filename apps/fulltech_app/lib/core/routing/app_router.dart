@@ -40,6 +40,8 @@ import 'app_route_observer.dart';
 import 'route_access.dart';
 import 'routes.dart';
 
+final GlobalKey<NavigatorState> appRootNavigatorKey = GlobalKey<NavigatorState>();
+
 final _routerRefreshProvider = Provider<_RouterRefreshNotifier>((ref) {
   final notifier = _RouterRefreshNotifier();
   ref.listen<AuthState>(
@@ -55,6 +57,7 @@ final routerProvider = Provider<GoRouter>((ref) {
   final routeObserver = ref.watch(appRouteObserverProvider);
 
   return GoRouter(
+    navigatorKey: appRootNavigatorKey,
     initialLocation: Routes.splash,
     refreshListenable: refresh,
     observers: [routeObserver],

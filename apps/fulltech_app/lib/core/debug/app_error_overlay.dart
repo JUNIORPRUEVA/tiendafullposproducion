@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app_error_reporter.dart';
+import '../routing/app_router.dart';
 
 class AppErrorOverlay extends StatefulWidget {
   const AppErrorOverlay({super.key});
@@ -41,9 +42,12 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
     if (_dialogOpen) return;
     if (_lastShownEventId == error.eventId) return;
 
+    final dialogContext = _resolveDialogContext();
+    if (dialogContext == null) return;
+
     _dialogOpen = true;
     _lastShownEventId = error.eventId;
-    await _showDetails(context, error);
+    await _showDetails(dialogContext, error);
     _dialogOpen = false;
 
     final latest = AppErrorReporter.instance.lastError.value;
@@ -51,6 +55,11 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
     if (latest.eventId != _lastShownEventId) {
       unawaited(_showLatestErrorIfNeeded());
     }
+  }
+
+  BuildContext? _resolveDialogContext() {
+    return appRootNavigatorKey.currentState?.overlay?.context ??
+        appRootNavigatorKey.currentContext;
   }
 
   Future<void> _showDetails(BuildContext context, AppErrorDetails error) async {
@@ -71,6 +80,7 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
 
     await showDialog<void>(
       context: context,
+      useRootNavigator: true,
       barrierDismissible: true,
       builder: (dialogContext) {
         return AlertDialog(
@@ -96,7 +106,7 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
             TextButton(
               onPressed: () {
                 AppErrorReporter.instance.clear();
-                Navigator.pop(dialogContext);
+                Navigator.of(dialogContext, rootNavigator: true).pop();
               },
               child: const Text('Cerrar'),
             ),

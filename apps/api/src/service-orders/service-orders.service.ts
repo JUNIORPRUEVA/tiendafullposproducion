@@ -273,6 +273,10 @@ export class ServiceOrdersService {
 
     const nextStatus = dto.status as ApiServiceOrderStatus;
     this.assertValidStatusTransition(this.toApiStatus(item.status), nextStatus);
+    const resolvedAssignedToId =
+      nextStatus === 'finalizado' && user.role === Role.TECNICO
+        ? user.id
+        : item.assignedToId;
 
     try {
       const updated = await this.prisma.serviceOrder.update({
@@ -280,11 +284,12 @@ export class ServiceOrdersService {
         include: { client: true },
         data: {
           status: SERVICE_ORDER_STATUS_TO_DB[nextStatus],
+          assignedToId: resolvedAssignedToId,
           finalizedAt: nextStatus === 'finalizado' ? new Date() : item.finalizedAt,
         },
       });
       if (nextStatus === 'finalizado') {
-        await this.queueTechnicalCommissionForPayroll(updated.id);
+        await this.queueTechnicalCommissionForPayroll(updated.id, user.id);
       }
       const mapped = this.mapOrder(updated);
       await this.invalidateCachesForOrder(updated.id);
@@ -567,7 +572,10 @@ export class ServiceOrdersService {
     };
   }
 
-  private async queueTechnicalCommissionForPayroll(serviceOrderId: string) {
+  private async queueTechnicalCommissionForPayroll(
+    serviceOrderId: string,
+    finalizedByUserId?: string,
+  ) {
     const order = await this.prisma.serviceOrder.findUnique({
       where: { id: serviceOrderId },
       include: {
@@ -618,7 +626,7 @@ export class ServiceOrdersService {
       serviceOrderId: order.id,
       quotationId: order.quotationId,
       technicianUserId: order.assignedToId,
-      createdByUserId: order.createdById,
+      createdByUserId: finalizedByUserId ?? order.createdById,
       serviceType: order.serviceType,
       finalizedAt: order.finalizedAt,
       profitAfterExpense: this.toNumber(evaluated.profitAfterExpense),
