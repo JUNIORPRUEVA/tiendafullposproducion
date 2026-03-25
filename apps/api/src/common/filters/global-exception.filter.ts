@@ -79,17 +79,23 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         ? exception.message
         : safeString(exception);
 
-    // Always log full details to stderr.
     const stack = exception instanceof Error ? exception.stack : undefined;
-    // eslint-disable-next-line no-console
-    console.error('[error]', {
+    const logPayload = {
       method,
       url,
       status,
       message,
       prisma: prismaDetails,
       stack,
-    });
+    };
+
+    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      // eslint-disable-next-line no-console
+      console.error('[error]', logPayload);
+    } else {
+      // eslint-disable-next-line no-console
+      console.warn('[warn]', logPayload);
+    }
 
     // Safe error response for clients.
     const responseBody: Record<string, unknown> = {
