@@ -49,12 +49,12 @@ class AppTheme {
       fontFamily: 'Segoe UI',
 
       appBarTheme: AppBarTheme(
-        backgroundColor: branding.appBarSolidColor,
+        backgroundColor: branding.drawerSolidColor,
         foregroundColor: Colors.white,
         elevation: 0,
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
-        shadowColor: Colors.black.withValues(alpha: 0.16),
+        shadowColor: Colors.black.withValues(alpha: 0.20),
         centerTitle: false,
         titleTextStyle: TextStyle(
           fontWeight: FontWeight.w700,

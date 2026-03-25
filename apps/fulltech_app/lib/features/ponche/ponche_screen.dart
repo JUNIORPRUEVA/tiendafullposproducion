@@ -6,9 +6,9 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/auth/auth_provider.dart';
-import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/models/punch_model.dart';
@@ -150,10 +150,10 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: auth.user),
-      appBar: AppBar(
-        title: const Text('Ponche'),
-        backgroundColor: AppTheme.primaryColor,
-        foregroundColor: Colors.white,
+      appBar: const CustomAppBar(
+        title: 'Ponche',
+        showLogo: false,
+        showDepartmentLabel: false,
       ),
       body: isDesktop
           ? _buildDesktopTab(punchState)
@@ -401,139 +401,188 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
   }
 
   Widget _buildUserTab(PunchState state) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final lastPunch = state.items.isNotEmpty ? state.items.first : null;
     final statusLabel = _statusLabelFrom(lastPunch);
     final statusColor = _statusColorFrom(lastPunch);
     final statusIcon = _statusIconFrom(lastPunch);
-    final chipForeground = statusColor.computeLuminance() > 0.75
-        ? Colors.black87
-        : statusColor;
-    final lastStamp = lastPunch != null
-        ? DateFormat(
-            'dd/MM/yyyy · h:mm a',
-            'es_DO',
-          ).format(lastPunch.timestamp.toLocal())
-        : null;
-    final lastLabel = lastPunch != null
-        ? '${lastPunch.type.label} · $lastStamp'
-        : 'Todavía no hay registros';
+    final chipForeground =
+        statusColor.computeLuminance() > 0.70 ? Colors.black87 : statusColor;
+
+    final timeString = DateFormat('h:mm a', 'es_DO').format(_now);
+    final dateString = DateFormat("EEEE, d 'de' MMMM", 'es_DO').format(_now);
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [AppTheme.primaryColor, AppTheme.secondaryColor],
+          colors: [scheme.surface, scheme.surfaceContainerLowest],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
         ),
       ),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (state.error != null) ...[
-                Card(
-                  color: Colors.white,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(
-                      state.error!,
-                      style: const TextStyle(color: Colors.red),
-                    ),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 24),
-              Column(
+      child: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Text(
-                    'Estado actual',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.titleMedium?.copyWith(color: Colors.white),
-                  ),
-                  const SizedBox(height: 8),
-                  Chip(
-                    backgroundColor: statusColor.withAlpha(
-                      (0.15 * 255).round(),
-                    ),
-                    avatar: Icon(statusIcon, color: chipForeground),
-                    label: Text(
-                      statusLabel,
-                      style: TextStyle(
-                        color: chipForeground,
-                        fontWeight: FontWeight.bold,
+                  // ── Error banner ──────────────────────────────
+                  if (state.error != null) ...[
+                    Card(
+                      color: scheme.errorContainer,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
                       ),
-                    ),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white.withAlpha((0.18 * 255).round()),
-                  foregroundColor: Colors.white,
-                  elevation: 8,
-                  minimumSize: const Size.fromHeight(72),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(36),
-                  ),
-                  textStyle: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                onPressed: state.creating
-                    ? null
-                    : () => _showPunchOptions(state),
-                child: state.creating
-                    ? const SizedBox(
-                        height: 28,
-                        width: 28,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
                         ),
-                      )
-                    : const Text('PONCHAR'),
-              ),
-              const SizedBox(height: 16),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Text(
-                    lastLabel,
-                    style: const TextStyle(color: Colors.white70),
-                  ),
-                  if (lastStamp != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      'Registrado a las $lastStamp',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.error_outline_rounded,
+                              color: scheme.onErrorContainer,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                state.error!,
+                                style: TextStyle(
+                                  color: scheme.onErrorContainer,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
+                    const SizedBox(height: 24),
                   ],
+
+                  // ── Live clock ────────────────────────────────
+                  Text(
+                    timeString,
+                    style: theme.textTheme.displaySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: scheme.onSurface,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    dateString,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // ── Status card ───────────────────────────────
+                  Card(
+                    elevation: 0,
+                    color: scheme.surfaceContainerLow,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 18,
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                statusIcon,
+                                color: chipForeground,
+                                size: 22,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                statusLabel,
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: scheme.onSurface,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            lastPunch != null
+                                ? 'Último: ${lastPunch.type.label} · ${DateFormat('h:mm a', 'es_DO').format(lastPunch.timestamp.toLocal())}'
+                                : 'Sin registros hoy',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 36),
+
+                  // ── PONCHAR button ────────────────────────────
+                  SizedBox(
+                    width: double.infinity,
+                    height: 66,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: scheme.primary,
+                        foregroundColor: scheme.onPrimary,
+                        elevation: 4,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(33),
+                        ),
+                        textStyle: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                      onPressed: state.creating
+                          ? null
+                          : () => _showPunchOptions(state),
+                      child: state.creating
+                          ? SizedBox(
+                              height: 26,
+                              width: 26,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: scheme.onPrimary,
+                              ),
+                            )
+                          : const Text('PONCHAR'),
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // ── History link ──────────────────────────────
+                  TextButton.icon(
+                    onPressed: _openHistoryScreen,
+                    style: TextButton.styleFrom(
+                      foregroundColor: scheme.primary,
+                    ),
+                    icon: const Icon(Icons.history_rounded, size: 18),
+                    label: const Text('Ver historial completo'),
+                  ),
                 ],
               ),
-              const SizedBox(height: 24),
-              Center(
-                child: TextButton(
-                  onPressed: _openHistoryScreen,
-                  style: TextButton.styleFrom(foregroundColor: Colors.white70),
-                  child: const Text(
-                    'Historial',
-                    style: TextStyle(decoration: TextDecoration.underline),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -884,14 +933,11 @@ class _PunchHistoryScreenState extends ConsumerState<PunchHistoryScreen> {
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: auth.user),
-      appBar: AppBar(
-        leading: AppNavigator.maybeBackButton(
-          context,
-          fallbackRoute: Routes.ponche,
-        ),
-        title: const Text('Historial de ponches'),
-        backgroundColor: AppTheme.primaryColor,
-        foregroundColor: Colors.white,
+      appBar: CustomAppBar(
+        title: 'Historial de ponches',
+        fallbackRoute: Routes.ponche,
+        showLogo: false,
+        showDepartmentLabel: false,
         actions: [
           IconButton(
             tooltip: 'Actualizar',

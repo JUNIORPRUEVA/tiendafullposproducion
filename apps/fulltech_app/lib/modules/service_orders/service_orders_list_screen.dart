@@ -14,6 +14,7 @@ import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/app_navigation.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import '../../core/utils/safe_url_launcher.dart';
 import '../clientes/cliente_model.dart';
 import '../clientes/client_location_utils.dart';
@@ -111,22 +112,13 @@ class _ServiceOrdersListScreenState
           : buildAdaptiveDrawer(context, currentUser: currentUser),
       floatingActionButton: _CreateOrderFab(onPressed: _createOrder),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      appBar: AppBar(
+      appBar: CustomAppBar(
+        title: 'Operaciones',
         toolbarHeight: 54,
         centerTitle: false,
         titleSpacing: isDesktop ? 16 : 0,
-        leading: isDesktop
-            ? null
-            : Builder(
-                builder: (context) {
-                  return IconButton(
-                    onPressed: () => Scaffold.of(context).openDrawer(),
-                    icon: const Icon(Icons.menu_rounded),
-                    tooltip: 'Menú',
-                  );
-                },
-              ),
-        title: const Text('Operaciones'),
+        showLogo: false,
+        showDepartmentLabel: false,
         actions: [
           _ProfileAvatarButton(currentUser: currentUser),
           IconButton(

@@ -14,6 +14,7 @@ import '../../core/models/user_model.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import '../../features/user/data/users_repository.dart';
 import 'application/nomina_controller.dart';
 import 'data/nomina_repository.dart';
@@ -560,7 +561,11 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
       return Theme(
         data: nominaTheme,
         child: Scaffold(
-          appBar: AppBar(title: const Text('Nómina')),
+          appBar: const CustomAppBar(
+            title: 'Nómina',
+            showLogo: false,
+            showDepartmentLabel: false,
+          ),
           drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
           body: Center(
             child: Padding(
@@ -599,8 +604,10 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     return Theme(
       data: nominaTheme,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Nómina'),
+        appBar: CustomAppBar(
+          title: 'Nómina',
+          showLogo: false,
+          showDepartmentLabel: false,
           actions: [
             IconButton(
               tooltip: 'Recargar',

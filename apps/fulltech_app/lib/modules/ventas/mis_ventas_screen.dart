@@ -9,6 +9,7 @@ import 'package:printing/printing.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import '../nomina/data/nomina_repository.dart';
 import 'application/ventas_controller.dart';
 import 'data/ventas_repository.dart';
@@ -64,8 +65,10 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
     _maybeNotifyGoal(state, goal);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mis Ventas'),
+      appBar: CustomAppBar(
+        title: 'Mis Ventas',
+        showLogo: false,
+        showDepartmentLabel: false,
         actions: [
           IconButton(
             tooltip: 'Informe PDF de quincena',

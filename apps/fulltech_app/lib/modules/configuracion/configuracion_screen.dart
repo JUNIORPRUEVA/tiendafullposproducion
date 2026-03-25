@@ -12,6 +12,7 @@ import '../../core/company/company_settings_repository.dart';
 import '../../core/evolution/evolution_api_repository.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/custom_app_bar.dart';
 
 class ConfiguracionScreen extends ConsumerStatefulWidget {
   const ConfiguracionScreen({super.key});
@@ -944,7 +945,11 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
 
     if (!isAdmin) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Configuración')),
+        appBar: const CustomAppBar(
+          title: 'Configuración',
+          showLogo: false,
+          showDepartmentLabel: false,
+        ),
         drawer: buildAdaptiveDrawer(context, currentUser: user),
         body: const Center(
           child: Text('Solo administradores pueden acceder a configuración'),
@@ -953,7 +958,11 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Configuración')),
+      appBar: const CustomAppBar(
+        title: 'Configuración',
+        showLogo: false,
+        showDepartmentLabel: false,
+      ),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

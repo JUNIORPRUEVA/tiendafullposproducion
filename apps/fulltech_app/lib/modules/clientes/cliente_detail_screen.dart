@@ -9,10 +9,10 @@ import 'package:latlong2/latlong.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/auth/auth_repository.dart';
-import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/safe_url_launcher.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import 'application/clientes_controller.dart';
 import 'client_location_utils.dart';
 import 'cliente_model.dart';
@@ -282,12 +282,11 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
-      appBar: AppBar(
-        leading: AppNavigator.maybeBackButton(
-          context,
-          fallbackRoute: Routes.clientes,
-        ),
-        title: Text(_cliente?.nombre ?? 'Detalle del cliente'),
+      appBar: CustomAppBar(
+        title: _cliente?.nombre ?? 'Detalle del cliente',
+        fallbackRoute: Routes.clientes,
+        showLogo: false,
+        showDepartmentLabel: false,
         actions: [
           IconButton(
             tooltip: 'Editar',

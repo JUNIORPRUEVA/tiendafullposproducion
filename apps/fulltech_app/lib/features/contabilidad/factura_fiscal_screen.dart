@@ -9,8 +9,8 @@ import 'package:printing/printing.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/auth/role_permissions.dart';
 import '../../core/errors/api_exception.dart';
-import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import 'data/contabilidad_repository.dart';
 import 'models/fiscal_invoice_model.dart';
 import 'utils/fiscal_invoices_pdf_service.dart';
@@ -82,10 +82,10 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
     final canUseModule = canAccessContabilidadByRole(user?.role);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Factura fiscal'),
-        backgroundColor: AppTheme.primaryColor,
-        foregroundColor: Colors.white,
+      appBar: const CustomAppBar(
+        title: 'Factura fiscal',
+        showLogo: false,
+        showDepartmentLabel: false,
       ),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: !canUseModule

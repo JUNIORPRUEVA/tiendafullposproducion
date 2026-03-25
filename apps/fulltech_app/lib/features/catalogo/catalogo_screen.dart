@@ -309,6 +309,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
               title: 'Catálogo',
               showLogo: false,
               darkerTone: true,
+              highContrast: true,
               actions: [
                 Padding(
                   padding: const EdgeInsets.only(right: 4),

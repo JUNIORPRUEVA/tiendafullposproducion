@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import '../../core/widgets/sync_status_banner.dart';
 import 'application/clientes_controller.dart';
 import 'cliente_model.dart';
@@ -45,8 +46,10 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
-      appBar: AppBar(
-        title: const Text('Clientes'),
+      appBar: CustomAppBar(
+        title: 'Clientes',
+        showLogo: false,
+        showDepartmentLabel: false,
         actions: [
           IconButton(
             tooltip: 'Actualizar',
@@ -138,151 +141,84 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
   }
 }
 
-class _ClienteCard extends StatelessWidget {
+class _ClienteCard extends ConsumerWidget {
   const _ClienteCard({required this.client});
 
   final ClienteModel client;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final subtitle = _buildCompactSubtitle(client);
+
     return Card(
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: () => context.push(Routes.clienteDetail(client.id)),
         child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  CircleAvatar(
-                    radius: 22,
-                    backgroundColor: theme.colorScheme.primaryContainer,
-                    foregroundColor: theme.colorScheme.onPrimaryContainer,
-                    child: Text(
-                      client.nombre.trim().isEmpty
-                          ? '?'
-                          : client.nombre.trim().substring(0, 1).toUpperCase(),
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: theme.colorScheme.primaryContainer,
+                foregroundColor: theme.colorScheme.onPrimaryContainer,
+                child: Text(
+                  client.nombre.trim().isEmpty
+                      ? '?'
+                      : client.nombre.trim().substring(0, 1).toUpperCase(),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        Text(
-                          client.nombre,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          client.telefono,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      if (client.isDeleted)
-                        const Chip(label: Text('Eliminado')),
-                      if ((client.syncStatus ?? '').trim().isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
+                        Expanded(
                           child: Text(
-                            client.syncStatus!.trim(),
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
+                            client.nombre,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
                         ),
-                      ],
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _ClientMetaPill(
-                    icon: Icons.call_outlined,
-                    label: client.telefono,
-                  ),
-                  if ((client.correo ?? '').trim().isNotEmpty)
-                    _ClientMetaPill(
-                      icon: Icons.alternate_email_rounded,
-                      label: client.correo!.trim(),
-                    ),
-                  if ((client.direccion ?? '').trim().isNotEmpty)
-                    _ClientMetaPill(
-                      icon: Icons.location_on_outlined,
-                      label: client.direccion!.trim(),
-                    ),
-                ],
-              ),
-              if ((client.direccion ?? '').trim().isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerLow,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Text(
-                    client.direccion!.trim(),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ),
-              ],
-              if (client.createdAt != null || client.updatedLocal) ...[
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    if (client.createdAt != null)
-                      Expanded(
-                        child: Text(
-                          'Creado ${_formatClientDate(client.createdAt!)}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
+                        const SizedBox(width: 8),
+                        _CompactActionButton(
+                          tooltip: 'Editar',
+                          icon: Icons.edit_outlined,
+                          onPressed: () => context.push(
+                            Routes.clienteEdit(client.id),
                           ),
                         ),
-                      ),
-                    if (client.updatedLocal)
-                      Text(
-                        'Pendiente de sincronizar',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.w700,
+                        const SizedBox(width: 6),
+                        _CompactActionButton(
+                          tooltip: 'Eliminar',
+                          icon: Icons.delete_outline_rounded,
+                          onPressed: () => _confirmDelete(context, ref, client),
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        height: 1.2,
                       ),
+                    ),
                   ],
                 ),
-              ],
+              ),
             ],
           ),
         ),
@@ -291,39 +227,95 @@ class _ClienteCard extends StatelessWidget {
   }
 }
 
-class _ClientMetaPill extends StatelessWidget {
-  const _ClientMetaPill({required this.icon, required this.label});
+class _CompactActionButton extends StatelessWidget {
+  const _CompactActionButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
 
+  final String tooltip;
   final IconData icon;
-  final String label;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 320),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(999),
+    return Material(
+      color: theme.colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Tooltip(
+            message: tooltip,
+            child: Icon(icon, size: 18, color: theme.colorScheme.primary),
+          ),
+        ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: theme.colorScheme.primary),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+    );
+  }
+}
+
+String _buildCompactSubtitle(ClienteModel client) {
+  final parts = <String>[client.telefono.trim()];
+
+  if (client.createdAt != null) {
+    parts.add('Creado ${_formatClientDate(client.createdAt!)}');
+  }
+  if (client.updatedLocal) {
+    parts.add('Pendiente de sincronizar');
+  } else if ((client.syncStatus ?? '').trim().isNotEmpty) {
+    parts.add(client.syncStatus!.trim());
+  }
+  if (client.isDeleted) {
+    parts.add('Eliminado');
+  }
+
+  return parts.where((item) => item.isNotEmpty).join(' • ');
+}
+
+Future<void> _confirmDelete(
+  BuildContext context,
+  WidgetRef ref,
+  ClienteModel client,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: const Text('Eliminar cliente'),
+        content: Text('Se eliminara ${client.nombre}. Esta accion no se puede deshacer.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Eliminar'),
           ),
         ],
-      ),
+      );
+    },
+  );
+
+  if (confirmed != true) return;
+
+  try {
+    await ref.read(clientesControllerProvider.notifier).remove(client.id);
+    if (!context.mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(content: Text('Cliente eliminado')),
+    );
+  } catch (error, stackTrace) {
+    print(error);
+    print(stackTrace);
+    if (!context.mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(error.toString())),
     );
   }
 }

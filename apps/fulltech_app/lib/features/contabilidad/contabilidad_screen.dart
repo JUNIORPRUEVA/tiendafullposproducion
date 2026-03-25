@@ -8,6 +8,7 @@ import '../../core/auth/role_permissions.dart';
 import '../../core/routing/routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import '../../core/models/close_model.dart';
 import 'data/contabilidad_repository.dart';
 import 'models/fiscal_invoice_model.dart';
@@ -92,10 +93,10 @@ class ContabilidadScreen extends ConsumerWidget {
 
     if (!canUseModule) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Contabilidad'),
-          backgroundColor: AppTheme.primaryColor,
-          foregroundColor: Colors.white,
+        appBar: const CustomAppBar(
+          title: 'Contabilidad',
+          showLogo: false,
+          showDepartmentLabel: false,
         ),
         drawer: buildAdaptiveDrawer(context, currentUser: user),
         body: const Center(
@@ -112,10 +113,10 @@ class ContabilidadScreen extends ConsumerWidget {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Contabilidad'),
-        backgroundColor: AppTheme.primaryColor,
-        foregroundColor: Colors.white,
+      appBar: const CustomAppBar(
+        title: 'Contabilidad',
+        showLogo: false,
+        showDepartmentLabel: false,
       ),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
       backgroundColor: isDesktop

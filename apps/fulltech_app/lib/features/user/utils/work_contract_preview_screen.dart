@@ -7,6 +7,7 @@ import 'package:printing/printing.dart';
 
 import '../../../core/company/company_settings_repository.dart';
 import '../../../core/models/user_model.dart';
+import '../../../core/widgets/custom_app_bar.dart';
 import '../../../modules/nomina/data/nomina_repository.dart';
 import '../../../modules/nomina/nomina_models.dart';
 import '../data/users_repository.dart';
@@ -416,8 +417,10 @@ class _WorkContractPreviewScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Contrato · ${_employee.nombreCompleto}'),
+      appBar: CustomAppBar(
+        title: 'Contrato · ${_employee.nombreCompleto}',
+        showLogo: false,
+        showDepartmentLabel: false,
         actions: [
           IconButton(
             tooltip: 'Editar con IA',

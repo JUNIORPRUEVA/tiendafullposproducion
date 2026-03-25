@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/routing/routes.dart';
+import '../../../core/widgets/custom_app_bar.dart';
 
 class RegisterScreen extends StatelessWidget {
   const RegisterScreen({super.key});
@@ -9,7 +10,11 @@ class RegisterScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Crear cuenta')),
+      appBar: const CustomAppBar(
+        title: 'Crear cuenta',
+        showLogo: false,
+        showDepartmentLabel: false,
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

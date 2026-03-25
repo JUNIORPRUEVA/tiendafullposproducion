@@ -8,10 +8,10 @@ import 'package:validators/validators.dart' as validators;
 import '../../core/auth/auth_provider.dart';
 import '../../core/auth/auth_repository.dart';
 import '../../core/errors/api_exception.dart';
-import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/safe_url_launcher.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import 'application/clientes_controller.dart';
 import 'client_location_utils.dart';
 import 'cliente_model.dart';
@@ -137,12 +137,11 @@ class _ClienteFormScreenState extends ConsumerState<ClienteFormScreen> {
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: user),
-      appBar: AppBar(
-        leading: AppNavigator.maybeBackButton(
-          context,
-          fallbackRoute: Routes.clientes,
-        ),
-        title: Text(_isEdit ? 'Editar cliente' : 'Nuevo cliente'),
+      appBar: CustomAppBar(
+        title: _isEdit ? 'Editar cliente' : 'Nuevo cliente',
+        fallbackRoute: Routes.clientes,
+        showLogo: false,
+        showDepartmentLabel: false,
       ),
       body: _loadingInitial
           ? const Center(child: CircularProgressIndicator())

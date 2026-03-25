@@ -1195,7 +1195,11 @@ class _PayrollPdfPreviewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('PDF · $title')),
+      appBar: CustomAppBar(
+        title: 'PDF · $title',
+        showLogo: false,
+        showDepartmentLabel: false,
+      ),
       body: PdfPreview(
         canChangePageFormat: false,
         canChangeOrientation: false,

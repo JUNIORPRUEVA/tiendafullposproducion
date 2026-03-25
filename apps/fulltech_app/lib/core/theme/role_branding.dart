@@ -64,6 +64,8 @@ class RoleBranding {
     appBarEnd,
   );
 
+  Color get drawerSolidColor => Color.lerp(drawerStart, drawerEnd, 0.68)!;
+
   LinearGradient get appBarDarkGradient => LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,

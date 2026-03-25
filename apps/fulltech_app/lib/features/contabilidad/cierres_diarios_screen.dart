@@ -10,6 +10,7 @@ import '../../core/auth/role_permissions.dart';
 import '../../core/models/close_model.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import 'application/cierres_diarios_controller.dart';
 import 'data/contabilidad_repository.dart';
 import 'utils/deposit_order_pdf_service.dart';
@@ -112,10 +113,10 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
     });
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Cierres diarios'),
-        backgroundColor: AppTheme.primaryColor,
-        foregroundColor: Colors.white,
+      appBar: const CustomAppBar(
+        title: 'Cierres diarios',
+        showLogo: false,
+        showDepartmentLabel: false,
       ),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
       floatingActionButton: canUseModule

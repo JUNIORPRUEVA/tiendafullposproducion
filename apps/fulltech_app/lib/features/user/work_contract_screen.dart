@@ -9,6 +9,7 @@ import 'package:signature/signature.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../../core/models/user_model.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import '../../modules/nomina/data/nomina_repository.dart';
 import '../../modules/nomina/nomina_models.dart';
 import 'data/users_repository.dart';
@@ -274,7 +275,11 @@ class _WorkContractScreenState extends ConsumerState<WorkContractScreen> {
     final isSigned = signedAt != null;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Contrato')),
+      appBar: const CustomAppBar(
+        title: 'Contrato',
+        showLogo: false,
+        showDepartmentLabel: false,
+      ),
       body: user == null
           ? const Center(child: Text('No hay usuario autenticado'))
           : Column(

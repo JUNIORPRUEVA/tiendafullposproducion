@@ -8,10 +8,10 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/cache/fulltech_cache_manager.dart';
 import '../../core/models/product_model.dart';
 import '../../core/realtime/catalog_realtime_service.dart';
-import '../../core/routing/app_navigator.dart';
 import '../../core/routing/app_route_observer.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import '../../core/widgets/product_network_image.dart';
 import '../../features/catalogo/data/catalog_local_repository.dart';
 import '../clientes/cliente_model.dart';
@@ -348,12 +348,11 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
     final showInlineTotals = screenWidth >= 700 && screenHeight >= 780;
 
     return Scaffold(
-      appBar: AppBar(
-        leading: AppNavigator.maybeBackButton(
-          context,
-          fallbackRoute: Routes.ventas,
-        ),
-        title: const Text('Registrar Venta'),
+      appBar: CustomAppBar(
+        title: 'Registrar Venta',
+        fallbackRoute: Routes.ventas,
+        showLogo: false,
+        showDepartmentLabel: false,
         actions: isWide
             ? [
                 IconButton(

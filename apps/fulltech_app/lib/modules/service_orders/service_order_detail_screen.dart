@@ -7,9 +7,9 @@ import 'package:intl/intl.dart';
 
 import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_provider.dart';
-import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import '../cotizaciones/cotizacion_models.dart';
 import 'application/service_order_detail_controller.dart';
 import 'service_order_models.dart';
@@ -54,12 +54,11 @@ class _ServiceOrderDetailScreenState
       order != null && (role.isAdmin || currentUserId == order.createdById);
 
     return Scaffold(
-      appBar: AppBar(
-        leading: AppNavigator.maybeBackButton(
-          context,
-          fallbackRoute: Routes.serviceOrders,
-        ),
-        title: const Text('Detalle de orden'),
+      appBar: CustomAppBar(
+        title: 'Detalle de orden',
+        fallbackRoute: Routes.serviceOrders,
+        showLogo: false,
+        showDepartmentLabel: false,
         actions: [
           if (isAdmin)
             IconButton(

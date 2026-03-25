@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import 'cotizacion_models.dart';
 import 'data/cotizaciones_repository.dart';
 
@@ -230,14 +230,11 @@ class _CotizacionesHistorialScreenState
     final phone = (widget.customerPhone ?? '').trim();
 
     return Scaffold(
-      appBar: AppBar(
-        leading: AppNavigator.maybeBackButton(
-          context,
-          fallbackRoute: Routes.cotizaciones,
-        ),
-        title: Text(
-          phone.isEmpty ? 'Historial cotizaciones' : 'Cotizaciones · $phone',
-        ),
+      appBar: CustomAppBar(
+        title: phone.isEmpty ? 'Historial cotizaciones' : 'Cotizaciones · $phone',
+        fallbackRoute: Routes.cotizaciones,
+        showLogo: false,
+        showDepartmentLabel: false,
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
