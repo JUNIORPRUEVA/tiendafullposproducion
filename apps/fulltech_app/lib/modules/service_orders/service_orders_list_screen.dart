@@ -85,9 +85,9 @@ class _ServiceOrdersListScreenState
     final state = ref.watch(serviceOrdersListControllerProvider);
     final controller = ref.read(serviceOrdersListControllerProvider.notifier);
     final currentUser = ref.watch(authStateProvider).user;
-    final canManageStatus =
-        currentUser?.appRole.isAdmin == true ||
-        currentUser?.appRole.isTechnician == true;
+    final canManageStatusAsRole =
+      currentUser?.appRole.isAdmin == true ||
+      currentUser?.appRole.isTechnician == true;
     final isAdmin = currentUser?.appRole.isAdmin ?? false;
     final currentUserId = currentUser?.id ?? '';
     final width = MediaQuery.sizeOf(context).width;
@@ -291,6 +291,8 @@ class _ServiceOrdersListScreenState
                   }
 
                   final order = visibleOrders[index - 1];
+                    final canChangeOrderStatus =
+                      canManageStatusAsRole || currentUserId == order.createdById;
                   final client =
                       order.client ?? state.clientsById[order.clientId];
                   return Center(
@@ -311,7 +313,7 @@ class _ServiceOrdersListScreenState
                           statusBusy: _busyOrderIds.contains(order.id),
                           isTechnician:
                               currentUser?.appRole.isTechnician ?? false,
-                          onChangeStatus: canManageStatus
+                            onChangeStatus: canChangeOrderStatus
                               ? (status) => _changeOrderStatus(order, status)
                               : null,
                           creatingNewOrder: _creatingFromOrderIds.contains(

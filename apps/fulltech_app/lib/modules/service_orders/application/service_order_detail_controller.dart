@@ -9,6 +9,8 @@ import '../../../core/realtime/operations_realtime_service.dart';
 import '../../../core/utils/local_media_cache.dart';
 import '../../clientes/cliente_model.dart';
 import '../../clientes/data/clientes_repository.dart';
+import '../../cotizaciones/cotizacion_models.dart';
+import '../../cotizaciones/data/cotizaciones_repository.dart';
 import '../data/service_orders_api.dart';
 import '../data/service_orders_local_repository.dart';
 import 'service_orders_list_controller.dart';
@@ -23,6 +25,7 @@ class ServiceOrderDetailState {
   final String? actionError;
   final ServiceOrderModel? order;
   final ClienteModel? client;
+  final CotizacionModel? quotation;
   final Map<String, UserModel> usersById;
 
   const ServiceOrderDetailState({
@@ -32,6 +35,7 @@ class ServiceOrderDetailState {
     this.actionError,
     this.order,
     this.client,
+    this.quotation,
     this.usersById = const {},
   });
 
@@ -42,6 +46,7 @@ class ServiceOrderDetailState {
     String? actionError,
     ServiceOrderModel? order,
     ClienteModel? client,
+    CotizacionModel? quotation,
     Map<String, UserModel>? usersById,
     bool clearError = false,
     bool clearActionError = false,
@@ -53,6 +58,7 @@ class ServiceOrderDetailState {
       actionError: clearActionError ? null : (actionError ?? this.actionError),
       order: order ?? this.order,
       client: client ?? this.client,
+      quotation: quotation ?? this.quotation,
       usersById: usersById ?? this.usersById,
     );
   }
@@ -144,12 +150,18 @@ class ServiceOrderDetailController
       final cachedUsers = await ref
           .read(serviceOrdersLocalRepositoryProvider)
           .readUsersById();
+        final cachedQuotation = (cachedOrder?.quotationId ?? '').trim().isEmpty
+          ? null
+          : await ref
+            .read(cotizacionesRepositoryProvider)
+            .getCachedById(cachedOrder!.quotationId!);
 
       if (cachedOrder != null) {
         state = state.copyWith(
           loading: false,
           order: cachedOrder,
           client: cachedClient,
+          quotation: cachedQuotation,
           usersById: cachedUsers,
           clearError: true,
           clearActionError: true,
@@ -169,6 +181,18 @@ class ServiceOrderDetailController
           .read(usersRepositoryProvider)
           .getAllUsers(skipLoader: true)
           .catchError((_) => <UserModel>[]);
+      final quotationFuture = (() async {
+        final quotationId = (order.quotationId ?? '').trim();
+        if (quotationId.isEmpty) return null;
+
+        final repository = ref.read(cotizacionesRepositoryProvider);
+        final cached = await repository.getCachedById(quotationId);
+        try {
+          return await repository.getByIdAndCache(quotationId);
+        } catch (_) {
+          return cached;
+        }
+      })();
       final fallbackClientFuture = order.client != null
           ? Future<ClienteModel?>.value(order.client)
           : ref
@@ -183,15 +207,18 @@ class ServiceOrderDetailController
       final results = await Future.wait<dynamic>([
         fallbackClientFuture,
         usersFuture,
+        quotationFuture,
       ]);
       final client = results[0] as ClienteModel?;
       final users = results[1] as List<UserModel>;
+      final quotation = results[2] as CotizacionModel?;
       final usersById = {for (final user in users) user.id: user};
       final mergedOrder = _mergeRemoteOrderWithLocalState(order);
       state = state.copyWith(
         loading: false,
         order: mergedOrder,
         client: client,
+        quotation: quotation,
         usersById: usersById,
       );
       await ref
@@ -328,6 +355,27 @@ class ServiceOrderDetailController
       ref
           .read(serviceOrdersListControllerProvider.notifier)
           .upsertOrder(previousOrder);
+      rethrow;
+    }
+  }
+
+  Future<void> deleteOrder() async {
+    final currentOrder = state.order;
+    if (currentOrder == null) return;
+
+    state = state.copyWith(working: true, clearActionError: true);
+    try {
+      await ref.read(serviceOrdersApiProvider).deleteOrder(orderId);
+      await ref.read(serviceOrdersLocalRepositoryProvider).deleteOrder(orderId);
+      await ref.read(serviceOrdersListControllerProvider.notifier).refresh();
+      state = state.copyWith(working: false);
+    } catch (error) {
+      final message = _friendlyOrderMessage(
+        error,
+        fallback: 'No se pudo eliminar la orden',
+        forbiddenMessage: 'No tienes permiso para eliminar esta orden',
+      );
+      state = state.copyWith(working: false, actionError: message);
       rethrow;
     }
   }

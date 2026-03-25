@@ -434,7 +434,7 @@ export class ClientsService {
       throw new NotFoundException('Client not found');
     }
 
-    const [createdBy, salesAgg, cotizacionesAgg] = await this.prisma.$transaction([
+    const [createdBy, salesAgg, servicesAgg, cotizacionesAgg] = await this.prisma.$transaction([
       this.prisma.user.findUnique({
         where: { id: client.ownerId },
         select: { id: true, nombreCompleto: true, email: true, role: true },
@@ -444,6 +444,11 @@ export class ClientsService {
         _count: { _all: true },
         _sum: { totalSold: true },
         _max: { saleDate: true },
+      }),
+      this.prisma.service.aggregate({
+        where: { customerId: id, isDeleted: false },
+        _count: { _all: true },
+        _max: { createdAt: true },
       }),
       this.prisma.cotizacion.aggregate({
         where: { customerId: id },
@@ -460,6 +465,8 @@ export class ClientsService {
         salesCount: salesAgg._count._all,
         salesTotal: salesAgg._sum.totalSold,
         lastSaleAt: salesAgg._max.saleDate,
+        servicesCount: servicesAgg._count._all,
+        lastServiceAt: servicesAgg._max.createdAt,
         cotizacionesCount: cotizacionesAgg._count._all,
         cotizacionesTotal: cotizacionesAgg._sum.total,
         lastCotizacionAt: cotizacionesAgg._max.updatedAt,
@@ -532,6 +539,29 @@ export class ClientsService {
               JOIN "users" u ON u.id = c."createdByUserId"
         WHERE c."customerId" = ${id}::uuid
           AND c."createdAt" < ${before}
+
+        UNION ALL
+
+        SELECT
+          'service'::text AS "eventType",
+          s.id::text AS "eventId",
+          s."createdAt" AS "at",
+          COALESCE(NULLIF(s."title", ''), 'Orden de servicio')::text AS title,
+          COALESCE(s."quotedAmount", s."depositAmount") AS amount,
+          s."orderState"::text AS status,
+          u.id::text AS "userId",
+          u."nombreCompleto"::text AS "userName",
+          jsonb_build_object(
+            'orderNumber', s."orderNumber",
+            'category', s."category",
+            'serviceType', s."serviceType",
+            'currentPhase', s."currentPhase"
+          ) AS meta
+        FROM "Service" s
+              JOIN "users" u ON u.id = s."createdByUserId"
+        WHERE s."customerId" = ${id}::uuid
+          AND s."isDeleted" = false
+          AND s."createdAt" < ${before}
 
       ) t
       WHERE (cardinality(${types}::text[]) = 0 OR t."eventType" = ANY(${types}::text[]))

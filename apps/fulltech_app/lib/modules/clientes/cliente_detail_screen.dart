@@ -92,15 +92,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
       if (!mounted) return;
       setState(() {
         _profile = profile;
-        _timeline =
-            timeline?.items
-                .where(
-                  (item) =>
-                      item.eventType == 'sale' ||
-                      item.eventType == 'cotizacion',
-                )
-                .toList(growable: false) ??
-            const [];
+        _timeline = timeline?.items.toList(growable: false) ?? const [];
         _cliente = ClienteModel.fromJson({
           'id': profile.client.id,
           'nombre': profile.client.nombre,
@@ -193,7 +185,92 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
     }
     if (event.eventType == 'sale') {
       context.go(Routes.ventas);
+      return;
     }
+    if (event.eventType == 'service') {
+      context.go(Routes.serviceOrders);
+    }
+  }
+
+  bool _hasText(String? value) => value != null && value.trim().isNotEmpty;
+
+  String _timelineTypeLabel(String type) {
+    switch (type) {
+      case 'sale':
+        return 'Venta';
+      case 'cotizacion':
+        return 'Cotizacion';
+      case 'service':
+        return 'Servicio';
+      default:
+        return 'Actividad';
+    }
+  }
+
+  IconData _timelineIcon(String type) {
+    switch (type) {
+      case 'sale':
+        return Icons.point_of_sale_rounded;
+      case 'cotizacion':
+        return Icons.description_outlined;
+      case 'service':
+        return Icons.build_circle_outlined;
+      default:
+        return Icons.history_rounded;
+    }
+  }
+
+  String _timelineSummary(ClienteTimelineEvent event) {
+    final parts = <String>[];
+    final category = (event.meta['category'] ?? '').toString().trim();
+    final orderNumber = (event.meta['orderNumber'] ?? '').toString().trim();
+    final phase = (event.meta['currentPhase'] ?? '').toString().trim();
+    final userName = (event.userName ?? '').trim();
+
+    if (orderNumber.isNotEmpty) parts.add('Orden $orderNumber');
+    if (category.isNotEmpty) parts.add(category);
+    if (phase.isNotEmpty) parts.add(phase);
+    if (userName.isNotEmpty) parts.add('Por $userName');
+
+    return parts.join(' • ');
+  }
+
+  List<_ClientFactData> _buildClientFacts(ClienteProfileResponse? profile) {
+    final client = profile?.client;
+    final createdBy = profile?.createdBy;
+
+    return [
+      _ClientFactData(
+        label: 'Telefono',
+        value: (client?.telefono ?? _cliente?.telefono ?? '').trim(),
+        icon: Icons.call_outlined,
+      ),
+      _ClientFactData(
+        label: 'Correo',
+        value: (client?.email ?? _cliente?.correo ?? '').trim(),
+        icon: Icons.alternate_email_rounded,
+      ),
+      _ClientFactData(
+        label: 'Direccion',
+        value: (client?.direccion ?? _cliente?.direccion ?? '').trim(),
+        icon: Icons.location_on_outlined,
+      ),
+      _ClientFactData(
+        label: 'Creado por',
+        value: createdBy?.displayName ?? '',
+        icon: Icons.person_outline_rounded,
+      ),
+      _ClientFactData(
+        label: 'Creado',
+        value: client?.createdAt != null ? _formatDate(client!.createdAt) : '',
+        icon: Icons.calendar_today_outlined,
+      ),
+      _ClientFactData(
+        label: 'Ultima actividad',
+        value: _formatDate(profile?.metrics.lastActivityAt ?? client?.lastActivityAt),
+        icon: Icons.schedule_rounded,
+      ),
+    ].where((item) => item.value.trim().isNotEmpty && item.value.trim() != '-').toList(growable: false);
   }
 
   @override
@@ -246,102 +323,62 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            profile?.client.nombre ??
-                                _cliente?.nombre ??
-                                'Cliente',
-                            style: theme.textTheme.headlineSmall?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          _DetailLine(
-                            'Telefono',
-                            profile?.client.telefono ??
-                                _cliente?.telefono ??
-                                '-',
-                          ),
-                          _DetailLine(
-                            'Correo',
-                            (profile?.client.email ?? _cliente?.correo ?? '')
-                                    .trim()
-                                    .isEmpty
-                                ? '-'
-                                : (profile?.client.email ??
-                                          _cliente?.correo ??
-                                          '')
-                                      .trim(),
-                          ),
-                          _DetailLine(
-                            'Direccion',
-                            (profile?.client.direccion ??
-                                        _cliente?.direccion ??
-                                        '')
-                                    .trim()
-                                    .isEmpty
-                                ? '-'
-                                : (profile?.client.direccion ??
-                                          _cliente?.direccion ??
-                                          '')
-                                      .trim(),
-                          ),
-                          _LocationDetailCard(
-                            locationUrl:
-                                profile?.client.locationUrl ??
-                                _cliente?.locationUrl,
-                            latitude:
-                                profile?.client.latitude ??
-                                fallbackLocation.latitude,
-                            longitude:
-                                profile?.client.longitude ??
-                                fallbackLocation.longitude,
-                          ),
-                          _DetailLine(
-                            'Creado por',
-                            profile?.createdBy?.label ?? '-',
-                          ),
-                          _DetailLine(
-                            'Ultima actividad',
-                            _formatDate(
-                              profile?.metrics.lastActivityAt ??
-                                  profile?.client.lastActivityAt,
-                            ),
-                          ),
-                        ],
-                      ),
+                  _ClientHeroCard(
+                    name: profile?.client.nombre ?? _cliente?.nombre ?? 'Cliente',
+                    phone: profile?.client.telefono ?? _cliente?.telefono,
+                    email: profile?.client.email ?? _cliente?.correo,
+                    totalPurchased: _formatMoney(profile?.metrics.salesTotal),
+                    lastActivity: _formatDate(
+                      profile?.metrics.lastActivityAt ??
+                          profile?.client.lastActivityAt,
                     ),
+                    deleted: profile?.client.isDeleted ?? _cliente?.isDeleted ?? false,
                   ),
                   const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _MetricCard(
+                  _SectionCard(
+                    title: 'Resumen comercial',
+                    child: Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        _MetricCard(
                           label: 'Ventas',
                           value: '${profile?.metrics.salesCount ?? 0}',
                           helper: _formatMoney(profile?.metrics.salesTotal),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _MetricCard(
+                        _MetricCard(
+                          label: 'Servicios',
+                          value: '${profile?.metrics.servicesCount ?? 0}',
+                          helper: _formatDate(profile?.metrics.lastServiceAt),
+                        ),
+                        _MetricCard(
                           label: 'Cotizaciones',
                           value: '${profile?.metrics.cotizacionesCount ?? 0}',
-                          helper: _formatMoney(
-                            profile?.metrics.cotizacionesTotal,
-                          ),
+                          helper: _formatMoney(profile?.metrics.cotizacionesTotal),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _SectionCard(
+                    title: 'Datos del cliente',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _ClientFactsGrid(items: _buildClientFacts(profile)),
+                        _LocationDetailCard(
+                          locationUrl: profile?.client.locationUrl ?? _cliente?.locationUrl,
+                          latitude: profile?.client.latitude ?? fallbackLocation.latitude,
+                          longitude: profile?.client.longitude ?? fallbackLocation.longitude,
+                        ),
+                        if (_hasText(profile?.client.notas))
+                          _InlineNoteCard(note: profile!.client.notas!.trim()),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Historial',
+                    'Actividad del cliente',
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -360,20 +397,15 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                     ..._timeline.map(
                       (event) => Padding(
                         padding: const EdgeInsets.only(bottom: 10),
-                        child: Card(
-                          child: ListTile(
-                            leading: Icon(
-                              event.eventType == 'sale'
-                                  ? Icons.point_of_sale_rounded
-                                  : Icons.description_outlined,
-                            ),
-                            title: Text(event.title),
-                            subtitle: Text(_formatDate(event.at)),
-                            trailing: event.amount == null
-                                ? null
-                                : Text(_formatMoney(event.amount)),
-                            onTap: () => _openEvent(event),
-                          ),
+                        child: _TimelineEventCard(
+                          icon: _timelineIcon(event.eventType),
+                          badge: _timelineTypeLabel(event.eventType),
+                          title: event.title,
+                          summary: _timelineSummary(event),
+                          date: _formatDate(event.at),
+                          amount: event.amount == null ? null : _formatMoney(event.amount),
+                          status: (event.status ?? '').trim().isEmpty ? null : event.status!.trim(),
+                          onTap: () => _openEvent(event),
                         ),
                       ),
                     ),
@@ -530,36 +562,6 @@ class _LocationDetailCard extends ConsumerWidget {
   }
 }
 
-class _DetailLine extends StatelessWidget {
-  const _DetailLine(this.label, this.value);
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 120,
-            child: Text(
-              label,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          Expanded(child: Text(value)),
-        ],
-      ),
-    );
-  }
-}
-
 class _MetricCard extends StatelessWidget {
   const _MetricCard({
     required this.label,
@@ -574,23 +576,423 @@ class _MetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 180, maxWidth: 260),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: theme.colorScheme.outlineVariant),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                value,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(helper, style: theme.textTheme.bodySmall),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: theme.textTheme.bodyMedium),
-            const SizedBox(height: 8),
             Text(
-              value,
-              style: theme.textTheme.headlineSmall?.copyWith(
+              title,
+              style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w800,
               ),
             ),
-            const SizedBox(height: 4),
-            Text(helper, style: theme.textTheme.bodySmall),
+            const SizedBox(height: 14),
+            child,
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ClientHeroCard extends StatelessWidget {
+  const _ClientHeroCard({
+    required this.name,
+    required this.phone,
+    required this.email,
+    required this.totalPurchased,
+    required this.lastActivity,
+    required this.deleted,
+  });
+
+  final String name;
+  final String? phone;
+  final String? email;
+  final String totalPurchased;
+  final String lastActivity;
+  final bool deleted;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: theme.colorScheme.primaryContainer,
+                  foregroundColor: theme.colorScheme.onPrimaryContainer,
+                  child: Text(
+                    name.isEmpty ? '?' : name.trim().substring(0, 1).toUpperCase(),
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        [if ((phone ?? '').trim().isNotEmpty) phone!.trim(), if ((email ?? '').trim().isNotEmpty) email!.trim()].join(' • ').isEmpty
+                            ? 'Expediente del cliente'
+                            : [if ((phone ?? '').trim().isNotEmpty) phone!.trim(), if ((email ?? '').trim().isNotEmpty) email!.trim()].join(' • '),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (deleted)
+                  const Chip(label: Text('Eliminado')),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _InfoBadge(label: 'Total comprado', value: totalPurchased),
+                _InfoBadge(label: 'Ultima actividad', value: lastActivity),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoBadge extends StatelessWidget {
+  const _InfoBadge({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClientFactData {
+  const _ClientFactData({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+}
+
+class _ClientFactsGrid extends StatelessWidget {
+  const _ClientFactsGrid({required this.items});
+
+  final List<_ClientFactData> items;
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 700;
+        final itemWidth = isCompact ? constraints.maxWidth : (constraints.maxWidth - 12) / 2;
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: items
+              .map(
+                (item) => SizedBox(
+                  width: itemWidth,
+                  child: _ClientFactTile(item: item),
+                ),
+              )
+              .toList(growable: false),
+        );
+      },
+    );
+  }
+}
+
+class _ClientFactTile extends StatelessWidget {
+  const _ClientFactTile({required this.item});
+
+  final _ClientFactData item;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(item.icon, size: 18, color: theme.colorScheme.primary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.label,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    item.value,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InlineNoteCard extends StatelessWidget {
+  const _InlineNoteCard({required this.note});
+
+  final String note;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Notas',
+              style: theme.textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(note),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TimelineEventCard extends StatelessWidget {
+  const _TimelineEventCard({
+    required this.icon,
+    required this.badge,
+    required this.title,
+    required this.summary,
+    required this.date,
+    required this.amount,
+    required this.status,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String badge;
+  final String title;
+  final String summary;
+  final String date;
+  final String? amount;
+  final String? status;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: theme.colorScheme.onPrimaryContainer),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          title,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            badge,
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      date,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    if (summary.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(summary, style: theme.textTheme.bodyMedium),
+                    ],
+                    if (status != null && status!.trim().isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Estado: ${status!.trim()}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (amount != null) ...[
+                const SizedBox(width: 12),
+                Text(
+                  amount!,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
