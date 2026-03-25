@@ -2,30 +2,41 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../auth/app_role.dart';
+import '../theme/role_branding.dart';
+
 class FulltechGlobalBackground extends StatelessWidget {
+  final AppRole role;
   final bool enableBlurEffects;
 
-  const FulltechGlobalBackground({super.key, this.enableBlurEffects = true});
+  const FulltechGlobalBackground({
+    super.key,
+    required this.role,
+    this.enableBlurEffects = true,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final branding = resolveRoleBranding(role);
+    final media = MediaQuery.sizeOf(context);
 
     Color blendOnWhite(Color color, double amount) {
       return Color.lerp(Colors.white, color, amount) ?? Colors.white;
     }
 
-    final top = blendOnWhite(cs.primary, 0.08);
-    final mid = blendOnWhite(
-      Color.alphaBlend(cs.secondary.withValues(alpha: 0.20), cs.primary),
-      0.06,
-    );
-    final bottom = blendOnWhite(cs.primary, 0.03);
+    final top = blendOnWhite(branding.backgroundTop, 0.94);
+    final mid = blendOnWhite(branding.backgroundMiddle, 0.98);
+    final bottom = blendOnWhite(branding.backgroundBottom, 0.95);
 
-    final blobA = blendOnWhite(cs.primary, 0.18).withValues(alpha: 0.10);
-    final blobB = blendOnWhite(cs.secondary, 0.20).withValues(alpha: 0.08);
-    final blobC = blendOnWhite(cs.tertiary, 0.12).withValues(alpha: 0.06);
+    final blobA = blendOnWhite(branding.glowA, 0.94).withValues(alpha: 0.22);
+    final blobB = blendOnWhite(branding.glowB, 0.95).withValues(alpha: 0.18);
+    final blobC = blendOnWhite(branding.glowC, 0.95).withValues(alpha: 0.14);
+    final watermarkColor = Color.alphaBlend(
+      branding.tertiary.withValues(alpha: 0.16),
+      cs.onSurface.withValues(alpha: 0.08),
+    );
 
     return Positioned.fill(
       child: IgnorePointer(
@@ -35,8 +46,8 @@ class FulltechGlobalBackground extends StatelessWidget {
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                   colors: [top, mid, bottom],
                 ),
               ),
@@ -69,6 +80,41 @@ class FulltechGlobalBackground extends StatelessWidget {
                   colors: [
                     cs.surface.withValues(alpha: 0.00),
                     cs.surface.withValues(alpha: 0.06),
+                  ],
+                ),
+              ),
+            ),
+            Positioned(
+              left: 24,
+              right: 24,
+              bottom: media.height < 680 ? 16 : 28,
+              child: Opacity(
+                opacity: 0.72,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      branding.watermarkTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.displayMedium?.copyWith(
+                        fontSize: media.width < 420 ? 36 : 46,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 2.4,
+                        color: watermarkColor.withValues(alpha: 0.16),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      branding.watermarkSubtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: watermarkColor.withValues(alpha: 0.28),
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.15,
+                      ),
+                    ),
                   ],
                 ),
               ),

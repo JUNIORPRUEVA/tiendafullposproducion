@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../api/env.dart';
 import '../cache/fulltech_cache_manager.dart';
 import '../utils/product_image_url.dart';
 
@@ -46,14 +47,31 @@ class _ProductNetworkImageState extends State<ProductNetworkImage> {
   Timer? _retryTimer;
   int _retryAttempt = 0;
   bool _retryScheduled = false;
+  bool _usingBackupUrl = false;
+
+  String? _buildBackupUrl(String primaryUrl, String? originalUrl) {
+    final rawOriginal = (originalUrl ?? '').trim();
+    if (rawOriginal.isEmpty) return null;
+
+    final normalized = buildProductImageUrl(
+      imageUrl: rawOriginal,
+      baseUrl: Env.apiBaseUrl,
+      proxyUploadsOnWeb: false,
+    );
+    final value = normalized.trim();
+    if (value.isEmpty || value == primaryUrl) return null;
+    return value;
+  }
 
   @override
   void didUpdateWidget(covariant ProductNetworkImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.imageUrl != widget.imageUrl) {
+    if (oldWidget.imageUrl != widget.imageUrl ||
+        oldWidget.originalUrl != widget.originalUrl) {
       _retryTimer?.cancel();
       _retryAttempt = 0;
       _retryScheduled = false;
+      _usingBackupUrl = false;
     }
   }
 
@@ -65,7 +83,12 @@ class _ProductNetworkImageState extends State<ProductNetworkImage> {
 
   @override
   Widget build(BuildContext context) {
-    final imageUrl = _buildAttemptUrl(widget.imageUrl, _retryAttempt);
+    final primaryUrl = (widget.imageUrl).trim();
+    final backupUrl = _buildBackupUrl(primaryUrl, widget.originalUrl);
+    final selectedBaseUrl = _usingBackupUrl && backupUrl != null
+        ? backupUrl
+        : primaryUrl;
+    final imageUrl = _buildAttemptUrl(selectedBaseUrl, _retryAttempt);
 
     return CachedNetworkImage(
       imageUrl: imageUrl,
@@ -78,12 +101,29 @@ class _ProductNetworkImageState extends State<ProductNetworkImage> {
       fadeInDuration: const Duration(milliseconds: 140),
       fadeOutDuration: Duration.zero,
       placeholder: (context, _) {
-        return widget.fallback;
+        return widget.loading ?? widget.fallback;
       },
       errorWidget: (context, _, error) {
+        final canUseBackup = !_usingBackupUrl &&
+            backupUrl != null &&
+            backupUrl.trim().isNotEmpty &&
+            backupUrl.trim() != primaryUrl;
+        if (canUseBackup) {
+          _retryTimer?.cancel();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() {
+              _usingBackupUrl = true;
+              _retryAttempt = 0;
+              _retryScheduled = false;
+            });
+          });
+          return widget.loading ?? widget.fallback;
+        }
+
         if (_retryAttempt < widget.maxRetries) {
           _scheduleRetry();
-          return widget.fallback;
+          return widget.loading ?? widget.fallback;
         }
 
         debugLogProductImageFailure(

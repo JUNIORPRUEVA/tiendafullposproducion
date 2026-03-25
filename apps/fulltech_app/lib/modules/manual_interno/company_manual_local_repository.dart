@@ -1,0 +1,256 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart';
+import 'package:sqflite/sqflite.dart';
+
+import '../../core/auth/app_role.dart';
+import 'company_manual_models.dart';
+
+final companyManualLocalRepositoryProvider =
+    Provider<CompanyManualLocalRepository>((ref) {
+      return CompanyManualLocalRepository();
+    });
+
+class CompanyManualLocalRepository {
+  static const _dbName = 'company_manual_local.db';
+  static const _dbVersion = 1;
+  static const _entriesTable = 'company_manual_entries';
+  static const _metaTable = 'company_manual_meta';
+  static const _lastSyncedAtKey = 'last_synced_at';
+
+  Database? _database;
+
+  Future<Database> get _db async {
+    if (_database != null) return _database!;
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, _dbName);
+    _database = await openDatabase(
+      path,
+      version: _dbVersion,
+      onCreate: (db, version) async {
+        await db.execute('''
+          CREATE TABLE $_entriesTable (
+            viewer_user_id TEXT NOT NULL,
+            id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT,
+            content TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            audience TEXT NOT NULL,
+            target_roles TEXT NOT NULL,
+            module_key TEXT,
+            published INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_by_user_id TEXT NOT NULL,
+            updated_by_user_id TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            PRIMARY KEY (viewer_user_id, id)
+          )
+        ''');
+        await db.execute('''
+          CREATE TABLE $_metaTable (
+            viewer_user_id TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT,
+            PRIMARY KEY (viewer_user_id, key)
+          )
+        ''');
+        await db.execute(
+          'CREATE INDEX idx_company_manual_entries_user ON $_entriesTable(viewer_user_id)',
+        );
+        await db.execute(
+          'CREATE INDEX idx_company_manual_entries_updated ON $_entriesTable(viewer_user_id, updated_at)',
+        );
+      },
+    );
+    return _database!;
+  }
+
+  Future<List<CompanyManualEntry>> listEntries({
+    required String viewerUserId,
+  }) async {
+    final db = await _db;
+    final rows = await db.query(
+      _entriesTable,
+      where: 'viewer_user_id = ?',
+      whereArgs: [viewerUserId],
+      orderBy: 'sort_order ASC, title COLLATE NOCASE ASC',
+    );
+    return rows.map(_mapRowToEntry).toList(growable: false);
+  }
+
+  Future<CompanyManualEntry?> getEntryById({
+    required String viewerUserId,
+    required String id,
+  }) async {
+    final db = await _db;
+    final rows = await db.query(
+      _entriesTable,
+      where: 'viewer_user_id = ? AND id = ?',
+      whereArgs: [viewerUserId, id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return _mapRowToEntry(rows.first);
+  }
+
+  Future<void> replaceEntries({
+    required String viewerUserId,
+    required List<CompanyManualEntry> entries,
+  }) async {
+    final db = await _db;
+    await db.transaction((txn) async {
+      await txn.delete(
+        _entriesTable,
+        where: 'viewer_user_id = ?',
+        whereArgs: [viewerUserId],
+      );
+      for (final entry in entries) {
+        await txn.insert(
+          _entriesTable,
+          _entryToRow(viewerUserId: viewerUserId, entry: entry),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await txn.insert(_metaTable, {
+        'viewer_user_id': viewerUserId,
+        'key': _lastSyncedAtKey,
+        'value': DateTime.now().toUtc().toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    });
+  }
+
+  Future<void> upsertEntry({
+    required String viewerUserId,
+    required CompanyManualEntry entry,
+  }) async {
+    final db = await _db;
+    await db.insert(
+      _entriesTable,
+      _entryToRow(viewerUserId: viewerUserId, entry: entry),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> deleteEntry({
+    required String viewerUserId,
+    required String id,
+  }) async {
+    final db = await _db;
+    await db.delete(
+      _entriesTable,
+      where: 'viewer_user_id = ? AND id = ?',
+      whereArgs: [viewerUserId, id],
+    );
+  }
+
+  Future<DateTime?> readLastSyncedAt({required String viewerUserId}) async {
+    final db = await _db;
+    final rows = await db.query(
+      _metaTable,
+      where: 'viewer_user_id = ? AND key = ?',
+      whereArgs: [viewerUserId, _lastSyncedAtKey],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return DateTime.tryParse((rows.first['value'] ?? '').toString());
+  }
+
+  Future<CompanyManualSummary> buildSummary({
+    required String viewerUserId,
+    required DateTime? seenAt,
+  }) async {
+    final db = await _db;
+    final totalRows = await db.rawQuery(
+      'SELECT COUNT(*) AS total_count FROM $_entriesTable WHERE viewer_user_id = ? AND published = 1',
+      [viewerUserId],
+    );
+    final totalCount = (totalRows.first['total_count'] as num?)?.toInt() ?? 0;
+
+    final latestRows = await db.rawQuery(
+      'SELECT MAX(COALESCE(updated_at, created_at)) AS latest_updated_at FROM $_entriesTable WHERE viewer_user_id = ? AND published = 1',
+      [viewerUserId],
+    );
+    final latestUpdatedAt = DateTime.tryParse(
+      (latestRows.first['latest_updated_at'] ?? '').toString(),
+    );
+
+    final unreadCount = seenAt == null
+        ? totalCount
+        : ((await db.rawQuery(
+                        'SELECT COUNT(*) AS unread_count FROM $_entriesTable WHERE viewer_user_id = ? AND published = 1 AND COALESCE(updated_at, created_at) > ?',
+                        [viewerUserId, seenAt.toUtc().toIso8601String()],
+                      )).first['unread_count']
+                      as num?)
+                  ?.toInt() ??
+              0;
+
+    return CompanyManualSummary(
+      totalCount: totalCount,
+      unreadCount: unreadCount,
+      latestUpdatedAt: latestUpdatedAt,
+    );
+  }
+
+  Map<String, Object?> _entryToRow({
+    required String viewerUserId,
+    required CompanyManualEntry entry,
+  }) {
+    return {
+      'viewer_user_id': viewerUserId,
+      'id': entry.id,
+      'owner_id': entry.ownerId,
+      'title': entry.title,
+      'summary': entry.summary,
+      'content': entry.content,
+      'kind': entry.kind.apiValue,
+      'audience': entry.audience.apiValue,
+      'target_roles': entry.targetRoles
+          .map((role) => role.name)
+          .toList(growable: false)
+          .join(','),
+      'module_key': entry.moduleKey,
+      'published': entry.published ? 1 : 0,
+      'sort_order': entry.sortOrder,
+      'created_by_user_id': entry.createdByUserId,
+      'updated_by_user_id': entry.updatedByUserId,
+      'created_at': entry.createdAt?.toUtc().toIso8601String(),
+      'updated_at': entry.updatedAt?.toUtc().toIso8601String(),
+    };
+  }
+
+  CompanyManualEntry _mapRowToEntry(Map<String, Object?> row) {
+    final targetRolesRaw = (row['target_roles'] ?? '').toString();
+    return CompanyManualEntry(
+      id: (row['id'] ?? '').toString(),
+      ownerId: (row['owner_id'] ?? '').toString(),
+      title: (row['title'] ?? '').toString(),
+      summary: (row['summary'] ?? '').toString().trim().isEmpty
+          ? null
+          : (row['summary'] ?? '').toString(),
+      content: (row['content'] ?? '').toString(),
+      kind: CompanyManualEntryKindX.fromApi((row['kind'] ?? '').toString()),
+      audience: CompanyManualAudienceX.fromApi(
+        (row['audience'] ?? '').toString(),
+      ),
+      targetRoles: targetRolesRaw
+          .split(',')
+          .map(parseAppRole)
+          .where((role) => role != AppRole.unknown)
+          .toList(growable: false),
+      moduleKey: (row['module_key'] ?? '').toString().trim().isEmpty
+          ? null
+          : (row['module_key'] ?? '').toString(),
+      published: (row['published'] as num?)?.toInt() != 0,
+      sortOrder: (row['sort_order'] as num?)?.toInt() ?? 0,
+      createdByUserId: (row['created_by_user_id'] ?? '').toString(),
+      updatedByUserId:
+          (row['updated_by_user_id'] ?? '').toString().trim().isEmpty
+          ? null
+          : (row['updated_by_user_id'] ?? '').toString(),
+      createdAt: DateTime.tryParse((row['created_at'] ?? '').toString()),
+      updatedAt: DateTime.tryParse((row['updated_at'] ?? '').toString()),
+    );
+  }
+}

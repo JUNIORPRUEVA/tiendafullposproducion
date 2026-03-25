@@ -9,7 +9,7 @@ import '../../../features/user/data/users_repository.dart';
 import '../../clientes/cliente_model.dart';
 import '../../clientes/data/clientes_repository.dart';
 import '../data/service_orders_api.dart';
-import '../data/service_orders_local_cache.dart';
+import '../data/service_orders_local_repository.dart';
 import '../service_order_models.dart';
 
 class ServiceOrdersListState {
@@ -66,15 +66,27 @@ class ServiceOrdersListController
   final Ref ref;
   Future<void>? _inFlightLoad;
 
-  Map<String, ClienteModel> _clientMapFromOrders(List<ServiceOrderModel> orders) {
+  Map<String, ClienteModel> _clientMapFromOrders(
+    List<ServiceOrderModel> orders,
+  ) {
     return {
       for (final order in orders)
         if (order.client != null) order.client!.id: order.client!,
     };
   }
 
-  Future<void> _persistItems(List<ServiceOrderModel> items) {
-    return ref.read(serviceOrdersLocalCacheProvider).saveListSnapshot(items);
+  Future<void> _persistSnapshot({
+    required List<ServiceOrderModel> items,
+    required Map<String, ClienteModel> clientsById,
+    required Map<String, UserModel> usersById,
+  }) {
+    return ref
+        .read(serviceOrdersLocalRepositoryProvider)
+        .saveSnapshot(
+          orders: items,
+          clientsById: clientsById,
+          usersById: usersById,
+        );
   }
 
   String _friendlyListMessage(Object error) {
@@ -95,14 +107,23 @@ class ServiceOrdersListController
     }
 
     if (!refresh && state.items.isEmpty) {
-      final cachedOrders = await ref.read(serviceOrdersLocalCacheProvider).getCachedList();
-      if (cachedOrders.isNotEmpty) {
-        cachedOrders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final snapshot = await ref
+          .read(serviceOrdersLocalRepositoryProvider)
+          .readSnapshot();
+      if (snapshot.orders.isNotEmpty ||
+          snapshot.clientsById.isNotEmpty ||
+          snapshot.usersById.isNotEmpty) {
+        final cachedOrders = [...snapshot.orders]
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
         state = state.copyWith(
           loading: false,
           refreshing: true,
           items: cachedOrders,
-          clientsById: _clientMapFromOrders(cachedOrders),
+          clientsById: {
+            ...snapshot.clientsById,
+            ..._clientMapFromOrders(cachedOrders),
+          },
+          usersById: snapshot.usersById,
           clearError: true,
         );
       }
@@ -118,16 +139,18 @@ class ServiceOrdersListController
         final orders = await ref.read(serviceOrdersApiProvider).listOrders();
         final clients = await ref
             .read(clientesRepositoryProvider)
-            .listClients(ownerId: _ownerId, pageSize: 200)
+            .listClients(ownerId: _ownerId, pageSize: 200, skipLoader: true)
             .catchError((_) => <ClienteModel>[]);
         final users = await ref
             .read(usersRepositoryProvider)
-            .getAllUsers()
+            .getAllUsers(skipLoader: true)
             .catchError((_) => <UserModel>[]);
         final clientMap = <String, ClienteModel>{
           for (final client in clients) client.id: client,
         };
-        final userMap = <String, UserModel>{for (final user in users) user.id: user};
+        final userMap = <String, UserModel>{
+          for (final user in users) user.id: user,
+        };
 
         for (final order in orders) {
           final embeddedClient = order.client;
@@ -137,7 +160,11 @@ class ServiceOrdersListController
         }
 
         orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-        await _persistItems(orders);
+        await _persistSnapshot(
+          items: orders,
+          clientsById: clientMap,
+          usersById: userMap,
+        );
         state = state.copyWith(
           loading: false,
           refreshing: false,
@@ -170,8 +197,12 @@ class ServiceOrdersListController
         .where((item) => item.id != id)
         .toList(growable: false);
     state = state.copyWith(items: items);
-    await _persistItems(items);
-    await ref.read(serviceOrdersLocalCacheProvider).removeOrder(id);
+    await _persistSnapshot(
+      items: items,
+      clientsById: state.clientsById,
+      usersById: state.usersById,
+    );
+    await ref.read(serviceOrdersLocalRepositoryProvider).deleteOrder(id);
   }
 
   void upsertOrder(ServiceOrderModel order) {
@@ -187,12 +218,23 @@ class ServiceOrdersListController
       items.add(order);
     }
     items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    state = state.copyWith(
-      items: items,
-      clientsById: nextClientMap,
+    state = state.copyWith(items: items, clientsById: nextClientMap);
+    unawaited(
+      _persistSnapshot(
+        items: items,
+        clientsById: nextClientMap,
+        usersById: state.usersById,
+      ),
     );
-    unawaited(_persistItems(items));
-    unawaited(ref.read(serviceOrdersLocalCacheProvider).saveOrder(order));
+    unawaited(
+      ref
+          .read(serviceOrdersLocalRepositoryProvider)
+          .saveOrder(
+            order: order,
+            client: order.client,
+            usersById: state.usersById,
+          ),
+    );
   }
 
   void replaceOrderStatus({
@@ -205,6 +247,12 @@ class ServiceOrdersListController
         )
         .toList(growable: false);
     state = state.copyWith(items: items);
-    unawaited(_persistItems(items));
+    unawaited(
+      _persistSnapshot(
+        items: items,
+        clientsById: state.clientsById,
+        usersById: state.usersById,
+      ),
+    );
   }
 }

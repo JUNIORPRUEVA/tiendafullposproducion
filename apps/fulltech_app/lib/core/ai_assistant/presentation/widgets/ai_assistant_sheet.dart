@@ -8,9 +8,14 @@ import '../../../widgets/app_navigation.dart';
 import '../ai_chat_context_resolver.dart';
 
 class GlobalAiChatSheet extends ConsumerStatefulWidget {
-  const GlobalAiChatSheet({super.key, this.onClose});
+  const GlobalAiChatSheet({
+    super.key,
+    this.onClose,
+    this.embeddedInScreen = false,
+  });
 
   final VoidCallback? onClose;
+  final bool embeddedInScreen;
 
   @override
   ConsumerState<GlobalAiChatSheet> createState() => _GlobalAiChatSheetState();
@@ -56,13 +61,16 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
     }
     final size = MediaQuery.sizeOf(context);
     final isDesktop = size.width >= 900;
+    final embeddedInScreen = widget.embeddedInScreen;
     final quickPrompts = _quickPromptsForContext(aiState.context);
-    final panelRadius = BorderRadius.only(
-      topLeft: Radius.circular(isDesktop ? 32 : 28),
-      bottomLeft: Radius.circular(isDesktop ? 32 : 28),
-      topRight: Radius.circular(isDesktop ? 0 : 28),
-      bottomRight: Radius.circular(isDesktop ? 0 : 28),
-    );
+    final panelRadius = embeddedInScreen
+        ? BorderRadius.circular(isDesktop ? 30 : 26)
+        : BorderRadius.only(
+            topLeft: Radius.circular(isDesktop ? 32 : 28),
+            bottomLeft: Radius.circular(isDesktop ? 32 : 28),
+            topRight: Radius.circular(isDesktop ? 0 : 28),
+            bottomRight: Radius.circular(isDesktop ? 0 : 28),
+          );
 
     if (_lastMessageCount != aiState.messages.length) {
       _lastMessageCount = aiState.messages.length;
@@ -75,20 +83,29 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
-          isDesktop ? 0 : 10,
-          isDesktop ? 10 : 10,
-          isDesktop ? 0 : 10,
-          isDesktop ? 10 : 0,
+          embeddedInScreen ? 0 : (isDesktop ? 0 : 10),
+          embeddedInScreen ? 0 : 10,
+          embeddedInScreen ? 0 : (isDesktop ? 0 : 10),
+          embeddedInScreen ? 0 : (isDesktop ? 10 : 0),
         ),
         child: Align(
-          alignment: isDesktop ? Alignment.centerRight : Alignment.bottomCenter,
+          alignment: embeddedInScreen
+              ? Alignment.center
+              : (isDesktop
+                    ? Alignment.centerRight
+                    : Alignment.bottomCenter),
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              maxWidth: isDesktop ? 468 : size.width,
-              maxHeight: isDesktop ? 820 : size.height * 0.84,
+              maxWidth: embeddedInScreen
+                  ? (isDesktop ? 980 : size.width)
+                  : (isDesktop ? 468 : size.width),
+              maxHeight: embeddedInScreen
+                  ? size.height
+                  : (isDesktop ? 820 : size.height * 0.84),
             ),
             child: Container(
-              width: isDesktop ? 468 : null,
+              height: embeddedInScreen ? double.infinity : null,
+              width: embeddedInScreen ? double.infinity : (isDesktop ? 468 : null),
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
                   colors: [Color(0xFFF3F7FF), Color(0xFFFFFFFF)],
@@ -235,7 +252,9 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
                                     ),
                                   ),
                                   child: Text(
-                                    'Context Live',
+                                      embeddedInScreen
+                                          ? 'Pantalla IA'
+                                          : 'Context Live',
                                     style: theme.textTheme.labelSmall?.copyWith(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w800,
@@ -243,15 +262,16 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
                                     ),
                                   ),
                                 ),
-                                IconButton(
-                                  onPressed:
-                                      widget.onClose ??
-                                      () => Navigator.of(context).pop(),
-                                  icon: const Icon(
-                                    Icons.close_rounded,
-                                    color: Colors.white,
-                                  ),
-                                ),
+                                  if (!embeddedInScreen)
+                                    IconButton(
+                                      onPressed:
+                                          widget.onClose ??
+                                          () => Navigator.of(context).pop(),
+                                      icon: const Icon(
+                                        Icons.close_rounded,
+                                        color: Colors.white,
+                                      ),
+                                    ),
                               ],
                             ),
                           ),

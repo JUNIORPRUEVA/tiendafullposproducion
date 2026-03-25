@@ -97,6 +97,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.viewOperations,
     AppPermission.viewTechOperations,
     AppPermission.viewPunch,
+    AppPermission.viewCatalog,
     AppPermission.viewTechDepartures,
     AppPermission.viewCompanyManual,
   },

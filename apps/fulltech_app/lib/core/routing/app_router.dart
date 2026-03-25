@@ -110,6 +110,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const PoncheScreen(),
           ),
           GoRoute(
+            path: Routes.poncheHistorial,
+            builder: (context, state) => const PunchHistoryScreen(),
+          ),
+          GoRoute(
             path: Routes.catalogo,
             builder: (context, state) => const CatalogoScreen(),
           ),

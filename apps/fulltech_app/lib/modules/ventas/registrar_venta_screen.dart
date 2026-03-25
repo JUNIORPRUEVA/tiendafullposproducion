@@ -1,10 +1,8 @@
-import 'dart:convert';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/cache/fulltech_cache_manager.dart';
@@ -15,6 +13,7 @@ import '../../core/routing/app_route_observer.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/product_network_image.dart';
+import '../../features/catalogo/data/catalog_local_repository.dart';
 import '../clientes/cliente_model.dart';
 import 'data/ventas_repository.dart';
 import 'sales_models.dart';
@@ -38,8 +37,6 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
   static const Duration _liveSyncInterval = Duration(minutes: 2);
   static const Duration _silentRefreshMinInterval = Duration(seconds: 20);
 
-  static const _productsCacheKey = 'ventas_products_cache_v4';
-  static const _productsCacheAtKey = 'ventas_products_cache_at_v4';
   bool _routeObserverSubscribed = false;
   RouteObserver<ModalRoute<dynamic>>? _routeObserver;
 
@@ -239,44 +236,31 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
   Future<void> _loadProductsFromCacheIfEmpty() async {
     if (_products.isNotEmpty) return;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_productsCacheKey);
-      if (raw == null || raw.trim().isEmpty) return;
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return;
-      final cached = decoded
-          .whereType<Map>()
-          .map((row) => ProductModel.fromJson(row.cast<String, dynamic>()))
-          .toList();
+      final snapshot = await ref.read(catalogLocalRepositoryProvider).readSnapshot();
+      final cached = snapshot.items;
       if (!mounted || cached.isEmpty) return;
       setState(() {
         _products = cached;
         _loadingProducts = false;
       });
       _prefetchProductImages(cached);
+      _lastSuccessfulRemoteSyncAt = snapshot.lastSyncedAt;
     } catch (_) {
       // Ignore cache failures.
     }
   }
 
   Future<void> _saveProductsToCache(List<ProductModel> products) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final payload = jsonEncode(products.map((p) => p.toJson()).toList());
-      await prefs.setString(_productsCacheKey, payload);
-      await prefs.setString(
-        _productsCacheAtKey,
-        DateTime.now().toIso8601String(),
-      );
-    } catch (_) {
-      // Ignore cache failures.
-    }
+    final catalogVersion = buildCatalogSyncVersion(products);
+    await ref.read(catalogLocalRepositoryProvider).saveSnapshot(
+      products,
+      syncedAt: DateTime.now(),
+      catalogVersion: catalogVersion,
+    );
   }
 
   Future<void> _clearProductsCache() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_productsCacheKey);
-    await prefs.remove(_productsCacheAtKey);
+    await ref.read(catalogLocalRepositoryProvider).clearSnapshot();
   }
 
   void _prefetchProductImages(List<ProductModel> products) {

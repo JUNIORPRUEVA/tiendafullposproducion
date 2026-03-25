@@ -36,7 +36,9 @@ class _ServiceOrdersListScreenState
   ServiceOrdersFilter _filter = const ServiceOrdersFilter.mainDefault();
   final Set<String> _busyOrderIds = <String>{};
   final Set<String> _creatingFromOrderIds = <String>{};
-  StreamSubscription<OperationsRealtimeMessage>? _operationsRealtimeSubscription;
+  bool _mobileControlsCollapsed = true;
+  StreamSubscription<OperationsRealtimeMessage>?
+      _operationsRealtimeSubscription;
 
   @override
   void initState() {
@@ -87,18 +89,27 @@ class _ServiceOrdersListScreenState
         currentUser?.appRole.isAdmin == true ||
         currentUser?.appRole.isTechnician == true;
     final isAdmin = currentUser?.appRole.isAdmin ?? false;
+    final currentUserId = currentUser?.id ?? '';
     final width = MediaQuery.sizeOf(context).width;
     final isDesktop = width >= kDesktopShellBreakpoint;
     final visibleOrders = _filter.apply(state.items);
+    final availableCreators = _buildFilterUserOptions(
+      orders: state.items,
+      usersById: state.usersById,
+      userIdSelector: (order) => order.createdById,
+    );
+    final availableTechnicians = _buildFilterUserOptions(
+      orders: state.items,
+      usersById: state.usersById,
+      userIdSelector: (order) => order.assignedToId,
+    );
     final contentMaxWidth = isDesktop ? 1100.0 : double.infinity;
 
     return Scaffold(
       drawer: isDesktop
           ? null
           : buildAdaptiveDrawer(context, currentUser: currentUser),
-      floatingActionButton: _CreateOrderFab(
-        onPressed: _createOrder,
-      ),
+      floatingActionButton: _CreateOrderFab(onPressed: _createOrder),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       appBar: AppBar(
         toolbarHeight: 54,
@@ -125,7 +136,11 @@ class _ServiceOrdersListScreenState
                 isScrollControlled: true,
                 showDragHandle: true,
                 builder: (sheetContext) {
-                  return _FiltersSheet(initialFilter: _filter);
+                  return _FiltersSheet(
+                    initialFilter: _filter,
+                    availableCreators: availableCreators,
+                    availableTechnicians: availableTechnicians,
+                  );
                 },
               );
               if (next == null || !mounted) {
@@ -135,11 +150,7 @@ class _ServiceOrdersListScreenState
                 _filter = next;
               });
             },
-            icon: Icon(
-              _filter.hasActiveFilters
-                  ? Icons.filter_alt_rounded
-                  : Icons.search_rounded,
-            ),
+            icon: const Icon(Icons.filter_alt_rounded),
             tooltip: 'Filtros',
           ),
           IconButton(
@@ -162,9 +173,7 @@ class _ServiceOrdersListScreenState
       ),
       body: RefreshIndicator(
         onRefresh: controller.refresh,
-        child: state.loading
-            ? const Center(child: CircularProgressIndicator())
-            : state.error != null && state.items.isEmpty
+        child: state.error != null && state.items.isEmpty && !state.refreshing
             ? ListView(
                 children: [
                   const SizedBox(height: 120),
@@ -180,10 +189,7 @@ class _ServiceOrdersListScreenState
                             color: Theme.of(context).colorScheme.error,
                           ),
                           const SizedBox(height: 10),
-                          Text(
-                            state.error!,
-                            textAlign: TextAlign.center,
-                          ),
+                          Text(state.error!, textAlign: TextAlign.center),
                           const SizedBox(height: 14),
                           FilledButton.icon(
                             onPressed: state.refreshing
@@ -208,44 +214,65 @@ class _ServiceOrdersListScreenState
                         constraints: BoxConstraints(maxWidth: contentMaxWidth),
                         child: Padding(
                           padding: const EdgeInsets.only(bottom: 8),
-                          child: _OperationsControlPanel(
-                            filter: _filter,
-                            activeCount: visibleOrders.length,
-                            onReset: _filter.hasActiveFilters
-                                ? () {
+                          child: isDesktop || !_mobileControlsCollapsed
+                              ? _OperationsControlPanel(
+                                  filter: _filter,
+                                  activeCount: visibleOrders.length,
+                                  refreshing: state.refreshing,
+                                  onCollapse: isDesktop
+                                      ? null
+                                      : () {
+                                          setState(() {
+                                            _mobileControlsCollapsed = true;
+                                          });
+                                        },
+                                  onReset: _filter.hasActiveFilters
+                                      ? () {
+                                          setState(() {
+                                            _filter =
+                                                const ServiceOrdersFilter.mainDefault();
+                                          });
+                                        }
+                                      : null,
+                                  onToggleStatus: (status) {
                                     setState(() {
-                                      _filter =
-                                          const ServiceOrdersFilter.mainDefault();
+                                      final nextStatuses = {..._filter.statuses};
+                                      if (nextStatuses.contains(status)) {
+                                        nextStatuses.remove(status);
+                                      } else {
+                                        nextStatuses.add(status);
+                                      }
+                                      _filter = _filter.copyWith(
+                                        statuses: nextStatuses,
+                                      );
                                     });
-                                  }
-                                : null,
-                            onToggleStatus: (status) {
-                              setState(() {
-                                final nextStatuses = {..._filter.statuses};
-                                if (nextStatuses.contains(status)) {
-                                  nextStatuses.remove(status);
-                                } else {
-                                  nextStatuses.add(status);
-                                }
-                                _filter = _filter.copyWith(
-                                  statuses: nextStatuses,
-                                );
-                              });
-                            },
-                            onToggleServiceType: (serviceType) {
-                              setState(() {
-                                final nextTypes = {..._filter.serviceTypes};
-                                if (nextTypes.contains(serviceType)) {
-                                  nextTypes.remove(serviceType);
-                                } else {
-                                  nextTypes.add(serviceType);
-                                }
-                                _filter = _filter.copyWith(
-                                  serviceTypes: nextTypes,
-                                );
-                              });
-                            },
-                          ),
+                                  },
+                                  onToggleServiceType: (serviceType) {
+                                    setState(() {
+                                      final nextTypes = {..._filter.serviceTypes};
+                                      if (nextTypes.contains(serviceType)) {
+                                        nextTypes.remove(serviceType);
+                                      } else {
+                                        nextTypes.add(serviceType);
+                                      }
+                                      _filter = _filter.copyWith(
+                                        serviceTypes: nextTypes,
+                                      );
+                                    });
+                                  },
+                                )
+                              : Align(
+                                  alignment: Alignment.centerRight,
+                                  child: _CollapsedOperationsPanelToggle(
+                                    activeCount: visibleOrders.length,
+                                    hasActiveFilters: _filter.hasActiveFilters,
+                                    onTap: () {
+                                      setState(() {
+                                        _mobileControlsCollapsed = false;
+                                      });
+                                    },
+                                  ),
+                                ),
                         ),
                       ),
                     );
@@ -264,7 +291,8 @@ class _ServiceOrdersListScreenState
                   }
 
                   final order = visibleOrders[index - 1];
-                  final client = order.client ?? state.clientsById[order.clientId];
+                  final client =
+                      order.client ?? state.clientsById[order.clientId];
                   return Center(
                     child: ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: contentMaxWidth),
@@ -276,10 +304,13 @@ class _ServiceOrdersListScreenState
                           clientName:
                               client?.nombre ?? 'Cliente ${order.clientId}',
                           creatorName:
-                            state.usersById[order.createdById]?.nombreCompleto ??
-                            order.createdById,
+                              state
+                                  .usersById[order.createdById]
+                                  ?.nombreCompleto ??
+                              order.createdById,
                           statusBusy: _busyOrderIds.contains(order.id),
-                          isTechnician: currentUser?.appRole.isTechnician ?? false,
+                          isTechnician:
+                              currentUser?.appRole.isTechnician ?? false,
                           onChangeStatus: canManageStatus
                               ? (status) => _changeOrderStatus(order, status)
                               : null,
@@ -289,12 +320,14 @@ class _ServiceOrdersListScreenState
                           onCreateNewOrder: order.isCloneSourceAllowed
                               ? () => _createOrderFromSource(order)
                               : null,
-                          trailing: isAdmin
-                              ? _AdminOrderActions(
-                                  order: order,
+                          trailing:
+                              (isAdmin || currentUserId == order.createdById)
+                              ? _OrderActionsMenu(
                                   busy: _busyOrderIds.contains(order.id),
                                   onEdit: () => _editOrder(order),
-                                  onDelete: () => _deleteOrder(order),
+                                  onDelete: isAdmin
+                                      ? () => _deleteOrder(order)
+                                      : null,
                                 )
                               : null,
                           onTap: () async {
@@ -439,15 +472,21 @@ class _ServiceOrdersListScreenState
       final updated = await ref
           .read(serviceOrdersApiProvider)
           .updateStatus(order.id, status);
-      ref.read(serviceOrdersListControllerProvider.notifier).upsertOrder(updated);
+      ref
+          .read(serviceOrdersListControllerProvider.notifier)
+          .upsertOrder(updated);
       if (!mounted) return;
       await AppFeedback.showInfo(context, 'Estado actualizado');
     } catch (error) {
-      ref.read(serviceOrdersListControllerProvider.notifier).upsertOrder(previousOrder);
+      ref
+          .read(serviceOrdersListControllerProvider.notifier)
+          .upsertOrder(previousOrder);
       if (!mounted) return;
       await AppFeedback.showError(
         context,
-        error is ApiException ? error.message : 'No se pudo actualizar el estado',
+        error is ApiException
+            ? error.message
+            : 'No se pudo actualizar el estado',
       );
     } finally {
       if (mounted) {
@@ -461,38 +500,79 @@ class _ServiceOrdersListScreenState
 
 enum ServiceOrdersDatePreset { all, today, thisWeek, custom }
 
+enum ServiceOrdersCompletionFilter { any, finalizadas, noFinalizadas }
+
+extension ServiceOrdersCompletionFilterX on ServiceOrdersCompletionFilter {
+  String get label {
+    switch (this) {
+      case ServiceOrdersCompletionFilter.any:
+        return 'Todas';
+      case ServiceOrdersCompletionFilter.finalizadas:
+        return 'Finalizadas';
+      case ServiceOrdersCompletionFilter.noFinalizadas:
+        return 'No finalizadas';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case ServiceOrdersCompletionFilter.any:
+        return Icons.tune_rounded;
+      case ServiceOrdersCompletionFilter.finalizadas:
+        return Icons.verified_rounded;
+      case ServiceOrdersCompletionFilter.noFinalizadas:
+        return Icons.pending_actions_rounded;
+    }
+  }
+}
+
 class ServiceOrdersFilter {
   const ServiceOrdersFilter({
     required this.datePreset,
+    this.completionFilter = ServiceOrdersCompletionFilter.any,
     this.statuses = const <ServiceOrderStatus>{},
     this.serviceTypes = const <ServiceOrderType>{},
+    this.creatorIds = const <String>{},
+    this.technicianIds = const <String>{},
     this.customRange,
   });
 
   const ServiceOrdersFilter.today()
     : datePreset = ServiceOrdersDatePreset.today,
+      completionFilter = ServiceOrdersCompletionFilter.any,
       statuses = const <ServiceOrderStatus>{},
       serviceTypes = const <ServiceOrderType>{},
+      creatorIds = const <String>{},
+      technicianIds = const <String>{},
       customRange = null;
 
   const ServiceOrdersFilter.mainDefault()
     : datePreset = ServiceOrdersDatePreset.all,
+      completionFilter = ServiceOrdersCompletionFilter.any,
       statuses = const <ServiceOrderStatus>{
         ServiceOrderStatus.pendiente,
         ServiceOrderStatus.enProceso,
         ServiceOrderStatus.cancelado,
       },
       serviceTypes = const <ServiceOrderType>{},
+      creatorIds = const <String>{},
+      technicianIds = const <String>{},
       customRange = null;
 
   final ServiceOrdersDatePreset datePreset;
+  final ServiceOrdersCompletionFilter completionFilter;
   final Set<ServiceOrderStatus> statuses;
   final Set<ServiceOrderType> serviceTypes;
+  final Set<String> creatorIds;
+  final Set<String> technicianIds;
   final DateTimeRange? customRange;
 
   bool get isMainDefault {
     return datePreset == ServiceOrdersDatePreset.all &&
+        completionFilter == ServiceOrdersCompletionFilter.any &&
         serviceTypes.isEmpty &&
+        creatorIds.isEmpty &&
+        technicianIds.isEmpty &&
         statuses.length == 3 &&
         statuses.contains(ServiceOrderStatus.pendiente) &&
         statuses.contains(ServiceOrderStatus.enProceso) &&
@@ -501,21 +581,42 @@ class ServiceOrdersFilter {
 
   ServiceOrdersFilter copyWith({
     ServiceOrdersDatePreset? datePreset,
+    ServiceOrdersCompletionFilter? completionFilter,
     Set<ServiceOrderStatus>? statuses,
     Set<ServiceOrderType>? serviceTypes,
+    Set<String>? creatorIds,
+    Set<String>? technicianIds,
     DateTimeRange? customRange,
     bool clearCustomRange = false,
   }) {
     return ServiceOrdersFilter(
       datePreset: datePreset ?? this.datePreset,
+      completionFilter: completionFilter ?? this.completionFilter,
       statuses: statuses ?? this.statuses,
       serviceTypes: serviceTypes ?? this.serviceTypes,
+      creatorIds: creatorIds ?? this.creatorIds,
+      technicianIds: technicianIds ?? this.technicianIds,
       customRange: clearCustomRange ? null : (customRange ?? this.customRange),
     );
   }
 
   bool get hasActiveFilters {
     return !isMainDefault;
+  }
+
+  int get selectionCount {
+    var total = 0;
+    if (datePreset != ServiceOrdersDatePreset.all) {
+      total += 1;
+    }
+    if (completionFilter != ServiceOrdersCompletionFilter.any) {
+      total += 1;
+    }
+    total += statuses.length;
+    total += serviceTypes.length;
+    total += creatorIds.length;
+    total += technicianIds.length;
+    return total;
   }
 
   String get summaryLabel {
@@ -535,8 +636,43 @@ class ServiceOrdersFilter {
 
   List<String> get activeChips {
     final chips = <String>[summaryLabel];
+    if (completionFilter != ServiceOrdersCompletionFilter.any) {
+      chips.add(completionFilter.label);
+    }
     chips.addAll(statuses.map((status) => status.label));
     chips.addAll(serviceTypes.map((serviceType) => serviceType.label));
+    if (creatorIds.isNotEmpty) {
+      chips.add(
+        creatorIds.length == 1 ? '1 creador' : '${creatorIds.length} creadores',
+      );
+    }
+    if (technicianIds.isNotEmpty) {
+      chips.add(
+        technicianIds.length == 1
+            ? '1 técnico'
+            : '${technicianIds.length} técnicos',
+      );
+    }
+    return chips;
+  }
+
+  List<String> get insightChips {
+    final chips = <String>[];
+    if (completionFilter != ServiceOrdersCompletionFilter.any) {
+      chips.add(completionFilter.label);
+    }
+    if (creatorIds.isNotEmpty) {
+      chips.add(
+        creatorIds.length == 1 ? '1 creador' : '${creatorIds.length} creadores',
+      );
+    }
+    if (technicianIds.isNotEmpty) {
+      chips.add(
+        technicianIds.length == 1
+            ? '1 técnico'
+            : '${technicianIds.length} técnicos',
+      );
+    }
     return chips;
   }
 
@@ -582,6 +718,16 @@ class ServiceOrdersFilter {
           if (!matchesDate) {
             return false;
           }
+          final matchesCompletion = switch (completionFilter) {
+            ServiceOrdersCompletionFilter.any => true,
+            ServiceOrdersCompletionFilter.finalizadas =>
+              order.status == ServiceOrderStatus.finalizado,
+            ServiceOrdersCompletionFilter.noFinalizadas =>
+              order.status != ServiceOrderStatus.finalizado,
+          };
+          if (!matchesCompletion) {
+            return false;
+          }
           if (statuses.isNotEmpty && !statuses.contains(order.status)) {
             return false;
           }
@@ -589,10 +735,99 @@ class ServiceOrdersFilter {
               !serviceTypes.contains(order.serviceType)) {
             return false;
           }
+          if (creatorIds.isNotEmpty &&
+              !creatorIds.contains(order.createdById)) {
+            return false;
+          }
+          final assignedToId = order.assignedToId?.trim();
+          if (technicianIds.isNotEmpty &&
+              (assignedToId == null || !technicianIds.contains(assignedToId))) {
+            return false;
+          }
           return true;
         })
         .toList(growable: false);
   }
+}
+
+class _FilterUserOption {
+  const _FilterUserOption({
+    required this.id,
+    required this.label,
+    required this.role,
+  });
+
+  final String id;
+  final String label;
+  final AppRole role;
+
+  String get roleLabel {
+    switch (role) {
+      case AppRole.admin:
+        return 'Administrador';
+      case AppRole.asistente:
+        return 'Asistente';
+      case AppRole.vendedor:
+        return 'Vendedor';
+      case AppRole.marketing:
+        return 'Marketing';
+      case AppRole.tecnico:
+        return 'Técnico';
+      case AppRole.unknown:
+        return 'Usuario';
+    }
+  }
+
+  String get initials {
+    final parts = label
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList(growable: false);
+    if (parts.isEmpty) {
+      return 'FT';
+    }
+    if (parts.length == 1) {
+      return parts.first.substring(0, 1).toUpperCase();
+    }
+    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  }
+}
+
+List<_FilterUserOption> _buildFilterUserOptions({
+  required List<ServiceOrderModel> orders,
+  required Map<String, UserModel> usersById,
+  required String? Function(ServiceOrderModel order) userIdSelector,
+}) {
+  final ids = <String>{};
+  for (final order in orders) {
+    final userId = userIdSelector(order)?.trim() ?? '';
+    if (userId.isNotEmpty) {
+      ids.add(userId);
+    }
+  }
+
+  final options = ids
+      .map((id) {
+        final user = usersById[id];
+        final fallbackLabel = id.length <= 8
+            ? 'Usuario $id'
+            : 'Usuario ${id.substring(0, 8)}';
+        return _FilterUserOption(
+          id: id,
+          label: (user?.nombreCompleto ?? '').trim().isEmpty
+              ? fallbackLabel
+              : user!.nombreCompleto.trim(),
+          role: user?.appRole ?? AppRole.unknown,
+        );
+      })
+      .toList(growable: false);
+
+  options.sort(
+    (left, right) =>
+        left.label.toLowerCase().compareTo(right.label.toLowerCase()),
+  );
+  return options;
 }
 
 class _ProfileAvatarButton extends ConsumerWidget {
@@ -633,9 +868,15 @@ class _ProfileAvatarButton extends ConsumerWidget {
 }
 
 class _FiltersSheet extends StatefulWidget {
-  const _FiltersSheet({required this.initialFilter});
+  const _FiltersSheet({
+    required this.initialFilter,
+    required this.availableCreators,
+    required this.availableTechnicians,
+  });
 
   final ServiceOrdersFilter initialFilter;
+  final List<_FilterUserOption> availableCreators;
+  final List<_FilterUserOption> availableTechnicians;
 
   @override
   State<_FiltersSheet> createState() => _FiltersSheetState();
@@ -645,6 +886,9 @@ class _FiltersSheetState extends State<_FiltersSheet> {
   late Set<ServiceOrderStatus> _statuses;
   late Set<ServiceOrderType> _serviceTypes;
   late ServiceOrdersDatePreset _datePreset;
+  late ServiceOrdersCompletionFilter _completionFilter;
+  late Set<String> _creatorIds;
+  late Set<String> _technicianIds;
   DateTimeRange? _customRange;
 
   @override
@@ -652,37 +896,74 @@ class _FiltersSheetState extends State<_FiltersSheet> {
     super.initState();
     _statuses = {...widget.initialFilter.statuses};
     _serviceTypes = {...widget.initialFilter.serviceTypes};
+    _completionFilter = widget.initialFilter.completionFilter;
+    _creatorIds = {...widget.initialFilter.creatorIds};
+    _technicianIds = {...widget.initialFilter.technicianIds};
     _datePreset = widget.initialFilter.datePreset;
     _customRange = widget.initialFilter.customRange;
+  }
+
+  int get _selectedCount {
+    return ServiceOrdersFilter(
+      datePreset: _datePreset,
+      completionFilter: _completionFilter,
+      statuses: _statuses,
+      serviceTypes: _serviceTypes,
+      creatorIds: _creatorIds,
+      technicianIds: _technicianIds,
+      customRange: _customRange,
+    ).selectionCount;
   }
 
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(16, 8, 16, bottom + 16),
-        child: SingleChildScrollView(
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [colorScheme.surface, colorScheme.surfaceContainerLowest],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(16, 8, 16, bottom + 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                'Filtros',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
+              _CompactHeader(
+                selectedCount: _selectedCount,
+                onClose: () => Navigator.of(context).pop(),
+              ),
+              const SizedBox(height: 12),
+              _CompactSection(
+                title: 'Cierre',
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: ServiceOrdersCompletionFilter.values
+                      .map(
+                        (value) => _ChoiceFilterTile(
+                          label: value.label,
+                          icon: value.icon,
+                          selected: _completionFilter == value,
+                          compact: true,
+                          onTap: () {
+                            setState(() {
+                              _completionFilter = value;
+                            });
+                          },
+                        ),
+                      )
+                      .toList(growable: false),
                 ),
               ),
-              const SizedBox(height: 6),
-              Text(
-                'Ajusta la vista operativa sin recargar la pantalla.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 18),
-              _FilterSection(
+              const SizedBox(height: 10),
+              _CompactSection(
                 title: 'Estado',
                 child: Wrap(
                   spacing: 8,
@@ -692,6 +973,9 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                         final selected = _statuses.contains(status);
                         return FilterChip(
                           selected: selected,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
                           label: Text(status.label),
                           selectedColor: status.color.withValues(alpha: 0.12),
                           side: BorderSide(
@@ -719,9 +1003,9 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                       .toList(growable: false),
                 ),
               ),
-              const SizedBox(height: 16),
-              _FilterSection(
-                title: 'Tipo de servicio',
+              const SizedBox(height: 10),
+              _CompactSection(
+                title: 'Servicio',
                 child: Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -730,6 +1014,9 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                         final selected = _serviceTypes.contains(serviceType);
                         return FilterChip(
                           selected: selected,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
                           label: Text(serviceType.label),
                           onSelected: (_) {
                             setState(() {
@@ -745,82 +1032,126 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                       .toList(growable: false),
                 ),
               ),
-              const SizedBox(height: 16),
-              _FilterSection(
-                title: 'Rango de fecha',
-                child: Column(
+              const SizedBox(height: 10),
+              _CompactSection(
+                title: 'Fecha',
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
-                    RadioListTile<ServiceOrdersDatePreset>(
-                      value: ServiceOrdersDatePreset.all,
-                      groupValue: _datePreset,
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: const Text('Todas las fechas'),
-                      onChanged: (value) {
-                        if (value == null) return;
+                    _ChoiceFilterTile(
+                      label: 'Todas',
+                      icon: Icons.all_inbox_rounded,
+                      selected: _datePreset == ServiceOrdersDatePreset.all,
+                      compact: true,
+                      onTap: () {
                         setState(() {
-                          _datePreset = value;
+                          _datePreset = ServiceOrdersDatePreset.all;
                         });
                       },
                     ),
-                    RadioListTile<ServiceOrdersDatePreset>(
-                      value: ServiceOrdersDatePreset.today,
-                      groupValue: _datePreset,
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: const Text('Hoy'),
-                      onChanged: (value) {
-                        if (value == null) return;
+                    _ChoiceFilterTile(
+                      label: 'Hoy',
+                      icon: Icons.today_rounded,
+                      selected: _datePreset == ServiceOrdersDatePreset.today,
+                      compact: true,
+                      onTap: () {
                         setState(() {
-                          _datePreset = value;
+                          _datePreset = ServiceOrdersDatePreset.today;
                         });
                       },
                     ),
-                    RadioListTile<ServiceOrdersDatePreset>(
-                      value: ServiceOrdersDatePreset.thisWeek,
-                      groupValue: _datePreset,
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: const Text('Esta semana'),
-                      onChanged: (value) {
-                        if (value == null) return;
+                    _ChoiceFilterTile(
+                      label: 'Semana',
+                      icon: Icons.date_range_rounded,
+                      selected: _datePreset == ServiceOrdersDatePreset.thisWeek,
+                      compact: true,
+                      onTap: () {
                         setState(() {
-                          _datePreset = value;
+                          _datePreset = ServiceOrdersDatePreset.thisWeek;
                         });
                       },
                     ),
-                    RadioListTile<ServiceOrdersDatePreset>(
-                      value: ServiceOrdersDatePreset.custom,
-                      groupValue: _datePreset,
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: const Text('Personalizado'),
-                      subtitle: _customRange == null
-                          ? const Text('Selecciona un rango')
-                          : Text(
-                              '${DateFormat('dd/MM/yyyy').format(_customRange!.start)} - ${DateFormat('dd/MM/yyyy').format(_customRange!.end)}',
-                            ),
-                      onChanged: (value) async {
-                        if (value == null) return;
+                    _ChoiceFilterTile(
+                      label: 'Rango',
+                      icon: Icons.edit_calendar_rounded,
+                      selected: _datePreset == ServiceOrdersDatePreset.custom,
+                      compact: true,
+                      onTap: () async {
                         setState(() {
-                          _datePreset = value;
+                          _datePreset = ServiceOrdersDatePreset.custom;
                         });
                         await _pickCustomRange();
                       },
                     ),
-                    if (_datePreset == ServiceOrdersDatePreset.custom)
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          onPressed: _pickCustomRange,
-                          icon: const Icon(Icons.date_range_outlined),
-                          label: const Text('Elegir rango'),
-                        ),
-                      ),
                   ],
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: _SummarySelectorTile(
+                      label: 'Creador',
+                      summary: _selectionSummary(
+                        selectedIds: _creatorIds,
+                        options: widget.availableCreators,
+                      ),
+                      icon: Icons.person_search_rounded,
+                      accent: colorScheme.primary,
+                      onTap: () async {
+                        final next = await _pickUserOptions(
+                          title: 'Filtrar por creador',
+                          options: widget.availableCreators,
+                          selectedIds: _creatorIds,
+                          accent: colorScheme.primary,
+                        );
+                        if (next == null || !mounted) {
+                          return;
+                        }
+                        setState(() {
+                          _creatorIds = next;
+                        });
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _SummarySelectorTile(
+                      label: 'Técnico',
+                      summary: _selectionSummary(
+                        selectedIds: _technicianIds,
+                        options: widget.availableTechnicians,
+                      ),
+                      icon: Icons.engineering_rounded,
+                      accent: const Color(0xFF0F766E),
+                      onTap: () async {
+                        final next = await _pickUserOptions(
+                          title: 'Filtrar por técnico',
+                          options: widget.availableTechnicians,
+                          selectedIds: _technicianIds,
+                          accent: const Color(0xFF0F766E),
+                        );
+                        if (next == null || !mounted) {
+                          return;
+                        }
+                        setState(() {
+                          _technicianIds = next;
+                        });
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              if (_datePreset == ServiceOrdersDatePreset.custom) ...[
+                const SizedBox(height: 10),
+                _CustomDateRangeBanner(
+                  range: _customRange,
+                  compact: true,
+                  onTap: _pickCustomRange,
+                ),
+              ],
+              const SizedBox(height: 14),
               Row(
                 children: [
                   Expanded(
@@ -833,20 +1164,23 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                       child: const Text('Restablecer'),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: FilledButton(
                       onPressed: () {
                         final effectivePreset =
                             _datePreset == ServiceOrdersDatePreset.custom &&
                                 _customRange == null
-                          ? ServiceOrdersDatePreset.all
+                            ? ServiceOrdersDatePreset.all
                             : _datePreset;
                         Navigator.of(context).pop(
                           ServiceOrdersFilter(
                             datePreset: effectivePreset,
+                            completionFilter: _completionFilter,
                             statuses: _statuses,
                             serviceTypes: _serviceTypes,
+                            creatorIds: _creatorIds,
+                            technicianIds: _technicianIds,
                             customRange:
                                 effectivePreset ==
                                     ServiceOrdersDatePreset.custom
@@ -855,7 +1189,7 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                           ),
                         );
                       },
-                      child: const Text('Aplicar filtros'),
+                      child: const Text('Aplicar'),
                     ),
                   ),
                 ],
@@ -884,28 +1218,534 @@ class _FiltersSheetState extends State<_FiltersSheet> {
       _datePreset = ServiceOrdersDatePreset.custom;
     });
   }
+
+  String _selectionSummary({
+    required Set<String> selectedIds,
+    required List<_FilterUserOption> options,
+  }) {
+    if (selectedIds.isEmpty) {
+      return 'Todos';
+    }
+    if (selectedIds.length == 1) {
+      for (final option in options) {
+        if (selectedIds.contains(option.id)) {
+          return option.label;
+        }
+      }
+    }
+    return '${selectedIds.length} seleccionados';
+  }
+
+  Future<Set<String>?> _pickUserOptions({
+    required String title,
+    required List<_FilterUserOption> options,
+    required Set<String> selectedIds,
+    required Color accent,
+  }) async {
+    return showModalBottomSheet<Set<String>>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => _UserSelectionSheet(
+        title: title,
+        options: options,
+        selectedIds: selectedIds,
+        accent: accent,
+      ),
+    );
+  }
 }
 
-class _FilterSection extends StatelessWidget {
-  const _FilterSection({required this.title, required this.child});
+class _CompactHeader extends StatelessWidget {
+  const _CompactHeader({required this.selectedCount, required this.onClose});
+
+  final int selectedCount;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            colorScheme.primary.withValues(alpha: 0.12),
+            colorScheme.tertiary.withValues(alpha: 0.08),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.8),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Filtros',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  selectedCount == 0 ? 'Base' : '$selectedCount activos',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: colorScheme.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: onClose,
+                icon: const Icon(Icons.close_rounded),
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompactSection extends StatelessWidget {
+  const _CompactSection({required this.title, required this.child});
 
   final String title;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           title,
-          style: Theme.of(
-            context,
-          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+          style: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: colorScheme.onSurfaceVariant,
+          ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
         child,
       ],
+    );
+  }
+}
+
+class _ChoiceFilterTile extends StatelessWidget {
+  const _ChoiceFilterTile({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+    this.compact = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 12 : 14,
+          vertical: compact ? 9 : 12,
+        ),
+        decoration: BoxDecoration(
+          color: selected
+              ? colorScheme.primary.withValues(alpha: 0.1)
+              : colorScheme.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: selected
+                ? colorScheme.primary.withValues(alpha: 0.36)
+                : colorScheme.outlineVariant,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: compact ? 16 : 18,
+              color: selected
+                  ? colorScheme.primary
+                  : colorScheme.onSurfaceVariant,
+            ),
+            SizedBox(width: compact ? 6 : 8),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: selected
+                    ? colorScheme.primary
+                    : colorScheme.onSurfaceVariant,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                fontSize: compact ? 13 : null,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SummarySelectorTile extends StatelessWidget {
+  const _SummarySelectorTile({
+    required this.label,
+    required this.summary,
+    required this.icon,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final String label;
+  final String summary;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: colorScheme.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: colorScheme.outlineVariant),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, size: 18, color: accent),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    summary,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _UserSelectionSheet extends StatefulWidget {
+  const _UserSelectionSheet({
+    required this.title,
+    required this.options,
+    required this.selectedIds,
+    required this.accent,
+  });
+
+  final String title;
+  final List<_FilterUserOption> options;
+  final Set<String> selectedIds;
+  final Color accent;
+
+  @override
+  State<_UserSelectionSheet> createState() => _UserSelectionSheetState();
+}
+
+class _UserSelectionSheetState extends State<_UserSelectionSheet> {
+  late Set<String> _selectedIds;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedIds = {...widget.selectedIds};
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    widget.title,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _selectedIds.clear();
+                    });
+                  },
+                  child: const Text('Limpiar'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: widget.options
+                      .map(
+                        (option) => _IdentityFilterChip(
+                          option: option,
+                          selected: _selectedIds.contains(option.id),
+                          accent: widget.accent,
+                          compact: true,
+                          onTap: () {
+                            setState(() {
+                              if (_selectedIds.contains(option.id)) {
+                                _selectedIds.remove(option.id);
+                              } else {
+                                _selectedIds.add(option.id);
+                              }
+                            });
+                          },
+                        ),
+                      )
+                      .toList(growable: false),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancelar'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(context).pop(_selectedIds),
+                    child: Text(
+                      _selectedIds.isEmpty ? 'Aplicar todos' : 'Aplicar',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _IdentityFilterChip extends StatelessWidget {
+  const _IdentityFilterChip({
+    required this.option,
+    required this.selected,
+    required this.accent,
+    required this.onTap,
+    this.compact = false,
+  });
+
+  final _FilterUserOption option;
+  final bool selected;
+  final Color accent;
+  final VoidCallback onTap;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        width: compact ? 180 : 220,
+        padding: EdgeInsets.all(compact ? 10 : 12),
+        decoration: BoxDecoration(
+          color: selected
+              ? accent.withValues(alpha: 0.1)
+              : colorScheme.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: selected
+                ? accent.withValues(alpha: 0.4)
+                : colorScheme.outlineVariant,
+          ),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: compact ? 16 : 18,
+              backgroundColor: accent.withValues(alpha: selected ? 0.22 : 0.12),
+              child: Text(
+                option.initials,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: accent,
+                  fontWeight: FontWeight.w800,
+                  fontSize: compact ? 12 : null,
+                ),
+              ),
+            ),
+            SizedBox(width: compact ? 8 : 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    option.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: selected ? accent : colorScheme.onSurface,
+                      fontSize: compact ? 13 : null,
+                    ),
+                  ),
+                  SizedBox(height: compact ? 1 : 2),
+                  Text(
+                    option.roleLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontSize: compact ? 11 : null,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (selected)
+              Icon(Icons.check_circle_rounded, size: 18, color: accent),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CustomDateRangeBanner extends StatelessWidget {
+  const _CustomDateRangeBanner({
+    required this.range,
+    required this.onTap,
+    this.compact = false,
+  });
+
+  final DateTimeRange? range;
+  final VoidCallback onTap;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final label = range == null
+        ? 'Selecciona un rango'
+        : '${DateFormat('dd/MM/yyyy').format(range!.start)} - ${DateFormat('dd/MM/yyyy').format(range!.end)}';
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(compact ? 12 : 14),
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: colorScheme.outlineVariant),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.date_range_rounded, color: colorScheme.primary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                label,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  fontSize: compact ? 13 : null,
+                ),
+              ),
+            ),
+            TextButton(onPressed: onTap, child: const Text('Cambiar')),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -914,6 +1754,8 @@ class _OperationsControlPanel extends StatelessWidget {
   const _OperationsControlPanel({
     required this.filter,
     required this.activeCount,
+    required this.refreshing,
+    required this.onCollapse,
     required this.onToggleStatus,
     required this.onToggleServiceType,
     required this.onReset,
@@ -921,6 +1763,8 @@ class _OperationsControlPanel extends StatelessWidget {
 
   final ServiceOrdersFilter filter;
   final int activeCount;
+  final bool refreshing;
+  final VoidCallback? onCollapse;
   final ValueChanged<ServiceOrderStatus> onToggleStatus;
   final ValueChanged<ServiceOrderType> onToggleServiceType;
   final VoidCallback? onReset;
@@ -929,17 +1773,16 @@ class _OperationsControlPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final isDesktop = MediaQuery.sizeOf(context).width >= kDesktopShellBreakpoint;
+    final isDesktop =
+        MediaQuery.sizeOf(context).width >= kDesktopShellBreakpoint;
     final now = DateTime.now();
     final dateLabel = DateFormat('EEEE d MMM', 'es_DO').format(now);
     final timeLabel = DateFormat('h:mm a', 'es_DO').format(now);
+
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            colorScheme.surface,
-            colorScheme.surfaceContainerLowest,
-          ],
+          colors: [colorScheme.surface, colorScheme.surfaceContainerLowest],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -989,6 +1832,14 @@ class _OperationsControlPanel extends StatelessWidget {
                           icon: Icons.layers_outlined,
                           text: '$activeCount activas',
                         ),
+                        if (refreshing) ...[
+                          const SizedBox(width: 6),
+                          _PanelMetaPill(
+                            icon: Icons.sync_rounded,
+                            text: 'Sincronizando',
+                            accent: colorScheme.primary,
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -1003,6 +1854,18 @@ class _OperationsControlPanel extends StatelessWidget {
                       Icons.restart_alt_rounded,
                       color: colorScheme.onSurfaceVariant,
                       size: 19,
+                    ),
+                  ),
+                if (onCollapse != null)
+                  IconButton(
+                    tooltip: 'Ocultar panel',
+                    visualDensity: VisualDensity.compact,
+                    splashRadius: 18,
+                    onPressed: onCollapse,
+                    icon: Icon(
+                      Icons.keyboard_arrow_up_rounded,
+                      color: colorScheme.onSurfaceVariant,
+                      size: 20,
                     ),
                   ),
               ],
@@ -1026,7 +1889,118 @@ class _OperationsControlPanel extends StatelessWidget {
               labelBuilder: (serviceType) => serviceType.label,
               centered: isDesktop,
             ),
+            if (filter.insightChips.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: filter.insightChips
+                    .map((chip) => _FilterInsightBadge(label: chip))
+                    .toList(growable: false),
+              ),
+            ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CollapsedOperationsPanelToggle extends StatelessWidget {
+  const _CollapsedOperationsPanelToggle({
+    required this.activeCount,
+    required this.hasActiveFilters,
+    required this.onTap,
+  });
+
+  final int activeCount;
+  final bool hasActiveFilters;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: colorScheme.outlineVariant.withValues(alpha: 0.9),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: colorScheme.shadow.withValues(alpha: 0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.tune_rounded,
+                size: 17,
+                color: colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Panel',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(width: 8),
+              _PanelMetaPill(
+                icon: hasActiveFilters
+                    ? Icons.filter_alt_rounded
+                    : Icons.layers_outlined,
+                text: hasActiveFilters ? 'Filtros' : '$activeCount',
+                accent: hasActiveFilters ? colorScheme.primary : null,
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.keyboard_arrow_down_rounded,
+                size: 18,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FilterInsightBadge extends StatelessWidget {
+  const _FilterInsightBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.8),
+        ),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: colorScheme.onSurfaceVariant,
+          fontWeight: FontWeight.w700,
+          height: 1,
         ),
       ),
     );
@@ -1237,11 +2211,12 @@ class _CreateOrderFab extends StatelessWidget {
                     children: [
                       Text(
                         'Agregar',
-                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.80),
-                          fontWeight: FontWeight.w600,
-                          height: 1,
-                        ),
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(
+                              color: Colors.white.withValues(alpha: 0.80),
+                              fontWeight: FontWeight.w600,
+                              height: 1,
+                            ),
                       ),
                       const SizedBox(height: 3),
                       Text(
@@ -1298,8 +2273,12 @@ class _ServiceOrderListCard extends StatelessWidget {
     final locationPreview = parseClientLocationPreview(locationUrl);
     final locationUri = buildClientNavigationUri(locationPreview, locationUrl);
     final createdAt = order.createdAt.toLocal();
-    final topLineText = DateFormat('dd/MM/yyyy · h:mm a', 'es_DO').format(createdAt);
-    final isPriorityInstallation = order.serviceType == ServiceOrderType.instalacion;
+    final topLineText = DateFormat(
+      'dd/MM/yyyy · h:mm a',
+      'es_DO',
+    ).format(createdAt);
+    final isPriorityInstallation =
+        order.serviceType == ServiceOrderType.instalacion;
     final creatorDisplayName = creatorName.trim();
     final hasCreatorName = creatorDisplayName.isNotEmpty;
     final clientDisplayName = clientName.trim();
@@ -1340,12 +2319,17 @@ class _ServiceOrderListCard extends StatelessWidget {
               children: [
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.surfaceContainerLowest,
                     borderRadius: BorderRadius.circular(999),
                     border: Border.all(
-                      color: theme.colorScheme.outlineVariant.withValues(alpha: 0.7),
+                      color: theme.colorScheme.outlineVariant.withValues(
+                        alpha: 0.7,
+                      ),
                     ),
                   ),
                   child: Row(
@@ -1382,12 +2366,19 @@ class _ServiceOrderListCard extends StatelessWidget {
                         Padding(
                           padding: const EdgeInsets.only(left: 8),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFD97706).withValues(alpha: 0.12),
+                              color: const Color(
+                                0xFFD97706,
+                              ).withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(999),
                               border: Border.all(
-                                color: const Color(0xFFD97706).withValues(alpha: 0.28),
+                                color: const Color(
+                                  0xFFD97706,
+                                ).withValues(alpha: 0.28),
                               ),
                             ),
                             child: const Text(
@@ -1409,7 +2400,9 @@ class _ServiceOrderListCard extends StatelessWidget {
                   children: [
                     Padding(
                       padding: EdgeInsets.only(
-                        right: !isTechnician && onChangeStatus != null ? 116 : 36,
+                        right: !isTechnician && onChangeStatus != null
+                            ? 116
+                            : 36,
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1435,13 +2428,12 @@ class _ServiceOrderListCard extends StatelessWidget {
                                   ),
                                 ),
                               ),
-                              if (isTechnician) ...[
+                              if (locationUri != null) ...[
                                 const SizedBox(width: 8),
-                                if (locationUri != null)
-                                  _TechnicianLocationButton(
-                                    locationUri: locationUri,
-                                    compact: true,
-                                  ),
+                                _TechnicianLocationButton(
+                                  locationUri: locationUri,
+                                  compact: true,
+                                ),
                               ],
                             ],
                           ),
@@ -1455,7 +2447,8 @@ class _ServiceOrderListCard extends StatelessWidget {
                               color: theme.colorScheme.surfaceContainerLowest,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.7),
+                                color: theme.colorScheme.outlineVariant
+                                    .withValues(alpha: 0.7),
                               ),
                             ),
                             child: Row(
@@ -1465,7 +2458,7 @@ class _ServiceOrderListCard extends StatelessWidget {
                                     Icons.person_outline_rounded,
                                     size: 14,
                                     color: theme.colorScheme.onSurfaceVariant,
-                                          ),
+                                  ),
                                   const SizedBox(width: 6),
                                   Expanded(
                                     child: RichText(
@@ -1476,21 +2469,27 @@ class _ServiceOrderListCard extends StatelessWidget {
                                           if (hasClientName)
                                             TextSpan(
                                               text: clientDisplayName,
-                                              style: theme.textTheme.bodySmall?.copyWith(
-                                                color: theme.colorScheme.onSurface,
-                                                fontWeight: FontWeight.w800,
-                                                letterSpacing: 0.1,
-                                              ),
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    color: theme
+                                                        .colorScheme
+                                                        .onSurface,
+                                                    fontWeight: FontWeight.w800,
+                                                    letterSpacing: 0.1,
+                                                  ),
                                             ),
                                           if (hasClientPhone)
                                             TextSpan(
                                               text: hasClientName
                                                   ? '  ·  $clientPhone'
                                                   : clientPhone,
-                                              style: theme.textTheme.bodySmall?.copyWith(
-                                                color: theme.colorScheme.onSurfaceVariant,
-                                                fontWeight: FontWeight.w600,
-                                              ),
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    color: theme
+                                                        .colorScheme
+                                                        .onSurfaceVariant,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
                                             ),
                                         ],
                                       ),
@@ -1499,7 +2498,10 @@ class _ServiceOrderListCard extends StatelessWidget {
                                   const SizedBox(width: 8),
                                 ] else
                                   const Spacer(),
-                                _StatusBadge(status: order.status, compact: true),
+                                _StatusBadge(
+                                  status: order.status,
+                                  compact: true,
+                                ),
                               ],
                             ),
                           ),
@@ -1566,7 +2568,7 @@ class _ServiceOrderListCard extends StatelessWidget {
                     ),
                   ),
                 ],
-                if (isTechnician) ...[
+                if (callUri != null || whatsappUri != null || isTechnician) ...[
                   const SizedBox(height: 10),
                   Row(
                     children: [
@@ -1588,9 +2590,12 @@ class _ServiceOrderListCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                       ],
-                      Expanded(
-                        child: _TechnicianQuickActionButton(order: order),
-                      ),
+                      if (isTechnician)
+                        Expanded(
+                          child: _TechnicianQuickActionButton(order: order),
+                        )
+                      else
+                        const Spacer(),
                     ],
                   ),
                 ],
@@ -1604,11 +2609,7 @@ class _ServiceOrderListCard extends StatelessWidget {
 }
 
 class _PanelMetaPill extends StatelessWidget {
-  const _PanelMetaPill({
-    required this.icon,
-    required this.text,
-    this.accent,
-  });
+  const _PanelMetaPill({required this.icon, required this.text, this.accent});
 
   final IconData icon;
   final String text;
@@ -1625,7 +2626,9 @@ class _PanelMetaPill extends StatelessWidget {
         color: effectiveAccent.withValues(alpha: accent == null ? 0.06 : 0.1),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: effectiveAccent.withValues(alpha: accent == null ? 0.08 : 0.18),
+          color: effectiveAccent.withValues(
+            alpha: accent == null ? 0.08 : 0.18,
+          ),
         ),
       ),
       child: Row(
@@ -1770,7 +2773,8 @@ class _InlineStatusButton extends StatelessWidget {
                               child: _InlineStatusSheetOption(
                                 status: status,
                                 isCurrent: status == order.status,
-                                onTap: () => Navigator.pop(sheetContext, status),
+                                onTap: () =>
+                                    Navigator.pop(sheetContext, status),
                               ),
                             ),
                           ),
@@ -1797,7 +2801,9 @@ class _InlineStatusButton extends StatelessWidget {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.55),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.outline.withValues(alpha: 0.55),
                 ),
                 color: Theme.of(context).colorScheme.surface,
               ),
@@ -1876,11 +2882,7 @@ class _InlineStatusSheetOption extends StatelessWidget {
               ),
             ),
             if (isCurrent)
-              Icon(
-                Icons.check_circle_rounded,
-                size: 18,
-                color: status.color,
-              ),
+              Icon(Icons.check_circle_rounded, size: 18, color: status.color),
           ],
         ),
       ),
@@ -1888,36 +2890,34 @@ class _InlineStatusSheetOption extends StatelessWidget {
   }
 }
 
-class _AdminOrderActions extends StatelessWidget {
-  const _AdminOrderActions({
-    required this.order,
+class _OrderActionsMenu extends StatelessWidget {
+  const _OrderActionsMenu({
     required this.busy,
     required this.onEdit,
-    required this.onDelete,
+    this.onDelete,
   });
 
-  final ServiceOrderModel order;
   final bool busy;
   final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
       enabled: !busy,
-      tooltip: 'Acciones de administrador',
+      tooltip: 'Acciones de la orden',
       onSelected: (value) {
         switch (value) {
           case 'edit':
             onEdit();
             break;
           case 'delete':
-            onDelete();
+            onDelete?.call();
             break;
         }
       },
-      itemBuilder: (context) => const [
-        PopupMenuItem<String>(
+      itemBuilder: (context) => [
+        const PopupMenuItem<String>(
           value: 'edit',
           child: ListTile(
             dense: true,
@@ -1925,14 +2925,15 @@ class _AdminOrderActions extends StatelessWidget {
             title: Text('Editar'),
           ),
         ),
-        PopupMenuItem<String>(
-          value: 'delete',
-          child: ListTile(
-            dense: true,
-            leading: Icon(Icons.delete_outline),
-            title: Text('Eliminar'),
+        if (onDelete != null)
+          const PopupMenuItem<String>(
+            value: 'delete',
+            child: ListTile(
+              dense: true,
+              leading: Icon(Icons.delete_outline),
+              title: Text('Eliminar'),
+            ),
           ),
-        ),
       ],
       child: busy
           ? const SizedBox(
@@ -2074,9 +3075,7 @@ class _TechnicianQuickActionButton extends ConsumerWidget {
         foregroundColor: Colors.white,
         elevation: 0,
         shadowColor: const Color(0xFF1D4ED8).withValues(alpha: 0.28),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
       icon: const Icon(Icons.tune_rounded, size: 18),
       label: const Text(
@@ -2092,7 +3091,9 @@ class _TechnicianQuickActionButton extends ConsumerWidget {
           order: order,
           onOrderUpdated: () {
             // Refresh the list when order is updated
-            final controller = ref.read(serviceOrdersListControllerProvider.notifier);
+            final controller = ref.read(
+              serviceOrdersListControllerProvider.notifier,
+            );
             controller.refresh();
           },
         );
@@ -2115,7 +3116,9 @@ class _TechnicianLocationButton extends StatelessWidget {
     final targetUri = locationUri;
     final theme = Theme.of(context);
     return FilledButton.icon(
-      onPressed: targetUri == null ? null : () => safeOpenUrl(context, targetUri),
+      onPressed: targetUri == null
+          ? null
+          : () => safeOpenUrl(context, targetUri),
       style: FilledButton.styleFrom(
         minimumSize: Size(compact ? 0 : 120, compact ? 34 : 42),
         padding: EdgeInsets.symmetric(
@@ -2125,10 +3128,10 @@ class _TechnicianLocationButton extends StatelessWidget {
         backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.1),
         foregroundColor: theme.colorScheme.primary,
         elevation: 0,
-        side: BorderSide(color: theme.colorScheme.primary.withValues(alpha: 0.16)),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: theme.colorScheme.primary.withValues(alpha: 0.16),
         ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
       icon: Icon(Icons.near_me_rounded, size: compact ? 16 : 18),
       label: Text(

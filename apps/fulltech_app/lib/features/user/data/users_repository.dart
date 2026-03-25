@@ -19,21 +19,27 @@ class UsersRepository {
   DateTime? _usersCacheAt;
   static const Duration _usersCacheTtl = Duration(minutes: 5);
 
-  Future<List<UserModel>> fetchUsers() async {
-    final res = await _dio.get(ApiRoutes.users);
+  Future<List<UserModel>> fetchUsers({bool skipLoader = false}) async {
+    final res = await _dio.get(
+      ApiRoutes.users,
+      options: skipLoader ? Options(extra: {'skipLoader': true}) : null,
+    );
     final data = res.data as List<dynamic>;
     return data
         .map((e) => UserModel.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
-  Future<List<UserModel>> getAllUsers({bool forceRefresh = false}) async {
+  Future<List<UserModel>> getAllUsers({
+    bool forceRefresh = false,
+    bool skipLoader = false,
+  }) async {
     if (!forceRefresh && _usersCache != null && _usersCacheAt != null) {
       final age = DateTime.now().difference(_usersCacheAt!);
       if (age < _usersCacheTtl) return _usersCache!;
     }
 
-    final users = await fetchUsers();
+    final users = await fetchUsers(skipLoader: skipLoader);
     _usersCache = users;
     _usersCacheAt = DateTime.now();
     return users;

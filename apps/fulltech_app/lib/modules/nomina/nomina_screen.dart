@@ -539,7 +539,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     final nominaTheme = theme.copyWith(
       scaffoldBackgroundColor: scheme.primary,
       appBarTheme: theme.appBarTheme.copyWith(
-        backgroundColor: scheme.primary,
+        backgroundColor: theme.appBarTheme.backgroundColor,
         foregroundColor: Colors.white,
         elevation: 0,
       ),

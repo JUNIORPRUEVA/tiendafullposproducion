@@ -161,9 +161,14 @@ class CreateServiceOrderController
   String get _ownerId => ref.read(authStateProvider).user?.id ?? '';
   AppRole get _currentRole =>
       ref.read(authStateProvider).user?.appRole ?? AppRole.unknown;
+    bool get _isCreatorEditingOrder =>
+      args?.isEditMode == true && args?.editSource?.createdById == _ownerId;
   bool get _canEditOperationalNotes =>
-      _currentRole == AppRole.tecnico || _currentRole == AppRole.admin;
-  bool get _canAssignTechnician => _currentRole == AppRole.admin;
+      _currentRole == AppRole.tecnico ||
+      _currentRole == AppRole.admin ||
+      _isCreatorEditingOrder;
+    bool get _canAssignTechnician =>
+      _currentRole == AppRole.admin || _isCreatorEditingOrder;
 
   Future<void> load() async {
     if (state.initialized || state.loading) return;

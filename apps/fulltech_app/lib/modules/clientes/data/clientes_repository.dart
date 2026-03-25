@@ -218,6 +218,7 @@ class ClientesRepository {
     EstadoFilter estadoFilter = EstadoFilter.activos,
     int page = 1,
     int pageSize = 100,
+    bool skipLoader = false,
   }) async {
     try {
       final safePage = page < 1 ? 1 : page;
@@ -234,6 +235,7 @@ class ClientesRepository {
           if (includeDeleted != null) 'includeDeleted': includeDeleted,
           if (onlyDeleted != null) 'onlyDeleted': onlyDeleted,
         },
+        options: skipLoader ? Options(extra: {'skipLoader': true}) : null,
       );
 
       final raw = res.data;
@@ -299,9 +301,13 @@ class ClientesRepository {
   Future<ClienteModel> getClientById({
     required String ownerId,
     required String id,
+    bool skipLoader = false,
   }) async {
     try {
-      final res = await _dio.get(ApiRoutes.clientDetail(id));
+      final res = await _dio.get(
+        ApiRoutes.clientDetail(id),
+        options: skipLoader ? Options(extra: {'skipLoader': true}) : null,
+      );
       final cliente = ClienteModel.fromJson(
         (res.data as Map).cast<String, dynamic>(),
       );

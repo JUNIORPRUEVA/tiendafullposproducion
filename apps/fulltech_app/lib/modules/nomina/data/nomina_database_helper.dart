@@ -11,7 +11,7 @@ class NominaDatabaseHelper {
   static final NominaDatabaseHelper instance = NominaDatabaseHelper._();
 
   static const String _dbName = 'fulltech_nomina.db';
-  static const int _dbVersion = 3;
+  static const int _dbVersion = 4;
 
   Database? _database;
 
@@ -95,6 +95,29 @@ class NominaDatabaseHelper {
       )
     ''');
 
+    await db.execute('''
+      CREATE TABLE payroll_history_cache (
+        entry_id TEXT NOT NULL,
+        cache_user_id TEXT NOT NULL,
+        employee_name TEXT,
+        period_id TEXT NOT NULL,
+        period_title TEXT NOT NULL,
+        period_start TEXT NOT NULL,
+        period_end TEXT NOT NULL,
+        period_status TEXT NOT NULL,
+        base_salary REAL NOT NULL DEFAULT 0,
+        commission_from_sales REAL NOT NULL DEFAULT 0,
+        overtime_amount REAL NOT NULL DEFAULT 0,
+        bonuses_amount REAL NOT NULL DEFAULT 0,
+        deductions_amount REAL NOT NULL DEFAULT 0,
+        benefits_amount REAL NOT NULL DEFAULT 0,
+        gross_total REAL NOT NULL DEFAULT 0,
+        net_total REAL NOT NULL DEFAULT 0,
+        cached_at TEXT NOT NULL,
+        PRIMARY KEY (cache_user_id, period_id)
+      )
+    ''');
+
     await _createIndexes(db);
   }
 
@@ -108,6 +131,30 @@ class NominaDatabaseHelper {
       await db.execute(
         'ALTER TABLE employees_payroll ADD COLUMN seguro_ley_pct REAL NOT NULL DEFAULT 0',
       );
+    }
+    if (oldVersion < 4) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS payroll_history_cache (
+          entry_id TEXT NOT NULL,
+          cache_user_id TEXT NOT NULL,
+          employee_name TEXT,
+          period_id TEXT NOT NULL,
+          period_title TEXT NOT NULL,
+          period_start TEXT NOT NULL,
+          period_end TEXT NOT NULL,
+          period_status TEXT NOT NULL,
+          base_salary REAL NOT NULL DEFAULT 0,
+          commission_from_sales REAL NOT NULL DEFAULT 0,
+          overtime_amount REAL NOT NULL DEFAULT 0,
+          bonuses_amount REAL NOT NULL DEFAULT 0,
+          deductions_amount REAL NOT NULL DEFAULT 0,
+          benefits_amount REAL NOT NULL DEFAULT 0,
+          gross_total REAL NOT NULL DEFAULT 0,
+          net_total REAL NOT NULL DEFAULT 0,
+          cached_at TEXT NOT NULL,
+          PRIMARY KEY (cache_user_id, period_id)
+        )
+      ''');
     }
     await _createIndexes(db);
   }
@@ -168,6 +215,9 @@ class NominaDatabaseHelper {
     );
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_entries_period_employee ON payroll_entries(period_id, employee_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_payroll_history_cache_user ON payroll_history_cache(cache_user_id, period_end DESC)',
     );
   }
 
@@ -758,5 +808,39 @@ class NominaDatabaseHelper {
 
     all.sort((a, b) => b.periodEnd.compareTo(a.periodEnd));
     return all;
+  }
+
+  Future<List<PayrollHistoryItem>> listCachedPayrollHistoryForUser(
+    String userId,
+  ) async {
+    final db = await database;
+    final rows = await db.query(
+      'payroll_history_cache',
+      where: 'cache_user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'period_end DESC',
+    );
+    return rows.map(PayrollHistoryItem.fromMap).toList();
+  }
+
+  Future<void> replaceCachedPayrollHistoryForUser(
+    String userId,
+    List<PayrollHistoryItem> items,
+  ) async {
+    final db = await database;
+    final now = DateTime.now().toIso8601String();
+    await db.transaction((txn) async {
+      await txn.delete(
+        'payroll_history_cache',
+        where: 'cache_user_id = ?',
+        whereArgs: [userId],
+      );
+      for (final item in items) {
+        await txn.insert('payroll_history_cache', {
+          ...item.toMap(cacheUserId: userId),
+          'cached_at': now,
+        });
+      }
+    });
   }
 }

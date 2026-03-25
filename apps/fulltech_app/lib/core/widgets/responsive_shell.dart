@@ -3,29 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../auth/app_role.dart';
 import '../auth/auth_provider.dart';
 import '../location/location_tracker_provider.dart';
 import '../models/user_model.dart';
 import '../routing/routes.dart';
+import '../theme/role_branding.dart';
 import '../utils/date_time_formatters.dart';
 import 'app_navigation.dart';
-
-Color _desktopSidebarBaseColor(ThemeData theme) {
-  final cs = theme.colorScheme;
-  final deepBlue = Color.alphaBlend(
-    cs.primary.withValues(alpha: 0.86),
-    cs.tertiary,
-  );
-  return Color.alphaBlend(cs.secondary.withValues(alpha: 0.08), deepBlue);
-}
-
-Color _desktopSidebarHoverColor(ThemeData theme) {
-  final base = _desktopSidebarBaseColor(theme);
-  return Color.alphaBlend(
-    theme.colorScheme.primary.withValues(alpha: 0.22),
-    base,
-  );
-}
 
 BoxDecoration _desktopSurfaceDecoration(ThemeData theme) {
   return BoxDecoration(
@@ -211,18 +196,26 @@ class DesktopShellAppBar extends StatelessWidget {
     final theme = Theme.of(context);
     final today = DateFormat('EEEE, d MMMM', 'es').format(DateTime.now());
     final photoUrl = (currentUser?.fotoPersonalUrl ?? '').trim();
+    final branding = resolveRoleBranding(
+      currentUser?.appRole ?? AppRole.unknown,
+    );
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 240),
       curve: Curves.easeOutCubic,
-      height: 64,
+      height: 72,
       padding: EdgeInsets.symmetric(horizontal: collapsed ? 14 : 18),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface.withValues(alpha: 0.96),
+        gradient: branding.appBarDarkGradient,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.42),
-        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.14),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -230,7 +223,7 @@ class DesktopShellAppBar extends StatelessWidget {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHigh,
+              color: Colors.white.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(14),
             ),
             child: IconButton(
@@ -250,21 +243,22 @@ class DesktopShellAppBar extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'FULLTECH Workspace',
+                  'Espacio de trabajo FULLTECH',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
                     letterSpacing: -0.2,
+                    color: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  today,
+                  branding.departmentName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                    color: Colors.white.withValues(alpha: 0.76),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -275,25 +269,22 @@ class DesktopShellAppBar extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
+                color: Colors.white.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: theme.colorScheme.outlineVariant.withValues(
-                    alpha: 0.5,
-                  ),
-                ),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.circle, size: 8, color: theme.colorScheme.primary),
+                  Icon(Icons.circle, size: 8, color: Colors.white),
                   const SizedBox(width: 8),
                   Text(
-                    title,
+                    '$title · $today',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.labelLarge?.copyWith(
                       fontWeight: FontWeight.w800,
+                      color: Colors.white,
                     ),
                   ),
                 ],
@@ -307,7 +298,7 @@ class DesktopShellAppBar extends StatelessWidget {
               vertical: 8,
             ),
             decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHigh,
+              color: Colors.white.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Row(
@@ -315,9 +306,7 @@ class DesktopShellAppBar extends StatelessWidget {
               children: [
                 CircleAvatar(
                   radius: 15,
-                  backgroundColor: theme.colorScheme.primary.withValues(
-                    alpha: 0.14,
-                  ),
+                  backgroundColor: Colors.white.withValues(alpha: 0.14),
                   backgroundImage: photoUrl.isEmpty
                       ? null
                       : NetworkImage(photoUrl),
@@ -325,7 +314,7 @@ class DesktopShellAppBar extends StatelessWidget {
                       ? Text(
                           userInitials(currentUser),
                           style: TextStyle(
-                            color: theme.colorScheme.primary,
+                            color: Colors.white,
                             fontWeight: FontWeight.w800,
                             fontSize: 12,
                           ),
@@ -344,12 +333,13 @@ class DesktopShellAppBar extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.labelLarge?.copyWith(
                           fontWeight: FontWeight.w800,
+                          color: Colors.white,
                         ),
                       ),
                       Text(
-                        'Sesión activa',
+                        branding.departmentName,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
+                          color: Colors.white.withValues(alpha: 0.74),
                         ),
                       ),
                     ],
@@ -386,19 +376,21 @@ class DesktopSidebar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final width = collapsed ? 84.0 : 280.0;
-    final base = _desktopSidebarBaseColor(theme);
-    final onBase = theme.colorScheme.onPrimary;
+    final branding = resolveRoleBranding(
+      currentUser?.appRole ?? AppRole.unknown,
+    );
+    const onBase = Colors.white;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 240),
       curve: Curves.easeOutCubic,
       width: width,
       decoration: BoxDecoration(
-        color: base,
+        gradient: branding.drawerGradient,
         boxShadow: [
           BoxShadow(
-            color: theme.colorScheme.shadow.withValues(alpha: 0.10),
-            blurRadius: 20,
+            color: branding.tertiary.withValues(alpha: 0.14),
+            blurRadius: 26,
             offset: const Offset(6, 0),
           ),
         ],
@@ -507,7 +499,7 @@ class DesktopSidebar extends ConsumerWidget {
                                             ),
                                             if (!isNarrow)
                                               Text(
-                                                'Toca para encoger menú',
+                                                branding.departmentName,
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                                 style: theme.textTheme.bodySmall
@@ -678,7 +670,7 @@ class DesktopSidebar extends ConsumerWidget {
                                           ),
                                     ),
                                     Text(
-                                      'Ver perfil',
+                                      branding.departmentName,
                                       style: theme.textTheme.bodySmall
                                           ?.copyWith(
                                             color: onBase.withValues(
@@ -696,6 +688,32 @@ class DesktopSidebar extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: 8),
+                  if (!collapsed)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: onBase.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: onBase.withValues(alpha: 0.10),
+                          ),
+                        ),
+                        child: Text(
+                          branding.departmentName,
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: onBase.withValues(alpha: 0.92),
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
                   if (collapsed)
                     IconButton.filledTonal(
                       tooltip: 'Cerrar sesión',
@@ -754,8 +772,11 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final base = _desktopSidebarBaseColor(theme);
-    final onBase = theme.colorScheme.onPrimary;
+    final base = Color.alphaBlend(
+      theme.colorScheme.secondary.withValues(alpha: 0.16),
+      theme.colorScheme.tertiary,
+    );
+    const onBase = Colors.white;
     final selected = widget.selected;
     final background = selected
         ? Color.alphaBlend(
@@ -766,7 +787,10 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
     final iconColor = selected ? onBase : onBase.withValues(alpha: 0.88);
 
     final hoverBg = selected
-        ? _desktopSidebarHoverColor(theme)
+        ? Color.alphaBlend(
+            theme.colorScheme.primary.withValues(alpha: 0.22),
+            base,
+          )
         : onBase.withValues(alpha: 0.08);
 
     final effectiveBg = background;

@@ -480,4 +480,25 @@ class PayrollHistoryItem {
       netTotal: (map['net_total'] as num?)?.toDouble() ?? 0,
     );
   }
+
+  Map<String, dynamic> toMap({String? cacheUserId}) {
+    return {
+      'entry_id': entryId,
+      'cache_user_id': cacheUserId,
+      'employee_name': employeeName,
+      'period_id': periodId,
+      'period_title': periodTitle,
+      'period_start': periodStart.toIso8601String(),
+      'period_end': periodEnd.toIso8601String(),
+      'period_status': periodStatus,
+      'base_salary': baseSalary,
+      'commission_from_sales': commissionFromSales,
+      'overtime_amount': overtimeAmount,
+      'bonuses_amount': bonusesAmount,
+      'deductions_amount': deductionsAmount,
+      'benefits_amount': benefitsAmount,
+      'gross_total': grossTotal,
+      'net_total': netTotal,
+    };
+  }
 }

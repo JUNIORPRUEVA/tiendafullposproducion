@@ -5,9 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/errors/api_exception.dart';
 import '../../../core/models/user_model.dart';
+import '../../../core/realtime/operations_realtime_service.dart';
+import '../../../core/utils/local_media_cache.dart';
 import '../../clientes/cliente_model.dart';
 import '../../clientes/data/clientes_repository.dart';
 import '../data/service_orders_api.dart';
+import '../data/service_orders_local_repository.dart';
 import 'service_orders_list_controller.dart';
 import '../data/upload_repository.dart';
 import '../service_order_models.dart';
@@ -56,15 +59,35 @@ class ServiceOrderDetailState {
 }
 
 final serviceOrderDetailControllerProvider = StateNotifierProvider.autoDispose
-    .family<ServiceOrderDetailController, ServiceOrderDetailState, String>(
-  (ref, orderId) {
-    return ServiceOrderDetailController(ref, orderId)..load();
-  },
-);
+    .family<ServiceOrderDetailController, ServiceOrderDetailState, String>((
+      ref,
+      orderId,
+    ) {
+      final controller = ServiceOrderDetailController(ref, orderId)..load();
+      final subscription = ref
+          .read(operationsRealtimeServiceProvider)
+          .stream
+          .listen((message) {
+            final directId = message.serviceId?.trim();
+            final payloadId = message.service?['id']?.toString().trim();
+            final targetId = directId != null && directId.isNotEmpty
+                ? directId
+                : payloadId;
+            if (targetId != orderId) return;
+            if (message.type == 'service.deleted') {
+              controller.refresh();
+              return;
+            }
+            controller.applyRealtimePayload(message.service);
+          });
+      ref.onDispose(subscription.cancel);
+      return controller;
+    });
 
-class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState> {
+class ServiceOrderDetailController
+    extends StateNotifier<ServiceOrderDetailState> {
   ServiceOrderDetailController(this.ref, this.orderId)
-      : super(const ServiceOrderDetailState());
+    : super(const ServiceOrderDetailState());
 
   final Ref ref;
   final String orderId;
@@ -85,6 +108,55 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
   }
 
   Future<void> load() async {
+    if (state.order == null) {
+      final listState = ref.read(serviceOrdersListControllerProvider);
+      ServiceOrderModel? seededOrder;
+      for (final item in listState.items) {
+        if (item.id == orderId) {
+          seededOrder = item;
+          break;
+        }
+      }
+      final seededClient =
+          seededOrder?.client ??
+          (seededOrder == null
+              ? null
+              : listState.clientsById[seededOrder.clientId]);
+      if (seededOrder != null) {
+        state = state.copyWith(
+          loading: false,
+          order: seededOrder,
+          client: seededClient,
+          usersById: listState.usersById,
+          clearError: true,
+          clearActionError: true,
+        );
+      }
+
+      final cachedOrder = await ref
+          .read(serviceOrdersLocalRepositoryProvider)
+          .readOrder(orderId);
+      final cachedClient =
+          cachedOrder?.client ??
+          await ref
+              .read(serviceOrdersLocalRepositoryProvider)
+              .readClientById(cachedOrder?.clientId ?? '');
+      final cachedUsers = await ref
+          .read(serviceOrdersLocalRepositoryProvider)
+          .readUsersById();
+
+      if (cachedOrder != null) {
+        state = state.copyWith(
+          loading: false,
+          order: cachedOrder,
+          client: cachedClient,
+          usersById: cachedUsers,
+          clearError: true,
+          clearActionError: true,
+        );
+      }
+    }
+
     state = state.copyWith(
       loading: state.order == null,
       working: false,
@@ -95,27 +167,36 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
       final order = await ref.read(serviceOrdersApiProvider).getOrder(orderId);
       final usersFuture = ref
           .read(usersRepositoryProvider)
-          .getAllUsers()
+          .getAllUsers(skipLoader: true)
           .catchError((_) => <UserModel>[]);
       final fallbackClientFuture = order.client != null
           ? Future<ClienteModel?>.value(order.client)
           : ref
-              .read(clientesRepositoryProvider)
-              .getClientById(ownerId: '', id: order.clientId)
-              .then<ClienteModel?>((value) => value)
-              .catchError((_) => null);
+                .read(clientesRepositoryProvider)
+                .getClientById(
+                  ownerId: '',
+                  id: order.clientId,
+                  skipLoader: true,
+                )
+                .then<ClienteModel?>((value) => value)
+                .catchError((_) => null);
       final results = await Future.wait<dynamic>([
         fallbackClientFuture,
         usersFuture,
       ]);
       final client = results[0] as ClienteModel?;
       final users = results[1] as List<UserModel>;
+      final usersById = {for (final user in users) user.id: user};
+      final mergedOrder = _mergeRemoteOrderWithLocalState(order);
       state = state.copyWith(
         loading: false,
-        order: order,
+        order: mergedOrder,
         client: client,
-        usersById: {for (final user in users) user.id: user},
+        usersById: usersById,
       );
+      await ref
+          .read(serviceOrdersLocalRepositoryProvider)
+          .saveOrder(order: mergedOrder, client: client, usersById: usersById);
     } catch (error) {
       final message = _friendlyOrderMessage(
         error,
@@ -128,6 +209,37 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
 
   Future<void> refresh() => load();
 
+  void applyRealtimePayload(Map<String, dynamic>? payload) {
+    if (payload == null) {
+      unawaited(refresh());
+      return;
+    }
+
+    try {
+      final updated = _mergeRemoteOrderWithLocalState(
+        ServiceOrderModel.fromJson(payload),
+      );
+      state = state.copyWith(
+        order: updated,
+        client: updated.client ?? state.client,
+      );
+      ref
+          .read(serviceOrdersListControllerProvider.notifier)
+          .upsertOrder(updated);
+      unawaited(
+        ref
+            .read(serviceOrdersLocalRepositoryProvider)
+            .saveOrder(
+              order: updated,
+              client: updated.client ?? state.client,
+              usersById: state.usersById,
+            ),
+      );
+    } catch (_) {
+      unawaited(refresh());
+    }
+  }
+
   Future<void> updateOperationalDetails({
     required String? technicalNote,
     required String? extraRequirements,
@@ -137,20 +249,31 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
 
     state = state.copyWith(working: true, clearActionError: true);
     try {
-      final updated = await ref.read(serviceOrdersApiProvider).updateOrder(
-        orderId,
-        UpdateServiceOrderRequest(
-          clientId: currentOrder.clientId,
-          quotationId: currentOrder.quotationId ?? '',
-          category: currentOrder.category,
-          serviceType: currentOrder.serviceType,
-          assignedToId: currentOrder.assignedToId,
-          technicalNote: technicalNote,
-          extraRequirements: extraRequirements,
-        ),
-      );
+      final updated = await ref
+          .read(serviceOrdersApiProvider)
+          .updateOrder(
+            orderId,
+            UpdateServiceOrderRequest(
+              clientId: currentOrder.clientId,
+              quotationId: currentOrder.quotationId ?? '',
+              category: currentOrder.category,
+              serviceType: currentOrder.serviceType,
+              assignedToId: currentOrder.assignedToId,
+              technicalNote: technicalNote,
+              extraRequirements: extraRequirements,
+            ),
+          );
       state = state.copyWith(working: false, order: updated);
-      ref.read(serviceOrdersListControllerProvider.notifier).upsertOrder(updated);
+      ref
+          .read(serviceOrdersListControllerProvider.notifier)
+          .upsertOrder(updated);
+      await ref
+          .read(serviceOrdersLocalRepositoryProvider)
+          .saveOrder(
+            order: updated,
+            client: updated.client ?? state.client,
+            usersById: state.usersById,
+          );
     } catch (error) {
       final message = _friendlyOrderMessage(
         error,
@@ -176,14 +299,26 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
         .replaceOrderStatus(orderId: orderId, status: status);
 
     try {
-      final updated = await ref.read(serviceOrdersApiProvider).updateStatus(orderId, status);
+      final updated = await ref
+          .read(serviceOrdersApiProvider)
+          .updateStatus(orderId, status);
       state = state.copyWith(working: false, order: updated);
-      ref.read(serviceOrdersListControllerProvider.notifier).upsertOrder(updated);
+      ref
+          .read(serviceOrdersListControllerProvider.notifier)
+          .upsertOrder(updated);
+      await ref
+          .read(serviceOrdersLocalRepositoryProvider)
+          .saveOrder(
+            order: updated,
+            client: updated.client ?? state.client,
+            usersById: state.usersById,
+          );
     } catch (error) {
       final message = _friendlyOrderMessage(
         error,
         fallback: 'No se pudo actualizar el estado',
-        forbiddenMessage: 'No tienes permiso para cambiar el estado de esta orden',
+        forbiddenMessage:
+            'No tienes permiso para cambiar el estado de esta orden',
       );
       state = state.copyWith(
         working: false,
@@ -217,10 +352,17 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
     }
 
     state = state.copyWith(clearActionError: true);
+    final cachedPath = await saveLocalMediaCopy(
+      module: 'service_orders',
+      scopeId: orderId,
+      fileName: fileName,
+      bytes: bytes,
+      sourcePath: path,
+    );
     final optimistic = _buildOptimisticEvidence(
       type: ServiceEvidenceType.evidenciaImagen,
       fileName: fileName,
-      path: path,
+      path: cachedPath ?? path,
       bytes: bytes,
     );
     _upsertOptimisticEvidence(optimistic);
@@ -228,12 +370,12 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
     unawaited(
       _enqueueUpload(() async {
         try {
-          final uploaded = await ref.read(uploadRepositoryProvider).uploadImage(
-                bytes: bytes,
-                path: path,
-                fileName: fileName,
-              );
-          final saved = await ref.read(serviceOrdersApiProvider).addEvidence(
+          final uploaded = await ref
+              .read(uploadRepositoryProvider)
+              .uploadImage(bytes: bytes, path: path, fileName: fileName);
+          final saved = await ref
+              .read(serviceOrdersApiProvider)
+              .addEvidence(
                 orderId,
                 CreateServiceOrderEvidenceRequest(
                   type: ServiceEvidenceType.evidenciaImagen,
@@ -262,10 +404,17 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
     }
 
     state = state.copyWith(clearActionError: true);
+    final cachedPath = await saveLocalMediaCopy(
+      module: 'service_orders',
+      scopeId: orderId,
+      fileName: fileName,
+      bytes: bytes,
+      sourcePath: path,
+    );
     final optimistic = _buildOptimisticEvidence(
       type: ServiceEvidenceType.evidenciaVideo,
       fileName: fileName,
-      path: path,
+      path: cachedPath ?? path,
       bytes: bytes,
     );
     _upsertOptimisticEvidence(optimistic);
@@ -273,12 +422,12 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
     unawaited(
       _enqueueUpload(() async {
         try {
-          final uploaded = await ref.read(uploadRepositoryProvider).uploadVideo(
-                fileName: fileName,
-                bytes: bytes,
-                path: path,
-              );
-          final saved = await ref.read(serviceOrdersApiProvider).addEvidence(
+          final uploaded = await ref
+              .read(uploadRepositoryProvider)
+              .uploadVideo(fileName: fileName, bytes: bytes, path: path);
+          final saved = await ref
+              .read(serviceOrdersApiProvider)
+              .addEvidence(
                 orderId,
                 CreateServiceOrderEvidenceRequest(
                   type: ServiceEvidenceType.evidenciaVideo,
@@ -305,7 +454,8 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
       final message = _friendlyOrderMessage(
         error,
         fallback: 'No se pudo guardar el reporte',
-        forbiddenMessage: 'No tienes permiso para agregar reportes en esta orden',
+        forbiddenMessage:
+            'No tienes permiso para agregar reportes en esta orden',
       );
       state = state.copyWith(working: false, actionError: message);
       rethrow;
@@ -321,7 +471,8 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
       final message = _friendlyOrderMessage(
         error,
         fallback: 'No se pudo guardar la evidencia',
-        forbiddenMessage: 'No tienes permiso para agregar evidencias en esta orden',
+        forbiddenMessage:
+            'No tienes permiso para agregar evidencias en esta orden',
       );
       state = state.copyWith(working: false, actionError: message);
       rethrow;
@@ -329,9 +480,7 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
   }
 
   Future<void> _enqueueUpload(Future<void> Function() task) {
-    _uploadQueue = _uploadQueue
-        .then((_) => task())
-        .catchError((_) {});
+    _uploadQueue = _uploadQueue.then((_) => task()).catchError((_) {});
     return _uploadQueue;
   }
 
@@ -359,10 +508,21 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
   void _upsertOptimisticEvidence(ServiceOrderEvidenceModel item) {
     final order = state.order;
     if (order == null) return;
-    final next = List<ServiceOrderEvidenceModel>.from(order.evidences)..add(item);
-    state = state.copyWith(
-      order: order.copyWith(evidences: next),
-      clearActionError: true,
+    final next = List<ServiceOrderEvidenceModel>.from(order.evidences)
+      ..add(item);
+    final updatedOrder = order.copyWith(evidences: next);
+    state = state.copyWith(order: updatedOrder, clearActionError: true);
+    ref
+        .read(serviceOrdersListControllerProvider.notifier)
+        .upsertOrder(updatedOrder);
+    unawaited(
+      ref
+          .read(serviceOrdersLocalRepositoryProvider)
+          .saveOrder(
+            order: updatedOrder,
+            client: updatedOrder.client ?? state.client,
+            usersById: state.usersById,
+          ),
     );
   }
 
@@ -372,12 +532,36 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
   }) {
     final order = state.order;
     if (order == null) return;
-    final next = order.evidences
-        .map((evidence) => evidence.id == temporaryId ? persisted : evidence)
-        .toList(growable: false);
+    final next = <ServiceOrderEvidenceModel>[];
+    final seenIds = <String>{};
+    for (final evidence in order.evidences) {
+      final resolved = evidence.id == temporaryId
+          ? persisted.copyWith(
+              localPath: evidence.localPath,
+              previewBytes: evidence.previewBytes,
+              fileName: evidence.fileName,
+              isPendingUpload: false,
+              hasUploadError: false,
+            )
+          : evidence;
+      if (seenIds.add(resolved.id)) {
+        next.add(resolved);
+      }
+    }
     final updatedOrder = order.copyWith(evidences: next);
     state = state.copyWith(order: updatedOrder, clearActionError: true);
-    ref.read(serviceOrdersListControllerProvider.notifier).upsertOrder(updatedOrder);
+    ref
+        .read(serviceOrdersListControllerProvider.notifier)
+        .upsertOrder(updatedOrder);
+    unawaited(
+      ref
+          .read(serviceOrdersLocalRepositoryProvider)
+          .saveOrder(
+            order: updatedOrder,
+            client: updatedOrder.client ?? state.client,
+            usersById: state.usersById,
+          ),
+    );
   }
 
   void _markEvidenceUploadFailed(String temporaryId, String message) {
@@ -386,16 +570,48 @@ class ServiceOrderDetailController extends StateNotifier<ServiceOrderDetailState
     final next = order.evidences
         .map(
           (evidence) => evidence.id == temporaryId
-              ? evidence.copyWith(
-                  isPendingUpload: false,
-                  hasUploadError: true,
-                )
+              ? evidence.copyWith(isPendingUpload: false, hasUploadError: true)
               : evidence,
         )
         .toList(growable: false);
-    state = state.copyWith(
-      order: order.copyWith(evidences: next),
-      actionError: message,
+    final updatedOrder = order.copyWith(evidences: next);
+    state = state.copyWith(order: updatedOrder, actionError: message);
+    ref
+        .read(serviceOrdersListControllerProvider.notifier)
+        .upsertOrder(updatedOrder);
+    unawaited(
+      ref
+          .read(serviceOrdersLocalRepositoryProvider)
+          .saveOrder(
+            order: updatedOrder,
+            client: updatedOrder.client ?? state.client,
+            usersById: state.usersById,
+          ),
     );
+  }
+
+  ServiceOrderModel _mergeRemoteOrderWithLocalState(ServiceOrderModel remote) {
+    final localOrder = state.order;
+    if (localOrder == null) return remote;
+
+    final localOnlyEvidence = localOrder.evidences
+        .where((evidence) {
+          return evidence.isPendingUpload || evidence.hasUploadError;
+        })
+        .toList(growable: false);
+
+    if (localOnlyEvidence.isEmpty) {
+      return remote;
+    }
+
+    final next = List<ServiceOrderEvidenceModel>.from(remote.evidences);
+    final seenIds = {for (final evidence in next) evidence.id};
+    for (final evidence in localOnlyEvidence) {
+      if (seenIds.add(evidence.id)) {
+        next.add(evidence);
+      }
+    }
+    next.sort((left, right) => left.createdAt.compareTo(right.createdAt));
+    return remote.copyWith(evidences: next);
   }
 }

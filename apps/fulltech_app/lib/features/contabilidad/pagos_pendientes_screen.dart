@@ -5,8 +5,8 @@ import 'package:printing/printing.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/auth/role_permissions.dart';
-import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import 'data/contabilidad_repository.dart';
 import 'models/payable_models.dart';
 import 'utils/payable_payment_pdf_service.dart';
@@ -581,10 +581,16 @@ class _PagosPendientesScreenState extends ConsumerState<PagosPendientesScreen> {
 
     if (!canUseModule) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Pagos pendientes'),
-          backgroundColor: AppTheme.primaryColor,
-          foregroundColor: Colors.white,
+        appBar: CustomAppBar(
+          title: 'Pagos pendientes',
+          showLogo: false,
+          actions: [
+            IconButton(
+              tooltip: 'Actualizar',
+              onPressed: _loading ? null : _load,
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+          ],
         ),
         drawer: buildAdaptiveDrawer(context, currentUser: user),
         body: const Center(
@@ -601,10 +607,16 @@ class _PagosPendientesScreenState extends ConsumerState<PagosPendientesScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Pagos pendientes'),
-        backgroundColor: AppTheme.primaryColor,
-        foregroundColor: Colors.white,
+      appBar: CustomAppBar(
+        title: 'Pagos pendientes',
+        showLogo: false,
+        actions: [
+          IconButton(
+            tooltip: 'Actualizar',
+            onPressed: _loading ? null : _load,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
       ),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: RefreshIndicator(

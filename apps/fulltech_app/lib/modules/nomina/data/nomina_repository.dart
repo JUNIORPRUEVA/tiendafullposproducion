@@ -7,6 +7,7 @@ import '../../../core/api/api_routes.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/auth/auth_repository.dart';
 import '../../../core/errors/api_exception.dart';
+import 'nomina_database_helper.dart';
 import '../nomina_models.dart';
 
 final nominaRepositoryProvider = Provider<NominaRepository>((ref) {
@@ -21,6 +22,8 @@ class NominaRepository {
 
   final Ref ref;
   final Dio _dio;
+
+  NominaDatabaseHelper get _localDb => NominaDatabaseHelper.instance;
 
   String get _currentUserId =>
       (ref.read(authStateProvider).user?.id ?? '').trim();
@@ -241,6 +244,19 @@ class NominaRepository {
     } on TypeError {
       throw ApiException(_invalidResponseMessage('consultar Mis Pagos'));
     }
+  }
+
+  Future<List<PayrollHistoryItem>> getCachedMyPayrollHistory() async {
+    if (_currentUserId.isEmpty) return const [];
+    return _localDb.listCachedPayrollHistoryForUser(_currentUserId);
+  }
+
+  Future<List<PayrollHistoryItem>> listMyPayrollHistoryAndCache() async {
+    final rows = await listMyPayrollHistory();
+    if (_currentUserId.isNotEmpty) {
+      await _localDb.replaceCachedPayrollHistoryForUser(_currentUserId, rows);
+    }
+    return rows;
   }
 
   Future<double> getCuotaMinimaForUser() async {

@@ -5,6 +5,7 @@ import '../../core/auth/app_permissions.dart';
 import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import '../../core/errors/api_exception.dart';
 import 'company_manual_models.dart';
 import 'company_manual_repository.dart';
@@ -45,19 +46,31 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
         user != null &&
         hasPermission(user.appRole, AppPermission.manageCompanyManual);
 
+    final repo = ref.read(companyManualRepositoryProvider);
+    final cachedItems = await repo.getCachedEntries(includeHidden: canManage);
+
+    if (mounted && cachedItems.isNotEmpty) {
+      final cachedSelectedId =
+          cachedItems.any((item) => item.id == _selectedEntryId)
+          ? _selectedEntryId
+          : cachedItems.first.id;
+      setState(() {
+        _entries = cachedItems;
+        _loading = false;
+        _error = null;
+        _selectedEntryId = cachedSelectedId;
+      });
+    }
+
     if (mounted) {
       setState(() {
-        _loading = true;
+        _loading = _entries.isEmpty;
         _error = null;
       });
     }
 
     try {
-      final repo = ref.read(companyManualRepositoryProvider);
-      final items = await repo.listEntries(
-        kind: _kindFilter,
-        includeHidden: canManage,
-      );
+      final items = await repo.listEntriesAndCache(includeHidden: canManage);
 
       DateTime? latest;
       for (final item in items) {
@@ -92,9 +105,14 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
   }
 
   List<CompanyManualEntry> get _visibleEntries {
+    final filteredByKind = _kindFilter == null
+        ? _entries
+        : _entries
+              .where((item) => item.kind == _kindFilter)
+              .toList(growable: false);
     final query = _searchCtrl.text.trim().toLowerCase();
-    if (query.isEmpty) return _entries;
-    return _entries
+    if (query.isEmpty) return filteredByKind;
+    return filteredByKind
         .where((item) {
           return item.title.toLowerCase().contains(query) ||
               (item.summary ?? '').toLowerCase().contains(query) ||
@@ -224,24 +242,27 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
     final canManage =
         user != null &&
         hasPermission(user.appRole, AppPermission.manageCompanyManual);
+    final isMobile = MediaQuery.sizeOf(context).width < 980;
     final entries = _visibleEntries;
     final sections = _buildSections(entries);
     final selectedEntry = _resolveSelectedEntry(entries);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Manual Interno'),
+      appBar: CustomAppBar(
+        title: 'Manual Interno',
+        showLogo: false,
+        darkerTone: true,
         actions: [
           IconButton(
             tooltip: 'Recargar',
             onPressed: _loading ? null : _loadEntries,
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh_rounded),
           ),
           if (canManage)
             IconButton(
               tooltip: 'Nueva entrada',
               onPressed: () => _openEditor(),
-              icon: const Icon(Icons.add),
+              icon: const Icon(Icons.add_rounded),
             ),
         ],
       ),
@@ -252,7 +273,7 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Theme.of(context).colorScheme.primary.withValues(alpha: 0.07),
+              Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
               Theme.of(context).scaffoldBackgroundColor,
               Theme.of(context).colorScheme.surface,
             ],
@@ -261,63 +282,23 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: _ManualOverviewHeader(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+              child: _ManualTopPanel(
                 totalTopics: entries.length,
                 totalSections: sections.length,
-                selectedFilter: _kindFilter?.label ?? 'Todo el manual',
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: TextField(
-                controller: _searchCtrl,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  hintText: 'Buscar reglas, políticas, guías o módulos...',
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: _searchCtrl.text.isEmpty
-                      ? null
-                      : IconButton(
-                          onPressed: () {
-                            _searchCtrl.clear();
-                            setState(() {});
-                          },
-                          icon: const Icon(Icons.close),
-                        ),
-                ),
-              ),
-            ),
-            SizedBox(
-              height: 52,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: const Text('Todo'),
-                      selected: _kindFilter == null,
-                      onSelected: (_) {
-                        setState(() => _kindFilter = null);
-                        _loadEntries();
-                      },
-                    ),
-                  ),
-                  for (final kind in CompanyManualEntryKind.values)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(kind.label),
-                        selected: _kindFilter == kind,
-                        onSelected: (_) {
-                          setState(() => _kindFilter = kind);
-                          _loadEntries();
-                        },
-                      ),
-                    ),
-                ],
+                selectedFilter: _kindFilter?.label ?? 'Todo',
+                searchController: _searchCtrl,
+                isMobile: isMobile,
+                onChangedSearch: () => setState(() {}),
+                onClearSearch: () {
+                  _searchCtrl.clear();
+                  setState(() {});
+                },
+                onPickFilter: (kind) {
+                  setState(() {
+                    _kindFilter = kind;
+                  });
+                },
               ),
             ),
             Expanded(
@@ -380,139 +361,297 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
   }
 }
 
-class _ManualOverviewHeader extends StatelessWidget {
-  const _ManualOverviewHeader({
+class _ManualTopPanel extends StatelessWidget {
+  const _ManualTopPanel({
     required this.totalTopics,
     required this.totalSections,
     required this.selectedFilter,
+    required this.searchController,
+    required this.isMobile,
+    required this.onChangedSearch,
+    required this.onClearSearch,
+    required this.onPickFilter,
   });
 
   final int totalTopics;
   final int totalSections;
   final String selectedFilter;
+  final TextEditingController searchController;
+  final bool isMobile;
+  final VoidCallback onChangedSearch;
+  final VoidCallback onClearSearch;
+  final ValueChanged<CompanyManualEntryKind?> onPickFilter;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final compactStats = '$totalTopics temas en $totalSections secciones';
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.fromLTRB(16, isMobile ? 14 : 18, 16, 16),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(28),
         gradient: LinearGradient(
-          colors: [scheme.primary, const Color(0xFF0F172A)],
+          colors: [
+            scheme.primary.withValues(alpha: 0.13),
+            scheme.surface,
+            const Color(0xFFF8FBFF),
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.7)),
         boxShadow: [
           BoxShadow(
-            color: scheme.primary.withValues(alpha: 0.18),
-            blurRadius: 24,
-            offset: const Offset(0, 12),
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
-      child: Wrap(
-        runSpacing: 16,
-        spacing: 16,
-        alignment: WrapAlignment.spaceBetween,
-        crossAxisAlignment: WrapCrossAlignment.center,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Manual interno por secciones',
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Explora los temas por tarjetas, entra al detalle y consulta cada regla o guía con más claridad.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.82),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
+          Row(
             children: [
-              _ManualMetricChip(
-                icon: Icons.layers_outlined,
-                label: 'Secciones',
-                value: '$totalSections',
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Manual interno',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        color: scheme.onSurface,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    if (isMobile)
+                      Text(
+                        compactStats,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      )
+                    else
+                      Text(
+                        'Reglas, guías y políticas en una vista clara y rápida.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          fontSize: 12.8,
+                          height: 1.35,
+                        ),
+                      ),
+                  ],
+                ),
               ),
-              _ManualMetricChip(
-                icon: Icons.article_outlined,
-                label: 'Temas',
-                value: '$totalTopics',
+              if (!isMobile)
+                _ManualSummaryPill(
+                  icon: Icons.layers_outlined,
+                  label: '$totalSections secciones',
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _ManualSearchField(
+                  controller: searchController,
+                  compact: isMobile,
+                  onChanged: onChangedSearch,
+                  onClear: onClearSearch,
+                ),
               ),
-              _ManualMetricChip(
-                icon: Icons.tune_outlined,
-                label: 'Filtro',
-                value: selectedFilter,
+              const SizedBox(width: 10),
+              _ManualFilterMenuButton(
+                selectedFilter: selectedFilter,
+                compact: isMobile,
+                onSelected: onPickFilter,
               ),
             ],
           ),
+          if (!isMobile) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _ManualSummaryPill(
+                  icon: Icons.article_outlined,
+                  label: '$totalTopics temas',
+                ),
+                _ManualSummaryPill(
+                  icon: Icons.tune_rounded,
+                  label: selectedFilter,
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _ManualMetricChip extends StatelessWidget {
-  const _ManualMetricChip({
-    required this.icon,
-    required this.label,
-    required this.value,
+class _ManualSearchField extends StatelessWidget {
+  const _ManualSearchField({
+    required this.controller,
+    required this.compact,
+    required this.onChanged,
+    required this.onClear,
   });
 
-  final IconData icon;
-  final String label;
-  final String value;
+  final TextEditingController controller;
+  final bool compact;
+  final VoidCallback onChanged;
+  final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return TextField(
+      controller: controller,
+      onChanged: (_) => onChanged(),
+      style: theme.textTheme.bodyMedium?.copyWith(fontSize: compact ? 13 : 14),
+      decoration: InputDecoration(
+        hintText: 'Buscar en el manual',
+        isDense: true,
+        filled: true,
+        fillColor: scheme.surface.withValues(alpha: 0.9),
+        prefixIcon: Icon(Icons.search_rounded, size: compact ? 18 : 20),
+        suffixIcon: controller.text.isEmpty
+            ? null
+            : IconButton(
+                onPressed: onClear,
+                icon: const Icon(Icons.close_rounded),
+                visualDensity: VisualDensity.compact,
+              ),
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: compact ? 12 : 14,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: scheme.outlineVariant),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: scheme.outlineVariant),
+        ),
+      ),
+    );
+  }
+}
+
+class _ManualFilterMenuButton extends StatelessWidget {
+  const _ManualFilterMenuButton({
+    required this.selectedFilter,
+    required this.compact,
+    required this.onSelected,
+  });
+
+  final String selectedFilter;
+  final bool compact;
+  final ValueChanged<CompanyManualEntryKind?> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final displayLabel = selectedFilter == 'Todo' ? 'Filtro' : selectedFilter;
+    return PopupMenuButton<CompanyManualEntryKind?>(
+      tooltip: 'Filtrar',
+      onSelected: onSelected,
+      itemBuilder: (context) => [
+        const PopupMenuItem<CompanyManualEntryKind?>(
+          value: null,
+          child: Text('Todo'),
+        ),
+        ...CompanyManualEntryKind.values.map(
+          (kind) => PopupMenuItem<CompanyManualEntryKind?>(
+            value: kind,
+            child: Text(kind.label),
+          ),
+        ),
+      ],
+      child: Container(
+        constraints: BoxConstraints(minWidth: compact ? 112 : 136),
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 12 : 14,
+          vertical: compact ? 12 : 13,
+        ),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: scheme.outlineVariant),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.tune_rounded,
+              size: compact ? 18 : 19,
+              color: scheme.primary,
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                displayLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  fontSize: compact ? 12.6 : 13.2,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: compact ? 18 : 20,
+              color: scheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ManualSummaryPill extends StatelessWidget {
+  const _ManualSummaryPill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        color: scheme.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.14)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: Colors.white, size: 18),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                label,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.75),
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                value,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
+          Icon(icon, color: scheme.primary, size: 15),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: scheme.primary,
+              fontWeight: FontWeight.w700,
+              height: 1,
+            ),
           ),
         ],
       ),
@@ -588,10 +727,9 @@ class _ManualDesktopSplitView extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      _ManualMetricChip(
+                      _ManualSummaryPill(
                         icon: Icons.article_outlined,
-                        label: 'Visibles',
-                        value: '${entries.length}',
+                        label: '${entries.length} visibles',
                       ),
                     ],
                   ),
@@ -864,7 +1002,7 @@ class _ManualSectionsList extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
       itemCount: sections.length,
       itemBuilder: (context, index) {
         final section = sections[index];
@@ -911,15 +1049,15 @@ class _ManualSectionHeader extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          width: 44,
-          height: 44,
+          width: 38,
+          height: 38,
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(12),
           ),
-          child: Icon(section.icon, color: color),
+          child: Icon(section.icon, color: color, size: 19),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -928,12 +1066,14 @@ class _ManualSectionHeader extends StatelessWidget {
                 section.title,
                 style: Theme.of(
                   context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 3),
               Text(
                 '${section.entries.length} temas. ${section.description}',
-                style: Theme.of(context).textTheme.bodyMedium,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(height: 1.35),
               ),
             ],
           ),
@@ -972,15 +1112,15 @@ class _ManualTopicCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(22),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: isSelected
                 ? scheme.primary.withValues(alpha: 0.08)
                 : scheme.surface,
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(22),
             border: Border.all(
               color: isSelected
                   ? scheme.primary.withValues(alpha: 0.45)
@@ -990,8 +1130,8 @@ class _ManualTopicCard extends StatelessWidget {
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 18,
-                offset: const Offset(0, 10),
+                blurRadius: 14,
+                offset: const Offset(0, 8),
               ),
             ],
           ),
@@ -1009,13 +1149,13 @@ class _ManualTopicCard extends StatelessWidget {
                           entry.title,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium
+                          style: Theme.of(context).textTheme.titleSmall
                               ?.copyWith(fontWeight: FontWeight.w800),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 6),
                         Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
+                          spacing: 6,
+                          runSpacing: 6,
                           children: [
                             _ManualTag(label: entry.kind.label),
                             _ManualTag(label: entry.audience.label),
@@ -1047,39 +1187,44 @@ class _ManualTopicCard extends StatelessWidget {
                 ],
               ),
               if (entry.summary != null && entry.summary!.isNotEmpty) ...[
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 Text(
                   entry.summary!,
-                  maxLines: 3,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: scheme.onSurface.withValues(alpha: 0.72),
                     fontWeight: FontWeight.w600,
+                    height: 1.35,
                   ),
                 ),
               ],
               if (roles.isNotEmpty) ...[
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 Text(
                   'Aplica a: $roles',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ],
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Row(
                 children: [
                   Expanded(
                     child: Text(
                       'Actualizado ${formatDate(updatedAt)}',
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Text(
                     'Ver detalle',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
                       color: scheme.primary,
                       fontWeight: FontWeight.w700,
                     ),
@@ -1108,7 +1253,7 @@ class _ManualTag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
@@ -1118,6 +1263,7 @@ class _ManualTag extends StatelessWidget {
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
           color: Theme.of(context).colorScheme.primary,
           fontWeight: FontWeight.w700,
+          fontSize: 11,
         ),
       ),
     );
@@ -1131,6 +1277,7 @@ class _ManualEntryDetailPane extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     required this.formatDate,
+    this.scrollableBody = true,
   });
 
   final CompanyManualEntry? entry;
@@ -1138,10 +1285,12 @@ class _ManualEntryDetailPane extends StatelessWidget {
   final Future<bool> Function()? onEdit;
   final Future<bool> Function()? onDelete;
   final String Function(DateTime? value) formatDate;
+  final bool scrollableBody;
 
   @override
   Widget build(BuildContext context) {
     final selectedEntry = entry;
+    final isCompact = MediaQuery.sizeOf(context).width < 700;
     if (selectedEntry == null) {
       return const _ManualEmptyDetail();
     }
@@ -1149,7 +1298,7 @@ class _ManualEntryDetailPane extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(30),
         border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
         boxShadow: [
           BoxShadow(
@@ -1167,14 +1316,21 @@ class _ManualEntryDetailPane extends StatelessWidget {
             onEdit: onEdit,
             onDelete: onDelete,
             formatDate: formatDate,
+            compact: isCompact,
           ),
           const Divider(height: 1),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
+          if (scrollableBody)
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.all(isCompact ? 18 : 24),
+                child: _ManualEntryBody(entry: selectedEntry),
+              ),
+            )
+          else
+            Padding(
+              padding: EdgeInsets.all(isCompact ? 18 : 24),
               child: _ManualEntryBody(entry: selectedEntry),
             ),
-          ),
         ],
       ),
     );
@@ -1188,6 +1344,7 @@ class _ManualDetailHeader extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     required this.formatDate,
+    required this.compact,
   });
 
   final CompanyManualEntry entry;
@@ -1195,6 +1352,7 @@ class _ManualDetailHeader extends StatelessWidget {
   final Future<bool> Function()? onEdit;
   final Future<bool> Function()? onDelete;
   final String Function(DateTime? value) formatDate;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -1202,69 +1360,63 @@ class _ManualDetailHeader extends StatelessWidget {
     final updatedAt = entry.updatedAt ?? entry.createdAt;
 
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.fromLTRB(
+        20,
+        compact ? 18 : 20,
+        20,
+        compact ? 14 : 16,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      entry.title,
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _ManualTag(label: entry.kind.label),
-                        _ManualTag(label: entry.audience.label),
-                        if (entry.moduleKey != null &&
-                            entry.moduleKey!.isNotEmpty)
-                          _ManualTag(label: 'Módulo ${entry.moduleKey}'),
-                        if (roles.isNotEmpty) _ManualTag(label: 'Roles $roles'),
-                        if (!entry.published) const _ManualTag(label: 'Oculto'),
-                      ],
-                    ),
-                  ],
+                child: Text(
+                  entry.title,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.2,
+                    fontSize: compact ? 21 : null,
+                  ),
                 ),
               ),
               if (canManage)
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: onEdit == null
-                          ? null
-                          : () async {
-                              await onEdit!.call();
-                            },
-                      icon: const Icon(Icons.edit_outlined),
-                      label: const Text('Editar'),
-                    ),
-                    FilledButton.icon(
-                      onPressed: onDelete == null
-                          ? null
-                          : () async {
-                              await onDelete!.call();
-                            },
-                      icon: const Icon(Icons.delete_outline),
-                      label: const Text('Eliminar'),
-                    ),
+                PopupMenuButton<String>(
+                  onSelected: (value) async {
+                    if (value == 'edit' && onEdit != null) {
+                      await onEdit!.call();
+                    }
+                    if (value == 'delete' && onDelete != null) {
+                      await onDelete!.call();
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 'edit', child: Text('Editar')),
+                    PopupMenuItem(value: 'delete', child: Text('Eliminar')),
                   ],
                 ),
             ],
           ),
-          const SizedBox(height: 14),
+          SizedBox(height: compact ? 8 : 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _ManualTag(label: entry.kind.label),
+              _ManualTag(label: entry.audience.label),
+              if (entry.moduleKey != null && entry.moduleKey!.isNotEmpty)
+                _ManualTag(label: 'Módulo ${entry.moduleKey}'),
+              if (roles.isNotEmpty) _ManualTag(label: 'Roles $roles'),
+              if (!entry.published) const _ManualTag(label: 'Oculto'),
+            ],
+          ),
+          SizedBox(height: compact ? 10 : 12),
           Text(
             'Última actualización ${formatDate(updatedAt)}',
-            style: Theme.of(context).textTheme.bodySmall,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       ),
@@ -1279,31 +1431,38 @@ class _ManualEntryBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isCompact = MediaQuery.sizeOf(context).width < 700;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (entry.summary != null && entry.summary!.isNotEmpty) ...[
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(18),
+            padding: EdgeInsets.all(isCompact ? 14 : 16),
             decoration: BoxDecoration(
               color: Theme.of(
                 context,
               ).colorScheme.primary.withValues(alpha: 0.07),
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(18),
             ),
             child: Text(
               entry.summary!,
-              style: Theme.of(
-                context,
-              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                fontSize: isCompact ? 13 : 13.4,
+                height: 1.45,
+              ),
             ),
           ),
-          const SizedBox(height: 18),
+          SizedBox(height: isCompact ? 14 : 16),
         ],
         SelectableText(
           entry.content,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.65),
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            height: 1.72,
+            fontSize: isCompact ? 13 : 13.4,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
         ),
       ],
     );
@@ -1379,32 +1538,102 @@ class _ManualEntryDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Detalle del manual'),
-        actions: [
-          if (canManage && onEdit != null)
-            IconButton(
-              tooltip: 'Editar',
-              onPressed: () async => onEdit!.call(),
-              icon: const Icon(Icons.edit_outlined),
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      body: Stack(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+                  Theme.of(context).colorScheme.surface,
+                  Theme.of(context).colorScheme.surfaceContainerLowest,
+                ],
+              ),
             ),
-          if (canManage && onDelete != null)
-            IconButton(
-              tooltip: 'Eliminar',
-              onPressed: () async => onDelete!.call(),
-              icon: const Icon(Icons.delete_outline),
+          ),
+          SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 72, 16, 20),
+              child: _ManualEntryDetailPane(
+                entry: entry,
+                canManage: false,
+                onEdit: null,
+                onDelete: null,
+                formatDate: _formatDate,
+                scrollableBody: false,
+              ),
             ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+              child: Row(
+                children: [
+                  _FloatingDetailAction(
+                    icon: Icons.arrow_back_rounded,
+                    tooltip: 'Regresar',
+                    onTap: () => Navigator.of(context).maybePop(),
+                  ),
+                  const Spacer(),
+                  if (canManage && onEdit != null)
+                    _FloatingDetailAction(
+                      icon: Icons.edit_outlined,
+                      tooltip: 'Editar',
+                      onTap: () async => onEdit!.call(),
+                    ),
+                  if (canManage && onDelete != null) ...[
+                    const SizedBox(width: 8),
+                    _FloatingDetailAction(
+                      icon: Icons.delete_outline,
+                      tooltip: 'Eliminar',
+                      onTap: () async => onDelete!.call(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
         ],
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: _ManualEntryDetailPane(
-            entry: entry,
-            canManage: false,
-            onEdit: null,
-            onDelete: null,
-            formatDate: _formatDate,
+    );
+  }
+}
+
+class _FloatingDetailAction extends StatelessWidget {
+  const _FloatingDetailAction({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: scheme.surface.withValues(alpha: 0.92),
+        elevation: 6,
+        shadowColor: Colors.black.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onTap,
+          child: Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: scheme.outlineVariant),
+            ),
+            child: Icon(icon, size: 20, color: scheme.onSurface),
           ),
         ),
       ),

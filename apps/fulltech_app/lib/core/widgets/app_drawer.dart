@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../auth/auth_provider.dart';
+import '../auth/app_role.dart';
 import '../models/user_model.dart';
 import '../routing/routes.dart';
+import '../theme/role_branding.dart';
 import 'app_navigation.dart';
 
 class AppDrawer extends ConsumerWidget {
@@ -15,71 +17,102 @@ class AppDrawer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final sections = buildAppNavigationSections(ref, currentUser);
-    final colorScheme = Theme.of(context).colorScheme;
     final theme = Theme.of(context);
     final mediaQuery = MediaQuery.of(context);
     final isCompactMobile = mediaQuery.size.width < 390;
     final location = safeCurrentLocation(context);
-
-    // Deep professional blue, consistent with desktop sidebar (theme-based).
-    final deepBlue = Color.alphaBlend(
-      colorScheme.primary.withValues(alpha: 0.86),
-      colorScheme.tertiary,
-    );
-    final base = Color.alphaBlend(
-      colorScheme.secondary.withValues(alpha: 0.08),
-      deepBlue,
-    );
-    final onBase = colorScheme.onPrimary;
+    final role =
+        currentUser?.appRole ??
+        ref.watch(authStateProvider).user?.appRole ??
+        AppRole.unknown;
+    final branding = resolveRoleBranding(role);
+    const onBase = Colors.white;
 
     final panelShadow = BoxShadow(
-      color: theme.colorScheme.shadow.withValues(alpha: 0.10),
-      blurRadius: 20,
+      color: branding.tertiary.withValues(alpha: 0.14),
+      blurRadius: 26,
       offset: const Offset(6, 0),
     );
 
     return Drawer(
       child: DecoratedBox(
-        decoration: BoxDecoration(color: base, boxShadow: [panelShadow]),
+        decoration: BoxDecoration(
+          gradient: branding.drawerGradient,
+          boxShadow: [panelShadow],
+        ),
         child: SafeArea(
           child: Column(
             children: [
               Padding(
                 padding: EdgeInsets.fromLTRB(
-                  isCompactMobile ? 10 : 14,
+                  isCompactMobile ? 12 : 16,
+                  isCompactMobile ? 12 : 16,
+                  isCompactMobile ? 12 : 16,
                   isCompactMobile ? 10 : 12,
-                  isCompactMobile ? 10 : 14,
-                  isCompactMobile ? 6 : 8,
                 ),
                 child: Container(
                   width: double.infinity,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isCompactMobile ? 9 : 10,
-                    vertical: isCompactMobile ? 7 : 8,
+                  padding: EdgeInsets.fromLTRB(
+                    isCompactMobile ? 12 : 16,
+                    isCompactMobile ? 12 : 16,
+                    isCompactMobile ? 12 : 16,
+                    isCompactMobile ? 12 : 16,
                   ),
                   decoration: BoxDecoration(
-                    color: onBase.withValues(alpha: 0.06),
-                    borderRadius: BorderRadius.circular(
-                      isCompactMobile ? 9 : 10,
-                    ),
+                    color: onBase.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(24),
                     border: Border.all(color: onBase.withValues(alpha: 0.10)),
                   ),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        Icons.business_rounded,
-                        color: onBase,
-                        size: isCompactMobile ? 15 : 16,
+                      Text(
+                        'FULLTECH',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          color: onBase,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.1,
+                        ),
                       ),
-                      SizedBox(width: isCompactMobile ? 6 : 8),
-                      Expanded(
+                      const SizedBox(height: 4),
+                      Text(
+                        branding.departmentName,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: onBase.withValues(alpha: 0.94),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        branding.departmentAccentLabel,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: onBase.withValues(alpha: 0.78),
+                          height: 1.35,
+                        ),
+                      ),
+                      SizedBox(height: isCompactMobile ? 12 : 14),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: onBase.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: onBase.withValues(alpha: 0.10),
+                          ),
+                        ),
                         child: Text(
-                          'FULLTECH, SRL',
-                          style: TextStyle(
+                          currentUser?.nombreCompleto.trim().isNotEmpty == true
+                              ? currentUser!.nombreCompleto
+                              : branding.departmentName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelLarge?.copyWith(
                             color: onBase,
-                            fontSize: isCompactMobile ? 12 : 13,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.1,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
                       ),
@@ -119,41 +152,68 @@ class AppDrawer extends ConsumerWidget {
               Divider(height: 1, color: onBase.withValues(alpha: 0.12)),
               Padding(
                 padding: EdgeInsets.fromLTRB(
+                  isCompactMobile ? 10 : 12,
                   isCompactMobile ? 8 : 10,
-                  isCompactMobile ? 2 : 4,
-                  isCompactMobile ? 8 : 10,
-                  isCompactMobile ? 8 : 10,
+                  isCompactMobile ? 10 : 12,
+                  isCompactMobile ? 12 : 14,
                 ),
-                child: Row(
+                child: Column(
                   children: [
-                    Expanded(
-                      child: _DrawerMenuItem(
-                        icon: Icons.badge_outlined,
-                        title: 'Perfil',
-                        compact: isCompactMobile,
-                        selected: isNavigationRouteActive(
-                          location,
-                          Routes.profile,
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: onBase.withValues(alpha: 0.07),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: onBase.withValues(alpha: 0.10),
                         ),
-                        onTap: () {
-                          Navigator.pop(context);
-                          context.go(Routes.profile);
-                        },
+                      ),
+                      child: Text(
+                        branding.departmentName,
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: onBase.withValues(alpha: 0.92),
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
-                    IconButton(
-                      tooltip: 'Cerrar sesión',
-                      onPressed: () async {
-                        Navigator.pop(context);
-                        await ref.read(authStateProvider.notifier).logout();
-                        if (context.mounted) {
-                          context.go(Routes.login);
-                        }
-                      },
-                      icon: Icon(
-                        Icons.logout_rounded,
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _DrawerMenuItem(
+                            icon: Icons.badge_outlined,
+                            title: 'Perfil',
+                            compact: isCompactMobile,
+                            selected: isNavigationRouteActive(
+                              location,
+                              Routes.profile,
+                            ),
+                            onTap: () {
+                              Navigator.pop(context);
+                              context.go(Routes.profile);
+                            },
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Cerrar sesion',
+                          onPressed: () async {
+                            Navigator.pop(context);
+                            await ref.read(authStateProvider.notifier).logout();
+                            if (context.mounted) {
+                              context.go(Routes.login);
+                            }
+                          },
+                          icon: Icon(
+                            Icons.logout_rounded,
+                            color: onBase.withValues(alpha: 0.92),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

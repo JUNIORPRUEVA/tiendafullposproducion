@@ -174,6 +174,67 @@ class CompanyManualEntry {
     );
   }
 
+  CompanyManualEntry copyWith({
+    String? id,
+    String? ownerId,
+    String? title,
+    String? summary,
+    bool clearSummary = false,
+    String? content,
+    CompanyManualEntryKind? kind,
+    CompanyManualAudience? audience,
+    List<AppRole>? targetRoles,
+    String? moduleKey,
+    bool clearModuleKey = false,
+    bool? published,
+    int? sortOrder,
+    String? createdByUserId,
+    String? updatedByUserId,
+    bool clearUpdatedByUserId = false,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return CompanyManualEntry(
+      id: id ?? this.id,
+      ownerId: ownerId ?? this.ownerId,
+      title: title ?? this.title,
+      summary: clearSummary ? null : (summary ?? this.summary),
+      content: content ?? this.content,
+      kind: kind ?? this.kind,
+      audience: audience ?? this.audience,
+      targetRoles: targetRoles ?? this.targetRoles,
+      moduleKey: clearModuleKey ? null : (moduleKey ?? this.moduleKey),
+      published: published ?? this.published,
+      sortOrder: sortOrder ?? this.sortOrder,
+      createdByUserId: createdByUserId ?? this.createdByUserId,
+      updatedByUserId: clearUpdatedByUserId
+          ? null
+          : (updatedByUserId ?? this.updatedByUserId),
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'ownerId': ownerId,
+      'title': title,
+      'summary': summary,
+      'content': content,
+      'kind': kind.apiValue,
+      'audience': audience.apiValue,
+      'targetRoles': targetRoles.map(toApiRole).where((e) => e.isNotEmpty).toList(growable: false),
+      'moduleKey': moduleKey,
+      'published': published,
+      'sortOrder': sortOrder,
+      'createdByUserId': createdByUserId,
+      'updatedByUserId': updatedByUserId,
+      'createdAt': createdAt?.toUtc().toIso8601String(),
+      'updatedAt': updatedAt?.toUtc().toIso8601String(),
+    };
+  }
+
   Map<String, dynamic> toUpsertDto() {
     return {
       'title': title,
@@ -214,5 +275,13 @@ class CompanyManualSummary {
           ? DateTime.tryParse(map['latestUpdatedAt'].toString())
           : null,
     );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'totalCount': totalCount,
+      'unreadCount': unreadCount,
+      'latestUpdatedAt': latestUpdatedAt?.toUtc().toIso8601String(),
+    };
   }
 }

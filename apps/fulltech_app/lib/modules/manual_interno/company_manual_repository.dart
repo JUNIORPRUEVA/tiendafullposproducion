@@ -10,13 +10,23 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/api/api_routes.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/auth/auth_repository.dart';
+import '../../core/cache/local_json_cache.dart';
 import '../../core/errors/api_exception.dart';
+import '../../core/offline/sync_queue_service.dart';
+import 'company_manual_local_repository.dart';
 import 'company_manual_models.dart';
 
 final companyManualRepositoryProvider = Provider<CompanyManualRepository>((
   ref,
 ) {
-  return CompanyManualRepository(ref, ref.watch(dioProvider));
+  final repository = CompanyManualRepository(
+    ref,
+    ref.watch(dioProvider),
+    ref.read(companyManualLocalRepositoryProvider),
+    ref.read(syncQueueServiceProvider.notifier),
+  );
+  repository.registerSyncHandlers();
+  return repository;
 });
 
 final companyManualSummaryProvider = FutureProvider<CompanyManualSummary>((
@@ -26,15 +36,113 @@ final companyManualSummaryProvider = FutureProvider<CompanyManualSummary>((
 });
 
 class CompanyManualRepository {
-  CompanyManualRepository(this.ref, this._dio);
+  CompanyManualRepository(this.ref, this._dio, this._local, this._syncQueue);
 
   static const Duration _timeout = Duration(seconds: 15);
   static const String _seenAtKeyPrefix = 'company_manual_seen_at';
+  static const String _summaryCacheKeyPrefix = 'company_manual_summary';
+  static const String _createSyncType = 'company_manual.create';
+  static const String _updateSyncType = 'company_manual.update';
+  static const String _deleteSyncType = 'company_manual.delete';
 
   final Ref ref;
   final Dio _dio;
+  final CompanyManualLocalRepository _local;
+  final SyncQueueService _syncQueue;
+  final LocalJsonCache _cache = LocalJsonCache();
+
+  bool _handlersRegistered = false;
+
+  void registerSyncHandlers() {
+    if (_handlersRegistered) return;
+    _handlersRegistered = true;
+
+    _syncQueue.registerHandler(_createSyncType, (payload) async {
+      final localId = (payload['localId'] ?? '').toString();
+      final draft = CompanyManualEntry.fromMap(
+        ((payload['entry'] as Map?) ?? const <String, dynamic>{})
+            .cast<String, dynamic>(),
+      );
+      final remote = await _createEntryRemote(draft.copyWith(id: ''));
+      await _local.deleteEntry(viewerUserId: _viewerUserId(), id: localId);
+      await _local.upsertEntry(viewerUserId: _viewerUserId(), entry: remote);
+    });
+
+    _syncQueue.registerHandler(_updateSyncType, (payload) async {
+      final id = (payload['id'] ?? '').toString();
+      final draft = CompanyManualEntry.fromMap(
+        ((payload['entry'] as Map?) ?? const <String, dynamic>{})
+            .cast<String, dynamic>(),
+      );
+      final remote = await _updateEntryRemote(id, draft);
+      await _local.upsertEntry(viewerUserId: _viewerUserId(), entry: remote);
+    });
+
+    _syncQueue.registerHandler(_deleteSyncType, (payload) async {
+      final id = (payload['id'] ?? '').toString();
+      await _deleteEntryRemote(id);
+    });
+  }
+
+  bool _shouldQueueSync(ApiException error) {
+    final code = error.code;
+    return code == null || code >= 500;
+  }
+
+  String _viewerUserId() {
+    final userId = (ref.read(authStateProvider).user?.id ?? 'anon').trim();
+    return userId.isEmpty ? 'anon' : userId;
+  }
 
   Future<List<CompanyManualEntry>> listEntries({
+    CompanyManualEntryKind? kind,
+    CompanyManualAudience? audience,
+    String? moduleKey,
+    bool includeHidden = false,
+  }) async {
+    final cached = await getCachedEntries(
+      kind: kind,
+      audience: audience,
+      moduleKey: moduleKey,
+      includeHidden: includeHidden,
+    );
+    if (cached.isNotEmpty) {
+      unawaited(
+        listEntriesAndCache(
+          kind: kind,
+          audience: audience,
+          moduleKey: moduleKey,
+          includeHidden: includeHidden,
+        ),
+      );
+      return cached;
+    }
+
+    return listEntriesAndCache(
+      kind: kind,
+      audience: audience,
+      moduleKey: moduleKey,
+      includeHidden: includeHidden,
+    );
+  }
+
+  Future<List<CompanyManualEntry>> getCachedEntries({
+    CompanyManualEntryKind? kind,
+    CompanyManualAudience? audience,
+    String? moduleKey,
+    bool includeHidden = false,
+  }) async {
+    final items = await _local.listEntries(viewerUserId: _viewerUserId());
+    return _applyFilters(
+      items,
+      kind: kind,
+      audience: audience,
+      moduleKey: moduleKey,
+      includeHidden: includeHidden,
+    );
+  }
+
+  Future<List<CompanyManualEntry>> listEntriesAndCache({
     CompanyManualEntryKind? kind,
     CompanyManualAudience? audience,
     String? moduleKey,
@@ -54,10 +162,22 @@ class CompanyManualRepository {
 
       final items = data['items'];
       if (items is! List) return const [];
-      return items
+      final mapped = items
           .whereType<Map>()
           .map((row) => CompanyManualEntry.fromMap(row.cast<String, dynamic>()))
           .toList(growable: false);
+      if (kind == null && audience == null && (moduleKey ?? '').trim().isEmpty) {
+        await _local.replaceEntries(
+          viewerUserId: _viewerUserId(),
+          entries: mapped,
+        );
+      } else {
+        for (final entry in mapped) {
+          await _local.upsertEntry(viewerUserId: _viewerUserId(), entry: entry);
+        }
+      }
+      await _cache.writeMap(_summaryCacheKey(), (await _buildLocalSummary()).toMap());
+      return mapped;
     } on ApiException {
       rethrow;
     } catch (e) {
@@ -75,51 +195,148 @@ class CompanyManualRepository {
   }
 
   Future<CompanyManualEntry> getEntryById(String id) async {
+    final cached = await _local.getEntryById(
+      viewerUserId: _viewerUserId(),
+      id: id,
+    );
+    if (cached != null) {
+      unawaited(_refreshEntryInBackground(id));
+      return cached;
+    }
+
     final data = await _getMap(ApiRoutes.companyManualEntryDetail(id));
-    return CompanyManualEntry.fromMap(data);
+    final entry = CompanyManualEntry.fromMap(data);
+    await _local.upsertEntry(viewerUserId: _viewerUserId(), entry: entry);
+    return entry;
   }
 
   Future<CompanyManualEntry> createEntry(CompanyManualEntry entry) async {
-    final data = await _postMap(
-      ApiRoutes.companyManualEntries,
-      entry.toUpsertDto(),
+    final now = DateTime.now().toUtc();
+    final localId = entry.id.trim().isEmpty
+        ? 'local_manual_${now.microsecondsSinceEpoch}'
+        : entry.id;
+    final optimistic = entry.copyWith(
+      id: localId,
+      createdAt: entry.createdAt ?? now,
+      updatedAt: now,
     );
-    return CompanyManualEntry.fromMap(data);
+
+    await _local.upsertEntry(viewerUserId: _viewerUserId(), entry: optimistic);
+    await _cache.writeMap(_summaryCacheKey(), (await _buildLocalSummary()).toMap());
+    ref.invalidate(companyManualSummaryProvider);
+
+    try {
+      final remote = await _createEntryRemote(entry);
+      await _local.deleteEntry(viewerUserId: _viewerUserId(), id: localId);
+      await _local.upsertEntry(viewerUserId: _viewerUserId(), entry: remote);
+      await _cache.writeMap(_summaryCacheKey(), (await _buildLocalSummary()).toMap());
+      ref.invalidate(companyManualSummaryProvider);
+      return remote;
+    } on ApiException catch (e) {
+      if (!_shouldQueueSync(e)) rethrow;
+      await _syncQueue.enqueue(
+        id: '$_createSyncType:$localId',
+        type: _createSyncType,
+        scope: _viewerUserId(),
+        payload: {'localId': localId, 'entry': optimistic.toMap()},
+      );
+      return optimistic;
+    }
   }
 
   Future<CompanyManualEntry> updateEntry(CompanyManualEntry entry) async {
-    final data = await _patchMap(
-      ApiRoutes.companyManualEntryDetail(entry.id),
-      entry.toUpsertDto(),
-    );
-    return CompanyManualEntry.fromMap(data);
+    final optimistic = entry.copyWith(updatedAt: DateTime.now().toUtc());
+    await _local.upsertEntry(viewerUserId: _viewerUserId(), entry: optimistic);
+    await _cache.writeMap(_summaryCacheKey(), (await _buildLocalSummary()).toMap());
+    ref.invalidate(companyManualSummaryProvider);
+
+    if (_isLocalId(entry.id)) {
+      await _syncQueue.enqueue(
+        id: '$_createSyncType:${entry.id}',
+        type: _createSyncType,
+        scope: _viewerUserId(),
+        payload: {'localId': entry.id, 'entry': optimistic.toMap()},
+      );
+      return optimistic;
+    }
+
+    try {
+      final remote = await _updateEntryRemote(entry.id, entry);
+      await _local.upsertEntry(viewerUserId: _viewerUserId(), entry: remote);
+      await _cache.writeMap(_summaryCacheKey(), (await _buildLocalSummary()).toMap());
+      ref.invalidate(companyManualSummaryProvider);
+      return remote;
+    } on ApiException catch (e) {
+      if (!_shouldQueueSync(e)) rethrow;
+      await _syncQueue.enqueue(
+        id: '$_updateSyncType:${entry.id}',
+        type: _updateSyncType,
+        scope: _viewerUserId(),
+        payload: {'id': entry.id, 'entry': optimistic.toMap()},
+      );
+      return optimistic;
+    }
   }
 
   Future<void> deleteEntry(String id) async {
+    await _local.deleteEntry(viewerUserId: _viewerUserId(), id: id);
+    await _cache.writeMap(_summaryCacheKey(), (await _buildLocalSummary()).toMap());
+    ref.invalidate(companyManualSummaryProvider);
+
+    if (_isLocalId(id)) {
+      await _syncQueue.remove('$_createSyncType:$id');
+      return;
+    }
+
     try {
-      await _dio
-          .delete(ApiRoutes.companyManualEntryDetail(id), options: _options())
-          .timeout(_timeout);
-    } on TimeoutException {
-      throw ApiException(
-        'La operación tardó demasiado al eliminar la entrada.',
-      );
-    } on DioException catch (e) {
-      throw ApiException(
-        _extractMessage(e, 'No se pudo eliminar la entrada'),
-        e.response?.statusCode,
+      await _deleteEntryRemote(id);
+    } on ApiException catch (e) {
+      if (!_shouldQueueSync(e)) rethrow;
+      await _syncQueue.enqueue(
+        id: '$_deleteSyncType:$id',
+        type: _deleteSyncType,
+        scope: _viewerUserId(),
+        payload: {'id': id},
       );
     }
   }
 
   Future<CompanyManualSummary> loadSummary() async {
+    final cached = await getCachedSummary();
+    if (cached != null) {
+      unawaited(loadSummaryRemoteAndCache());
+      return cached;
+    }
+    return loadSummaryRemoteAndCache();
+  }
+
+  Future<CompanyManualSummary?> getCachedSummary() async {
+    final localSummary = await _buildLocalSummary();
+    final lastSyncedAt = await _local.readLastSyncedAt(
+      viewerUserId: _viewerUserId(),
+    );
+    if (localSummary.totalCount > 0 || lastSyncedAt != null) {
+      await _cache.writeMap(_summaryCacheKey(), localSummary.toMap());
+      return localSummary;
+    }
+    final cached = await _cache.readMap(
+      _summaryCacheKey(),
+      maxAge: const Duration(days: 14),
+    );
+    if (cached == null) return null;
+    return CompanyManualSummary.fromMap(cached);
+  }
+
+  Future<CompanyManualSummary> loadSummaryRemoteAndCache() async {
     final seenAt = await getSeenAt();
     final map = await _getMap(
       ApiRoutes.companyManualSummary,
       query: {if (seenAt != null) 'seenAt': seenAt.toIso8601String()},
       extra: const {'silent': true},
     );
-    return CompanyManualSummary.fromMap(map);
+    final summary = CompanyManualSummary.fromMap(map);
+    await _cache.writeMap(_summaryCacheKey(), summary.toMap());
+    return summary;
   }
 
   Future<DateTime?> getSeenAt() async {
@@ -147,6 +364,102 @@ class CompanyManualRepository {
   String _seenKey() {
     final userId = (ref.read(authStateProvider).user?.id ?? 'anon').trim();
     return '$_seenAtKeyPrefix:$userId';
+  }
+
+  String _summaryCacheKey() => '$_summaryCacheKeyPrefix:${_viewerUserId()}';
+
+  bool _isLocalId(String id) {
+    final trimmed = id.trim();
+    return trimmed.isEmpty || trimmed.startsWith('local_manual_');
+  }
+
+  Future<void> _refreshEntryInBackground(String id) async {
+    try {
+      final data = await _getMap(
+        ApiRoutes.companyManualEntryDetail(id),
+        extra: const {'silent': true},
+      );
+      final entry = CompanyManualEntry.fromMap(data);
+      await _local.upsertEntry(viewerUserId: _viewerUserId(), entry: entry);
+    } catch (_) {
+      // Keep local copy available when refresh fails.
+    }
+  }
+
+  Future<CompanyManualSummary> _buildLocalSummary() async {
+    return _local.buildSummary(
+      viewerUserId: _viewerUserId(),
+      seenAt: await getSeenAt(),
+    );
+  }
+
+  List<CompanyManualEntry> _applyFilters(
+    List<CompanyManualEntry> items, {
+    CompanyManualEntryKind? kind,
+    CompanyManualAudience? audience,
+    String? moduleKey,
+    required bool includeHidden,
+  }) {
+    final normalizedModuleKey = (moduleKey ?? '').trim().toLowerCase();
+    final filtered = items.where((item) {
+      if (!includeHidden && !item.published) {
+        return false;
+      }
+      if (kind != null && item.kind != kind) {
+        return false;
+      }
+      if (audience != null && item.audience != audience) {
+        return false;
+      }
+      if (normalizedModuleKey.isNotEmpty &&
+          (item.moduleKey ?? '').trim().toLowerCase() != normalizedModuleKey) {
+        return false;
+      }
+      return true;
+    }).toList(growable: false);
+
+    filtered.sort((left, right) {
+      final byOrder = left.sortOrder.compareTo(right.sortOrder);
+      if (byOrder != 0) return byOrder;
+      return left.title.toLowerCase().compareTo(right.title.toLowerCase());
+    });
+    return filtered;
+  }
+
+  Future<CompanyManualEntry> _createEntryRemote(CompanyManualEntry entry) async {
+    final data = await _postMap(
+      ApiRoutes.companyManualEntries,
+      entry.toUpsertDto(),
+    );
+    return CompanyManualEntry.fromMap(data);
+  }
+
+  Future<CompanyManualEntry> _updateEntryRemote(
+    String id,
+    CompanyManualEntry entry,
+  ) async {
+    final data = await _patchMap(
+      ApiRoutes.companyManualEntryDetail(id),
+      entry.toUpsertDto(),
+    );
+    return CompanyManualEntry.fromMap(data);
+  }
+
+  Future<void> _deleteEntryRemote(String id) async {
+    try {
+      await _dio
+          .delete(ApiRoutes.companyManualEntryDetail(id), options: _options())
+          .timeout(_timeout);
+    } on TimeoutException {
+      throw ApiException(
+        'La operación tardó demasiado al eliminar la entrada.',
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e, 'No se pudo eliminar la entrada'),
+        e.response?.statusCode,
+      );
+    }
   }
 
   Future<Map<String, dynamic>> _getMap(

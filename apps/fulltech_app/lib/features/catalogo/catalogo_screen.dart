@@ -47,6 +47,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
   static const Duration _liveSyncInterval = Duration(minutes: 2);
 
   bool get _hasActiveFilter => _category != 'Todas';
+  bool get _hasActiveSearch => _searchCtrl.text.trim().isNotEmpty;
 
   bool _isDesktopWidth(double width) => width >= 1100;
 
@@ -217,9 +218,17 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
     final hasCategoryFilters = categories.length > 1;
 
     InputDecoration searchDecoration() {
+      final colorScheme = Theme.of(context).colorScheme;
       return InputDecoration(
         hintText: 'Buscar producto',
-        prefixIcon: const Icon(Icons.search, size: 20),
+        hintStyle: Theme.of(
+          context,
+        ).textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant),
+        prefixIcon: Icon(
+          Icons.search_rounded,
+          size: 20,
+          color: colorScheme.primary,
+        ),
         suffixIcon: _searchCtrl.text.isEmpty
             ? null
             : IconButton(
@@ -228,15 +237,27 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
                   _searchCtrl.clear();
                   setState(() {});
                 },
-                icon: const Icon(Icons.close, size: 18),
+                icon: Icon(
+                  Icons.close_rounded,
+                  size: 18,
+                  color: colorScheme.onSurfaceVariant,
+                ),
               ),
         isDense: true,
         filled: true,
-        fillColor: Theme.of(context).colorScheme.surface,
+        fillColor: colorScheme.surfaceContainerLowest,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(22),
-          borderSide: BorderSide.none,
+          borderSide: BorderSide(color: colorScheme.outlineVariant),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(22),
+          borderSide: BorderSide(color: colorScheme.outlineVariant),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(22),
+          borderSide: BorderSide(color: colorScheme.primary, width: 1.4),
         ),
       );
     }
@@ -279,36 +300,49 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
       );
     }
 
+    final isWideLayout = MediaQuery.of(context).size.width >= 720;
+
     return Scaffold(
       appBar: isModal
           ? null
           : CustomAppBar(
               title: 'Catálogo',
               showLogo: false,
-              titleWidget: TextField(
-                controller: _searchCtrl,
-                textInputAction: TextInputAction.search,
-                onChanged: (_) => setState(() {}),
-                style: Theme.of(context).textTheme.bodyMedium,
-                decoration: searchDecoration(),
-              ),
-              actions: hasCategoryFilters
-                  ? [
-                      Padding(
-                        padding: const EdgeInsets.only(right: 10),
-                        child: Badge(
-                          isLabelVisible: _hasActiveFilter,
-                          smallSize: 8,
-                          child: IconButton(
-                            tooltip: 'Filtrar categoría',
-                            visualDensity: VisualDensity.compact,
-                            onPressed: () => _openCategoryFilter(categories),
-                            icon: const Icon(Icons.tune, size: 20),
-                          ),
-                        ),
+              darkerTone: true,
+              actions: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Badge(
+                    isLabelVisible: _hasActiveSearch,
+                    smallSize: 8,
+                    child: IconButton(
+                      tooltip: 'Buscar productos',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _openCatalogSearch(
+                        products: catalog.items,
+                        showCost: isAdmin,
+                        canManage: canManage,
+                        categories: categoryOptions,
                       ),
-                    ]
-                  : null,
+                      icon: const Icon(Icons.search_rounded, size: 21),
+                    ),
+                  ),
+                ),
+                if (hasCategoryFilters)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: Badge(
+                      isLabelVisible: _hasActiveFilter,
+                      smallSize: 8,
+                      child: IconButton(
+                        tooltip: 'Filtrar categoría',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => _openCategoryFilter(categories),
+                        icon: const Icon(Icons.tune, size: 20),
+                      ),
+                    ),
+                  ),
+              ],
               trailing: user == null
                   ? null
                   : Padding(
@@ -340,15 +374,66 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
       drawer: isModal ? null : buildAdaptiveDrawer(context, currentUser: user),
       floatingActionButton: null,
       body: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.fromLTRB(
+          isWideLayout ? 16 : 12,
+          isWideLayout ? 16 : 12,
+          isWideLayout ? 16 : 12,
+          isWideLayout ? 16 : 8,
+        ),
         child: Column(
           children: [
             if (isModal) modalHeader(),
+            if ((_hasActiveFilter || query.isNotEmpty) && !isModal)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Theme.of(context).colorScheme.surface,
+                      Theme.of(context).colorScheme.surfaceContainerLowest,
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.outlineVariant.withValues(alpha: 0.82),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Mostrando ${filtered.length} de ${catalog.items.length} productos${query.isNotEmpty ? ' para "$query"' : ''}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _category = 'Todas';
+                          _searchCtrl.clear();
+                        });
+                      },
+                      child: const Text('Limpiar'),
+                    ),
+                  ],
+                ),
+              ),
             SyncStatusBanner(
               visible: catalog.refreshing,
               label: 'Actualizando productos en segundo plano...',
             ),
-            if (_hasActiveFilter || query.isNotEmpty)
+            if ((_hasActiveFilter || query.isNotEmpty) && isModal)
               Container(
                 width: double.infinity,
                 margin: const EdgeInsets.only(bottom: 10),
@@ -631,6 +716,40 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
     );
   }
 
+  Future<void> _openCatalogSearch({
+    required List<ProductModel> products,
+    required bool showCost,
+    required bool canManage,
+    required List<String> categories,
+  }) async {
+    final result = await showSearch<_CatalogSearchResult?>(
+      context: context,
+      delegate: _CatalogSearchDelegate(
+        products: products,
+        initialQuery: _searchCtrl.text.trim(),
+      ),
+    );
+    if (!mounted || result == null) return;
+
+    final nextQuery = result.query.trim();
+    if (nextQuery != _searchCtrl.text.trim()) {
+      setState(() {
+        _searchCtrl.text = nextQuery;
+      });
+    }
+
+    final product = result.selectedProduct;
+    if (product == null) return;
+
+    await _showProductDetails(
+      product: product,
+      showCost: showCost,
+      canManage: canManage,
+      onEdit: () => _openProductForm(product: product, categories: categories),
+      onDelete: () => _confirmDelete(product),
+    );
+  }
+
   Future<void> _showProductDetails({
     required ProductModel product,
     required bool showCost,
@@ -775,6 +894,145 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
                 ],
               ],
             ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CatalogSearchResult {
+  const _CatalogSearchResult({required this.query, this.selectedProduct});
+
+  final String query;
+  final ProductModel? selectedProduct;
+}
+
+class _CatalogSearchDelegate extends SearchDelegate<_CatalogSearchResult?> {
+  _CatalogSearchDelegate({required this.products, required String initialQuery})
+    : super(searchFieldLabel: 'Buscar producto') {
+    query = initialQuery;
+  }
+
+  final List<ProductModel> products;
+
+  List<ProductModel> get _filteredProducts {
+    final normalizedQuery = query.trim().toLowerCase();
+    final filtered = products
+        .where((product) {
+          if (normalizedQuery.isEmpty) return true;
+          return product.nombre.toLowerCase().contains(normalizedQuery) ||
+              product.categoriaLabel.toLowerCase().contains(normalizedQuery);
+        })
+        .toList(growable: false);
+
+    filtered.sort(
+      (left, right) =>
+          left.nombre.toLowerCase().compareTo(right.nombre.toLowerCase()),
+    );
+    return filtered;
+  }
+
+  @override
+  ThemeData appBarTheme(BuildContext context) {
+    final theme = Theme.of(context);
+    return theme.copyWith(
+      appBarTheme: theme.appBarTheme.copyWith(toolbarHeight: 64),
+      inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+        filled: false,
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+      ),
+    );
+  }
+
+  @override
+  List<Widget>? buildActions(BuildContext context) {
+    return [
+      if (query.trim().isNotEmpty)
+        IconButton(
+          tooltip: 'Limpiar búsqueda',
+          onPressed: () {
+            query = '';
+            showSuggestions(context);
+          },
+          icon: const Icon(Icons.close_rounded),
+        ),
+      IconButton(
+        tooltip: 'Aplicar búsqueda',
+        onPressed: () =>
+            close(context, _CatalogSearchResult(query: query.trim())),
+        icon: const Icon(Icons.check_rounded),
+      ),
+    ];
+  }
+
+  @override
+  Widget? buildLeading(BuildContext context) {
+    return IconButton(
+      tooltip: 'Cerrar',
+      onPressed: () => close(context, null),
+      icon: const Icon(Icons.arrow_back_rounded),
+    );
+  }
+
+  @override
+  Widget buildResults(BuildContext context) => _buildList(context);
+
+  @override
+  Widget buildSuggestions(BuildContext context) => _buildList(context);
+
+  Widget _buildList(BuildContext context) {
+    final filtered = _filteredProducts;
+    if (products.isEmpty) {
+      return const Center(child: Text('No hay productos disponibles'));
+    }
+    if (filtered.isEmpty) {
+      return Center(
+        child: Text(
+          'No se encontraron productos',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+      itemCount: filtered.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final product = filtered[index];
+        return ListTile(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          tileColor: Theme.of(context).colorScheme.surfaceContainerLowest,
+          leading: CircleAvatar(
+            backgroundColor: Theme.of(
+              context,
+            ).colorScheme.primary.withValues(alpha: 0.12),
+            child: const Icon(Icons.inventory_2_rounded),
+          ),
+          title: Text(
+            product.nombre,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: Text(
+            product.categoriaLabel,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: Text(
+            '\$${product.precio.toStringAsFixed(2)}',
+            style: Theme.of(
+              context,
+            ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          onTap: () => close(
+            context,
+            _CatalogSearchResult(query: query.trim(), selectedProduct: product),
           ),
         );
       },

@@ -2,9 +2,12 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/routing/app_navigator.dart';
+import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/theme/app_theme.dart';
@@ -71,12 +74,6 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
     return '$sign${hours}h ${remainingMinutes.toString().padLeft(2, '0')}m';
   }
 
-  Color _balanceColor(int minutes) {
-    if (minutes > 0) return Colors.green.shade700;
-    if (minutes < 0) return Colors.red.shade700;
-    return Colors.blueGrey;
-  }
-
   void _showPunchOptions(PunchState state) {
     showModalBottomSheet(
       context: context,
@@ -115,159 +112,8 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
     );
   }
 
-  void _showHistory(PunchState state) {
-    setState(() {
-      _attendanceFuture = _loadAttendanceDetail();
-    });
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (context) {
-        return DraggableScrollableSheet(
-          expand: false,
-          builder: (context, controller) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Column(
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[400],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Historial de ponches',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: FutureBuilder<AttendanceDetailModel>(
-                    future: _attendanceFuture,
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState != ConnectionState.done) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      if (snapshot.hasError || !snapshot.hasData) {
-                        return Center(
-                          child: Text(
-                            'No se pudo cargar el balance de horas.',
-                            style: TextStyle(color: Colors.red.shade700),
-                          ),
-                        );
-                      }
-
-                      final detail = snapshot.data!;
-                      final totals = detail.totals;
-                      final balanceColor = _balanceColor(totals.balanceMinutes);
-                      final recentPunches = detail.punches.take(12).toList();
-
-                      if (detail.days.isEmpty && recentPunches.isEmpty) {
-                        return const Center(
-                          child: Text('Aún no hay ponches registrados'),
-                        );
-                      }
-
-                      return ListView(
-                        controller: controller,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _AttendanceSummaryTile(
-                                  label: 'Horas a favor',
-                                  value: _formatMinutes(
-                                    totals.favorableMinutes,
-                                  ),
-                                  color: Colors.green.shade700,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _AttendanceSummaryTile(
-                                  label: 'Horas en contra',
-                                  value: _formatMinutes(
-                                    totals.unfavorableMinutes,
-                                  ),
-                                  color: Colors.red.shade700,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _AttendanceSummaryTile(
-                                  label: 'Balance neto',
-                                  value: _formatMinutes(totals.balanceMinutes),
-                                  color: balanceColor,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _AttendanceSummaryTile(
-                                  label: 'Horas laboradas',
-                                  value: _formatMinutes(totals.workedMinutes),
-                                  color: AppTheme.primaryColor,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'Balance por día',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 8),
-                          ...detail.days.map(
-                            (day) => _AttendanceDayCard(
-                              day: day,
-                              formatMinutes: _formatMinutes,
-                              balanceColor: _balanceColor(day.balanceMinutes),
-                            ),
-                          ),
-                          if (recentPunches.isNotEmpty) ...[
-                            const SizedBox(height: 16),
-                            const Text(
-                              'Últimos registros',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 8),
-                            ...recentPunches.map(
-                              (punch) => ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: Icon(
-                                  _iconFor(punch.type),
-                                  color: AppTheme.primaryColor,
-                                ),
-                                title: Text(punch.type.label),
-                                subtitle: Text(
-                                  DateFormat(
-                                    'dd/MM/yyyy · h:mm a',
-                                    'es_DO',
-                                  ).format(punch.timestamp.toLocal()),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
-            ),
-          ),
-        );
-      },
-    );
+  void _openHistoryScreen() {
+    context.push(Routes.poncheHistorial);
   }
 
   Future<void> _handlePunch(PunchType type) async {
@@ -679,7 +525,7 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
               const SizedBox(height: 24),
               Center(
                 child: TextButton(
-                  onPressed: () => _showHistory(state),
+                  onPressed: _openHistoryScreen,
                   style: TextButton.styleFrom(foregroundColor: Colors.white70),
                   child: const Text(
                     'Historial',
@@ -988,6 +834,226 @@ class _PoncheScreenState extends ConsumerState<PoncheScreen> {
       default:
         return 'Fuera';
     }
+  }
+}
+
+class PunchHistoryScreen extends ConsumerStatefulWidget {
+  const PunchHistoryScreen({super.key});
+
+  @override
+  ConsumerState<PunchHistoryScreen> createState() => _PunchHistoryScreenState();
+}
+
+class _PunchHistoryScreenState extends ConsumerState<PunchHistoryScreen> {
+  Future<AttendanceDetailModel>? _attendanceFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _attendanceFuture = _loadAttendanceDetail();
+  }
+
+  Future<AttendanceDetailModel> _loadAttendanceDetail() {
+    return ref.read(punchRepositoryProvider).fetchMyAttendanceDetail();
+  }
+
+  Future<void> _refreshAttendance() async {
+    setState(() {
+      _attendanceFuture = _loadAttendanceDetail();
+    });
+    await _attendanceFuture;
+  }
+
+  String _formatMinutes(int minutes) {
+    final sign = minutes < 0 ? '-' : '';
+    final absolute = minutes.abs();
+    final hours = absolute ~/ 60;
+    final remainingMinutes = absolute % 60;
+    return '$sign${hours}h ${remainingMinutes.toString().padLeft(2, '0')}m';
+  }
+
+  Color _balanceColor(int minutes) {
+    if (minutes > 0) return Colors.green.shade700;
+    if (minutes < 0) return Colors.red.shade700;
+    return Colors.blueGrey;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = ref.watch(authStateProvider);
+
+    return Scaffold(
+      drawer: buildAdaptiveDrawer(context, currentUser: auth.user),
+      appBar: AppBar(
+        leading: AppNavigator.maybeBackButton(
+          context,
+          fallbackRoute: Routes.ponche,
+        ),
+        title: const Text('Historial de ponches'),
+        backgroundColor: AppTheme.primaryColor,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            tooltip: 'Actualizar',
+            onPressed: _refreshAttendance,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: _refreshAttendance,
+        child: FutureBuilder<AttendanceDetailModel>(
+          future: _attendanceFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError || !snapshot.hasData) {
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(24),
+                children: [
+                  const SizedBox(height: 80),
+                  _DesktopPunchEmptyState(
+                    icon: Icons.history_toggle_off_outlined,
+                    title: 'Historial no disponible',
+                    message: 'No se pudo cargar el balance de horas.',
+                    actionLabel: 'Reintentar',
+                    onAction: _refreshAttendance,
+                  ),
+                ],
+              );
+            }
+
+            final detail = snapshot.data!;
+            final totals = detail.totals;
+            final balanceColor = _balanceColor(totals.balanceMinutes);
+            final recentPunches = detail.punches.take(20).toList(growable: false);
+
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              children: [
+                Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 980),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Resumen del historial',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Consulta todos tus balances, jornadas y registros recientes en una vista completa.',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: const Color(0xFF64748B),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _AttendanceSummaryTile(
+                                label: 'Horas a favor',
+                                value: _formatMinutes(totals.favorableMinutes),
+                                color: Colors.green.shade700,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _AttendanceSummaryTile(
+                                label: 'Horas en contra',
+                                value: _formatMinutes(totals.unfavorableMinutes),
+                                color: Colors.red.shade700,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _AttendanceSummaryTile(
+                                label: 'Balance neto',
+                                value: _formatMinutes(totals.balanceMinutes),
+                                color: balanceColor,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _AttendanceSummaryTile(
+                                label: 'Horas laboradas',
+                                value: _formatMinutes(totals.workedMinutes),
+                                color: AppTheme.primaryColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+                        Text(
+                          'Balance por día',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        if (detail.days.isEmpty && recentPunches.isEmpty)
+                          const _DesktopPunchEmptyState(
+                            icon: Icons.history_toggle_off_outlined,
+                            title: 'Aún no hay ponches registrados',
+                            message:
+                                'Cuando existan registros de jornada aparecerán aquí en pantalla completa.',
+                          )
+                        else ...[
+                          ...detail.days.map(
+                            (day) => _AttendanceDayCard(
+                              day: day,
+                              formatMinutes: _formatMinutes,
+                              balanceColor: _balanceColor(day.balanceMinutes),
+                            ),
+                          ),
+                          if (recentPunches.isNotEmpty) ...[
+                            const SizedBox(height: 24),
+                            Text(
+                              'Últimos registros',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w800),
+                            ),
+                            const SizedBox(height: 8),
+                            ...recentPunches.map(
+                              (punch) => ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(
+                                  _iconFor(punch.type),
+                                  color: AppTheme.primaryColor,
+                                ),
+                                title: Text(punch.type.label),
+                                subtitle: Text(
+                                  DateFormat(
+                                    'dd/MM/yyyy · h:mm a',
+                                    'es_DO',
+                                  ).format(punch.timestamp.toLocal()),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
   }
 }
 

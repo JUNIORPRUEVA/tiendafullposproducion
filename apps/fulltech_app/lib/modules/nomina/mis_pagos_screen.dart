@@ -23,15 +23,18 @@ class MisPagosScreen extends ConsumerStatefulWidget {
   ConsumerState<MisPagosScreen> createState() => _MisPagosScreenState();
 }
 
-class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
+class _MisPagosScreenState extends ConsumerState<MisPagosScreen>
+    with WidgetsBindingObserver {
   static const String _companyName = 'FULLTECH, SRL';
   static const String _companyRnc = '133080209';
   static const String _companyPhone = '8295344286';
 
   bool _loading = true;
+  bool _syncing = false;
   String? _error;
   List<PayrollHistoryItem> _items = const [];
   Timer? _autoRefresh;
+  DateTime? _lastSyncAt;
   DateTime? _desktopFrom;
   DateTime? _desktopTo;
   _DesktopPayrollStatus _desktopStatus = _DesktopPayrollStatus.all;
@@ -39,40 +42,80 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_bootstrapLoad());
     _autoRefresh = Timer.periodic(const Duration(seconds: 20), (_) {
-      if (mounted && !_loading) {
-        _load();
+      if (mounted && !_syncing) {
+        unawaited(_syncWithCloud(silent: true));
       }
     });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _autoRefresh?.cancel();
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted && !_syncing) {
+      unawaited(_syncWithCloud(silent: true));
+    }
+  }
+
+  Future<void> _bootstrapLoad() async {
+    final repo = ref.read(nominaRepositoryProvider);
+    final cached = await repo.getCachedMyPayrollHistory();
+    if (!mounted) return;
+    if (cached.isNotEmpty) {
+      setState(() {
+        _items = cached;
+        _loading = false;
+        _error = null;
+      });
+    }
+    await _syncWithCloud(silent: cached.isNotEmpty);
+  }
+
   Future<void> _load() async {
+    await _syncWithCloud(silent: _items.isNotEmpty);
+  }
+
+  Future<void> _syncWithCloud({bool silent = false}) async {
+    if (_syncing) return;
+    if (!silent) {
+      setState(() {
+        _loading = _items.isEmpty;
+        _error = null;
+      });
+    }
     setState(() {
-      _loading = true;
-      _error = null;
+      _syncing = true;
     });
 
     try {
       final data = await ref
           .read(nominaRepositoryProvider)
-          .listMyPayrollHistory();
+          .listMyPayrollHistoryAndCache();
       if (!mounted) return;
       setState(() {
         _items = data;
         _loading = false;
+        _syncing = false;
+        _error = null;
+        _lastSyncAt = DateTime.now();
       });
     } catch (e) {
       if (!mounted) return;
+      final hasLocalData = _items.isNotEmpty;
       setState(() {
-        _error = 'No se pudo cargar Mis Pagos: $e';
         _loading = false;
+        _syncing = false;
+        _error = hasLocalData
+            ? 'Mostrando copia local. No se pudo sincronizar con la nube: $e'
+            : 'No se pudo cargar Mis Pagos: $e';
       });
     }
   }
@@ -495,7 +538,15 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
       appBar: CustomAppBar(
         title: 'Mis Pagos',
         showLogo: false,
+        darkerTone: true,
         actions: [
+          IconButton(
+            tooltip: 'Sincronizar con la nube',
+            onPressed: _syncing ? null : _load,
+            icon: Icon(
+              _syncing ? Icons.cloud_sync_rounded : Icons.cloud_upload_rounded,
+            ),
+          ),
           IconButton(
             tooltip: 'Recargar',
             onPressed: _loading ? null : _load,
@@ -547,6 +598,13 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  if (_syncing || _lastSyncAt != null) ...[
+                    _SyncStatusBanner(
+                      syncing: _syncing,
+                      lastSyncAt: _lastSyncAt,
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                   _SummaryStrip(
                     totalHistorico: totalHistorico,
                     totalAnio: totalAnio,
@@ -786,6 +844,52 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen> {
           FilledButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SyncStatusBanner extends StatelessWidget {
+  const _SyncStatusBanner({required this.syncing, required this.lastSyncAt});
+
+  final bool syncing;
+  final DateTime? lastSyncAt;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final label = syncing
+        ? 'Sincronizando con la nube...'
+        : lastSyncAt == null
+        ? 'Sincronización pendiente'
+        : 'Sincronizado ${DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(lastSyncAt!)}';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.75),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            syncing ? Icons.cloud_sync_rounded : Icons.cloud_done_rounded,
+            color: syncing ? colorScheme.primary : colorScheme.tertiary,
+            size: 18,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
           ),
         ],
       ),

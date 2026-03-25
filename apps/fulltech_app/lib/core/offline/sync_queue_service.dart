@@ -114,6 +114,11 @@ class SyncQueueService extends StateNotifier<SyncQueueState> {
     unawaited(processPending());
   }
 
+  Future<void> remove(String id) async {
+    await _store.removePendingAction(id);
+    await refreshStats();
+  }
+
   Future<void> refreshStats() async {
     final stats = await _store.pendingActionStats();
     _patchState(

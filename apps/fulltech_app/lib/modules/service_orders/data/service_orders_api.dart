@@ -14,6 +14,7 @@ final serviceOrdersApiProvider = Provider<ServiceOrdersApi>((ref) {
 
 class ServiceOrdersApi {
   final Dio _dio;
+  static final _backgroundOptions = Options(extra: {'skipLoader': true});
 
   ServiceOrdersApi(this._dio);
 
@@ -29,24 +30,30 @@ class ServiceOrdersApi {
         : tokenHeader.toString().trim().isEmpty
         ? 'empty'
         : 'present';
-    debugPrint('SERVICE_ORDERS REQUEST: $method ${_dio.options.baseUrl}$path token=$tokenState');
+    debugPrint(
+      'SERVICE_ORDERS REQUEST: $method ${_dio.options.baseUrl}$path token=$tokenState',
+    );
   }
 
   void _logResponse(String method, String path, int? statusCode) {
     if (!kDebugMode) return;
-    debugPrint('SERVICE_ORDERS RESPONSE: $method ${_dio.options.baseUrl}$path status=${statusCode ?? 'unknown'}');
+    debugPrint(
+      'SERVICE_ORDERS RESPONSE: $method ${_dio.options.baseUrl}$path status=${statusCode ?? 'unknown'}',
+    );
   }
 
   void _logError(String method, String path, Object error) {
     if (!kDebugMode) return;
-    debugPrint('SERVICE_ORDERS ERROR: $method ${_dio.options.baseUrl}$path error=$error');
+    debugPrint(
+      'SERVICE_ORDERS ERROR: $method ${_dio.options.baseUrl}$path error=$error',
+    );
   }
 
   Future<List<ServiceOrderModel>> listOrders() async {
     const path = ApiRoutes.serviceOrders;
     _logRequest('GET', path);
     try {
-      final res = await _dio.get(path);
+      final res = await _dio.get(path, options: _backgroundOptions);
       _logResponse('GET', path, res.statusCode);
       final raw = res.data;
       final rows = raw is List
@@ -76,20 +83,30 @@ class ServiceOrdersApi {
 
   Future<ServiceOrderModel> getOrder(String id) async {
     try {
-      final res = await _dio.get(ApiRoutes.serviceOrderDetail(id));
-      return ServiceOrderModel.fromJson((res.data as Map).cast<String, dynamic>());
+      final res = await _dio.get(
+        ApiRoutes.serviceOrderDetail(id),
+        options: _backgroundOptions,
+      );
+      return ServiceOrderModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo cargar la orden');
     }
   }
 
-  Future<ServiceOrderModel> createOrder(CreateServiceOrderRequest request) async {
+  Future<ServiceOrderModel> createOrder(
+    CreateServiceOrderRequest request,
+  ) async {
     try {
       final res = await _dio.post(
         ApiRoutes.serviceOrders,
         data: request.toJson(),
+        options: _backgroundOptions,
       );
-      return ServiceOrderModel.fromJson((res.data as Map).cast<String, dynamic>());
+      return ServiceOrderModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo crear la orden');
     }
@@ -103,8 +120,11 @@ class ServiceOrdersApi {
       final res = await _dio.patch(
         ApiRoutes.serviceOrderUpdate(id),
         data: request.toJson(),
+        options: _backgroundOptions,
       );
-      return ServiceOrderModel.fromJson((res.data as Map).cast<String, dynamic>());
+      return ServiceOrderModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo editar la orden');
     }
@@ -112,7 +132,10 @@ class ServiceOrdersApi {
 
   Future<void> deleteOrder(String id) async {
     try {
-      await _dio.delete(ApiRoutes.serviceOrderDelete(id));
+      await _dio.delete(
+        ApiRoutes.serviceOrderDelete(id),
+        options: _backgroundOptions,
+      );
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo eliminar la orden');
     }
@@ -126,8 +149,11 @@ class ServiceOrdersApi {
       final res = await _dio.post(
         ApiRoutes.serviceOrderClone(sourceOrderId),
         data: request.toJson(),
+        options: _backgroundOptions,
       );
-      return ServiceOrderModel.fromJson((res.data as Map).cast<String, dynamic>());
+      return ServiceOrderModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo clonar la orden');
     }
@@ -141,8 +167,11 @@ class ServiceOrdersApi {
       final res = await _dio.patch(
         ApiRoutes.serviceOrderStatus(id),
         data: {'status': status.apiValue},
+        options: _backgroundOptions,
       );
-      return ServiceOrderModel.fromJson((res.data as Map).cast<String, dynamic>());
+      return ServiceOrderModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo actualizar el estado');
     }
@@ -156,6 +185,7 @@ class ServiceOrdersApi {
       final res = await _dio.post(
         ApiRoutes.serviceOrderEvidences(orderId),
         data: request.toJson(),
+        options: _backgroundOptions,
       );
       return ServiceOrderEvidenceModel.fromJson(
         (res.data as Map).cast<String, dynamic>(),
@@ -173,10 +203,8 @@ class ServiceOrdersApi {
     try {
       final res = await _dio.post(
         ApiRoutes.serviceOrderReport(orderId),
-        data: {
-          'type': type.apiValue,
-          'report': report.trim(),
-        },
+        data: {'type': type.apiValue, 'report': report.trim()},
+        options: _backgroundOptions,
       );
       return ServiceOrderReportModel.fromJson(
         (res.data as Map).cast<String, dynamic>(),

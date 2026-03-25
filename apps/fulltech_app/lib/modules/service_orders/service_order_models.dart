@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -26,11 +27,7 @@ enum ServiceEvidenceType {
   evidenciaVideo,
 }
 
-enum ServiceReportType {
-  requerimientoCliente,
-  servicioFinalizado,
-  otros,
-}
+enum ServiceReportType { requerimientoCliente, servicioFinalizado, otros }
 
 ServiceOrderCategory serviceOrderCategoryFromApi(String value) {
   switch (value.trim()) {
@@ -324,6 +321,7 @@ class ServiceOrderEvidenceModel {
   });
 
   factory ServiceOrderEvidenceModel.fromJson(Map<String, dynamic> json) {
+    final previewBytesBase64 = (json['previewBytesBase64'] ?? '').toString();
     return ServiceOrderEvidenceModel(
       id: (json['id'] ?? '').toString(),
       serviceOrderId: (json['serviceOrderId'] ?? '').toString(),
@@ -333,11 +331,17 @@ class ServiceOrderEvidenceModel {
       createdAt:
           DateTime.tryParse((json['createdAt'] ?? '').toString()) ??
           DateTime.now(),
-      localPath: null,
-      previewBytes: null,
-      fileName: null,
-      isPendingUpload: false,
-      hasUploadError: false,
+      localPath: (json['localPath'] ?? '').toString().trim().isEmpty
+          ? null
+          : (json['localPath'] ?? '').toString(),
+      previewBytes: previewBytesBase64.trim().isEmpty
+          ? null
+          : base64Decode(previewBytesBase64),
+      fileName: (json['fileName'] ?? '').toString().trim().isEmpty
+          ? null
+          : (json['fileName'] ?? '').toString(),
+      isPendingUpload: json['isPendingUpload'] == true,
+      hasUploadError: json['hasUploadError'] == true,
     );
   }
 
@@ -365,7 +369,9 @@ class ServiceOrderEvidenceModel {
       createdById: createdById ?? this.createdById,
       createdAt: createdAt ?? this.createdAt,
       localPath: clearLocalPath ? null : (localPath ?? this.localPath),
-      previewBytes: clearPreviewBytes ? null : (previewBytes ?? this.previewBytes),
+      previewBytes: clearPreviewBytes
+          ? null
+          : (previewBytes ?? this.previewBytes),
       fileName: clearFileName ? null : (fileName ?? this.fileName),
       isPendingUpload: isPendingUpload ?? this.isPendingUpload,
       hasUploadError: hasUploadError ?? this.hasUploadError,
@@ -380,6 +386,12 @@ class ServiceOrderEvidenceModel {
       'content': content,
       'createdById': createdById,
       'createdAt': createdAt.toIso8601String(),
+      'localPath': localPath,
+      'fileName': fileName,
+      'isPendingUpload': isPendingUpload,
+      'hasUploadError': hasUploadError,
+      if (previewBytes != null && previewBytes!.isNotEmpty)
+        'previewBytesBase64': base64Encode(previewBytes!),
     };
   }
 }
@@ -500,7 +512,9 @@ class ServiceOrderModel {
 
   bool get isCloneSourceAllowed => status == ServiceOrderStatus.finalizado;
   List<ServiceOrderEvidenceModel> get referenceItems {
-    return evidences.where((item) => item.type.isReference).toList(growable: false);
+    return evidences
+        .where((item) => item.type.isReference)
+        .toList(growable: false);
   }
 
   List<ServiceOrderEvidenceModel> get technicalEvidenceItems {
@@ -568,10 +582,14 @@ class ServiceOrderModel {
       id: (json['id'] ?? '').toString(),
       clientId: (json['clientId'] ?? '').toString(),
       client: json['client'] is Map
-          ? ClienteModel.fromJson((json['client'] as Map).cast<String, dynamic>())
+          ? ClienteModel.fromJson(
+              (json['client'] as Map).cast<String, dynamic>(),
+            )
           : null,
       quotationId: json['quotationId']?.toString(),
-      category: serviceOrderCategoryFromApi((json['category'] ?? '').toString()),
+      category: serviceOrderCategoryFromApi(
+        (json['category'] ?? '').toString(),
+      ),
       serviceType: serviceOrderTypeFromApi(
         (json['serviceType'] ?? '').toString(),
       ),
@@ -620,7 +638,9 @@ class ServiceOrderModel {
       'assignedToId': assignedToId,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
-      'evidences': evidences.map((item) => item.toJson()).toList(growable: false),
+      'evidences': evidences
+          .map((item) => item.toJson())
+          .toList(growable: false),
       'reports': reports.map((item) => item.toJson()).toList(growable: false),
     };
   }
@@ -816,7 +836,8 @@ class ServiceOrderDraftReference {
   bool get isVideo => type.isVideo;
   bool get isText => type.isText;
   bool get hasRemoteContent => (uploadedUrl ?? '').trim().isNotEmpty;
-  String get referenceContent => isText ? content : ((uploadedUrl ?? content).trim());
+  String get referenceContent =>
+      isText ? content : ((uploadedUrl ?? content).trim());
   String get previewSource {
     final path = (localPath ?? '').trim();
     if (path.isNotEmpty) return path;

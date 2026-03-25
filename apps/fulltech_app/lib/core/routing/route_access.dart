@@ -17,6 +17,7 @@ class RouteAccess {
       case Routes.misPagos:
         return AppPermission.viewMyPayments;
       case Routes.ponche:
+      case Routes.poncheHistorial:
         return AppPermission.viewPunch;
       case Routes.catalogo:
         return AppPermission.viewCatalog;
@@ -53,6 +54,9 @@ class RouteAccess {
     // Prefix matches (parameterized routes)
     if (path.startsWith('/clientes/')) {
       return AppPermission.viewClients;
+    }
+    if (path.startsWith('${Routes.ponche}/')) {
+      return AppPermission.viewPunch;
     }
     if (path.startsWith('${Routes.serviceOrders}/')) {
       return AppPermission.viewOperations;

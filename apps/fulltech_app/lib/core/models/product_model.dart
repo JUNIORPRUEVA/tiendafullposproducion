@@ -211,9 +211,7 @@ class ProductModel {
   }
 
   String? get displayFotoUrl {
-    final sourceImageUrl = kIsWeb
-        ? (fotoUrl ?? originalFotoUrl)
-        : (originalFotoUrl ?? fotoUrl);
+    final sourceImageUrl = fotoUrl ?? originalFotoUrl;
     final url = buildProductImageUrl(
       imageUrl: sourceImageUrl,
       version: imageVersion,

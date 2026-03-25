@@ -63,9 +63,15 @@ class _CreateServiceOrderScreenState
     final state = ref.watch(provider);
     final controller = ref.read(provider.notifier);
     final user = ref.watch(authStateProvider).user;
+    final isCreatorEditingOrder =
+      widget.args?.isEditMode == true &&
+      widget.args?.editSource?.createdById == user?.id;
     final canManageOperationalFields =
-        user?.appRole.isTechnician == true || user?.appRole.isAdmin == true;
-    final canAssignTechnician = user?.appRole.isAdmin == true;
+      user?.appRole.isTechnician == true ||
+      user?.appRole.isAdmin == true ||
+      isCreatorEditingOrder;
+    final canAssignTechnician =
+      user?.appRole.isAdmin == true || isCreatorEditingOrder;
     final canCreateClients =
         user?.appRole == AppRole.admin ||
         user?.appRole == AppRole.asistente ||

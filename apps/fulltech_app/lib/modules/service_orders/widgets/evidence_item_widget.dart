@@ -1,11 +1,10 @@
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../core/api/env.dart';
+import '../../../core/utils/local_file_image.dart';
 import '../../../core/utils/video_preview_controller.dart';
 import '../service_order_models.dart';
 
@@ -55,14 +54,17 @@ class EvidenceItemWidget extends StatelessWidget {
                 type.isText
                     ? Icons.notes_outlined
                     : type.isImage
-                        ? Icons.image_outlined
-                        : Icons.videocam_outlined,
+                    ? Icons.image_outlined
+                    : Icons.videocam_outlined,
               ),
               const SizedBox(width: 8),
               Expanded(child: Text(type.label)),
               if (createdAt != null)
                 Text(
-                  DateFormat('dd/MM h:mm a', 'es_DO').format(createdAt!.toLocal()),
+                  DateFormat(
+                    'dd/MM h:mm a',
+                    'es_DO',
+                  ).format(createdAt!.toLocal()),
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               if (onRemove != null) ...[
@@ -82,6 +84,7 @@ class EvidenceItemWidget extends StatelessWidget {
         else if (type.isImage)
           _EvidenceImage(
             url: resolvedUrl,
+            localPath: localPath,
             previewBytes: previewBytes,
             compact: compact,
           )
@@ -100,7 +103,9 @@ class EvidenceItemWidget extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: surfaceColor ?? Theme.of(context).colorScheme.surfaceContainerHighest,
+        color:
+            surfaceColor ??
+            Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(18),
       ),
       child: content,
@@ -111,24 +116,28 @@ class EvidenceItemWidget extends StatelessWidget {
 class _EvidenceImage extends StatelessWidget {
   const _EvidenceImage({
     required this.url,
+    this.localPath,
     this.previewBytes,
     required this.compact,
   });
 
   final String url;
+  final String? localPath;
   final Uint8List? previewBytes;
   final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    if (previewBytes == null && url.isEmpty) {
+    final localProvider = localFileImageProvider(localPath ?? '');
+    if (previewBytes == null && url.isEmpty && localProvider == null) {
       return const _MediaErrorBox(message: 'No hay imagen disponible');
     }
 
     final height = compact ? 160.0 : 220.0;
 
     return GestureDetector(
-      onTap: () => _showImageFullscreen(context, url, previewBytes),
+      onTap: () =>
+          _showImageFullscreen(context, url, previewBytes, localProvider),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
         child: previewBytes != null
@@ -137,6 +146,21 @@ class _EvidenceImage extends StatelessWidget {
                 height: height,
                 width: double.infinity,
                 fit: BoxFit.cover,
+              )
+            : localProvider != null
+            ? Image(
+                image: localProvider,
+                height: height,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return SizedBox(
+                    height: compact ? 140 : 180,
+                    child: const _MediaErrorBox(
+                      message: 'No se pudo cargar la imagen',
+                    ),
+                  );
+                },
               )
             : Image.network(
                 url,
@@ -159,7 +183,9 @@ class _EvidenceImage extends StatelessWidget {
                 errorBuilder: (context, error, stackTrace) {
                   return SizedBox(
                     height: compact ? 140 : 180,
-                    child: const _MediaErrorBox(message: 'No se pudo cargar la imagen'),
+                    child: const _MediaErrorBox(
+                      message: 'No se pudo cargar la imagen',
+                    ),
                   );
                 },
               ),
@@ -171,6 +197,7 @@ class _EvidenceImage extends StatelessWidget {
     BuildContext context,
     String imageUrl,
     Uint8List? bytes,
+    ImageProvider? localProvider,
   ) {
     return showDialog<void>(
       context: context,
@@ -183,12 +210,16 @@ class _EvidenceImage extends StatelessWidget {
                 child: InteractiveViewer(
                   child: bytes != null
                       ? Image.memory(bytes, fit: BoxFit.contain)
+                      : localProvider != null
+                      ? Image(image: localProvider, fit: BoxFit.contain)
                       : Image.network(
                           imageUrl,
                           fit: BoxFit.contain,
                           loadingBuilder: (context, child, loadingProgress) {
                             if (loadingProgress == null) return child;
-                            return const Center(child: CircularProgressIndicator());
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
                           },
                           errorBuilder: (context, error, stackTrace) {
                             return const _MediaErrorBox(
@@ -418,7 +449,10 @@ class _EvidenceVideoState extends State<_EvidenceVideo> {
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
                       child: Text(
                         _durationLabel!,
                         style: const TextStyle(
@@ -470,7 +504,9 @@ class _MediaErrorBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = dark ? Colors.white : Theme.of(context).colorScheme.onSurfaceVariant;
+    final color = dark
+        ? Colors.white
+        : Theme.of(context).colorScheme.onSurfaceVariant;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(16),

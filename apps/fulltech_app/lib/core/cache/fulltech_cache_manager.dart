@@ -1,7 +1,7 @@
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
 class FulltechImageCacheManager {
-  static const _key = 'fulltechProductImagesV3';
+  static const _key = 'fulltechProductImagesV4';
 
   static final CacheManager instance = CacheManager(
     Config(

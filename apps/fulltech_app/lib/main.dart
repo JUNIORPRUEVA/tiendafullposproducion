@@ -9,6 +9,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'core/routing/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/loading/app_loading_overlay.dart';
+import 'core/auth/app_role.dart';
 import 'core/auth/auth_provider.dart';
 import 'core/debug/app_error_reporter.dart';
 import 'core/debug/app_error_overlay.dart';
@@ -17,6 +18,7 @@ import 'core/realtime/catalog_realtime_service.dart';
 import 'core/realtime/operations_realtime_service.dart';
 import 'core/startup/app_startup_controller.dart';
 import 'core/widgets/fulltech_global_background.dart';
+import 'features/catalogo/application/catalog_background_sync.dart';
 import 'features/contabilidad/contabilidad_init.dart';
 
 class _GlobalErrorFallback extends StatefulWidget {
@@ -173,7 +175,9 @@ class _MyAppState extends ConsumerState<MyApp> {
       final authState = ref.read(authStateProvider);
       if (authState.isAuthenticated) {
         unawaited(ref.read(catalogRealtimeServiceProvider).connect(authState));
-        unawaited(ref.read(operationsRealtimeServiceProvider).connect(authState));
+        unawaited(
+          ref.read(operationsRealtimeServiceProvider).connect(authState),
+        );
       } else {
         ref.read(catalogRealtimeServiceProvider).disconnect();
         ref.read(operationsRealtimeServiceProvider).disconnect();
@@ -184,10 +188,12 @@ class _MyAppState extends ConsumerState<MyApp> {
   @override
   Widget build(BuildContext context) {
     if (widget.enableBackgroundStartup && _backgroundStartupStarted) {
+      ref.watch(catalogBackgroundSyncBootstrapProvider);
       ref.watch(syncQueueBootstrapProvider);
     }
     final router = ref.watch(routerProvider);
-    ref.watch(authStateProvider);
+    final authState = ref.watch(authStateProvider);
+    final role = authState.user?.appRole ?? AppRole.unknown;
 
     ref.listen<AuthState>(authStateProvider, (previous, next) {
       if (!widget.enableBackgroundStartup || !_backgroundStartupStarted) {
@@ -211,7 +217,7 @@ class _MyAppState extends ConsumerState<MyApp> {
       locale: const Locale('es', 'DO'),
       supportedLocales: const [Locale('es', 'DO'), Locale('es')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      theme: AppTheme.light,
+      theme: AppTheme.lightForRole(role),
       routerConfig: router,
       builder: (context, child) {
         final effectiveChild = child == null
@@ -226,6 +232,7 @@ class _MyAppState extends ConsumerState<MyApp> {
         return Stack(
           children: [
             FulltechGlobalBackground(
+              role: role,
               enableBlurEffects:
                   widget.enableBackgroundStartup && _backgroundStartupStarted,
             ),

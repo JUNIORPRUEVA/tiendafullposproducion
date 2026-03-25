@@ -45,6 +45,7 @@ class UploadRepository {
   UploadRepository(this._dio);
 
   final Dio _dio;
+  static final _backgroundOptions = Options(extra: {'skipLoader': true});
 
   Future<UploadedMedia> uploadImage({
     required String fileName,
@@ -110,16 +111,16 @@ class UploadRepository {
 
       final response = await _dio.post(
         ApiRoutes.upload,
-        data: FormData.fromMap({
-          'file': multipartFile,
-          'kind': kind,
-        }),
+        data: FormData.fromMap({'file': multipartFile, 'kind': kind}),
+        options: _backgroundOptions,
         onSendProgress: (sent, total) {
           if (total <= 0) return;
           onProgress?.call(sent / total);
         },
       );
-      return UploadedMedia.fromJson((response.data as Map).cast<String, dynamic>());
+      return UploadedMedia.fromJson(
+        (response.data as Map).cast<String, dynamic>(),
+      );
     } on DioException catch (error) {
       final data = error.response?.data;
       String message = fallbackMessage;

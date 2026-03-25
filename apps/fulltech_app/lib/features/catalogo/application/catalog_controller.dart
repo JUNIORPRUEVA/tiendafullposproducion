@@ -1,10 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/cache/local_json_cache.dart';
 import '../../../core/cache/fulltech_cache_manager.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/models/product_model.dart';
+import '../data/catalog_local_repository.dart';
 import '../data/catalog_repository.dart';
+import '../data/catalog_sync_utils.dart';
 
 class CatalogState {
   final List<ProductModel> items;
@@ -50,36 +51,23 @@ final catalogControllerProvider =
 
 class CatalogController extends StateNotifier<CatalogState> {
   final Ref ref;
-  static const _cacheKey = 'catalog_products_cache_v4';
   static const _silentRefreshMinInterval = Duration(seconds: 20);
-  final LocalJsonCache _cache = LocalJsonCache();
   bool _remoteRefreshInFlight = false;
   DateTime? _lastSuccessfulRemoteSyncAt;
 
   CatalogController(this.ref) : super(const CatalogState());
 
-  Future<List<ProductModel>> _loadFromCache() async {
-    try {
-      final cached = await _cache.readMap(_cacheKey);
-      final rows = cached?['items'];
-      if (rows is! List) return const [];
-      return rows
-          .whereType<Map>()
-          .map((row) => ProductModel.fromJson(row.cast<String, dynamic>()))
-          .toList(growable: false);
-    } catch (_) {
-      return const [];
-    }
+  Future<CatalogLocalSnapshot> _loadFromLocal() {
+    return ref.read(catalogLocalRepositoryProvider).readSnapshot();
   }
 
-  Future<void> _saveToCache(List<ProductModel> items) async {
-    try {
-      await _cache.writeMap(_cacheKey, {
-        'items': items.map((item) => item.toJson()).toList(growable: false),
-      });
-    } catch (_) {
-      // Ignore cache failures.
-    }
+  Future<void> _saveToLocal(List<ProductModel> items, {DateTime? syncedAt}) {
+    final catalogVersion = buildCatalogSyncVersion(items);
+    return ref.read(catalogLocalRepositoryProvider).saveSnapshot(
+      items,
+      syncedAt: syncedAt ?? DateTime.now(),
+      catalogVersion: catalogVersion,
+    );
   }
 
   Future<void> load({bool silent = false, bool forceRemote = false}) async {
@@ -99,10 +87,11 @@ class CatalogController extends StateNotifier<CatalogState> {
     final shouldShowLoading = !silent || state.items.isEmpty;
 
     if (shouldShowLoading && state.items.isEmpty) {
-      final cached = await _loadFromCache();
-      if (cached.isNotEmpty) {
+      final snapshot = await _loadFromLocal();
+      if (snapshot.items.isNotEmpty) {
+        _lastSuccessfulRemoteSyncAt ??= snapshot.lastSyncedAt;
         state = state.copyWith(
-          items: cached,
+          items: snapshot.items,
           loading: false,
           refreshing: true,
           clearError: true,
@@ -130,11 +119,14 @@ class CatalogController extends StateNotifier<CatalogState> {
         forceRefresh: forceRemote,
         silent: silent,
       );
-      final merged = _mergeRecoveredImages(fetched);
+      final merged = mergeRecoveredCatalogImages(
+        previousItems: state.items,
+        fetchedItems: fetched,
+      );
       final syncVersion = buildCatalogSyncVersion(merged);
       final items = applyCatalogSyncVersion(merged, syncVersion);
       state = state.copyWith(items: items, loading: false, refreshing: false);
-      await _saveToCache(items);
+      await _saveToLocal(items);
       Future<void>.microtask(
         () => FulltechImageCacheManager.warmImageUrls(
           items.map((item) => item.displayFotoUrl),
@@ -157,46 +149,6 @@ class CatalogController extends StateNotifier<CatalogState> {
         _remoteRefreshInFlight = false;
       }
     }
-  }
-
-  List<ProductModel> _mergeRecoveredImages(List<ProductModel> fetched) {
-    if (state.items.isEmpty) return fetched;
-
-    final previousById = {for (final item in state.items) item.id: item};
-
-    return fetched
-        .map((next) {
-          final previous = previousById[next.id];
-          if (previous == null) return next;
-
-          final nextHasImage =
-              (next.fotoUrl ?? '').trim().isNotEmpty ||
-              (next.originalFotoUrl ?? '').trim().isNotEmpty;
-          final previousHasImage =
-              (previous.fotoUrl ?? '').trim().isNotEmpty ||
-              (previous.originalFotoUrl ?? '').trim().isNotEmpty;
-
-          if (!previousHasImage || nextHasImage) {
-            return next;
-          }
-
-          final sameUpdatedAt =
-              next.updatedAt != null &&
-              previous.updatedAt != null &&
-              next.updatedAt!.millisecondsSinceEpoch ==
-                  previous.updatedAt!.millisecondsSinceEpoch;
-
-          if (sameUpdatedAt || next.updatedAt == null) {
-            return next.copyWith(
-              fotoUrl: previous.fotoUrl,
-              originalFotoUrl: previous.originalFotoUrl,
-              imageVersion: previous.imageVersion ?? next.imageVersion,
-            );
-          }
-
-          return next;
-        })
-        .toList(growable: false);
   }
 
   Future<void> create({
@@ -223,7 +175,8 @@ class CatalogController extends StateNotifier<CatalogState> {
       );
       final updated = [created, ...state.items];
       state = state.copyWith(items: updated, saving: false);
-      await _saveToCache(updated);
+      await _saveToLocal(updated);
+      _lastSuccessfulRemoteSyncAt = DateTime.now();
     } catch (e) {
       final message = e is ApiException
           ? e.message
@@ -262,7 +215,8 @@ class CatalogController extends StateNotifier<CatalogState> {
       );
       final list = state.items.map((p) => p.id == id ? updated : p).toList();
       state = state.copyWith(items: list, saving: false);
-      await _saveToCache(list);
+      await _saveToLocal(list);
+      _lastSuccessfulRemoteSyncAt = DateTime.now();
     } catch (e) {
       final message = e is ApiException
           ? e.message
@@ -279,7 +233,8 @@ class CatalogController extends StateNotifier<CatalogState> {
       await repo.deleteProduct(id);
       final list = state.items.where((p) => p.id != id).toList();
       state = state.copyWith(items: list, saving: false);
-      await _saveToCache(list);
+      await _saveToLocal(list);
+      _lastSuccessfulRemoteSyncAt = DateTime.now();
     } catch (e) {
       final message = e is ApiException
           ? e.message

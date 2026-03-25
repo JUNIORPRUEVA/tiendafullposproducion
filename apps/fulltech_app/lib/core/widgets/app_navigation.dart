@@ -185,6 +185,9 @@ String resolveNavigationTitle(
   String location,
   List<AppNavigationSection> sections,
 ) {
+  final path = Uri.tryParse(location)?.path ?? location;
+  if (path == Routes.poncheHistorial) return 'Historial de ponches';
+
   for (final section in sections) {
     for (final item in section.items) {
       if (isNavigationRouteActive(location, item.route)) {
@@ -193,7 +196,6 @@ String resolveNavigationTitle(
     }
   }
 
-  final path = Uri.tryParse(location)?.path ?? location;
   if (path == Routes.registrarVenta) return 'Nueva venta';
   if (path == Routes.serviceOrders) return 'Operaciones';
   if (path == Routes.serviceOrderCreate) return 'Crear orden';

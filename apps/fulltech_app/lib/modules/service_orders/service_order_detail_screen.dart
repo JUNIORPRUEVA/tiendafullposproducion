@@ -27,10 +27,13 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
     final controller = ref.read(provider.notifier);
     final order = state.order;
     final pendingUploads =
-      order?.evidences.where((item) => item.isPendingUpload).length ?? 0;
+        order?.evidences.where((item) => item.isPendingUpload).length ?? 0;
     final currentUser = ref.watch(authStateProvider).user;
+    final currentUserId = currentUser?.id ?? '';
     final role = currentUser?.appRole ?? AppRole.unknown;
     final canSeeTechnicalArea = role.isTechnician || role.isAdmin;
+    final canEditOrder =
+      order != null && (role.isAdmin || currentUserId == order.createdById);
 
     return Scaffold(
       appBar: AppBar(
@@ -40,6 +43,27 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
         ),
         title: const Text('Detalle de orden'),
         actions: [
+          if (canEditOrder)
+            IconButton(
+              onPressed: state.loading || state.working
+                  ? null
+                  : () async {
+                      final updated = await context.push<bool>(
+                        Routes.serviceOrderCreate,
+                        extra: ServiceOrderCreateArgs(editSource: order),
+                      );
+                      if (updated == true) {
+                        await controller.refresh();
+                        if (!context.mounted) return;
+                        await AppFeedback.showInfo(
+                          context,
+                          'Orden actualizada',
+                        );
+                      }
+                    },
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: 'Editar orden',
+            ),
           IconButton(
             onPressed: state.loading || state.working
                 ? null
@@ -51,15 +75,8 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
       body: SafeArea(
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 280),
-          child: state.loading && order == null
-              ? const Center(child: CircularProgressIndicator())
-              : order == null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(state.error ?? 'No se pudo cargar la orden'),
-                  ),
-                )
+          child: order == null
+              ? _DetailWarmupShell(message: state.error)
               : RefreshIndicator(
                   onRefresh: controller.refresh,
                   child: ListView(
@@ -116,6 +133,15 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                                         order.status,
                                         ...order.status.allowedNextStatuses,
                                       ]
+                                      .fold<List<ServiceOrderStatus>>([], (
+                                        acc,
+                                        status,
+                                      ) {
+                                        if (!acc.contains(status)) {
+                                          acc.add(status);
+                                        }
+                                        return acc;
+                                      })
                                       .map(
                                         (status) =>
                                             DropdownMenuItem<
@@ -133,6 +159,7 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                                           value == order.status) {
                                         return;
                                       }
+
                                       try {
                                         await controller.updateStatus(value);
                                         if (!context.mounted) return;
@@ -237,98 +264,96 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                               ),
                       ),
                       const SizedBox(height: 18),
-                      if (canSeeTechnicalArea)
-                        SectionCard(
-                          icon: Icons.hardware_rounded,
-                          title: 'Evidencia técnica',
-                          subtitle:
-                              'Archivos y notas del trabajo ejecutado en campo.',
-                          trailing: MenuAnchor(
-                            menuChildren: [
-                              MenuItemButton(
-                                onPressed: () =>
-                                    _addTextEvidence(context, ref, provider),
-                                child: const Text('Agregar texto'),
-                              ),
-                              MenuItemButton(
-                                onPressed: () =>
-                                    _addImageEvidence(context, ref, provider),
-                                child: const Text('Subir imagen'),
-                              ),
-                              MenuItemButton(
-                                onPressed: () =>
-                                    _addVideoEvidence(context, ref, provider),
-                                child: const Text('Subir video'),
-                              ),
-                            ],
-                            builder: (context, menuController, child) {
-                              return OutlinedButton.icon(
-                                onPressed: state.working
-                                    ? null
-                                    : () {
-                                        if (menuController.isOpen) {
-                                          menuController.close();
-                                        } else {
-                                          menuController.open();
-                                        }
-                                      },
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 12,
+                      SectionCard(
+                        icon: Icons.hardware_rounded,
+                        title: 'Evidencia técnica',
+                        subtitle:
+                            'Archivos y notas del trabajo ejecutado en campo.',
+                        trailing: canSeeTechnicalArea
+                            ? MenuAnchor(
+                                menuChildren: [
+                                  MenuItemButton(
+                                    onPressed: () => _addTextEvidence(
+                                      context,
+                                      ref,
+                                      provider,
+                                    ),
+                                    child: const Text('Agregar texto'),
                                   ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
+                                  MenuItemButton(
+                                    onPressed: () => _addImageEvidence(
+                                      context,
+                                      ref,
+                                      provider,
+                                    ),
+                                    child: const Text('Subir imagen'),
                                   ),
-                                ),
-                                icon: const Icon(
-                                  Icons.add_photo_alternate_outlined,
-                                ),
-                                label: const Text('Nueva evidencia'),
-                              );
-                            },
-                          ),
-                          child: order.technicalEvidenceItems.isEmpty
-                              ? const _EmptySectionState(
-                                  icon: Icons.camera_alt_outlined,
-                                  title: 'Sin evidencia técnica',
-                                  message:
-                                      'Agrega archivos del trabajo cuando el técnico empiece a documentar la visita.',
-                                )
-                              : Column(
-                                  children: order.technicalEvidenceItems
-                                      .asMap()
-                                      .entries
-                                      .map(
-                                        (entry) => Padding(
-                                          padding: const EdgeInsets.only(
-                                            bottom: 12,
-                                          ),
-                                          child: _FadeSlideIn(
-                                            delayMs: 40 * entry.key,
-                                            child: EvidenceCard(
-                                              evidence: entry.value,
-                                              variant:
-                                                  EvidenceCardVariant.technical,
-                                            ),
+                                  MenuItemButton(
+                                    onPressed: () => _addVideoEvidence(
+                                      context,
+                                      ref,
+                                      provider,
+                                    ),
+                                    child: const Text('Subir video'),
+                                  ),
+                                ],
+                                builder: (context, menuController, child) {
+                                  return OutlinedButton.icon(
+                                    onPressed: state.working
+                                        ? null
+                                        : () {
+                                            if (menuController.isOpen) {
+                                              menuController.close();
+                                            } else {
+                                              menuController.open();
+                                            }
+                                          },
+                                    style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 12,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                    ),
+                                    icon: const Icon(
+                                      Icons.add_photo_alternate_outlined,
+                                    ),
+                                    label: const Text('Nueva evidencia'),
+                                  );
+                                },
+                              )
+                            : null,
+                        child: order.technicalEvidenceItems.isEmpty
+                            ? const _EmptySectionState(
+                                icon: Icons.camera_alt_outlined,
+                                title: 'Sin evidencia técnica',
+                                message:
+                                    'Agrega archivos del trabajo cuando el técnico empiece a documentar la visita.',
+                              )
+                            : Column(
+                                children: order.technicalEvidenceItems
+                                    .asMap()
+                                    .entries
+                                    .map(
+                                      (entry) => Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 12,
+                                        ),
+                                        child: _FadeSlideIn(
+                                          delayMs: 40 * entry.key,
+                                          child: EvidenceCard(
+                                            evidence: entry.value,
+                                            variant:
+                                                EvidenceCardVariant.technical,
                                           ),
                                         ),
-                                      )
-                                      .toList(growable: false),
-                                ),
-                        )
-                      else
-                        const SectionCard(
-                          icon: Icons.lock_outline_rounded,
-                          title: 'Evidencia técnica',
-                          subtitle: 'Acceso restringido',
-                          child: _EmptySectionState(
-                            icon: Icons.admin_panel_settings_outlined,
-                            title: 'Solo técnico y administración',
-                            message:
-                                'Este bloque se habilita para cargar evidencias técnicas y reportes de campo.',
-                          ),
-                        ),
+                                      ),
+                                    )
+                                    .toList(growable: false),
+                              ),
+                      ),
                       const SizedBox(height: 18),
                       if (pendingUploads > 0) ...[
                         Padding(
@@ -338,7 +363,9 @@ class ServiceOrderDetailScreen extends ConsumerWidget {
                               const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               ),
                               const SizedBox(width: 10),
                               Text(
@@ -507,7 +534,8 @@ Future<void> _addImageEvidence(
 
   final bytes = file.bytes;
   final path = kIsWeb ? null : file.path;
-  if ((bytes == null || bytes.isEmpty) && (path == null || path.trim().isEmpty)) {
+  if ((bytes == null || bytes.isEmpty) &&
+      (path == null || path.trim().isEmpty)) {
     if (!context.mounted) return;
     await AppFeedback.showError(
       context,
@@ -559,7 +587,8 @@ Future<void> _addVideoEvidence(
 
   final bytes = file.bytes;
   final path = kIsWeb ? null : file.path;
-  if ((bytes == null || bytes.isEmpty) && (path == null || path.trim().isEmpty)) {
+  if ((bytes == null || bytes.isEmpty) &&
+      (path == null || path.trim().isEmpty)) {
     if (!context.mounted) return;
     await AppFeedback.showError(
       context,
@@ -571,11 +600,7 @@ Future<void> _addVideoEvidence(
   try {
     await ref
         .read(provider.notifier)
-        .addVideoEvidence(
-          fileName: file.name,
-          bytes: bytes,
-          path: path,
-        );
+        .addVideoEvidence(fileName: file.name, bytes: bytes, path: path);
     if (!context.mounted) return;
     await AppFeedback.showInfo(
       context,
@@ -642,9 +667,9 @@ Future<ServiceReportType?> _pickReportType(BuildContext context) {
             children: [
               Text(
                 'Tipo de reporte',
-                style: Theme.of(sheetContext).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+                style: Theme.of(
+                  sheetContext,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 6),
               Text(
@@ -656,7 +681,8 @@ Future<ServiceReportType?> _pickReportType(BuildContext context) {
               const SizedBox(height: 14),
               _ReportTypeAction(
                 type: ServiceReportType.requerimientoCliente,
-                subtitle: 'Para solicitudes o requerimientos adicionales del cliente',
+                subtitle:
+                    'Para solicitudes o requerimientos adicionales del cliente',
                 icon: Icons.assignment_ind_outlined,
                 onTap: () => Navigator.pop(
                   sheetContext,
@@ -666,7 +692,8 @@ Future<ServiceReportType?> _pickReportType(BuildContext context) {
               const SizedBox(height: 10),
               _ReportTypeAction(
                 type: ServiceReportType.servicioFinalizado,
-                subtitle: 'Para documentar el cierre o resultado final del servicio',
+                subtitle:
+                    'Para documentar el cierre o resultado final del servicio',
                 icon: Icons.task_alt_outlined,
                 onTap: () => Navigator.pop(
                   sheetContext,
@@ -676,9 +703,11 @@ Future<ServiceReportType?> _pickReportType(BuildContext context) {
               const SizedBox(height: 10),
               _ReportTypeAction(
                 type: ServiceReportType.otros,
-                subtitle: 'Para otras observaciones importantes relacionadas con la orden',
+                subtitle:
+                    'Para otras observaciones importantes relacionadas con la orden',
                 icon: Icons.notes_outlined,
-                onTap: () => Navigator.pop(sheetContext, ServiceReportType.otros),
+                onTap: () =>
+                    Navigator.pop(sheetContext, ServiceReportType.otros),
               ),
             ],
           ),
@@ -791,7 +820,8 @@ Future<Map<String, String?>?> _promptOperationalNotes(
                 maxLines: 5,
                 decoration: const InputDecoration(
                   labelText: 'Solicitudes del cliente',
-                  hintText: 'Requisitos, observaciones o solicitudes adicionales',
+                  hintText:
+                      'Requisitos, observaciones o solicitudes adicionales',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -998,7 +1028,7 @@ class _HeaderTag extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             text,
-            style: const TextStyle(
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: Colors.white,
               fontWeight: FontWeight.w600,
             ),
@@ -1086,6 +1116,197 @@ class SectionCard extends StatelessWidget {
             const SizedBox(height: 18),
             child,
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailWarmupShell extends StatelessWidget {
+  const _DetailWarmupShell({this.message});
+
+  final String? message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(
+        parent: BouncingScrollPhysics(),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 132),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF102542), Color(0xFF0F7B6C)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x22102542),
+                blurRadius: 24,
+                offset: Offset(0, 12),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Detalle operativo',
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message ??
+                    'La vista local del modulo se prepara mientras la sincronizacion continua en segundo plano.',
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.84),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: const [
+                  _PlaceholderChip(label: 'Sincronizacion silenciosa'),
+                  _PlaceholderChip(label: 'Datos locales'),
+                  _PlaceholderChip(label: 'Actualizacion en segundo plano'),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        const _DetailPlaceholderCard(
+          title: 'Estado operativo',
+          subtitle: 'Recuperando la informacion principal de la orden.',
+          icon: Icons.tune_rounded,
+          lineCount: 3,
+        ),
+        const SizedBox(height: 18),
+        const _DetailPlaceholderCard(
+          title: 'Referencia',
+          subtitle: 'Mostrando el contexto disponible sin bloquear la vista.',
+          icon: Icons.forum_rounded,
+          lineCount: 3,
+        ),
+        const SizedBox(height: 18),
+        const _DetailPlaceholderCard(
+          title: 'Reporte tecnico',
+          subtitle: 'Los datos nuevos llegan cuando termina la sincronizacion.',
+          icon: Icons.description_outlined,
+          lineCount: 2,
+        ),
+        const SizedBox(height: 18),
+        Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: colorScheme.primary,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'La sincronizacion sigue en segundo plano para no interrumpir el trabajo.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DetailPlaceholderCard extends StatelessWidget {
+  const _DetailPlaceholderCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.lineCount,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final int lineCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return SectionCard(
+      icon: icon,
+      title: title,
+      subtitle: subtitle,
+      child: Column(
+        children: List.generate(
+          lineCount,
+          (index) => Padding(
+            padding: EdgeInsets.only(bottom: index == lineCount - 1 ? 0 : 12),
+            child: _PlaceholderLine(
+              widthFactor: index == lineCount - 1 ? 0.56 : 1,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlaceholderLine extends StatelessWidget {
+  const _PlaceholderLine({required this.widthFactor});
+
+  final double widthFactor;
+
+  @override
+  Widget build(BuildContext context) {
+    return FractionallySizedBox(
+      widthFactor: widthFactor,
+      alignment: Alignment.centerLeft,
+      child: Container(
+        height: 14,
+        decoration: BoxDecoration(
+          color: const Color(0xFF102542).withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(999),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlaceholderChip extends StatelessWidget {
+  const _PlaceholderChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
