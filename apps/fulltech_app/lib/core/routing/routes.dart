@@ -31,6 +31,7 @@ class Routes {
   static const manualInterno = '/manual-interno';
   static const configuracion = '/configuracion';
   static const administracion = '/administracion';
+  static const administracionPonches = '/administracion/ponches';
 
   static String clienteDetail(String id) => '/clientes/$id';
   static String clienteEdit(String id) => '/clientes/$id/editar';

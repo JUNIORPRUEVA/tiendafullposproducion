@@ -37,6 +37,7 @@ class AdministracionRepository {
       final res = await _dio.get(
         ApiRoutes.adminPanelOverview,
         queryParameters: {'days': days},
+        options: Options(extra: const {'skipLoader': true}),
       );
       return AdminPanelOverview.fromJson(
         (res.data as Map).cast<String, dynamic>(),
@@ -76,6 +77,7 @@ class AdministracionRepository {
       final res = await _dio.get(
         ApiRoutes.adminPanelAiInsights,
         queryParameters: {'days': days},
+        options: Options(extra: const {'skipLoader': true}),
       );
       return AdminAiInsights.fromJson((res.data as Map).cast<String, dynamic>());
     } on DioException catch (e) {
@@ -119,6 +121,7 @@ class AdministracionRepository {
       final res = await _dio.get(
         ApiRoutes.punchAttendanceSummary,
         queryParameters: {'from': dateOnly(from), 'to': dateOnly(now)},
+        options: Options(extra: const {'skipLoader': true}),
       );
       return (res.data as Map).cast<String, dynamic>();
     } on DioException catch (e) {
@@ -139,6 +142,7 @@ class AdministracionRepository {
       final res = await _dio.get(
         ApiRoutes.adminSalesSummary,
         queryParameters: {'from': dateOnly(from), 'to': dateOnly(now)},
+        options: Options(extra: const {'skipLoader': true}),
       );
       return (res.data as Map).cast<String, dynamic>();
     } on DioException catch (e) {

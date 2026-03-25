@@ -125,9 +125,9 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
                             ],
                           )
                         : ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                            padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
                             itemCount: state.items.length,
-                            separatorBuilder: (_, _) => const SizedBox(height: 10),
+                            separatorBuilder: (_, _) => const SizedBox(height: 4),
                             itemBuilder: (context, index) {
                               final client = state.items[index];
                               return _ClienteCard(client: client);
@@ -150,74 +150,76 @@ class _ClienteCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final subtitle = _buildCompactSubtitle(client);
+    final initial = client.nombre.trim().isEmpty
+        ? '?'
+        : client.nombre.trim().substring(0, 1).toUpperCase();
 
     return Card(
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.55),
+          width: 0.8,
+        ),
+      ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         onTap: () => context.push(Routes.clienteDetail(client.id)),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             children: [
               CircleAvatar(
-                radius: 22,
+                radius: 18,
                 backgroundColor: theme.colorScheme.primaryContainer,
                 foregroundColor: theme.colorScheme.onPrimaryContainer,
                 child: Text(
-                  client.nombre.trim().isEmpty
-                      ? '?'
-                      : client.nombre.trim().substring(0, 1).toUpperCase(),
-                  style: theme.textTheme.titleMedium?.copyWith(
+                  initial,
+                  style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            client.nombre,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        _CompactActionButton(
-                          tooltip: 'Editar',
-                          icon: Icons.edit_outlined,
-                          onPressed: () => context.push(
-                            Routes.clienteEdit(client.id),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        _CompactActionButton(
-                          tooltip: 'Eliminar',
-                          icon: Icons.delete_outline_rounded,
-                          onPressed: () => _confirmDelete(context, ref, client),
-                        ),
-                      ],
+                    Text(
+                      client.nombre,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        height: 1.2,
+                      ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
                     Text(
                       subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
+                      style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                         height: 1.2,
                       ),
                     ),
                   ],
                 ),
+              ),
+              const SizedBox(width: 2),
+              _InlineIconBtn(
+                icon: Icons.edit_outlined,
+                color: theme.colorScheme.primary,
+                onPressed: () => context.push(Routes.clienteEdit(client.id)),
+              ),
+              _InlineIconBtn(
+                icon: Icons.delete_outline_rounded,
+                color: theme.colorScheme.error.withValues(alpha: 0.75),
+                onPressed: () => _confirmDelete(context, ref, client),
               ),
             ],
           ),
@@ -227,33 +229,27 @@ class _ClienteCard extends ConsumerWidget {
   }
 }
 
-class _CompactActionButton extends StatelessWidget {
-  const _CompactActionButton({
-    required this.tooltip,
+class _InlineIconBtn extends StatelessWidget {
+  const _InlineIconBtn({
     required this.icon,
+    required this.color,
     required this.onPressed,
   });
 
-  final String tooltip;
   final IconData icon;
+  final Color color;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Material(
-      color: theme.colorScheme.surfaceContainerHighest,
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: onPressed,
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Tooltip(
-            message: tooltip,
-            child: Icon(icon, size: 18, color: theme.colorScheme.primary),
-          ),
-        ),
+    return SizedBox(
+      width: 32,
+      height: 32,
+      child: IconButton(
+        visualDensity: VisualDensity.compact,
+        padding: EdgeInsets.zero,
+        icon: Icon(icon, size: 18, color: color),
+        onPressed: onPressed,
       ),
     );
   }
@@ -310,9 +306,7 @@ Future<void> _confirmDelete(
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       const SnackBar(content: Text('Cliente eliminado')),
     );
-  } catch (error, stackTrace) {
-    print(error);
-    print(stackTrace);
+  } catch (error) {
     if (!context.mounted) return;
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       SnackBar(content: Text(error.toString())),

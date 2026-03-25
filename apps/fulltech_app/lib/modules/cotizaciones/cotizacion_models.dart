@@ -6,6 +6,7 @@ class CotizacionItem {
   final String? imageUrl;
   final double unitPrice;
   final double qty;
+  final double? costUnit;
   final double? externalCostUnit;
 
   const CotizacionItem({
@@ -14,12 +15,15 @@ class CotizacionItem {
     required this.imageUrl,
     required this.unitPrice,
     required this.qty,
+    this.costUnit,
     this.externalCostUnit,
   });
 
   bool get isExternal => !_isUuid(productId);
 
   double get total => unitPrice * qty;
+  
+  double get subtotalCost => (costUnit ?? 0) * qty;
 
   CotizacionItem copyWith({
     String? productId,
@@ -27,6 +31,7 @@ class CotizacionItem {
     String? imageUrl,
     double? unitPrice,
     double? qty,
+    double? costUnit,
     double? externalCostUnit,
   }) {
     return CotizacionItem(
@@ -35,6 +40,7 @@ class CotizacionItem {
       imageUrl: imageUrl ?? this.imageUrl,
       unitPrice: unitPrice ?? this.unitPrice,
       qty: qty ?? this.qty,
+      costUnit: costUnit ?? this.costUnit,
       externalCostUnit: externalCostUnit ?? this.externalCostUnit,
     );
   }
@@ -45,6 +51,7 @@ class CotizacionItem {
     'imageUrl': imageUrl,
     'unitPrice': unitPrice,
     'qty': qty,
+    'costUnit': costUnit,
     'externalCostUnit': externalCostUnit,
   };
 
@@ -72,6 +79,7 @@ class CotizacionItem {
       imageUrl: map['imageUrl']?.toString(),
       unitPrice: (map['unitPrice'] as num?)?.toDouble() ?? 0,
       qty: (map['qty'] as num?)?.toDouble() ?? 0,
+      costUnit: (map['costUnit'] as num?)?.toDouble(),
       externalCostUnit: (map['externalCostUnit'] as num?)?.toDouble(),
     );
   }

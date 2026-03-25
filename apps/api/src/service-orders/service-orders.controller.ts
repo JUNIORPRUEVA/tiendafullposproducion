@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client';
 import { Request } from 'express';
@@ -8,6 +8,7 @@ import { CloneServiceOrderDto } from './dto/clone-service-order.dto';
 import { CreateEvidenceDto } from './dto/create-evidence.dto';
 import { CreateReportDto } from './dto/create-report.dto';
 import { CreateServiceOrderDto } from './dto/create-service-order.dto';
+import { ServiceOrderSalesSummaryQueryDto } from './dto/service-order-sales-summary-query.dto';
 import { UpdateServiceOrderDto } from './dto/update-service-order.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { ServiceOrdersService } from './service-orders.service';
@@ -28,6 +29,11 @@ export class ServiceOrdersController {
   @Get()
   list(@Req() req: Request) {
     return this.serviceOrders.list(req.user as JwtUser);
+  }
+
+  @Get('sales-summary')
+  salesSummary(@Req() req: Request, @Query() query: ServiceOrderSalesSummaryQueryDto) {
+    return this.serviceOrders.salesSummary(req.user as JwtUser, query.from, query.to);
   }
 
   @Get(':id')

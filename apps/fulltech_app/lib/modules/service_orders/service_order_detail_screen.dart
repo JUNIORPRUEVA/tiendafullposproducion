@@ -628,39 +628,64 @@ Future<void> _addImageEvidence(
   provider,
 ) async {
   final result = await FilePicker.platform.pickFiles(
-    allowMultiple: false,
+    allowMultiple: true,
     type: FileType.image,
     withData: kIsWeb,
   );
-  final file = result?.files.singleOrNull;
-  if (file == null) {
-    return;
-  }
-
-  final bytes = file.bytes;
-  final path = kIsWeb ? null : file.path;
-  if ((bytes == null || bytes.isEmpty) &&
-      (path == null || path.trim().isEmpty)) {
-    if (!context.mounted) return;
-    await AppFeedback.showError(
-      context,
-      'No se pudo leer la imagen seleccionada',
-    );
+  final files = result?.files ?? const <PlatformFile>[];
+  if (files.isEmpty) {
     return;
   }
 
   try {
-    await ref
-        .read(provider.notifier)
-        .addImageEvidence(
-          bytes: bytes ?? const <int>[],
-          fileName: file.name,
-          path: path,
-        );
+    var uploadedCount = 0;
+    String? lastError;
+
+    for (final file in files) {
+      final bytes = file.bytes;
+      final path = kIsWeb ? null : file.path;
+
+      if ((bytes == null || bytes.isEmpty) &&
+          (path == null || path.trim().isEmpty)) {
+        lastError = 'No se pudo leer una de las imagenes seleccionadas';
+        continue;
+      }
+
+      try {
+        await ref
+            .read(provider.notifier)
+            .addImageEvidence(
+              bytes: bytes ?? const <int>[],
+              fileName: file.name,
+              path: path,
+            );
+        uploadedCount++;
+      } catch (_) {
+        lastError = ref.read(provider).actionError ??
+            'No se pudo subir una de las imagenes';
+      }
+    }
+
+    if (uploadedCount == 0) {
+      if (!context.mounted) return;
+      await AppFeedback.showError(
+        context,
+        lastError ?? 'No se pudo subir ninguna imagen',
+      );
+      return;
+    }
+
     if (!context.mounted) return;
+    final totalSelected = files.length;
+    final uploadedMessage = uploadedCount == 1
+        ? '1 imagen agregada. Se esta subiendo en segundo plano.'
+        : '$uploadedCount imagenes agregadas. Se estan subiendo en segundo plano.';
+    final summary = uploadedCount == totalSelected
+        ? uploadedMessage
+        : '$uploadedMessage ${totalSelected - uploadedCount} no se pudieron procesar.';
     await AppFeedback.showInfo(
       context,
-      'Imagen agregada. Se esta subiendo en segundo plano.',
+      summary,
     );
   } catch (_) {
     if (!context.mounted) return;

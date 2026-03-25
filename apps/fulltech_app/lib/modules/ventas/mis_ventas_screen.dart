@@ -117,6 +117,8 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                   const SizedBox(height: 10),
                   _buildCurrentQuincenaCard(state, goal),
                   const SizedBox(height: 10),
+                  _buildServiceSalesCard(state),
+                  const SizedBox(height: 10),
                   _buildSalesByDayStats(state),
                   if (state.loading) const LinearProgressIndicator(),
                   if (state.error != null) ...[
@@ -417,17 +419,24 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                             Expanded(
                               child: SingleChildScrollView(
                                 physics: const AlwaysScrollableScrollPhysics(),
-                                child: _SalesSummary(
-                                  state: state,
-                                  goal: goal,
-                                  dayPoints: dayPoints,
-                                  weekdayStats: weekdayStats,
-                                  topProducts: topProducts,
-                                  bestDay: bestDay,
-                                  strongestWeekday: strongestWeekday,
-                                  averageDailySales: averageDailySales,
-                                  money: _money,
-                                  compactMoney: _moneyCompact,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _buildServiceSalesCard(state),
+                                    SizedBox(height: gap),
+                                    _SalesSummary(
+                                      state: state,
+                                      goal: goal,
+                                      dayPoints: dayPoints,
+                                      weekdayStats: weekdayStats,
+                                      topProducts: topProducts,
+                                      bestDay: bestDay,
+                                      strongestWeekday: strongestWeekday,
+                                      averageDailySales: averageDailySales,
+                                      money: _money,
+                                      compactMoney: _moneyCompact,
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
@@ -472,6 +481,8 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                       neededPerDay: neededPerDay,
                       money: _money,
                     ),
+                    SizedBox(height: gap),
+                    _buildServiceSalesCard(state),
                     SizedBox(height: gap),
                     _SalesSummary(
                       state: state,
@@ -661,6 +672,192 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                   : 'Debes alcanzar la meta mínima en puntos para desbloquear beneficios.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildServiceSalesCard(VentasState state) {
+    final summary = state.serviceSummary;
+    final theme = Theme.of(context);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.miscellaneous_services_outlined, size: 18),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Ventas por servicios finalizados',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                if (summary.totalOrders > 0)
+                  Text(
+                    '${summary.eligibleOrders}/${summary.totalOrders}',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Cálculo automático desde órdenes finalizadas en ${_quincenaLabel(state.from, state.to)}. La fecha operativa usada es la última actualización de la orden.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _miniMetric(
+                    'Órdenes válidas',
+                    summary.eligibleOrders.toString(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _miniMetric(
+                    'Órdenes omitidas',
+                    summary.skippedOrders.toString(),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _miniMetric(
+                    'Utilidad calculada',
+                    _money(summary.totalProfit),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _miniMetric(
+                    'Gasto fijo aplicado',
+                    _money(summary.totalOperationalExpense),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _miniMetric(
+                    'Beneficio vendedor',
+                    _money(summary.totalSellerCommission),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _miniMetric(
+                    'Beneficio técnico',
+                    _money(summary.totalTechnicianCommission),
+                  ),
+                ),
+              ],
+            ),
+            if (state.serviceSummaryError != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                state.serviceSummaryError!,
+                style: TextStyle(color: theme.colorScheme.error),
+              ),
+            ] else if (!summary.hasActivity) ...[
+              const SizedBox(height: 10),
+              Text(
+                'No hay órdenes finalizadas que entren en este cálculo durante la quincena activa.',
+                style: theme.textTheme.bodySmall,
+              ),
+            ] else ...[
+              const SizedBox(height: 10),
+              if (summary.skipped.isNotEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: Colors.orange.withValues(alpha: 0.24),
+                    ),
+                  ),
+                  child: Text(
+                    '${summary.skipped.length} órdenes fueron omitidas porque una o más líneas no tienen costo trazable desde catálogo.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+              if (summary.items.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                ...summary.items.take(4).map(
+                  (item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        color: theme.colorScheme.surfaceContainerHighest,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  item.customerName,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                _money(item.sellerCommissionAmount),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${item.serviceType} · ${item.category} · ${item.finalizedAt == null ? 'Sin fecha' : _date(item.finalizedAt!)}',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Vendedor: ${_money(item.sellerCommissionAmount)} · Técnico: ${_money(item.technicianCommissionAmount)} · Base neta: ${_money(item.profitAfterExpense)}',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                          if ((item.technicianName ?? '').trim().isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              'Técnico asignado: ${item.technicianName}',
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                if (summary.items.length > 4)
+                  Text(
+                    'Se muestran las 4 órdenes más recientes de ${summary.items.length}.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+              ],
+            ],
           ],
         ),
       ),

@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/auth/app_role.dart';
 import '../../core/cache/fulltech_cache_manager.dart';
 import '../../core/cache/local_json_cache.dart';
 import '../../core/company/company_settings_repository.dart';
@@ -535,6 +536,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   double get _subtotal => _items.fold(0, (sum, item) => sum + item.total);
   double get _itbisAmount => _includeItbis ? (_subtotal * _itbisRate) : 0;
   double get _total => _subtotal + _itbisAmount;
+  double get _totalCost => _items.fold(0, (sum, item) => sum + item.subtotalCost);
+  double get _utilityAmount => _total - _totalCost;
 
   String _money(double value) =>
       NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(value);
@@ -946,6 +949,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
             imageUrl: product.displayFotoUrl,
             unitPrice: product.precio,
             qty: 1,
+            costUnit: product.costo,
           ),
         );
       }
@@ -2017,6 +2021,30 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                     ),
                   ],
                 ),
+                if (ref.watch(authStateProvider).user?.appRole == AppRole.admin)
+                  ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Utilidad total',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Colors.green,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          _money(_utilityAmount),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 const SizedBox(height: 10),
                 Row(
                   children: [

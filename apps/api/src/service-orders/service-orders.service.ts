@@ -5,7 +5,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, Role, type Client } from '@prisma/client';
+import {
+  Prisma,
+  Role,
+  ServiceOrderStatus as PrismaServiceOrderStatus,
+  ServiceOrderType as PrismaServiceOrderType,
+  type Client,
+} from '@prisma/client';
 import { RedisService } from '../common/redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CatalogRealtimeRelayService } from '../products/catalog-realtime-relay.service';
@@ -51,6 +57,36 @@ type ServiceOrderWithClient = Prisma.ServiceOrderGetPayload<{
 }>;
 
 type ServiceOrderRecord = Prisma.ServiceOrderGetPayload<object>;
+
+type ServiceSalesOrderWithRelations = Prisma.ServiceOrderGetPayload<{
+  include: {
+    client: true;
+    assignedTo: {
+      select: {
+        id: true;
+        nombreCompleto: true;
+        email: true;
+      };
+    };
+    quotation: {
+      include: {
+        items: {
+          include: {
+            product: {
+              select: {
+                id: true;
+                costo: true;
+              };
+            };
+          };
+          orderBy: {
+            createdAt: 'asc';
+          };
+        };
+      };
+    };
+  };
+}>;
 
 @Injectable()
 export class ServiceOrdersService {
@@ -104,6 +140,93 @@ export class ServiceOrdersService {
     const response = this.mapOrder(item);
     await this.redis.set(cacheKey, response, 30);
     return response;
+  }
+
+  async salesSummary(user: AuthUser, from?: string, to?: string) {
+    const where: Prisma.ServiceOrderWhereInput = {
+      createdById: user.id,
+      status: PrismaServiceOrderStatus.FINALIZADO,
+      serviceType: {
+        in: [
+          PrismaServiceOrderType.INSTALACION,
+          PrismaServiceOrderType.MANTENIMIENTO,
+        ],
+      },
+      ...this.buildUpdatedAtRange(from, to),
+    };
+
+    const orders = await this.prisma.serviceOrder.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        client: true,
+        assignedTo: {
+          select: {
+            id: true,
+            nombreCompleto: true,
+            email: true,
+          },
+        },
+        quotation: {
+          include: {
+            items: {
+              orderBy: { createdAt: 'asc' },
+              include: {
+                product: {
+                  select: {
+                    id: true,
+                    costo: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const items: Array<Record<string, unknown>> = [];
+    const skipped: Array<Record<string, unknown>> = [];
+    const totals = {
+      totalOrders: orders.length,
+      eligibleOrders: 0,
+      skippedOrders: 0,
+      totalQuoted: 0,
+      totalCost: 0,
+      totalProfit: 0,
+      totalOperationalExpense: 0,
+      totalProfitAfterExpense: 0,
+      totalSellerCommission: 0,
+      totalTechnicianCommission: 0,
+    };
+
+    for (const order of orders) {
+      const evaluated = this.evaluateServiceSalesOrder(order);
+      if ('reason' in evaluated) {
+        skipped.push(evaluated);
+        continue;
+      }
+
+      items.push(evaluated);
+      totals.eligibleOrders += 1;
+      totals.totalQuoted += this.toNumber(evaluated.totalQuoted);
+      totals.totalCost += this.toNumber(evaluated.totalCost);
+      totals.totalProfit += this.toNumber(evaluated.totalProfit);
+      totals.totalOperationalExpense += this.toNumber(evaluated.operationalExpenseAmount);
+      totals.totalProfitAfterExpense += this.toNumber(evaluated.profitAfterExpense);
+      totals.totalSellerCommission += this.toNumber(evaluated.sellerCommissionAmount);
+      totals.totalTechnicianCommission += this.toNumber(evaluated.technicianCommissionAmount);
+    }
+
+    totals.skippedOrders = skipped.length;
+
+    return {
+      from: from?.trim() || null,
+      to: to?.trim() || null,
+      items,
+      skipped,
+      ...totals,
+    };
   }
 
   async update(user: AuthUser, id: string, dto: UpdateServiceOrderDto) {
@@ -355,6 +478,100 @@ export class ServiceOrdersService {
       extraRequirements,
       createdById: user.id,
       assignedToId,
+    };
+  }
+
+  private evaluateServiceSalesOrder(order: ServiceSalesOrderWithRelations) {
+    const quotation = order.quotation;
+    const quotationItems = quotation.items ?? [];
+    if (!quotationItems.length) {
+      return this.buildSkippedServiceSalesOrder(order, 'La cotización no tiene líneas registradas');
+    }
+
+    let totalCost = 0;
+    let missingCostItemsCount = 0;
+
+    for (const item of quotationItems) {
+      if (!item.productId) {
+        missingCostItemsCount += 1;
+        continue;
+      }
+
+      if (!item.product?.costo) {
+        missingCostItemsCount += 1;
+        continue;
+      }
+
+      totalCost += this.toNumber(item.qty) * this.toNumber(item.product.costo);
+    }
+
+    if (missingCostItemsCount > 0) {
+      return this.buildSkippedServiceSalesOrder(
+        order,
+        missingCostItemsCount === quotationItems.length
+          ? 'La cotización depende de artículos sin costo trazable desde catálogo'
+          : 'La cotización contiene líneas sin costo trazable desde catálogo',
+        missingCostItemsCount,
+      );
+    }
+
+    const totalQuoted = this.toNumber(quotation.total);
+    const totalProfit = totalQuoted - totalCost;
+    const operationalExpenseRate =
+      order.serviceType === PrismaServiceOrderType.INSTALACION ? 0.3 : 0.1;
+    const operationalExpenseAmount = totalProfit > 0 ? totalProfit * operationalExpenseRate : 0;
+    const profitAfterExpense = Math.max(0, totalProfit - operationalExpenseAmount);
+    const sellerCommissionAmount = profitAfterExpense > 0 ? profitAfterExpense * 0.1 : 0;
+    const technicianCommissionAmount = profitAfterExpense > 0 ? profitAfterExpense * 0.1 : 0;
+
+    return {
+      orderId: order.id,
+      quotationId: order.quotationId,
+      customerId: order.clientId,
+      customerName: order.client.nombre,
+      category: SERVICE_ORDER_CATEGORY_FROM_DB[order.category],
+      serviceType: SERVICE_ORDER_TYPE_FROM_DB[order.serviceType],
+      status: SERVICE_ORDER_STATUS_FROM_DB[order.status],
+      finalizedAt: order.updatedAt,
+      createdById: order.createdById,
+      technicianId: order.assignedToId,
+      technicianName: order.assignedTo?.nombreCompleto ?? null,
+      technicianEmail: order.assignedTo?.email ?? null,
+      itemsCount: quotationItems.length,
+      totalQuoted,
+      totalCost,
+      totalProfit,
+      operationalExpenseRate,
+      operationalExpenseAmount,
+      profitAfterExpense,
+      sellerCommissionRate: 0.1,
+      sellerCommissionAmount,
+      technicianCommissionRate: 0.1,
+      technicianCommissionAmount,
+    };
+  }
+
+  private buildSkippedServiceSalesOrder(
+    order: ServiceSalesOrderWithRelations,
+    reason: string,
+    missingCostItemsCount = 0,
+  ) {
+    return {
+      orderId: order.id,
+      quotationId: order.quotationId,
+      customerId: order.clientId,
+      customerName: order.client.nombre,
+      category: SERVICE_ORDER_CATEGORY_FROM_DB[order.category],
+      serviceType: SERVICE_ORDER_TYPE_FROM_DB[order.serviceType],
+      status: SERVICE_ORDER_STATUS_FROM_DB[order.status],
+      finalizedAt: order.updatedAt,
+      createdById: order.createdById,
+      technicianId: order.assignedToId,
+      technicianName: order.assignedTo?.nombreCompleto ?? null,
+      reason,
+      itemsCount: order.quotation.items.length,
+      missingCostItemsCount,
+      totalQuoted: this.toNumber(order.quotation.total),
     };
   }
 
@@ -627,6 +844,37 @@ export class ServiceOrdersService {
 
   private toApiStatus(status: ServiceOrderRecord['status']) {
     return SERVICE_ORDER_STATUS_FROM_DB[status];
+  }
+
+  private toNumber(
+    value: Prisma.Decimal | number | string | null | undefined,
+  ): number {
+    if (value == null) return 0;
+    if (value instanceof Prisma.Decimal) return value.toNumber();
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : 0;
+  }
+
+  private buildUpdatedAtRange(from?: string, to?: string): { updatedAt?: Prisma.DateTimeFilter } {
+    if (!from && !to) return {};
+
+    const updatedAt: Prisma.DateTimeFilter = {};
+
+    if (from) {
+      const start = new Date(`${from}T00:00:00.000Z`);
+      if (!Number.isNaN(start.getTime())) {
+        updatedAt.gte = start;
+      }
+    }
+
+    if (to) {
+      const end = new Date(`${to}T23:59:59.999Z`);
+      if (!Number.isNaN(end.getTime())) {
+        updatedAt.lte = end;
+      }
+    }
+
+    return Object.keys(updatedAt).length ? { updatedAt } : {};
   }
 
   private toNullableNumber(

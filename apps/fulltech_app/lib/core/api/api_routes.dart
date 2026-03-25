@@ -145,6 +145,7 @@ class ApiRoutes {
 
     // Service orders
     static const serviceOrders = '/service-orders';
+    static const serviceOrderSalesSummary = '/service-orders/sales-summary';
     static String serviceOrderDetail(String id) => '/service-orders/$id';
     static String serviceOrderUpdate(String id) => '/service-orders/$id';
     static String serviceOrderDelete(String id) => '/service-orders/$id';

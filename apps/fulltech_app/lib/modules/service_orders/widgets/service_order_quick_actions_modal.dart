@@ -342,7 +342,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
 
     final isVideo = selectedType == _EvidencePickType.video;
     final result = await FilePicker.platform.pickFiles(
-      allowMultiple: false,
+      allowMultiple: !isVideo,
       type: FileType.custom,
       allowedExtensions: isVideo
           ? ['mp4', 'mov', 'webm', 'mkv']
@@ -350,25 +350,27 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
       withData: kIsWeb,
     );
 
-    if (result?.files.firstOrNull == null) {
-      return;
-    }
-
-    final file = result!.files.first;
-    final bytes = file.bytes;
-    final path = kIsWeb ? null : file.path;
-
-    if ((bytes == null || bytes.isEmpty) && (path == null || path.trim().isEmpty)) {
-      if (!sheetContext.mounted) return;
-      await AppFeedback.showError(
-        sheetContext,
-        'No se pudo leer el archivo',
-      );
+    final selectedFiles = result?.files ?? const <PlatformFile>[];
+    if (selectedFiles.isEmpty) {
       return;
     }
 
     try {
       if (isVideo) {
+        final file = selectedFiles.first;
+        final bytes = file.bytes;
+        final path = kIsWeb ? null : file.path;
+
+        if ((bytes == null || bytes.isEmpty) &&
+            (path == null || path.trim().isEmpty)) {
+          if (!sheetContext.mounted) return;
+          await AppFeedback.showError(
+            sheetContext,
+            'No se pudo leer el archivo',
+          );
+          return;
+        }
+
         await ref
             .read(serviceOrderCardActionsProvider(orderId).notifier)
             .addVideoEvidence(
@@ -377,13 +379,57 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
               path: path,
             );
       } else {
-        await ref
-            .read(serviceOrderCardActionsProvider(orderId).notifier)
-            .addImageEvidence(
-              fileName: file.name,
-              bytes: bytes ?? const <int>[],
-              path: path,
-            );
+        var uploadedCount = 0;
+        String? lastError;
+
+        for (final file in selectedFiles) {
+          final bytes = file.bytes;
+          final path = kIsWeb ? null : file.path;
+
+          if ((bytes == null || bytes.isEmpty) &&
+              (path == null || path.trim().isEmpty)) {
+            lastError = 'No se pudo leer uno de los archivos seleccionados';
+            continue;
+          }
+
+          try {
+            await ref
+                .read(serviceOrderCardActionsProvider(orderId).notifier)
+                .addImageEvidence(
+                  fileName: file.name,
+                  bytes: bytes ?? const <int>[],
+                  path: path,
+                );
+            uploadedCount++;
+          } catch (_) {
+            lastError = ref.read(serviceOrderCardActionsProvider(orderId)).error ??
+                'No se pudo subir una de las imagenes';
+          }
+        }
+
+        if (uploadedCount == 0) {
+          if (!sheetContext.mounted) return;
+          await AppFeedback.showError(
+            sheetContext,
+            lastError ?? 'No se pudo subir ninguna imagen',
+          );
+          return;
+        }
+
+        if (!sheetContext.mounted) return;
+        Navigator.pop(sheetContext);
+
+        if (!parentContext.mounted) return;
+        final totalSelected = selectedFiles.length;
+        final uploadedMessage = uploadedCount == 1
+            ? '1 imagen agregada correctamente'
+            : '$uploadedCount imagenes agregadas correctamente';
+        final summary = uploadedCount == totalSelected
+            ? uploadedMessage
+            : '$uploadedMessage. ${totalSelected - uploadedCount} no se pudieron subir.';
+        await AppFeedback.showInfo(parentContext, summary);
+        onOrderUpdated();
+        return;
       }
 
       if (!sheetContext.mounted) return;

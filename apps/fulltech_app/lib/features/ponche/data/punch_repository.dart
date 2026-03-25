@@ -298,7 +298,11 @@ class PunchRepository {
 
   Future<List<PunchModel>> listAdmin({String? userId, DateTime? from, DateTime? to}) async {
     try {
-      final res = await _dio.get(ApiRoutes.punchAdmin, queryParameters: _queryParams(from: from, to: to, userId: userId));
+      final res = await _dio.get(
+        ApiRoutes.punchAdmin,
+        queryParameters: _queryParams(from: from, to: to, userId: userId),
+        options: Options(extra: const {'skipLoader': true}),
+      );
       final data = res.data;
       if (data is List) {
         return data.map((e) => PunchModel.fromJson((e as Map).cast<String, dynamic>())).toList();

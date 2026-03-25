@@ -81,8 +81,12 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _subscribeRealtime();
-    _loadProducts(forceRemote: true);
+    unawaited(_loadProductsFromCacheIfEmpty());
     _startLiveSync();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_loadProducts(forceRemote: true, silent: true));
+    });
   }
 
   void _subscribeRealtime() {
@@ -418,15 +422,6 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: FilledButton.icon(
-                    onPressed: _openExternalSaleModal,
-                    icon: const Icon(Icons.add_box_outlined),
-                    label: const Text('Vender fuera del inventario'),
-                  ),
-                ),
               ]
             : [
                 IconButton(
@@ -447,11 +442,6 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
                       child: Text('Limpiar caché de productos'),
                     ),
                   ],
-                ),
-                IconButton(
-                  tooltip: 'Vender fuera del inventario',
-                  onPressed: _openExternalSaleModal,
-                  icon: const Icon(Icons.add_box_outlined),
                 ),
               ],
       ),
@@ -582,6 +572,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
                 itemCount: visible.length,
                 itemBuilder: (context, index) {
                   final p = visible[index];
+
                   return InkWell(
                     borderRadius: BorderRadius.circular(10),
                     onTap: () => _addProduct(p),
@@ -781,60 +772,89 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
                                   ? item.qty.toInt().toString()
                                   : item.qty.toStringAsFixed(2);
 
-                              return Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
+                              return Material(
+                                color: Colors.transparent,
+                                child: InkWell(
                                   borderRadius: BorderRadius.circular(8),
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.surfaceContainerHighest,
-                                ),
-                                child: Row(
-                                  children: [
-                                    Text(
-                                      qtyValue,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 11,
-                                      ),
-                                      maxLines: 1,
+                                  onTap: () => _openEditCartItemDialog(index),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
                                     ),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        item.name,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontSize: 11),
-                                      ),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(8),
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.surfaceContainerHighest,
                                     ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      _money(item.priceSoldUnit),
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
+                                    child: Row(
+                                      children: [
+                                        Text(
+                                          qtyValue,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 11,
+                                          ),
+                                          maxLines: 1,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                item.name,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                              Text(
+                                                'Toca para editar cantidad y precio',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodySmall
+                                                    ?.copyWith(fontSize: 10),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          _money(item.priceSoldUnit),
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        IconButton(
+                                          visualDensity: VisualDensity.compact,
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(
+                                            minHeight: 28,
+                                            minWidth: 28,
+                                          ),
+                                          splashRadius: 14,
+                                          tooltip: 'Quitar item',
+                                          onPressed: () => setState(
+                                            () => _cart.removeAt(index),
+                                          ),
+                                          icon: const Icon(
+                                            Icons.close,
+                                            size: 16,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    IconButton(
-                                      visualDensity: VisualDensity.compact,
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(
-                                        minHeight: 28,
-                                        minWidth: 28,
-                                      ),
-                                      splashRadius: 14,
-                                      tooltip: 'Quitar item',
-                                      onPressed: () =>
-                                          setState(() => _cart.removeAt(index)),
-                                      icon: const Icon(Icons.close, size: 16),
-                                    ),
-                                  ],
+                                  ),
                                 ),
                               );
                             },
@@ -1192,6 +1212,114 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
     });
   }
 
+  Future<void> _openEditCartItemDialog(int index) async {
+    final item = _cart[index];
+    final qtyCtrl = TextEditingController(
+      text: item.qty % 1 == 0
+          ? item.qty.toInt().toString()
+          : item.qty.toStringAsFixed(2),
+    );
+    final priceCtrl = TextEditingController(
+      text: item.priceSoldUnit.toStringAsFixed(2),
+    );
+    String? errorText;
+
+    final updated = await showDialog<SaleDraftItem>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          return AlertDialog(
+            title: const Text('Editar producto agregado'),
+            content: SizedBox(
+              width: 340,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.name,
+                    style: Theme.of(dialogContext).textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: qtyCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Cantidad',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: priceCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Precio a vender',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  if (errorText != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      errorText!,
+                      style: TextStyle(
+                        color: Theme.of(dialogContext).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final qty = double.tryParse(qtyCtrl.text.trim());
+                  final price = double.tryParse(priceCtrl.text.trim());
+
+                  if (qty == null || qty <= 0) {
+                    setDialogState(
+                      () => errorText = 'La cantidad debe ser mayor que 0',
+                    );
+                    return;
+                  }
+
+                  if (price == null || price < 0) {
+                    setDialogState(
+                      () => errorText = 'El precio a vender debe ser 0 o mayor',
+                    );
+                    return;
+                  }
+
+                  Navigator.of(dialogContext).pop(
+                    item.copyWith(qty: qty, priceSoldUnit: price),
+                  );
+                },
+                child: const Text('Guardar cambios'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    qtyCtrl.dispose();
+    priceCtrl.dispose();
+
+    if (updated == null || !mounted) return;
+    _updateItem(index, updated);
+  }
+
   Future<void> _createQuickClient() async {
     final nameCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
@@ -1246,101 +1374,6 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
         context,
       ).showSnackBar(SnackBar(content: Text('No se pudo crear cliente: $e')));
     }
-  }
-
-  Future<void> _openExternalSaleModal() async {
-    final nameCtrl = TextEditingController();
-    final qtyCtrl = TextEditingController(text: '1');
-    final costCtrl = TextEditingController();
-    final priceCtrl = TextEditingController();
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Vender fuera del inventario'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Nombre producto/servicio',
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: qtyCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Cantidad'),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: costCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(labelText: 'Costo unitario'),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: priceCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Precio vendido unitario',
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Agregar'),
-          ),
-        ],
-      ),
-    );
-
-    if (ok != true) return;
-
-    final name = nameCtrl.text.trim();
-    final qty = double.tryParse(qtyCtrl.text.trim()) ?? 0;
-    final cost = double.tryParse(costCtrl.text.trim()) ?? -1;
-    final price = double.tryParse(priceCtrl.text.trim()) ?? -1;
-
-    if (name.isEmpty || qty <= 0 || cost < 0 || price < 0) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Completa datos válidos: nombre, qty > 0, costo >= 0, precio >= 0',
-          ),
-        ),
-      );
-      return;
-    }
-
-    setState(() {
-      _cart = [
-        ..._cart,
-        SaleDraftItem(
-          productId: null,
-          name: name,
-          imageUrl: null,
-          isExternal: true,
-          qty: qty,
-          priceSoldUnit: price,
-          costUnitSnapshot: cost,
-        ),
-      ];
-    });
   }
 
   Future<void> _saveSale() async {

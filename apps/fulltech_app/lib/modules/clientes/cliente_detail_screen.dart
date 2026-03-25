@@ -320,7 +320,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
                 children: [
                   _ClientHeroCard(
                     name: profile?.client.nombre ?? _cliente?.nombre ?? 'Cliente',
@@ -336,24 +336,30 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                   const SizedBox(height: 12),
                   _SectionCard(
                     title: 'Resumen comercial',
-                    child: Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
+                    child: Row(
                       children: [
-                        _MetricCard(
-                          label: 'Ventas',
-                          value: '${profile?.metrics.salesCount ?? 0}',
-                          helper: _formatMoney(profile?.metrics.salesTotal),
+                        Expanded(
+                          child: _MetricCard(
+                            label: 'Ventas',
+                            value: '${profile?.metrics.salesCount ?? 0}',
+                            helper: _formatMoney(profile?.metrics.salesTotal),
+                          ),
                         ),
-                        _MetricCard(
-                          label: 'Servicios',
-                          value: '${profile?.metrics.servicesCount ?? 0}',
-                          helper: _formatDate(profile?.metrics.lastServiceAt),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _MetricCard(
+                            label: 'Servicios',
+                            value: '${profile?.metrics.servicesCount ?? 0}',
+                            helper: _formatDate(profile?.metrics.lastServiceAt),
+                          ),
                         ),
-                        _MetricCard(
-                          label: 'Cotizaciones',
-                          value: '${profile?.metrics.cotizacionesCount ?? 0}',
-                          helper: _formatMoney(profile?.metrics.cotizacionesTotal),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _MetricCard(
+                            label: 'Cotizaciones',
+                            value: '${profile?.metrics.cotizacionesCount ?? 0}',
+                            helper: _formatMoney(profile?.metrics.cotizacionesTotal),
+                          ),
                         ),
                       ],
                     ),
@@ -395,7 +401,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                   else
                     ..._timeline.map(
                       (event) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.only(bottom: 6),
                         child: _TimelineEventCard(
                           icon: _timelineIcon(event.eventType),
                           badge: _timelineTypeLabel(event.eventType),
@@ -575,37 +581,47 @@ class _MetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 180, maxWidth: 260),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: theme.colorScheme.outlineVariant),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
-                ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
               ),
-              const SizedBox(height: 10),
-              Text(
-                value,
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+                height: 1.1,
               ),
-              const SizedBox(height: 6),
-              Text(helper, style: theme.textTheme.bodySmall),
-            ],
-          ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              helper,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -622,18 +638,27 @@ class _SectionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+          width: 0.8,
+        ),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               title,
-              style: theme.textTheme.titleMedium?.copyWith(
+              style: theme.textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.w800,
+                letterSpacing: 0.2,
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             child,
           ],
         ),
@@ -662,45 +687,64 @@ class _ClientHeroCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final contactLine = [
+      if ((phone ?? '').trim().isNotEmpty) phone!.trim(),
+      if ((email ?? '').trim().isNotEmpty) email!.trim(),
+    ].join(' • ');
+
     return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+          width: 0.8,
+        ),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 CircleAvatar(
-                  radius: 24,
+                  radius: 20,
                   backgroundColor: theme.colorScheme.primaryContainer,
                   foregroundColor: theme.colorScheme.onPrimaryContainer,
                   child: Text(
                     name.isEmpty ? '?' : name.trim().substring(0, 1).toUpperCase(),
-                    style: theme.textTheme.titleLarge?.copyWith(
+                    style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         name,
-                        style: theme.textTheme.headlineSmall?.copyWith(
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w800,
+                          height: 1.2,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        [if ((phone ?? '').trim().isNotEmpty) phone!.trim(), if ((email ?? '').trim().isNotEmpty) email!.trim()].join(' • ').isEmpty
-                            ? 'Expediente del cliente'
-                            : [if ((phone ?? '').trim().isNotEmpty) phone!.trim(), if ((email ?? '').trim().isNotEmpty) email!.trim()].join(' • '),
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
+                      if (contactLine.isNotEmpty) ...[  
+                        const SizedBox(height: 2),
+                        Text(
+                          contactLine,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
@@ -708,13 +752,12 @@ class _ClientHeroCard extends StatelessWidget {
                   const Chip(label: Text('Eliminado')),
               ],
             ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
+            const SizedBox(height: 10),
+            Row(
               children: [
-                _InfoBadge(label: 'Total comprado', value: totalPurchased),
-                _InfoBadge(label: 'Ultima actividad', value: lastActivity),
+                Expanded(child: _InfoBadge(label: 'Total comprado', value: totalPurchased)),
+                const SizedBox(width: 8),
+                Expanded(child: _InfoBadge(label: 'Ultima actividad', value: lastActivity)),
               ],
             ),
           ],
@@ -734,10 +777,10 @@ class _InfoBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -745,14 +788,16 @@ class _InfoBadge extends StatelessWidget {
         children: [
           Text(
             label,
-            style: theme.textTheme.labelMedium?.copyWith(
+            style: theme.textTheme.labelSmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 1),
           Text(
             value,
-            style: theme.textTheme.titleSmall?.copyWith(
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelMedium?.copyWith(
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -814,30 +859,32 @@ class _ClientFactTile extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Icon(item.icon, size: 18, color: theme.colorScheme.primary),
-            const SizedBox(width: 10),
+            Icon(item.icon, size: 16, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     item.label,
-                    style: theme.textTheme.labelLarge?.copyWith(
+                    style: theme.textTheme.labelSmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 1),
                   Text(
                     item.value,
-                    style: theme.textTheme.bodyLarge?.copyWith(
+                    style: theme.textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w600,
+                      height: 1.2,
                     ),
                   ),
                 ],
@@ -910,24 +957,32 @@ class _TimelineEventCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+          width: 0.8,
+        ),
+      ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(10),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 42,
-                height: 42,
+                width: 34,
+                height: 34,
                 decoration: BoxDecoration(
                   color: theme.colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(icon, color: theme.colorScheme.onPrimaryContainer),
+                child: Icon(icon, size: 18, color: theme.colorScheme.onPrimaryContainer),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

@@ -49,6 +49,7 @@ class VentasRepository {
       final res = await _dio.get(
         ApiRoutes.sales,
         queryParameters: {'from': _dateOnly(from), 'to': _dateOnly(to)},
+        options: Options(extra: const {'skipLoader': true}),
       );
 
       final rows = res.data is List ? (res.data as List) : const [];
@@ -72,6 +73,7 @@ class VentasRepository {
       final res = await _dio.get(
         ApiRoutes.salesSummary,
         queryParameters: {'from': _dateOnly(from), 'to': _dateOnly(to)},
+        options: Options(extra: const {'skipLoader': true}),
       );
       return SalesSummaryModel.fromJson(
         (res.data as Map).cast<String, dynamic>(),
@@ -79,6 +81,30 @@ class VentasRepository {
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo cargar el resumen'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<ServiceSalesSummaryModel> serviceSalesSummary({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.serviceOrderSalesSummary,
+        queryParameters: {'from': _dateOnly(from), 'to': _dateOnly(to)},
+        options: Options(extra: const {'skipLoader': true}),
+      );
+      return ServiceSalesSummaryModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(
+          e.response?.data,
+          'No se pudo cargar el resumen de servicios',
+        ),
         e.response?.statusCode,
       );
     }
@@ -144,6 +170,7 @@ class VentasRepository {
             ? {'_ts': DateTime.now().millisecondsSinceEpoch}
             : null,
         options: Options(
+          extra: const {'skipLoader': true},
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             'Pragma': 'no-cache',
@@ -184,6 +211,7 @@ class VentasRepository {
           'page': 1,
           'pageSize': 100,
         },
+        options: Options(extra: const {'skipLoader': true}),
       );
 
       final raw = res.data;
