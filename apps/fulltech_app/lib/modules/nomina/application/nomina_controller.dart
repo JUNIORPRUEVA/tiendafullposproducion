@@ -10,6 +10,7 @@ class NominaHomeState {
   final String? error;
   final List<PayrollPeriod> periods;
   final List<PayrollEmployee> employees;
+  final List<PayrollServiceCommissionRequest> pendingServiceCommissionRequests;
   final double? openPeriodTotal;
 
   const NominaHomeState({
@@ -17,6 +18,7 @@ class NominaHomeState {
     this.error,
     this.periods = const [],
     this.employees = const [],
+    this.pendingServiceCommissionRequests = const [],
     this.openPeriodTotal,
   });
 
@@ -32,6 +34,7 @@ class NominaHomeState {
     String? error,
     List<PayrollPeriod>? periods,
     List<PayrollEmployee>? employees,
+    List<PayrollServiceCommissionRequest>? pendingServiceCommissionRequests,
     double? openPeriodTotal,
     bool clearError = false,
     bool clearOpenPeriodTotal = false,
@@ -41,6 +44,9 @@ class NominaHomeState {
       error: clearError ? null : (error ?? this.error),
       periods: periods ?? this.periods,
       employees: employees ?? this.employees,
+      pendingServiceCommissionRequests:
+          pendingServiceCommissionRequests ??
+          this.pendingServiceCommissionRequests,
       openPeriodTotal: clearOpenPeriodTotal
           ? null
           : (openPeriodTotal ?? this.openPeriodTotal),
@@ -72,6 +78,8 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
       await _repo.ensureCurrentOpenPeriod();
       final periods = await _repo.listPeriods();
       final employees = await _repo.listEmployees(activeOnly: false);
+      final pendingServiceCommissionRequests =
+          await _repo.listPendingServiceCommissionRequests();
 
       double? openTotal;
       PayrollPeriod? openPeriod;
@@ -90,6 +98,7 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
         loading: false,
         periods: periods,
         employees: employees,
+        pendingServiceCommissionRequests: pendingServiceCommissionRequests,
         openPeriodTotal: openTotal,
       );
     } catch (e) {

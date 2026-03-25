@@ -9,6 +9,7 @@ import { AddPayrollEntryDto, PayrollEntriesQueryDto } from './dto/payroll-entry.
 import { PayrollTotalsQueryDto } from './dto/payroll-query.dto';
 import { OverlapPeriodQueryDto } from './dto/overlap-period-query.dto';
 import { ImportFuelPaymentsDto } from './dto/import-fuel-payments.dto';
+import { ReviewServiceCommissionDto } from './dto/review-service-commission.dto';
 import { UpsertPayrollConfigDto } from './dto/upsert-payroll-config.dto';
 import { UpsertPayrollEmployeeDto } from './dto/upsert-payroll-employee.dto';
 import { PayrollService } from './payroll.service';
@@ -150,6 +151,36 @@ export class PayrollController {
   async importFuelPayments(@Req() req: Request, @Body() dto: ImportFuelPaymentsDto) {
     const ownerId = await this.ownerIdFrom(req);
     return this.payroll.importFuelPayments(ownerId, dto);
+  }
+
+  @Get('service-commissions/pending')
+  @Roles(Role.ADMIN)
+  async listPendingServiceCommissions(@Req() req: Request) {
+    const ownerId = await this.ownerIdFrom(req);
+    const items = await this.payroll.listPendingServiceCommissionRequests(ownerId);
+    return items.map((item) => this.mapServiceCommissionRequest(item));
+  }
+
+  @Post('service-commissions/:id/approve')
+  @Roles(Role.ADMIN)
+  async approveServiceCommission(@Req() req: Request, @Param('id') id: string) {
+    const ownerId = await this.ownerIdFrom(req);
+    const user = req.user as JwtUser;
+    const item = await this.payroll.approveServiceCommissionRequest(ownerId, id, user.id);
+    return this.mapServiceCommissionRequest(item);
+  }
+
+  @Post('service-commissions/:id/reject')
+  @Roles(Role.ADMIN)
+  async rejectServiceCommission(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: ReviewServiceCommissionDto,
+  ) {
+    const ownerId = await this.ownerIdFrom(req);
+    const user = req.user as JwtUser;
+    const item = await this.payroll.rejectServiceCommissionRequest(ownerId, id, user.id, dto.note);
+    return this.mapServiceCommissionRequest(item);
   }
 
   @Delete('entries/:id')
@@ -296,6 +327,72 @@ export class PayrollController {
       amount: Number(entry.amount ?? 0),
       cantidad: entry.cantidad == null ? null : Number(entry.cantidad),
       created_at: entry.createdAt.toISOString(),
+    };
+  }
+
+  private mapServiceCommissionRequest(item: {
+    id: string;
+    ownerId: string;
+    serviceOrderId: string;
+    quotationId: string | null;
+    employeeId: string;
+    technicianUserId: string;
+    createdByUserId: string | null;
+    reviewedByUserId: string | null;
+    periodId: string | null;
+    payrollEntryId: string | null;
+    serviceType: string;
+    finalizedAt: Date;
+    profitAfterExpense: unknown;
+    commissionRate: unknown;
+    commissionAmount: unknown;
+    concept: string;
+    status: string;
+    reviewNote: string | null;
+    approvedAt: Date | null;
+    rejectedAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+    employee?: { id: string; nombre: string; userId: string | null };
+    technicianUser?: { id: string; nombreCompleto: string; role: Role };
+    serviceOrder?: {
+      id: string;
+      clientId: string;
+      createdById: string;
+      assignedToId: string | null;
+      client?: { id: string; nombre: string };
+    };
+  }) {
+    return {
+      id: item.id,
+      owner_id: item.ownerId,
+      service_order_id: item.serviceOrderId,
+      quotation_id: item.quotationId,
+      employee_id: item.employeeId,
+      employee_name: item.employee?.nombre ?? '',
+      employee_user_id: item.employee?.userId ?? null,
+      technician_user_id: item.technicianUserId,
+      technician_name: item.technicianUser?.nombreCompleto ?? '',
+      created_by_user_id: item.createdByUserId,
+      reviewed_by_user_id: item.reviewedByUserId,
+      period_id: item.periodId,
+      payroll_entry_id: item.payrollEntryId,
+      service_type: item.serviceType,
+      finalized_at: item.finalizedAt.toISOString(),
+      profit_after_expense: Number(item.profitAfterExpense ?? 0),
+      commission_rate: Number(item.commissionRate ?? 0),
+      commission_amount: Number(item.commissionAmount ?? 0),
+      concept: item.concept,
+      status: item.status,
+      review_note: item.reviewNote,
+      approved_at: item.approvedAt?.toISOString(),
+      rejected_at: item.rejectedAt?.toISOString(),
+      created_at: item.createdAt.toISOString(),
+      updated_at: item.updatedAt.toISOString(),
+      customer_id: item.serviceOrder?.clientId ?? null,
+      customer_name: item.serviceOrder?.client?.nombre ?? null,
+      seller_user_id: item.serviceOrder?.createdById ?? null,
+      assigned_to_user_id: item.serviceOrder?.assignedToId ?? null,
     };
   }
 }

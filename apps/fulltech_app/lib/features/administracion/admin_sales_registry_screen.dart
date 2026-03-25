@@ -5,9 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/models/user_model.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
+import '../../features/user/data/users_repository.dart';
 import '../../modules/ventas/data/ventas_repository.dart';
 import '../../modules/ventas/sales_models.dart';
 
@@ -25,6 +27,8 @@ class _AdminSalesRegistryScreenState
   String? _error;
   SalesSummaryModel _summary = SalesSummaryModel.empty();
   List<SaleModel> _items = const [];
+  List<UserModel> _users = const [];
+  String? _selectedUserId;
   DateTime _from = DateTime.now().subtract(const Duration(days: 30));
   DateTime _to = DateTime.now();
 
@@ -46,14 +50,57 @@ class _AdminSalesRegistryScreenState
       final repo = ref.read(ventasRepositoryProvider);
       final from = DateTime(_from.year, _from.month, _from.day);
       final to = DateTime(_to.year, _to.month, _to.day);
+      final selectedUserId = (_selectedUserId ?? '').trim();
       final results = await Future.wait<dynamic>([
-        repo.listSales(from: from, to: to),
-        repo.summary(from: from, to: to),
+        repo.listSales(
+          from: from,
+          to: to,
+          userId: selectedUserId.isEmpty ? null : selectedUserId,
+        ),
+        repo.summary(
+          from: from,
+          to: to,
+          userId: selectedUserId.isEmpty ? null : selectedUserId,
+        ),
+        ref.read(usersRepositoryProvider).getAllUsers(skipLoader: true),
       ]);
       if (!mounted) return;
+      final sales = results[0] as List<SaleModel>;
+      final summary = results[1] as SalesSummaryModel;
+      final users = results[2] as List<UserModel>;
+
+      final filteredSales = selectedUserId.isEmpty
+          ? sales
+          : sales
+              .where((item) => item.userId.trim() == selectedUserId)
+              .toList(growable: false);
+
+      final filteredSummary = selectedUserId.isEmpty
+          ? summary
+          : SalesSummaryModel(
+              totalSales: filteredSales.length,
+              totalSold: filteredSales.fold<double>(
+                0,
+                (sum, item) => sum + item.totalSold,
+              ),
+              totalCost: filteredSales.fold<double>(
+                0,
+                (sum, item) => sum + item.totalCost,
+              ),
+              totalProfit: filteredSales.fold<double>(
+                0,
+                (sum, item) => sum + item.totalProfit,
+              ),
+              totalCommission: filteredSales.fold<double>(
+                0,
+                (sum, item) => sum + item.commissionAmount,
+              ),
+            );
+
       setState(() {
-        _items = results[0] as List<SaleModel>;
-        _summary = results[1] as SalesSummaryModel;
+        _items = filteredSales;
+        _summary = filteredSummary;
+        _users = users;
       });
     } catch (e) {
       if (!mounted) return;
@@ -65,6 +112,87 @@ class _AdminSalesRegistryScreenState
 
   String _money(double value) =>
       NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(value);
+
+  String _dateOnlyText(DateTime value) {
+    return DateFormat('dd/MM/yyyy', 'es_DO').format(value);
+  }
+
+  Future<void> _pickDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      initialDateRange: DateTimeRange(start: _from, end: _to),
+      firstDate: DateTime.now().subtract(const Duration(days: 365 * 3)),
+      lastDate: DateTime.now().add(const Duration(days: 30)),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _from = DateTime(picked.start.year, picked.start.month, picked.start.day);
+      _to = DateTime(picked.end.year, picked.end.month, picked.end.day);
+    });
+    await _load();
+  }
+
+  void _openSaleDetail(SaleModel sale) {
+    final dateText = sale.saleDate == null
+        ? 'Sin fecha'
+        : DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(sale.saleDate!.toLocal());
+
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Detalle de venta'),
+          content: SizedBox(
+            width: 460,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('ID: ${sale.id}'),
+                  Text('Usuario: ${sale.userId}'),
+                  Text(
+                    'Cliente: ${sale.customerName?.trim().isNotEmpty == true ? sale.customerName : 'No especificado'}',
+                  ),
+                  Text('Fecha: $dateText'),
+                  if ((sale.note ?? '').trim().isNotEmpty) Text('Nota: ${sale.note}'),
+                  const Divider(height: 18),
+                  ...sale.items.map(
+                    (item) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${item.productNameSnapshot} x${item.qty.toStringAsFixed(item.qty % 1 == 0 ? 0 : 2)}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Text(_money(item.subtotalSold)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 18),
+                  Text('Total vendido: ${_money(sale.totalSold)}'),
+                  Text('Total costo: ${_money(sale.totalCost)}'),
+                  Text('Utilidad: ${_money(sale.totalProfit)}'),
+                  Text('Comisión: ${_money(sale.commissionAmount)}'),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -88,6 +216,50 @@ class _AdminSalesRegistryScreenState
       body: Column(
         children: [
           if (_loading) const LinearProgressIndicator(minHeight: 2),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 2),
+            child: DropdownButtonFormField<String?>(
+              value: _selectedUserId,
+              decoration: const InputDecoration(
+                labelText: 'Filtrar por usuario',
+                prefixIcon: Icon(Icons.person_search_outlined),
+              ),
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('Todos los usuarios'),
+                ),
+                ..._users.map(
+                  (user) => DropdownMenuItem<String?>(
+                    value: user.id,
+                    child: Text(
+                      user.nombreCompleto.trim().isEmpty
+                          ? user.email
+                          : user.nombreCompleto,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
+              onChanged: (value) {
+                setState(() => _selectedUserId = value);
+                unawaited(_load());
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: _pickDateRange,
+                icon: const Icon(Icons.date_range_rounded),
+                label: Text(
+                  'Rango: ${_dateOnlyText(_from)} - ${_dateOnlyText(_to)}',
+                ),
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
             child: Row(
@@ -150,6 +322,7 @@ class _AdminSalesRegistryScreenState
 
                             return Card(
                               child: ListTile(
+                                onTap: () => _openSaleDetail(sale),
                                 title: Text(
                                   sale.customerName?.trim().isNotEmpty == true
                                       ? sale.customerName!

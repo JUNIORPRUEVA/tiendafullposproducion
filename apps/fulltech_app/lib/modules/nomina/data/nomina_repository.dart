@@ -194,6 +194,35 @@ class NominaRepository {
     });
   }
 
+  Future<List<PayrollServiceCommissionRequest>>
+  listPendingServiceCommissionRequests() async {
+    final rows = await _getList(ApiRoutes.payrollPendingServiceCommissions);
+    return rows.map(PayrollServiceCommissionRequest.fromMap).toList();
+  }
+
+  Future<PayrollServiceCommissionRequest> approveServiceCommissionRequest(
+    String requestId,
+  ) async {
+    final data = await _postMap(
+      ApiRoutes.payrollApproveServiceCommission(requestId),
+      const {},
+    );
+    return PayrollServiceCommissionRequest.fromMap(data);
+  }
+
+  Future<PayrollServiceCommissionRequest> rejectServiceCommissionRequest(
+    String requestId, {
+    String? note,
+  }) async {
+    final data = await _postMap(
+      ApiRoutes.payrollRejectServiceCommission(requestId),
+      {
+        if ((note ?? '').trim().isNotEmpty) 'note': note!.trim(),
+      },
+    );
+    return PayrollServiceCommissionRequest.fromMap(data);
+  }
+
   Future<void> deleteEntry(String entryId) async {
     await _delete(ApiRoutes.payrollEntryDetail(entryId));
   }

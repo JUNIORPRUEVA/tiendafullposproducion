@@ -423,6 +423,100 @@ class PayrollTotals {
   });
 }
 
+class PayrollServiceCommissionRequest {
+  final String id;
+  final String serviceOrderId;
+  final String? quotationId;
+  final String employeeId;
+  final String employeeName;
+  final String? employeeUserId;
+  final String technicianUserId;
+  final String technicianName;
+  final String? customerId;
+  final String? customerName;
+  final String serviceType;
+  final DateTime finalizedAt;
+  final double profitAfterExpense;
+  final double commissionRate;
+  final double commissionAmount;
+  final String concept;
+  final String status;
+  final String? reviewNote;
+  final DateTime? approvedAt;
+  final DateTime? rejectedAt;
+  final String? periodId;
+  final String? payrollEntryId;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  const PayrollServiceCommissionRequest({
+    required this.id,
+    required this.serviceOrderId,
+    this.quotationId,
+    required this.employeeId,
+    required this.employeeName,
+    this.employeeUserId,
+    required this.technicianUserId,
+    required this.technicianName,
+    this.customerId,
+    this.customerName,
+    required this.serviceType,
+    required this.finalizedAt,
+    required this.profitAfterExpense,
+    required this.commissionRate,
+    required this.commissionAmount,
+    required this.concept,
+    required this.status,
+    this.reviewNote,
+    this.approvedAt,
+    this.rejectedAt,
+    this.periodId,
+    this.payrollEntryId,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  bool get isPending => status.toUpperCase() == 'PENDING';
+
+  factory PayrollServiceCommissionRequest.fromMap(Map<String, dynamic> map) {
+    return PayrollServiceCommissionRequest(
+      id: (map['id'] ?? '').toString(),
+      serviceOrderId: (map['service_order_id'] ?? '').toString(),
+      quotationId: map['quotation_id']?.toString(),
+      employeeId: (map['employee_id'] ?? '').toString(),
+      employeeName: (map['employee_name'] ?? '').toString(),
+      employeeUserId: map['employee_user_id']?.toString(),
+      technicianUserId: (map['technician_user_id'] ?? '').toString(),
+      technicianName: (map['technician_name'] ?? '').toString(),
+      customerId: map['customer_id']?.toString(),
+      customerName: map['customer_name']?.toString(),
+      serviceType: (map['service_type'] ?? '').toString(),
+      finalizedAt: DateTime.parse((map['finalized_at']).toString()),
+      profitAfterExpense:
+          (map['profit_after_expense'] as num?)?.toDouble() ?? 0,
+      commissionRate: (map['commission_rate'] as num?)?.toDouble() ?? 0,
+      commissionAmount: (map['commission_amount'] as num?)?.toDouble() ?? 0,
+      concept: (map['concept'] ?? '').toString(),
+      status: (map['status'] ?? '').toString(),
+      reviewNote: map['review_note']?.toString(),
+      approvedAt: map['approved_at'] != null
+          ? DateTime.tryParse(map['approved_at'].toString())
+          : null,
+      rejectedAt: map['rejected_at'] != null
+          ? DateTime.tryParse(map['rejected_at'].toString())
+          : null,
+      periodId: map['period_id']?.toString(),
+      payrollEntryId: map['payroll_entry_id']?.toString(),
+      createdAt: map['created_at'] != null
+          ? DateTime.tryParse(map['created_at'].toString())
+          : null,
+      updatedAt: map['updated_at'] != null
+          ? DateTime.tryParse(map['updated_at'].toString())
+          : null,
+    );
+  }
+}
+
 class PayrollHistoryItem {
   final String entryId;
   final String employeeName;

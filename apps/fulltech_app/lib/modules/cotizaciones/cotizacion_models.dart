@@ -121,6 +121,8 @@ class CotizacionItem {
 class CotizacionModel {
   final String id;
   final DateTime createdAt;
+  final String? createdByUserId;
+  final String? createdByUserName;
   final String? customerId;
   final String customerName;
   final String? customerPhone;
@@ -132,6 +134,8 @@ class CotizacionModel {
   const CotizacionModel({
     required this.id,
     required this.createdAt,
+    this.createdByUserId,
+    this.createdByUserName,
     required this.customerId,
     required this.customerName,
     required this.customerPhone,
@@ -148,6 +152,8 @@ class CotizacionModel {
   CotizacionModel copyWith({
     String? id,
     DateTime? createdAt,
+    String? createdByUserId,
+    String? createdByUserName,
     String? customerId,
     String? customerName,
     String? customerPhone,
@@ -159,6 +165,8 @@ class CotizacionModel {
     return CotizacionModel(
       id: id ?? this.id,
       createdAt: createdAt ?? this.createdAt,
+      createdByUserId: createdByUserId ?? this.createdByUserId,
+      createdByUserName: createdByUserName ?? this.createdByUserName,
       customerId: customerId ?? this.customerId,
       customerName: customerName ?? this.customerName,
       customerPhone: customerPhone ?? this.customerPhone,
@@ -172,6 +180,8 @@ class CotizacionModel {
   Map<String, dynamic> toMap() => {
     'id': id,
     'createdAt': createdAt.toIso8601String(),
+    'createdByUserId': createdByUserId,
+    'createdByUserName': createdByUserName,
     'customerId': customerId,
     'customerName': customerName,
     'customerPhone': customerPhone,
@@ -188,6 +198,8 @@ class CotizacionModel {
       createdAt:
           DateTime.tryParse((map['createdAt'] ?? '').toString()) ??
           DateTime.now(),
+      createdByUserId: map['createdByUserId']?.toString(),
+      createdByUserName: map['createdByUserName']?.toString(),
       customerId: map['customerId']?.toString(),
       customerName: (map['customerName'] ?? '').toString(),
       customerPhone: map['customerPhone']?.toString(),
@@ -210,11 +222,27 @@ class CotizacionModel {
 
   factory CotizacionModel.fromApi(Map<String, dynamic> map) {
     final rawItems = (map['items'] as List?) ?? const [];
+    final createdBy = map['createdBy'];
+    final user = map['user'];
+    final createdByUserId =
+      map['createdByUserId']?.toString() ??
+      map['createdById']?.toString() ??
+      map['userId']?.toString() ??
+      (createdBy is Map ? createdBy['id']?.toString() : null) ??
+      (user is Map ? user['id']?.toString() : null);
+    final createdByUserName =
+      map['createdByUserName']?.toString() ??
+      (createdBy is Map
+        ? (createdBy['nombreCompleto'] ?? createdBy['email'])?.toString()
+        : null) ??
+      (user is Map ? (user['nombreCompleto'] ?? user['email'])?.toString() : null);
     return CotizacionModel(
       id: (map['id'] ?? '').toString(),
       createdAt:
           DateTime.tryParse((map['createdAt'] ?? '').toString()) ??
           DateTime.now(),
+      createdByUserId: createdByUserId,
+      createdByUserName: createdByUserName,
       customerId: map['customerId']?.toString(),
       customerName: (map['customerName'] ?? '').toString(),
       customerPhone: map['customerPhone']?.toString(),

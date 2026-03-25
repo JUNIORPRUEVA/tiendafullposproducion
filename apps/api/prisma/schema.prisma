@@ -69,6 +69,13 @@ enum PayrollEntryType {
   OTRO
 }
 
+enum PayrollServiceCommissionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELED
+}
+
 enum CompanyManualEntryKind {
   GENERAL_RULE
   ROLE_RULE
@@ -354,6 +361,10 @@ model User {
   payrollPeriods PayrollPeriod[]
   payrollEmployeeConfigs PayrollEmployeeConfig[]
   payrollEntries PayrollEntry[]
+  payrollServiceCommissionRequestsOwned PayrollServiceCommissionRequest[] @relation("PayrollServiceCommissionOwner")
+  payrollServiceCommissionRequests PayrollServiceCommissionRequest[] @relation("PayrollServiceCommissionTechnicianUser")
+  payrollServiceCommissionRequestsCreated PayrollServiceCommissionRequest[] @relation("PayrollServiceCommissionCreatedByUser")
+  payrollServiceCommissionRequestsReviewed PayrollServiceCommissionRequest[] @relation("PayrollServiceCommissionReviewedByUser")
   punches Punch[]
   sales Sale[]
   deletedSales Sale[] @relation("SaleDeletedBy")
@@ -830,6 +841,7 @@ model PayrollEmployee {
   user User? @relation("PayrollEmployeeUser", fields: [userId], references: [id], onDelete: SetNull)
   configs PayrollEmployeeConfig[]
   entries PayrollEntry[]
+  serviceCommissionRequests PayrollServiceCommissionRequest[]
 
   @@index([ownerId])
   @@index([userId])
@@ -849,6 +861,7 @@ model PayrollPeriod {
   owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   configs PayrollEmployeeConfig[]
   entries PayrollEntry[]
+  serviceCommissionRequests PayrollServiceCommissionRequest[]
 
   @@index([ownerId])
   @@index([ownerId, status])
@@ -892,11 +905,54 @@ model PayrollEntry {
   period PayrollPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
   employee PayrollEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   pagoCombustibleTecnico PagoCombustibleTecnico? @relation(fields: [pagoCombustibleTecnicoId], references: [id], onDelete: SetNull)
+  payrollServiceCommissionRequest PayrollServiceCommissionRequest? @relation("PayrollServiceCommissionRequestToEntry")
 
   @@index([ownerId])
   @@index([periodId, employeeId])
   @@index([pagoCombustibleTecnicoId])
   @@index([date])
+}
+
+model PayrollServiceCommissionRequest {
+  id            String                         @id @default(uuid()) @db.Uuid
+  ownerId       String                         @db.Uuid
+  serviceOrderId String                        @unique @db.Uuid @map("service_order_id")
+  quotationId   String?                        @db.Uuid @map("quotation_id")
+  employeeId    String                         @db.Uuid @map("employee_id")
+  technicianUserId String                      @db.Uuid @map("technician_user_id")
+  createdByUserId String?                      @db.Uuid @map("created_by_user_id")
+  reviewedByUserId String?                     @db.Uuid @map("reviewed_by_user_id")
+  periodId      String?                        @db.Uuid @map("period_id")
+  payrollEntryId String?                       @unique @db.Uuid @map("payroll_entry_id")
+  serviceType   ServiceOrderType               @map("service_type")
+  finalizedAt   DateTime                       @map("finalized_at")
+  profitAfterExpense Decimal                   @db.Decimal(12, 2) @map("profit_after_expense")
+  commissionRate Decimal                       @db.Decimal(5, 4) @default(0.1000) @map("commission_rate")
+  commissionAmount Decimal                     @db.Decimal(12, 2) @map("commission_amount")
+  concept       String
+  status        PayrollServiceCommissionStatus @default(PENDING)
+  reviewNote    String?                        @map("review_note")
+  approvedAt    DateTime?                      @map("approved_at")
+  rejectedAt    DateTime?                      @map("rejected_at")
+  createdAt     DateTime                       @default(now()) @map("created_at")
+  updatedAt     DateTime                       @updatedAt @map("updated_at")
+
+  owner User @relation("PayrollServiceCommissionOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  employee PayrollEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  period PayrollPeriod? @relation(fields: [periodId], references: [id], onDelete: SetNull)
+  payrollEntry PayrollEntry? @relation("PayrollServiceCommissionRequestToEntry", fields: [payrollEntryId], references: [id], onDelete: SetNull)
+  technicianUser User @relation("PayrollServiceCommissionTechnicianUser", fields: [technicianUserId], references: [id], onDelete: Cascade)
+  createdByUser User? @relation("PayrollServiceCommissionCreatedByUser", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  reviewedByUser User? @relation("PayrollServiceCommissionReviewedByUser", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId])
+  @@index([ownerId, status])
+  @@index([employeeId, status])
+  @@index([technicianUserId, status])
+  @@index([finalizedAt])
+  @@index([periodId])
+  @@map("payroll_service_commission_requests")
 }
 
 model CompanyManualEntry {
@@ -1338,6 +1394,7 @@ model ServiceOrder {
   assignedTo  User?           @relation("ServiceOrderAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
   evidences   ServiceEvidence[]
   reports     ServiceReport[]
+  payrollServiceCommissionRequests PayrollServiceCommissionRequest[]
 
   @@index([clientId])
   @@index([quotationId])

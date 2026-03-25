@@ -13,6 +13,7 @@ import {
   type Client,
 } from '@prisma/client';
 import { RedisService } from '../common/redis/redis.service';
+import { PayrollService } from '../payroll/payroll.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CatalogRealtimeRelayService } from '../products/catalog-realtime-relay.service';
 import { CloneServiceOrderDto } from './dto/clone-service-order.dto';
@@ -86,6 +87,7 @@ export class ServiceOrdersService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly realtime: CatalogRealtimeRelayService,
+    private readonly payroll: PayrollService,
   ) {}
 
   async create(user: AuthUser, dto: CreateServiceOrderDto) {
@@ -281,6 +283,9 @@ export class ServiceOrdersService {
           finalizedAt: nextStatus === 'finalizado' ? new Date() : item.finalizedAt,
         },
       });
+      if (nextStatus === 'finalizado') {
+        await this.queueTechnicalCommissionForPayroll(updated.id);
+      }
       const mapped = this.mapOrder(updated);
       await this.invalidateCachesForOrder(updated.id);
       this.emitOrderEvent('service.status_changed', updated.id, mapped);
@@ -560,6 +565,67 @@ export class ServiceOrdersService {
       missingCostItemsCount,
       totalQuoted: this.toNumber(order.quotation.total),
     };
+  }
+
+  private async queueTechnicalCommissionForPayroll(serviceOrderId: string) {
+    const order = await this.prisma.serviceOrder.findUnique({
+      where: { id: serviceOrderId },
+      include: {
+        client: true,
+        assignedTo: {
+          select: {
+            id: true,
+            nombreCompleto: true,
+            email: true,
+          },
+        },
+        quotation: {
+          include: {
+            items: {
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      return;
+    }
+
+    if (order.serviceType !== PrismaServiceOrderType.INSTALACION) {
+      return;
+    }
+
+    if (!order.assignedToId || !order.finalizedAt) {
+      return;
+    }
+
+    const evaluated = this.evaluateServiceSalesOrder(order);
+    if ('reason' in evaluated) {
+      return;
+    }
+
+    const ownerId = await this.payroll.resolveCompanyOwnerId(order.createdById);
+    const concept = [
+      'Comisión técnica por instalación',
+      order.client.nombre.trim(),
+      `OS ${order.id.slice(0, 8).toUpperCase()}`,
+    ].join(' · ');
+
+    await this.payroll.queueTechnicalServiceCommissionRequest({
+      ownerId,
+      serviceOrderId: order.id,
+      quotationId: order.quotationId,
+      technicianUserId: order.assignedToId,
+      createdByUserId: order.createdById,
+      serviceType: order.serviceType,
+      finalizedAt: order.finalizedAt,
+      profitAfterExpense: this.toNumber(evaluated.profitAfterExpense),
+      commissionRate: this.toNumber(evaluated.technicianCommissionRate),
+      commissionAmount: this.toNumber(evaluated.technicianCommissionAmount),
+      concept,
+    });
   }
 
   private async findOrderOrThrow(

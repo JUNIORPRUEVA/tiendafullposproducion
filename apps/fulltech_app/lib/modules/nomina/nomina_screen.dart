@@ -325,6 +325,17 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                                 ],
                               ),
                             ),
+                            const SizedBox(height: 16),
+                            _NominaDesktopPanel(
+                              title: 'Comisiones técnicas pendientes',
+                              subtitle:
+                                  'Instalaciones finalizadas que requieren aprobación administrativa para reflejarse en Mis Pagos.',
+                              child: _buildPendingServiceCommissionContent(
+                                context,
+                                ref,
+                                state,
+                              ),
+                            ),
                             if (state.error != null) ...[
                               const SizedBox(height: 16),
                               Container(
@@ -738,6 +749,53 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                                               Icons.payments_outlined,
                                             ),
                                             label: const Text(
+                                            const SizedBox(height: 12),
+                                            Card(
+                                              child: Padding(
+                                                padding: const EdgeInsets.all(16),
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Row(
+                                                      children: [
+                                                        Icon(
+                                                          Icons.notifications_active_outlined,
+                                                          color: Theme.of(
+                                                            context,
+                                                          ).colorScheme.primary,
+                                                        ),
+                                                        const SizedBox(width: 10),
+                                                        Expanded(
+                                                          child: Text(
+                                                            'Comisiones técnicas pendientes',
+                                                            style: Theme.of(context)
+                                                                .textTheme
+                                                                .titleMedium
+                                                                ?.copyWith(
+                                                                  fontWeight: FontWeight.w700,
+                                                                ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    const SizedBox(height: 10),
+                                                    Text(
+                                                      'Cada instalación finalizada genera una revisión administrativa. Solo al aprobarla se publica el monto en Mis Pagos del técnico.',
+                                                      style: Theme.of(context)
+                                                          .textTheme
+                                                          .bodyMedium,
+                                                    ),
+                                                    const SizedBox(height: 14),
+                                                    _buildPendingServiceCommissionContent(
+                                                      context,
+                                                      ref,
+                                                      state,
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
                                               'Importar a nómina',
                                             ),
                                           ),
@@ -953,6 +1011,262 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     } catch (e) {
       if (!context.mounted) return;
       AppFeedback.showError(context, 'No se pudo importar combustible: $e');
+    }
+  }
+
+  Widget _buildPendingServiceCommissionContent(
+    BuildContext context,
+    WidgetRef ref,
+    NominaHomeState state,
+  ) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final items = state.pendingServiceCommissionRequests;
+
+    if (items.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Text(
+          'No hay comisiones técnicas pendientes en este momento.',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        for (final item in items) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: scheme.outlineVariant.withValues(alpha: 0.45),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        item.technicianName,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        'Pendiente',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: Colors.orange.shade800,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  item.customerName?.trim().isNotEmpty == true
+                      ? item.customerName!
+                      : item.concept,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _NominaTag(
+                      icon: Icons.build_circle_outlined,
+                      label:
+                          'Instalación finalizada ${DateFormat('dd/MM/yyyy').format(item.finalizedAt)}',
+                    ),
+                    _NominaTag(
+                      icon: Icons.payments_outlined,
+                      label: 'Comisión ${money.format(item.commissionAmount)}',
+                    ),
+                    _NominaTag(
+                      icon: Icons.percent_outlined,
+                      label:
+                          'Tasa ${(item.commissionRate * 100).toStringAsFixed(0)}%',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  item.concept,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: state.loading
+                            ? null
+                            : () => _approvePendingServiceCommission(
+                                  context,
+                                  ref,
+                                  item,
+                                ),
+                        icon: const Icon(Icons.check_circle_outline),
+                        label: const Text('Aprobar'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: state.loading
+                            ? null
+                            : () => _rejectPendingServiceCommission(
+                                  context,
+                                  ref,
+                                  item,
+                                ),
+                        icon: const Icon(Icons.close_rounded),
+                        label: const Text('Rechazar'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _approvePendingServiceCommission(
+    BuildContext context,
+    WidgetRef ref,
+    PayrollServiceCommissionRequest item,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Aprobar comisión técnica'),
+        content: Text(
+          'Se agregará ${NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(item.commissionAmount)} a la nómina del técnico ${item.technicianName} y quedará visible en Mis Pagos.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Aprobar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await ref
+          .read(nominaRepositoryProvider)
+          .approveServiceCommissionRequest(item.id);
+      await ref.read(nominaHomeControllerProvider.notifier).load();
+      if (!context.mounted) return;
+      AppFeedback.showInfo(
+        context,
+        'Comisión aprobada y publicada en Mis Pagos del técnico.',
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      AppFeedback.showError(
+        context,
+        'No se pudo aprobar la comisión técnica: $e',
+      );
+    }
+  }
+
+  Future<void> _rejectPendingServiceCommission(
+    BuildContext context,
+    WidgetRef ref,
+    PayrollServiceCommissionRequest item,
+  ) async {
+    final noteController = TextEditingController();
+    final note = await showDialog<String?>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rechazar comisión técnica'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Si deseas, deja una nota interna para explicar por qué se rechaza esta comisión.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: noteController,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: 'Nota interna opcional',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, null),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(context, noteController.text),
+            child: const Text('Rechazar'),
+          ),
+        ],
+      ),
+    );
+    noteController.dispose();
+
+    if (note == null) return;
+
+    try {
+      await ref
+          .read(nominaRepositoryProvider)
+          .rejectServiceCommissionRequest(item.id, note: note);
+      await ref.read(nominaHomeControllerProvider.notifier).load();
+      if (!context.mounted) return;
+      AppFeedback.showInfo(context, 'Comisión técnica rechazada.');
+    } catch (e) {
+      if (!context.mounted) return;
+      AppFeedback.showError(
+        context,
+        'No se pudo rechazar la comisión técnica: $e',
+      );
     }
   }
 

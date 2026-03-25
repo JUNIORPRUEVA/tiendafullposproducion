@@ -82,8 +82,18 @@ class CotizacionesRepository {
     return fallback;
   }
 
+  String _dateOnly(DateTime date) {
+    final year = date.year.toString().padLeft(4, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
+  }
+
   Future<List<CotizacionModel>> list({
     String? customerPhone,
+    String? userId,
+    DateTime? from,
+    DateTime? to,
     int take = 80,
   }) async {
     try {
@@ -92,6 +102,9 @@ class CotizacionesRepository {
         queryParameters: {
           if (customerPhone != null && customerPhone.trim().isNotEmpty)
             'customerPhone': customerPhone.trim(),
+          if (userId != null && userId.trim().isNotEmpty) 'userId': userId.trim(),
+          if (from != null) 'from': _dateOnly(from),
+          if (to != null) 'to': _dateOnly(to),
           'take': take,
         },
       );
@@ -122,21 +135,55 @@ class CotizacionesRepository {
 
   Future<List<CotizacionModel>> getCachedList({
     String? customerPhone,
+    String? userId,
+    DateTime? from,
+    DateTime? to,
     int take = 80,
   }) async {
     final items = await _local.listAll();
     final phone = (customerPhone ?? '').trim();
-    final filtered = phone.isEmpty
+    final normalizedUserId = (userId ?? '').trim();
+    final filteredByPhone = phone.isEmpty
         ? items
         : items.where((item) => (item.customerPhone ?? '').trim() == phone).toList(growable: false);
-    return filtered.take(take).toList(growable: false);
+    final filtered = normalizedUserId.isEmpty
+        ? filteredByPhone
+        : filteredByPhone
+              .where((item) => (item.createdByUserId ?? '').trim() == normalizedUserId)
+              .toList(growable: false);
+    final filteredByDate = filtered.where((item) {
+      final created = DateTime(
+        item.createdAt.year,
+        item.createdAt.month,
+        item.createdAt.day,
+      );
+      if (from != null) {
+        final start = DateTime(from.year, from.month, from.day);
+        if (created.isBefore(start)) return false;
+      }
+      if (to != null) {
+        final end = DateTime(to.year, to.month, to.day);
+        if (created.isAfter(end)) return false;
+      }
+      return true;
+    }).toList(growable: false);
+    return filteredByDate.take(take).toList(growable: false);
   }
 
   Future<List<CotizacionModel>> listAndCache({
     String? customerPhone,
+    String? userId,
+    DateTime? from,
+    DateTime? to,
     int take = 80,
   }) async {
-    final items = await list(customerPhone: customerPhone, take: take);
+    final items = await list(
+      customerPhone: customerPhone,
+      userId: userId,
+      from: from,
+      to: to,
+      take: take,
+    );
     for (final item in items) {
       await _local.upsert(item);
     }

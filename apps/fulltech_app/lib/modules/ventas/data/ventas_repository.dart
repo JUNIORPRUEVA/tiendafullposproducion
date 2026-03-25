@@ -44,11 +44,16 @@ class VentasRepository {
   Future<List<SaleModel>> listSales({
     required DateTime from,
     required DateTime to,
+    String? userId,
   }) async {
     try {
       final res = await _dio.get(
         ApiRoutes.sales,
-        queryParameters: {'from': _dateOnly(from), 'to': _dateOnly(to)},
+        queryParameters: {
+          'from': _dateOnly(from),
+          'to': _dateOnly(to),
+          if ((userId ?? '').trim().isNotEmpty) 'userId': userId!.trim(),
+        },
         options: Options(extra: const {'skipLoader': true}),
       );
 
@@ -68,11 +73,16 @@ class VentasRepository {
   Future<SalesSummaryModel> summary({
     required DateTime from,
     required DateTime to,
+    String? userId,
   }) async {
     try {
       final res = await _dio.get(
         ApiRoutes.salesSummary,
-        queryParameters: {'from': _dateOnly(from), 'to': _dateOnly(to)},
+        queryParameters: {
+          'from': _dateOnly(from),
+          'to': _dateOnly(to),
+          if ((userId ?? '').trim().isNotEmpty) 'userId': userId!.trim(),
+        },
         options: Options(extra: const {'skipLoader': true}),
       );
       return SalesSummaryModel.fromJson(

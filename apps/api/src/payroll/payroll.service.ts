@@ -1,5 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PagoCombustibleTecnicoEstado, PayrollEntryType, PayrollPeriodStatus, Prisma, Role } from '@prisma/client';
+import {
+  PagoCombustibleTecnicoEstado,
+  PayrollEntryType,
+  PayrollPeriodStatus,
+  PayrollServiceCommissionStatus,
+  Prisma,
+  Role,
+  ServiceOrderType,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AddPayrollEntryDto } from './dto/payroll-entry.dto';
 import { UpsertPayrollConfigDto } from './dto/upsert-payroll-config.dto';
@@ -366,6 +374,287 @@ export class PayrollService {
         skippedCount: 0,
         items,
       };
+    });
+  }
+
+  async listPendingServiceCommissionRequests(ownerId: string) {
+    return this.prisma.payrollServiceCommissionRequest.findMany({
+      where: {
+        ownerId,
+        status: PayrollServiceCommissionStatus.PENDING,
+      },
+      include: {
+        employee: {
+          select: { id: true, nombre: true, userId: true },
+        },
+        technicianUser: {
+          select: { id: true, nombreCompleto: true, role: true },
+        },
+        serviceOrder: {
+          include: {
+            client: {
+              select: { id: true, nombre: true },
+            },
+          },
+        },
+      },
+      orderBy: [{ finalizedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+  }
+
+  async queueTechnicalServiceCommissionRequest(params: {
+    ownerId: string;
+    serviceOrderId: string;
+    quotationId?: string | null;
+    technicianUserId: string;
+    createdByUserId?: string | null;
+    serviceType: ServiceOrderType;
+    finalizedAt: Date;
+    profitAfterExpense: number;
+    commissionRate: number;
+    commissionAmount: number;
+    concept: string;
+  }) {
+    const technicianUserId = params.technicianUserId.trim();
+    if (!technicianUserId) {
+      return null;
+    }
+
+    if (params.serviceType !== ServiceOrderType.INSTALACION) {
+      return null;
+    }
+
+    const roundedAmount = this.round2(params.commissionAmount);
+    if (roundedAmount <= 0) {
+      return null;
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const employee = await this.ensurePayrollEmployeeLinkedToUser(
+        tx,
+        params.ownerId,
+        technicianUserId,
+      );
+
+      const existing = await tx.payrollServiceCommissionRequest.findUnique({
+        where: { serviceOrderId: params.serviceOrderId },
+        select: { id: true, status: true },
+      });
+
+      if (existing?.status === PayrollServiceCommissionStatus.APPROVED) {
+        return tx.payrollServiceCommissionRequest.findUnique({
+          where: { id: existing.id },
+          include: {
+            employee: {
+              select: { id: true, nombre: true, userId: true },
+            },
+            technicianUser: {
+              select: { id: true, nombreCompleto: true, role: true },
+            },
+            serviceOrder: {
+              include: {
+                client: {
+                  select: { id: true, nombre: true },
+                },
+              },
+            },
+          },
+        });
+      }
+
+      const payload = {
+        ownerId: params.ownerId,
+        quotationId: params.quotationId ?? null,
+        employeeId: employee.id,
+        technicianUserId,
+        createdByUserId: params.createdByUserId ?? null,
+        reviewedByUserId: null,
+        periodId: null,
+        payrollEntryId: null,
+        serviceType: params.serviceType,
+        finalizedAt: params.finalizedAt,
+        profitAfterExpense: new Prisma.Decimal(this.round2(params.profitAfterExpense)),
+        commissionRate: new Prisma.Decimal(params.commissionRate),
+        commissionAmount: new Prisma.Decimal(roundedAmount),
+        concept: params.concept.trim(),
+        status: PayrollServiceCommissionStatus.PENDING,
+        reviewNote: null,
+        approvedAt: null,
+        rejectedAt: null,
+      };
+
+      if (existing) {
+        return tx.payrollServiceCommissionRequest.update({
+          where: { id: existing.id },
+          data: payload,
+          include: {
+            employee: {
+              select: { id: true, nombre: true, userId: true },
+            },
+            technicianUser: {
+              select: { id: true, nombreCompleto: true, role: true },
+            },
+            serviceOrder: {
+              include: {
+                client: {
+                  select: { id: true, nombre: true },
+                },
+              },
+            },
+          },
+        });
+      }
+
+      return tx.payrollServiceCommissionRequest.create({
+        data: {
+          ...payload,
+          serviceOrderId: params.serviceOrderId,
+        },
+        include: {
+          employee: {
+            select: { id: true, nombre: true, userId: true },
+          },
+          technicianUser: {
+            select: { id: true, nombreCompleto: true, role: true },
+          },
+          serviceOrder: {
+            include: {
+              client: {
+                select: { id: true, nombre: true },
+              },
+            },
+          },
+        },
+      });
+    });
+  }
+
+  async approveServiceCommissionRequest(
+    ownerId: string,
+    requestId: string,
+    reviewedByUserId: string,
+  ) {
+    const period = await this.ensureCurrentOpenPeriod(ownerId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const request = await tx.payrollServiceCommissionRequest.findFirst({
+        where: { ownerId, id: requestId },
+        include: {
+          employee: {
+            select: { id: true, nombre: true, userId: true },
+          },
+          technicianUser: {
+            select: { id: true, nombreCompleto: true, role: true },
+          },
+          serviceOrder: {
+            include: {
+              client: {
+                select: { id: true, nombre: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (!request) {
+        throw new NotFoundException('Comisión técnica pendiente no encontrada');
+      }
+
+      if (request.status === PayrollServiceCommissionStatus.APPROVED) {
+        return request;
+      }
+
+      if (request.status !== PayrollServiceCommissionStatus.PENDING) {
+        throw new BadRequestException('Solo se pueden aprobar comisiones técnicas pendientes');
+      }
+
+      const entry = await tx.payrollEntry.create({
+        data: {
+          ownerId,
+          periodId: period.id,
+          employeeId: request.employeeId,
+          date: request.finalizedAt,
+          type: PayrollEntryType.COMISION_SERVICIO,
+          concept: request.concept,
+          amount: request.commissionAmount,
+        },
+      });
+
+      return tx.payrollServiceCommissionRequest.update({
+        where: { id: request.id },
+        data: {
+          status: PayrollServiceCommissionStatus.APPROVED,
+          reviewedByUserId,
+          approvedAt: new Date(),
+          rejectedAt: null,
+          reviewNote: null,
+          periodId: period.id,
+          payrollEntryId: entry.id,
+        },
+        include: {
+          employee: {
+            select: { id: true, nombre: true, userId: true },
+          },
+          technicianUser: {
+            select: { id: true, nombreCompleto: true, role: true },
+          },
+          serviceOrder: {
+            include: {
+              client: {
+                select: { id: true, nombre: true },
+              },
+            },
+          },
+        },
+      });
+    });
+  }
+
+  async rejectServiceCommissionRequest(
+    ownerId: string,
+    requestId: string,
+    reviewedByUserId: string,
+    note?: string,
+  ) {
+    const existing = await this.prisma.payrollServiceCommissionRequest.findFirst({
+      where: { ownerId, id: requestId },
+      select: { id: true, status: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Comisión técnica pendiente no encontrada');
+    }
+
+    if (existing.status !== PayrollServiceCommissionStatus.PENDING) {
+      throw new BadRequestException('Solo se pueden rechazar comisiones técnicas pendientes');
+    }
+
+    return this.prisma.payrollServiceCommissionRequest.update({
+      where: { id: existing.id },
+      data: {
+        status: PayrollServiceCommissionStatus.REJECTED,
+        reviewedByUserId,
+        rejectedAt: new Date(),
+        approvedAt: null,
+        reviewNote: note?.trim() || null,
+        payrollEntryId: null,
+        periodId: null,
+      },
+      include: {
+        employee: {
+          select: { id: true, nombre: true, userId: true },
+        },
+        technicianUser: {
+          select: { id: true, nombreCompleto: true, role: true },
+        },
+        serviceOrder: {
+          include: {
+            client: {
+              select: { id: true, nombre: true },
+            },
+          },
+        },
+      },
     });
   }
 

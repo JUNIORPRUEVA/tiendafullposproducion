@@ -681,6 +681,8 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
   Widget _buildServiceSalesCard(VentasState state) {
     final summary = state.serviceSummary;
     final theme = Theme.of(context);
+    final canSeeTechnicalBenefit =
+        ref.read(authStateProvider).user?.role == 'ADMIN';
 
     return Card(
       child: Padding(
@@ -757,13 +759,15 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                     _money(summary.totalSellerCommission),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _miniMetric(
-                    'Beneficio técnico',
-                    _money(summary.totalTechnicianCommission),
+                if (canSeeTechnicalBenefit) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _miniMetric(
+                      'Beneficio técnico',
+                      _money(summary.totalTechnicianCommission),
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
             if (state.serviceSummaryError != null) ...[

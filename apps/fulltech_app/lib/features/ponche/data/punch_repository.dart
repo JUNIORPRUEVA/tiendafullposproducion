@@ -43,6 +43,13 @@ class PunchRepository {
     return params;
   }
 
+  String _dateOnly(DateTime date) {
+    final year = date.year.toString().padLeft(4, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
+  }
+
   DateTime _toDominicanLocal(DateTime date) {
     final utc = date.toUtc();
     return utc.subtract(const Duration(hours: 4));
@@ -298,9 +305,14 @@ class PunchRepository {
 
   Future<List<PunchModel>> listAdmin({String? userId, DateTime? from, DateTime? to}) async {
     try {
+      final params = <String, dynamic>{
+        if (from != null) 'from': _dateOnly(from),
+        if (to != null) 'to': _dateOnly(to),
+        if (userId != null && userId.trim().isNotEmpty) 'userId': userId.trim(),
+      };
       final res = await _dio.get(
         ApiRoutes.punchAdmin,
-        queryParameters: _queryParams(from: from, to: to, userId: userId),
+        queryParameters: params,
         options: Options(extra: const {'skipLoader': true}),
       );
       final data = res.data;

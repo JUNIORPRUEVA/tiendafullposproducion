@@ -127,6 +127,12 @@ class ApiRoutes {
   static const payrollEntries = '/payroll/entries';
   static String payrollEntryDetail(String id) => '/payroll/entries/$id';
   static const payrollImportFuel = '/payroll/import/fuel';
+  static const payrollPendingServiceCommissions =
+      '/payroll/service-commissions/pending';
+  static String payrollApproveServiceCommission(String id) =>
+      '/payroll/service-commissions/$id/approve';
+  static String payrollRejectServiceCommission(String id) =>
+      '/payroll/service-commissions/$id/reject';
 
   static const payrollTotals = '/payroll/totals';
   static const payrollMyHistory = '/payroll/my-history';
