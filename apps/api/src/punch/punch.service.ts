@@ -11,6 +11,17 @@ import { AttendanceCalculator, AttendanceDayMetrics } from './attendance-calcula
 import { AttendanceSummaryQueryDto } from './dto/attendance-summary-query.dto';
 import { AttendanceUserQueryDto } from './dto/attendance-user-query.dto';
 
+type PunchUserSummary = {
+  id: string;
+  email: string;
+  nombreCompleto: string;
+  role: Role;
+};
+
+type PunchWithUser = Punch & {
+  user: PunchUserSummary;
+};
+
 @Injectable()
 export class PunchService {
   constructor(private readonly prisma: PrismaService) {}
@@ -45,40 +56,14 @@ export class PunchService {
 
   async listAdmin(userId?: string, from?: string, to?: string) {
     const where = this.buildWhere(userId, from, to);
-    return this.prisma.punch.findMany({
-      where,
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            nombreCompleto: true,
-            role: true,
-          },
-        },
-      },
-      orderBy: { timestamp: 'desc' },
-    });
+    return this.findManyWithUsers(where, { timestamp: 'desc' });
   }
 
   async attendanceSummary(query: AttendanceSummaryQueryDto): Promise<AttendanceSummaryResponse> {
     const where = this.buildWhere(query.userId, query.from, query.to);
-    const punches = await this.prisma.punch.findMany({
-      where,
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            nombreCompleto: true,
-            role: true,
-          },
-        },
-      },
-      orderBy: { timestamp: 'asc' },
-    });
+    const punches = await this.findManyWithUsers(where, { timestamp: 'asc' });
 
-    const grouped = new Map<string, Punch[]>();
+    const grouped = new Map<string, PunchWithUser[]>();
     for (const punch of punches) {
       const bucket = grouped.get(punch.userId) ?? [];
       bucket.push(punch);
@@ -100,9 +85,7 @@ export class PunchService {
     const perDay: AttendanceDayMetrics[] = [];
 
     for (const [, userPunches] of grouped) {
-      const userInfo = (userPunches[0] as any).user as
-        | { id: string; email: string; nombreCompleto: string; role: Role }
-        | undefined;
+      const userInfo = userPunches[0]?.user;
       if (!userInfo) continue;
 
       const days = this.computeDayMetricsList(userPunches);
@@ -181,6 +164,53 @@ export class PunchService {
 
   async myAttendanceDetail(userId: string, query: AttendanceUserQueryDto): Promise<AttendanceDetailResponse> {
     return this.attendanceDetail(userId, query);
+  }
+
+  private async findManyWithUsers(
+    where: Prisma.PunchWhereInput,
+    orderBy: Prisma.PunchOrderByWithRelationInput,
+  ): Promise<PunchWithUser[]> {
+    const punches = await this.prisma.punch.findMany({
+      where,
+      orderBy,
+    });
+
+    if (punches.length === 0) {
+      return [];
+    }
+
+    const userIds = Array.from(new Set(punches.map((punch) => punch.userId)));
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: {
+        id: true,
+        email: true,
+        nombreCompleto: true,
+        role: true,
+      },
+    });
+
+    const userById = new Map(users.map((user) => [user.id, user]));
+    const orphanCount = punches.filter((punch) => !userById.has(punch.userId)).length;
+
+    if (orphanCount > 0) {
+      // eslint-disable-next-line no-console
+      console.error('[punch.findManyWithUsers] orphan punches skipped', {
+        orphanCount,
+        requestedUsers: userIds.length,
+      });
+    }
+
+    return punches.flatMap((punch) => {
+      const user = userById.get(punch.userId);
+      if (!user) {
+        return [];
+      }
+      return [{
+        ...punch,
+        user,
+      }];
+    });
   }
 
   private computeDayMetricsList(punches: Punch[]): AttendanceDayMetrics[] {
