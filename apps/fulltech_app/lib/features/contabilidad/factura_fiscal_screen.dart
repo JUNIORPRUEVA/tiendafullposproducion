@@ -8,6 +8,7 @@ import 'package:printing/printing.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/auth/role_permissions.dart';
+import '../../core/evolution/evolution_api_repository.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
@@ -17,6 +18,18 @@ import 'utils/fiscal_invoices_pdf_service.dart';
 import 'widgets/app_card.dart';
 import 'widgets/section_title.dart';
 
+DateTimeRange _previousMonthRange([DateTime? reference]) {
+  final now = reference ?? DateTime.now();
+  final currentMonthStart = DateTime(now.year, now.month, 1);
+  final previousMonthEnd = currentMonthStart.subtract(const Duration(days: 1));
+  final previousMonthStart = DateTime(
+    previousMonthEnd.year,
+    previousMonthEnd.month,
+    1,
+  );
+  return DateTimeRange(start: previousMonthStart, end: previousMonthEnd);
+}
+
 class FacturaFiscalScreen extends ConsumerStatefulWidget {
   const FacturaFiscalScreen({super.key});
 
@@ -25,17 +38,20 @@ class FacturaFiscalScreen extends ConsumerStatefulWidget {
 }
 
 class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
+  static const String _accountantPhone = '8295319442';
   final _noteCtrl = TextEditingController();
   DateTime _invoiceDate = DateTime.now();
   FiscalInvoiceKind _kind = FiscalInvoiceKind.purchase;
   PlatformFile? _selectedFile;
 
-  DateTime _from = DateTime(DateTime.now().year, DateTime.now().month, 1);
-  DateTime _to = DateTime.now();
+  final DateTimeRange _defaultHistoryRange = _previousMonthRange();
+  late DateTime _from = _defaultHistoryRange.start;
+  late DateTime _to = _defaultHistoryRange.end;
   FiscalInvoiceKind? _kindFilter;
 
   bool _loading = true;
   bool _saving = false;
+  bool _sendingPreviousMonthReport = false;
   String? _error;
   List<FiscalInvoiceModel> _invoices = const [];
 
@@ -73,6 +89,93 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
         _loading = false;
         _error = e is ApiException ? e.message : 'No se pudieron cargar facturas';
       });
+    }
+  }
+
+  Future<List<FiscalInvoiceModel>> _loadInvoicesForRange({
+    required DateTime from,
+    required DateTime to,
+    FiscalInvoiceKind? kind,
+  }) {
+    return ref.read(contabilidadRepositoryProvider).listFiscalInvoices(
+          from: from,
+          to: to,
+          kind: kind,
+        );
+  }
+
+  Future<void> _openHistoryScreen(BuildContext context) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => _FiscalInvoiceHistoryScreen(
+          initialFrom: _from,
+          initialTo: _to,
+          initialKind: _kindFilter,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _sendPreviousMonthReport(BuildContext context) async {
+    if (_sendingPreviousMonthReport) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final range = _previousMonthRange();
+
+    setState(() {
+      _sendingPreviousMonthReport = true;
+      _error = null;
+    });
+
+    try {
+      final invoices = await _loadInvoicesForRange(
+        from: range.start,
+        to: range.end,
+      );
+      if (invoices.isEmpty) {
+        if (!mounted) return;
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('No hay facturas fiscales en el mes pasado.'),
+          ),
+        );
+        return;
+      }
+
+      final bytes = await buildFiscalInvoicesPdf(
+        from: range.start,
+        to: range.end,
+        invoices: invoices,
+      );
+      final fileStamp = DateFormat('yyyy_MM').format(range.start);
+      final caption =
+          'Reporte de facturas fiscales del ${DateFormat('dd/MM/yyyy').format(range.start)} al ${DateFormat('dd/MM/yyyy').format(range.end)}.';
+
+      await ref.read(evolutionApiRepositoryProvider).sendPdfDocument(
+            toNumber: _accountantPhone,
+            bytes: bytes,
+            fileName: 'reporte_facturas_fiscales_$fileStamp.pdf',
+            caption: caption,
+          );
+
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Reporte del mes pasado enviado al contable.'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e is ApiException
+            ? e.message
+            : 'No se pudo enviar el reporte del mes pasado';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _sendingPreviousMonthReport = false);
+      }
     }
   }
 
@@ -138,7 +241,7 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SectionTitle(title: 'Filtro por fecha'),
+          const SectionTitle(title: 'Historial fiscal'),
           const SizedBox(height: 10),
           Text(
             '${DateFormat('dd/MM/yyyy').format(_from)} - ${DateFormat('dd/MM/yyyy').format(_to)}',
@@ -166,6 +269,24 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
                 },
                 icon: const Icon(Icons.date_range_outlined),
                 label: const Text('Intervalo de fecha'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final range = _previousMonthRange();
+                  setState(() {
+                    _from = range.start;
+                    _to = range.end;
+                    _kindFilter = null;
+                  });
+                  await _load();
+                },
+                icon: const Icon(Icons.history_outlined),
+                label: const Text('Mes pasado'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => _openHistoryScreen(context),
+                icon: const Icon(Icons.folder_copy_outlined),
+                label: const Text('Ver historial'),
               ),
             ],
           ),
@@ -354,12 +475,24 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
   }
 
   Widget _buildHeaderActions(BuildContext context) {
-    return Row(
+    final previousRange = _previousMonthRange();
+    final monthLabel = DateFormat('MMMM yyyy', 'es_DO').format(previousRange.start);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
-          child: SectionTitle(
-            title: 'Facturas fiscales (${_invoices.length})',
-            trailing: TextButton.icon(
+        SectionTitle(title: 'Facturas fiscales (${_invoices.length})'),
+        const SizedBox(height: 8),
+        Text(
+          'El historial se carga por defecto con el mes anterior para declaración de ITBIS.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
               onPressed: _invoices.isEmpty
                   ? null
                   : () async {
@@ -372,9 +505,27 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
                       await _openPdfDialog(context, bytes);
                     },
               icon: const Icon(Icons.picture_as_pdf_outlined),
-              label: const Text('PDF contable'),
+              label: const Text('PDF del filtro'),
             ),
-          ),
+            OutlinedButton.icon(
+              onPressed: () => _openHistoryScreen(context),
+              icon: const Icon(Icons.manage_search_outlined),
+              label: const Text('Abrir historial'),
+            ),
+            FilledButton.icon(
+              onPressed: _sendingPreviousMonthReport
+                  ? null
+                  : () => _sendPreviousMonthReport(context),
+              icon: _sendingPreviousMonthReport
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.send_outlined),
+              label: Text('Enviar reporte $monthLabel'),
+            ),
+          ],
         ),
       ],
     );
@@ -514,6 +665,259 @@ class _ErrorBox extends StatelessWidget {
         style: TextStyle(
           color: scheme.onErrorContainer,
           fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _FiscalInvoiceHistoryScreen extends ConsumerStatefulWidget {
+  const _FiscalInvoiceHistoryScreen({
+    required this.initialFrom,
+    required this.initialTo,
+    required this.initialKind,
+  });
+
+  final DateTime initialFrom;
+  final DateTime initialTo;
+  final FiscalInvoiceKind? initialKind;
+
+  @override
+  ConsumerState<_FiscalInvoiceHistoryScreen> createState() =>
+      _FiscalInvoiceHistoryScreenState();
+}
+
+class _FiscalInvoiceHistoryScreenState
+    extends ConsumerState<_FiscalInvoiceHistoryScreen> {
+  late DateTime _from = widget.initialFrom;
+  late DateTime _to = widget.initialTo;
+  FiscalInvoiceKind? _kindFilter;
+  bool _loading = true;
+  String? _error;
+  List<FiscalInvoiceModel> _invoices = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _kindFilter = widget.initialKind;
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final rows = await ref.read(contabilidadRepositoryProvider).listFiscalInvoices(
+            from: _from,
+            to: _to,
+            kind: _kindFilter,
+          );
+      if (!mounted) return;
+      setState(() {
+        _invoices = rows;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e is ApiException
+            ? e.message
+            : 'No se pudo cargar el historial fiscal';
+      });
+    }
+  }
+
+  Future<void> _openPdfDialog(BuildContext context, Uint8List bytes) async {
+    final filename =
+        'facturas_fiscales_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.pdf';
+
+    await showDialog<void>(
+      context: context,
+      builder: (_) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: SizedBox(
+          width: 960,
+          height: 700,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'PDF facturas fiscales',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Descargar / compartir',
+                      onPressed: () => Printing.sharePdf(bytes: bytes, filename: filename),
+                      icon: const Icon(Icons.download_outlined),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: PdfPreview(
+                  canChangePageFormat: false,
+                  canDebug: false,
+                  allowPrinting: true,
+                  allowSharing: true,
+                  build: (_) async => bytes,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: const CustomAppBar(
+        title: 'Historial fiscal',
+        showLogo: false,
+        showDepartmentLabel: false,
+      ),
+      body: RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SectionTitle(title: 'Historial de facturas'),
+                  const SizedBox(height: 10),
+                  Text(
+                    '${DateFormat('dd/MM/yyyy').format(_from)} - ${DateFormat('dd/MM/yyyy').format(_to)}',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final range = await showDateRangePicker(
+                            context: context,
+                            firstDate: DateTime(2024),
+                            lastDate: DateTime(2100),
+                            initialDateRange: DateTimeRange(start: _from, end: _to),
+                          );
+                          if (range == null) return;
+                          setState(() {
+                            _from = range.start;
+                            _to = range.end;
+                          });
+                          await _load();
+                        },
+                        icon: const Icon(Icons.date_range_outlined),
+                        label: const Text('Intervalo de fecha'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final range = _previousMonthRange();
+                          setState(() {
+                            _from = range.start;
+                            _to = range.end;
+                            _kindFilter = null;
+                          });
+                          await _load();
+                        },
+                        icon: const Icon(Icons.history_outlined),
+                        label: const Text('Mes pasado'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _invoices.isEmpty
+                            ? null
+                            : () async {
+                                final bytes = await buildFiscalInvoicesPdf(
+                                  from: _from,
+                                  to: _to,
+                                  invoices: _invoices,
+                                );
+                                if (!context.mounted) return;
+                                await _openPdfDialog(context, bytes);
+                              },
+                        icon: const Icon(Icons.picture_as_pdf_outlined),
+                        label: const Text('PDF del filtro'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Tipo de factura',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('Todas'),
+                        selected: _kindFilter == null,
+                        onSelected: (_) async {
+                          setState(() => _kindFilter = null);
+                          await _load();
+                        },
+                      ),
+                      ChoiceChip(
+                        label: const Text('Compras'),
+                        selected: _kindFilter == FiscalInvoiceKind.purchase,
+                        onSelected: (_) async {
+                          setState(() => _kindFilter = FiscalInvoiceKind.purchase);
+                          await _load();
+                        },
+                      ),
+                      ChoiceChip(
+                        label: const Text('Ventas'),
+                        selected: _kindFilter == FiscalInvoiceKind.sale,
+                        onSelected: (_) async {
+                          setState(() => _kindFilter = FiscalInvoiceKind.sale);
+                          await _load();
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (_loading) const LinearProgressIndicator(),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              _ErrorBox(message: _error!),
+            ],
+            const SizedBox(height: 8),
+            ..._invoices.map(
+              (item) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _InvoiceCard(item: item),
+              ),
+            ),
+            if (!_loading && _invoices.isEmpty)
+              const AppCard(
+                child: Text(
+                  'No hay facturas fiscales en el rango seleccionado.',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+          ],
         ),
       ),
     );

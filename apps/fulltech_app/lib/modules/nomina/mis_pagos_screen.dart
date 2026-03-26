@@ -1113,40 +1113,63 @@ class _HistoryTile extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
+        isThreeLine: true,
+        minVerticalPadding: 10,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 8,
+        ),
         onTap: onTap,
         title: Text(
           item.periodTitle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
-        subtitle: Text(range),
+        subtitle: Text(
+          range,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         leading: Icon(
           item.isPaid ? Icons.verified_outlined : Icons.schedule_outlined,
           color: item.isPaid ? Colors.green : Colors.orange,
         ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(net, style: const TextStyle(fontWeight: FontWeight.w700)),
-            Text(
-              item.isPaid ? 'Pagado' : 'Pendiente',
-              style: TextStyle(
-                fontSize: 12,
-                color: item.isPaid ? Colors.green : Colors.orange,
+        trailing: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 84),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                net,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700),
               ),
-            ),
-            const SizedBox(height: 2),
-            InkWell(
-              onTap: onPdf,
-              child: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 2),
-                child: Text(
-                  'PDF',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+              Text(
+                item.isPaid ? 'Pagado' : 'Pendiente',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: item.isPaid ? Colors.green : Colors.orange,
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 4),
+              InkWell(
+                onTap: onPdf,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 2),
+                  child: Text(
+                    'PDF',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

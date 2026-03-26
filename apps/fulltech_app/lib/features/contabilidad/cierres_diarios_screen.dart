@@ -27,9 +27,12 @@ class CierresDiariosScreen extends ConsumerStatefulWidget {
 
 class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
   static const _bankOptions = <String>['POPULAR', 'BANRESERVAS', 'BHD', 'OTRO'];
+  static const _activeCloseTypes = <CloseType>[
+    CloseType.capsulas,
+    CloseType.tienda,
+  ];
 
   static const _categoryAccount = <CloseType, String>{
-    CloseType.pos: '841360753',
     CloseType.capsulas: '846100642',
     CloseType.tienda: '841088008',
   };
@@ -253,7 +256,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                   style: TextStyle(fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 6),
-                ...CloseType.values.map((type) {
+                ..._activeCloseTypes.map((type) {
                   final amount = eval.depositByType[type] ?? 0;
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 4),
@@ -284,7 +287,6 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                                     'CAPSULAS':
                                         eval.countByType[CloseType.capsulas] ??
                                         0,
-                                    'POS': eval.countByType[CloseType.pos] ?? 0,
                                     'TIENDA':
                                         eval.countByType[CloseType.tienda] ?? 0,
                                   },
@@ -293,8 +295,6 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                                         eval.depositByType[CloseType
                                             .capsulas] ??
                                         0,
-                                    'POS':
-                                        eval.depositByType[CloseType.pos] ?? 0,
                                     'TIENDA':
                                         eval.depositByType[CloseType.tienda] ??
                                         0,
@@ -303,8 +303,6 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                                     'CAPSULAS':
                                         _categoryAccount[CloseType.capsulas] ??
                                         '',
-                                    'POS':
-                                        _categoryAccount[CloseType.pos] ?? '',
                                     'TIENDA':
                                         _categoryAccount[CloseType.tienda] ??
                                         '',
@@ -330,9 +328,18 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                               reserveInCash: _cashReserve,
                               totalAvailableCash: eval.totalAvailableCash,
                               depositTotal: eval.depositableAmount,
-                              closesCountByType: eval.countByType,
-                              depositByType: eval.depositByType,
-                              accountByType: _categoryAccount,
+                              closesCountByType: {
+                                for (final type in _activeCloseTypes)
+                                  type: eval.countByType[type] ?? 0,
+                              },
+                              depositByType: {
+                                for (final type in _activeCloseTypes)
+                                  type: eval.depositByType[type] ?? 0,
+                              },
+                              accountByType: {
+                                for (final type in _activeCloseTypes)
+                                  type: _categoryAccount[type] ?? '',
+                              },
                             ),
                           );
 
@@ -431,14 +438,6 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                   label: 'Pastilla',
                   selected: selectedType == CloseType.capsulas,
                   onPressed: () => controller.setTypeFilter(CloseType.capsulas),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _CategoryButton(
-                  label: 'Software',
-                  selected: selectedType == CloseType.pos,
-                  onPressed: () => controller.setTypeFilter(CloseType.pos),
                 ),
               ),
               const SizedBox(width: 6),
@@ -780,12 +779,10 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
 
     final byTypeCount = {
       CloseType.capsulas: 0,
-      CloseType.pos: 0,
       CloseType.tienda: 0,
     };
     final byTypeCash = {
       CloseType.capsulas: 0.0,
-      CloseType.pos: 0.0,
       CloseType.tienda: 0.0,
     };
 
@@ -810,7 +807,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
         .toDouble();
 
     final reasons = <String>[];
-    final countCondition = CloseType.values.every(
+    final countCondition = _activeCloseTypes.every(
       (type) => (byTypeCount[type] ?? 0) >= 2,
     );
     if (!countCondition) {
@@ -834,7 +831,6 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
 
     final depositByType = {
       CloseType.capsulas: 0.0,
-      CloseType.pos: 0.0,
       CloseType.tienda: 0.0,
     };
 
@@ -1010,13 +1006,6 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                             ),
                           ),
                           FilterChip(
-                            label: const Text('Software'),
-                            selected: selectedType == CloseType.pos,
-                            onSelected: (_) => setDialogState(
-                              () => selectedType = CloseType.pos,
-                            ),
-                          ),
-                          FilterChip(
                             label: const Text('Tienda'),
                             selected: selectedType == CloseType.tienda,
                             onSelected: (_) => setDialogState(
@@ -1123,10 +1112,10 @@ String _typeLabel(CloseType type) {
   switch (type) {
     case CloseType.capsulas:
       return 'Pastilla';
-    case CloseType.pos:
-      return 'Software';
     case CloseType.tienda:
       return 'Tienda';
+    case CloseType.pos:
+      return 'Software';
   }
 }
 

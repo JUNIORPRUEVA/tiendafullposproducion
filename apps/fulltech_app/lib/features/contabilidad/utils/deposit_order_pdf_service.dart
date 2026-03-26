@@ -96,7 +96,7 @@ Future<Uint8List> buildDepositOrderPdf({
             'Cuenta destino',
             'Monto a depositar',
           ],
-          data: CloseType.values
+          data: data.closesCountByType.keys
               .map(
                 (type) => [
                   _typeLabel(type),

@@ -73,18 +73,6 @@ List<AppNavigationSection> buildAppNavigationSections(
             title: 'Cotizaciones',
             route: Routes.cotizaciones,
           ),
-        if (can(AppPermission.manageUsers))
-          const AppNavigationItem(
-            icon: Icons.engineering_outlined,
-            title: 'Técnicos',
-            route: Routes.users,
-          ),
-        if (can(AppPermission.manageSettings))
-          const AppNavigationItem(
-            icon: Icons.settings_outlined,
-            title: 'Configuración',
-            route: Routes.configuracion,
-          ),
         if (can(AppPermission.viewPunch))
           const AppNavigationItem(
             icon: Icons.access_time_rounded,
@@ -138,6 +126,11 @@ List<AppNavigationSection> buildAppNavigationSections(
     AppNavigationSection(
       title: 'Cuenta',
       items: [
+        const AppNavigationItem(
+          icon: Icons.smart_toy_outlined,
+          title: 'IA',
+          route: Routes.ai,
+        ),
         if (can(AppPermission.viewCompanyManual))
           AppNavigationItem(
             icon: Icons.menu_book_outlined,
@@ -145,11 +138,18 @@ List<AppNavigationSection> buildAppNavigationSections(
             route: Routes.manualInterno,
             showIndicator: showManualIndicator,
           ),
-        const AppNavigationItem(
-          icon: Icons.smart_toy_outlined,
-          title: 'IA',
-          route: Routes.ai,
-        ),
+        if (can(AppPermission.manageUsers))
+          const AppNavigationItem(
+            icon: Icons.groups_outlined,
+            title: 'Equipo',
+            route: Routes.users,
+          ),
+        if (can(AppPermission.manageSettings))
+          const AppNavigationItem(
+            icon: Icons.settings_outlined,
+            title: 'Configuración',
+            route: Routes.configuracion,
+          ),
       ],
     ),
   ];

@@ -26,6 +26,10 @@ class AppDrawer extends ConsumerWidget {
         ref.watch(authStateProvider).user?.appRole ??
         AppRole.unknown;
     final branding = resolveRoleBranding(role);
+    final userDisplayName =
+        currentUser?.nombreCompleto.trim().isNotEmpty == true
+        ? currentUser!.nombreCompleto
+        : branding.departmentName;
     const onBase = Colors.white;
 
     final panelShadow = BoxShadow(
@@ -48,72 +52,114 @@ class AppDrawer extends ConsumerWidget {
                   isCompactMobile ? 12 : 16,
                   isCompactMobile ? 12 : 16,
                   isCompactMobile ? 12 : 16,
-                  isCompactMobile ? 10 : 12,
+                  isCompactMobile ? 8 : 10,
                 ),
                 child: Container(
                   width: double.infinity,
                   padding: EdgeInsets.fromLTRB(
-                    isCompactMobile ? 12 : 16,
-                    isCompactMobile ? 12 : 16,
-                    isCompactMobile ? 12 : 16,
-                    isCompactMobile ? 12 : 16,
+                    isCompactMobile ? 12 : 14,
+                    isCompactMobile ? 11 : 13,
+                    isCompactMobile ? 12 : 14,
+                    isCompactMobile ? 11 : 13,
                   ),
                   decoration: BoxDecoration(
                     color: onBase.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(24),
+                    borderRadius: BorderRadius.circular(22),
                     border: Border.all(color: onBase.withValues(alpha: 0.10)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'FULLTECH',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          color: onBase,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 1.1,
-                        ),
+                      Row(
+                        children: [
+                          Container(
+                            width: isCompactMobile ? 38 : 42,
+                            height: isCompactMobile ? 38 : 42,
+                            decoration: BoxDecoration(
+                              color: onBase.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: onBase.withValues(alpha: 0.10),
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              userInitials(currentUser),
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                color: onBase,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.6,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'FULLTECH',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    color: onBase,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.9,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  branding.departmentName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: onBase.withValues(alpha: 0.88),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        branding.departmentName,
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          color: onBase.withValues(alpha: 0.94),
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        branding.departmentAccentLabel,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: onBase.withValues(alpha: 0.78),
-                          height: 1.35,
-                        ),
-                      ),
-                      SizedBox(height: isCompactMobile ? 12 : 14),
+                      const SizedBox(height: 10),
                       Container(
-                        width: double.infinity,
+                        constraints: BoxConstraints(
+                          maxWidth: isCompactMobile ? 210 : 240,
+                        ),
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
+                          horizontal: 10,
+                          vertical: 8,
                         ),
                         decoration: BoxDecoration(
                           color: onBase.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(18),
+                          borderRadius: BorderRadius.circular(999),
                           border: Border.all(
                             color: onBase.withValues(alpha: 0.10),
                           ),
                         ),
-                        child: Text(
-                          currentUser?.nombreCompleto.trim().isNotEmpty == true
-                              ? currentUser!.nombreCompleto
-                              : branding.departmentName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.labelLarge?.copyWith(
-                            color: onBase,
-                            fontWeight: FontWeight.w800,
-                          ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.person_outline_rounded,
+                              size: 15,
+                              color: onBase.withValues(alpha: 0.82),
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                userDisplayName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  color: onBase,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
