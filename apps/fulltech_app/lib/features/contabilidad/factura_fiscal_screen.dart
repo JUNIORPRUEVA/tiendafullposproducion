@@ -81,17 +81,6 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
     }
   }
 
-  String _kindSubtitle(FiscalInvoiceKind kind) {
-    switch (kind) {
-      case FiscalInvoiceKind.saleCard:
-        return 'Comprobantes de ventas pagadas con tarjeta';
-      case FiscalInvoiceKind.sale:
-        return 'Facturas de ventas generales del negocio';
-      case FiscalInvoiceKind.purchase:
-        return 'Facturas de compras y abastecimiento';
-    }
-  }
-
   String _uploadButtonLabel(FiscalInvoiceKind kind, bool hasFile) {
     if (hasFile) return 'Cambiar imagen';
     switch (kind) {
@@ -308,33 +297,22 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              _kindSubtitle(_kind),
-                              style: theme.textTheme.bodySmall,
-                            ),
                           ],
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 12),
                 FilledButton.icon(
                   onPressed: _saving ? null : _pickInvoiceImage,
                   icon: const Icon(Icons.upload_file_rounded),
                   label: Text(_uploadButtonLabel(_kind, hasFile)),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Selecciona la imagen y luego escribe la observación para guardarla automáticamente.',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall,
-                ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 if (!hasFile)
                   Container(
-                    padding: const EdgeInsets.all(18),
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: scheme.surface.withValues(alpha: 0.72),
                       borderRadius: BorderRadius.circular(18),
@@ -344,22 +322,16 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
                       children: [
                         Icon(
                           Icons.receipt_long_outlined,
-                          size: 34,
+                          size: 30,
                           color: scheme.primary,
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 8),
                         Text(
-                          'Aún no has cargado una factura',
+                          'Sin imagen cargada',
                           textAlign: TextAlign.center,
                           style: theme.textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.w800,
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Usa el botón superior para subir la imagen correspondiente y continuar.',
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodySmall,
                         ),
                       ],
                     ),
@@ -419,45 +391,34 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
                           : const Icon(Icons.subdirectory_arrow_left_outlined),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Al cerrar o confirmar la nota, se guarda automáticamente en la nube.',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall,
-                  ),
                 ],
               ],
             ),
           ),
-          const SizedBox(height: 18),
-          Text(
-            'Tipo de factura',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Selecciona la categoría que vas a cargar.',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall,
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              for (final kind in FiscalInvoiceKind.values)
-                _InvoiceKindOption(
-                  label: kind.label,
-                  subtitle: _kindSubtitle(kind),
-                  icon: _kindIcon(kind),
-                  selected: _kind == kind,
-                  onTap: () => setState(() => _kind = kind),
-                ),
-            ],
+          const SizedBox(height: 14),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const gap = 10.0;
+              final itemWidth = (constraints.maxWidth - (gap * 2)) / 3;
+              final kinds = FiscalInvoiceKind.values;
+
+              return Row(
+                children: [
+                  for (var index = 0; index < kinds.length; index++) ...[
+                    SizedBox(
+                      width: itemWidth,
+                      child: _InvoiceKindOption(
+                        label: kinds[index].label,
+                        icon: _kindIcon(kinds[index]),
+                        selected: _kind == kinds[index],
+                        onTap: () => setState(() => _kind = kinds[index]),
+                      ),
+                    ),
+                    if (index != kinds.length - 1) const SizedBox(width: gap),
+                  ],
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -474,11 +435,6 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
           style: theme.textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.w900,
           ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'Sube tus comprobantes con una vista compacta, clara y lista para móvil.',
-          style: theme.textTheme.bodyMedium,
         ),
       ],
     );
@@ -573,14 +529,12 @@ class _InvoiceCard extends StatelessWidget {
 class _InvoiceKindOption extends StatelessWidget {
   const _InvoiceKindOption({
     required this.label,
-    required this.subtitle,
     required this.icon,
     required this.selected,
     required this.onTap,
   });
 
   final String label;
-  final String subtitle;
   final IconData icon;
   final bool selected;
   final VoidCallback onTap;
@@ -588,59 +542,55 @@ class _InvoiceKindOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return SizedBox(
-      width: 210,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onTap: onTap,
-          child: Ink(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: selected
-                  ? scheme.primary.withValues(alpha: 0.12)
-                  : scheme.surface,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: selected ? scheme.primary : scheme.outlineVariant,
-                width: selected ? 1.4 : 1,
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+          decoration: BoxDecoration(
+            color: selected
+                ? scheme.primary.withValues(alpha: 0.12)
+                : scheme.surface,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: selected ? scheme.primary : scheme.outlineVariant,
+              width: selected ? 1.4 : 1,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: selected
+                      ? scheme.primary.withValues(alpha: 0.16)
+                      : scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  icon,
+                  size: 20,
+                  color: selected ? scheme.primary : scheme.onSurfaceVariant,
+                ),
               ),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: selected
-                        ? scheme.primary.withValues(alpha: 0.16)
-                        : scheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  alignment: Alignment.center,
-                  child: Icon(
-                    icon,
-                    color: selected ? scheme.primary : scheme.onSurfaceVariant,
-                  ),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  height: 1.15,
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

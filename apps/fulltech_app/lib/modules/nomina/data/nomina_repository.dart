@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_routes.dart';
+import '../../../core/cache/local_json_cache.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/auth/auth_repository.dart';
 import '../../../core/errors/api_exception.dart';
@@ -19,9 +21,11 @@ class NominaRepository {
 
   static const String _companyPayrollScope = 'cloud_company_payroll';
   static const Duration _requestTimeout = Duration(seconds: 15);
+  static const Duration _localCacheTimeout = Duration(milliseconds: 600);
 
   final Ref ref;
   final Dio _dio;
+  final LocalJsonCache _cache = LocalJsonCache();
 
   NominaDatabaseHelper get _localDb => NominaDatabaseHelper.instance;
 
@@ -29,6 +33,9 @@ class NominaRepository {
       (ref.read(authStateProvider).user?.id ?? '').trim();
 
   String get _ownerId => _companyPayrollScope;
+
+  String _myPayrollHistoryCacheKey(String userId) =>
+      'nomina:my_payroll_history:$userId';
 
   Future<List<PayrollPeriod>> listPeriods() async {
     final rows = await _getList(ApiRoutes.payrollPeriods);
@@ -266,13 +273,42 @@ class NominaRepository {
 
   Future<List<PayrollHistoryItem>> getCachedMyPayrollHistory() async {
     if (_currentUserId.isEmpty) return const [];
-    return _localDb.listCachedPayrollHistoryForUser(_currentUserId);
+
+    if (kIsWeb) {
+      final cached = await _cache.readMap(_myPayrollHistoryCacheKey(_currentUserId));
+      final items = cached?['items'];
+      if (items is! List) return const [];
+      return items
+          .whereType<Map>()
+          .map((row) => PayrollHistoryItem.fromMap(row.cast<String, dynamic>()))
+          .toList(growable: false);
+    }
+
+    try {
+      return await _localDb
+          .listCachedPayrollHistoryForUser(_currentUserId)
+          .timeout(_localCacheTimeout);
+    } catch (_) {
+      final cached = await _cache.readMap(_myPayrollHistoryCacheKey(_currentUserId));
+      final items = cached?['items'];
+      if (items is! List) return const [];
+      return items
+          .whereType<Map>()
+          .map((row) => PayrollHistoryItem.fromMap(row.cast<String, dynamic>()))
+          .toList(growable: false);
+    }
   }
 
   Future<List<PayrollHistoryItem>> listMyPayrollHistoryAndCache() async {
     final rows = await listMyPayrollHistory();
     if (_currentUserId.isNotEmpty) {
-      await _localDb.replaceCachedPayrollHistoryForUser(_currentUserId, rows);
+      final payload = {
+        'items': rows.map((item) => item.toMap()).toList(growable: false),
+      };
+      await _cache.writeMap(_myPayrollHistoryCacheKey(_currentUserId), payload);
+      if (!kIsWeb) {
+        unawaited(_localDb.replaceCachedPayrollHistoryForUser(_currentUserId, rows));
+      }
     }
     return rows;
   }

@@ -68,16 +68,16 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen>
 
   Future<void> _bootstrapLoad() async {
     final repo = ref.read(nominaRepositoryProvider);
-    final cached = await repo.getCachedMyPayrollHistory();
+    final cached = await repo
+        .getCachedMyPayrollHistory()
+        .timeout(const Duration(milliseconds: 700), onTimeout: () => const []);
     if (!mounted) return;
-    if (cached.isNotEmpty) {
-      setState(() {
-        _items = cached;
-        _loading = false;
-        _error = null;
-      });
-    }
-    await _syncWithCloud(silent: cached.isNotEmpty);
+    setState(() {
+      _items = cached;
+      _loading = false;
+      _error = null;
+    });
+    await _syncWithCloud(silent: true);
   }
 
   Future<void> _load() async {
@@ -578,9 +578,7 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen>
               ),
       ),
       drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : isDesktop
+        body: isDesktop
           ? RefreshIndicator(
               onRefresh: _load,
               child: _buildDesktopBody(
@@ -638,7 +636,30 @@ class _MisPagosScreenState extends ConsumerState<MisPagosScreen>
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 8),
-                  if (historyItems.isEmpty)
+                  if (_syncing && _items.isEmpty)
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2.6),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Cargando tus pagos desde la nube...',
+                                style: Theme.of(context).textTheme.bodyMedium
+                                    ?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else if (historyItems.isEmpty)
                     Card(
                       child: Padding(
                         padding: const EdgeInsets.all(16),
