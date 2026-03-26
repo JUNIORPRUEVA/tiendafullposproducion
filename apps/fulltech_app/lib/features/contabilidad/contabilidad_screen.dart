@@ -119,12 +119,92 @@ class ContabilidadScreen extends ConsumerWidget {
         showDepartmentLabel: false,
       ),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
-      backgroundColor: isDesktop
-          ? const Color(0xFFF3F6FB)
-          : AppTheme.primaryColor,
-      body: isDesktop
-          ? const _AccountingDesktopPage()
-          : const _AccountingMobilePage(),
+      backgroundColor: Colors.transparent,
+      body: _AccountingBackground(
+        child: isDesktop
+            ? const _AccountingDesktopPage()
+            : const _AccountingMobilePage(),
+      ),
+    );
+  }
+}
+
+class _AccountingBackground extends StatelessWidget {
+  const _AccountingBackground({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color.alphaBlend(
+              scheme.primary.withValues(alpha: 0.11),
+              const Color(0xFFF7FAFC),
+            ),
+            const Color(0xFFF7FAFC),
+            Color.alphaBlend(
+              scheme.secondary.withValues(alpha: 0.05),
+              Colors.white,
+            ),
+          ],
+        ),
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            top: -70,
+            right: -40,
+            child: _AccountingGlow(
+              color: scheme.primary.withValues(alpha: 0.12),
+              size: 220,
+            ),
+          ),
+          Positioned(
+            left: -60,
+            top: 180,
+            child: _AccountingGlow(
+              color: scheme.tertiary.withValues(alpha: 0.08),
+              size: 180,
+            ),
+          ),
+          Positioned(
+            right: -80,
+            bottom: 40,
+            child: _AccountingGlow(
+              color: scheme.secondary.withValues(alpha: 0.08),
+              size: 240,
+            ),
+          ),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _AccountingGlow extends StatelessWidget {
+  const _AccountingGlow({required this.color, required this.size});
+
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color,
+        ),
+      ),
     );
   }
 }
@@ -134,33 +214,84 @@ class _AccountingMobilePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _SectionButton(
-                label: 'Cierres diarios',
-                onPressed: () => context.go(Routes.contabilidadCierresDiarios),
-              ),
-              const SizedBox(height: 14),
-              _SectionButton(
-                label: 'Factura fiscal',
-                onPressed: () => context.go(Routes.contabilidadFacturaFiscal),
-              ),
-              const SizedBox(height: 14),
-              _SectionButton(
-                label: 'Pagos pendientes',
-                onPressed: () => context.go(Routes.contabilidadPagosPendientes),
-              ),
-            ],
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+      children: [
+        Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: scheme.surface.withValues(alpha: 0.92),
+                    borderRadius: BorderRadius.circular(28),
+                    border: Border.all(
+                      color: scheme.outlineVariant.withValues(alpha: 0.65),
+                    ),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x100F172A),
+                        blurRadius: 20,
+                        offset: Offset(0, 12),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Centro contable',
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: AppTheme.textDarkColor,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Accede a cierres, facturación fiscal y pagos pendientes con una presentación alineada al resto de FULLTECH.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                _SectionButton(
+                  label: 'Cierres diarios',
+                  subtitle: 'Caja diaria, arqueos y seguimiento de estados.',
+                  icon: Icons.inventory_2_outlined,
+                  accent: const Color(0xFF0F766E),
+                  onPressed: () => context.go(Routes.contabilidadCierresDiarios),
+                ),
+                const SizedBox(height: 12),
+                _SectionButton(
+                  label: 'Factura fiscal',
+                  subtitle: 'Comprobantes, cargas y control tributario.',
+                  icon: Icons.receipt_long_outlined,
+                  accent: const Color(0xFF7C3AED),
+                  onPressed: () => context.go(Routes.contabilidadFacturaFiscal),
+                ),
+                const SizedBox(height: 12),
+                _SectionButton(
+                  label: 'Pagos pendientes',
+                  subtitle: 'Vencimientos, compromisos y balances activos.',
+                  icon: Icons.account_balance_wallet_outlined,
+                  accent: const Color(0xFFEA580C),
+                  onPressed: () => context.go(Routes.contabilidadPagosPendientes),
+                ),
+              ],
+            ),
           ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -175,19 +306,7 @@ class _AccountingDesktopPage extends ConsumerWidget {
     final scheme = theme.colorScheme;
     final today = DateTime.now();
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            AppTheme.primaryColor.withValues(alpha: 0.09),
-            const Color(0xFFF3F6FB),
-            const Color(0xFFF8FAFC),
-          ],
-        ),
-      ),
-      child: SingleChildScrollView(
+    return SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
         child: Center(
@@ -248,7 +367,6 @@ class _AccountingDesktopPage extends ConsumerWidget {
             ),
           ),
         ),
-      ),
     );
   }
 }
@@ -267,20 +385,21 @@ class _AccountingHeaderSection extends StatelessWidget {
     final theme = Theme.of(context);
     final summary = overviewAsync.value;
 
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF10316B), Color(0xFF0F172A)],
-        ),
+        color: scheme.surface.withValues(alpha: 0.94),
         borderRadius: BorderRadius.circular(32),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.78),
+        ),
         boxShadow: const [
           BoxShadow(
             color: Color(0x1A0F172A),
-            blurRadius: 32,
-            offset: Offset(0, 18),
+            blurRadius: 26,
+            offset: Offset(0, 14),
           ),
         ],
       ),
@@ -307,18 +426,16 @@ class _AccountingHeaderSection extends StatelessWidget {
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.10),
+                  color: scheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.12),
-                  ),
+                  border: Border.all(color: scheme.outlineVariant),
                 ),
                 child: Text(
                   text,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.labelLarge?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.90),
+                    color: AppTheme.textDarkColor,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
@@ -717,26 +834,97 @@ class _AccountingQuickOverview extends StatelessWidget {
 }
 
 class _SectionButton extends StatelessWidget {
-  const _SectionButton({required this.label, required this.onPressed});
+  const _SectionButton({
+    required this.label,
+    required this.subtitle,
+    required this.icon,
+    required this.accent,
+    required this.onPressed,
+  });
 
   final String label;
+  final String subtitle;
+  final IconData icon;
+  final Color accent;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 56,
-      child: ElevatedButton(
-        onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.white,
-          foregroundColor: AppTheme.primaryColor,
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(24),
+        child: Ink(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface.withValues(alpha: 0.94),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: accent.withValues(alpha: 0.18),
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x120F172A),
+                blurRadius: 18,
+                offset: Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(icon, color: accent, size: 24),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: AppTheme.textDarkColor,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: accent,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.arrow_forward_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+            ],
           ),
         ),
-        child: Text(label),
       ),
     );
   }

@@ -183,17 +183,6 @@ class NominaRepository {
     return PayrollEntry.fromMap(data);
   }
 
-  Future<Map<String, dynamic>> importFuelPayments({
-    required String periodId,
-    String? employeeId,
-  }) {
-    return _postMap(ApiRoutes.payrollImportFuel, {
-      'periodId': periodId,
-      if (employeeId != null && employeeId.trim().isNotEmpty)
-        'employeeId': employeeId.trim(),
-    });
-  }
-
   Future<List<PayrollServiceCommissionRequest>>
   listPendingServiceCommissionRequests() async {
     final rows = await _getList(ApiRoutes.payrollPendingServiceCommissions);

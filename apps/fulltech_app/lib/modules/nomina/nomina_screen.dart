@@ -270,7 +270,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Combustible y pagos asociados ya aprobados se consolidan aquí para completar la nómina sin duplicar revisión operativa.',
+                                    'Accesos rápidos para la gestión administrativa de nómina sin salir del tablero principal.',
                                     style: theme.textTheme.bodyMedium?.copyWith(
                                       height: 1.45,
                                       color: scheme.onSurfaceVariant,
@@ -286,23 +286,6 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                                         Icons.admin_panel_settings_outlined,
                                       ),
                                       label: const Text('Abrir administración'),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  SizedBox(
-                                    width: double.infinity,
-                                    child: OutlinedButton.icon(
-                                      onPressed: state.loading
-                                          ? null
-                                          : () => _importOpenPeriodFuelPayments(
-                                              context,
-                                              ref,
-                                              state,
-                                            ),
-                                      icon: const Icon(
-                                        Icons.local_gas_station_outlined,
-                                      ),
-                                      label: const Text('Importar combustible'),
                                     ),
                                   ),
                                   const SizedBox(height: 10),
@@ -626,13 +609,6 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
               icon: const Icon(Icons.refresh),
             ),
             IconButton(
-              tooltip: 'Importar combustible',
-              onPressed: state.loading
-                  ? null
-                  : () => _importOpenPeriodFuelPayments(context, ref, state),
-              icon: const Icon(Icons.local_gas_station_outlined),
-            ),
-            IconButton(
               tooltip: 'Nueva quincena',
               onPressed: () => _showCreatePeriodDialog(context, ref),
               icon: const Icon(Icons.add),
@@ -683,68 +659,6 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                           constraints: const BoxConstraints(maxWidth: 980),
                           child: ListView(
                             padding: const EdgeInsets.all(16),
-                            children: [
-                              _NominaSummaryCard(state: state),
-                              const SizedBox(height: 12),
-                              Card(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Icon(
-                                            Icons.local_gas_station_outlined,
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.primary,
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Text(
-                                              'Combustible técnico y nómina',
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .titleMedium
-                                                  ?.copyWith(
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 10),
-                                      const Text(
-                                        'La revisión operativa de salidas, aprobación y pagos de combustible se administra visualmente desde Administración > Combustible. Desde Nómina solo se importan los pagos ya marcados como pagados.',
-                                      ),
-                                      const SizedBox(height: 14),
-                                      Wrap(
-                                        spacing: 12,
-                                        runSpacing: 12,
-                                        children: [
-                                          FilledButton.icon(
-                                            onPressed: () => context.go(
-                                              Routes.administracion,
-                                            ),
-                                            icon: const Icon(
-                                              Icons
-                                                  .admin_panel_settings_outlined,
-                                            ),
-                                            label: const Text(
-                                              'Abrir administración',
-                                            ),
-                                          ),
-                                          OutlinedButton.icon(
-                                            onPressed: state.loading
-                                                ? null
-                                                : () =>
-                                                      _importOpenPeriodFuelPayments(
-                                                        context,
-                                                        ref,
-                                                        state,
-                                                      ),
                                             icon: const Icon(
                                               Icons.payments_outlined,
                                             ),
@@ -953,66 +867,6 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
               ),
       ),
     );
-  }
-
-  Future<void> _importOpenPeriodFuelPayments(
-    BuildContext context,
-    WidgetRef ref,
-    NominaHomeState state,
-  ) async {
-    final open = state.openPeriod;
-    if (open == null) {
-      AppFeedback.showError(
-        context,
-        'No hay una quincena abierta para importar combustible.',
-      );
-      return;
-    }
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Importar combustible'),
-        content: Text(
-          'Se importarán a la quincena abierta los pagos de combustible ya pagados y aún no vinculados a nómina.\n\n'
-          'Quincena: ${open.title}',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Importar'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true || !context.mounted) return;
-
-    try {
-      final result = await ref
-          .read(nominaRepositoryProvider)
-          .importFuelPayments(periodId: open.id);
-      await ref.read(nominaHomeControllerProvider.notifier).load();
-      if (!context.mounted) return;
-
-      final importedCount = (result['importedCount'] as num?)?.toInt() ?? 0;
-      final skippedCount = (result['skippedCount'] as num?)?.toInt() ?? 0;
-      AppFeedback.showInfo(
-        context,
-        importedCount > 0
-            ? 'Combustible importado: $importedCount movimiento(s).'
-            : skippedCount > 0
-            ? 'No hubo movimientos nuevos; se omitieron $skippedCount registro(s).'
-            : 'No había pagos de combustible pendientes para esta quincena.',
-      );
-    } catch (e) {
-      if (!context.mounted) return;
-      AppFeedback.showError(context, 'No se pudo importar combustible: $e');
-    }
   }
 
   Widget _buildPendingServiceCommissionContent(
@@ -1950,6 +1804,10 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                     DropdownButtonFormField<PayrollEntryType>(
                       initialValue: selectedType,
                       items: PayrollEntryType.values
+                          .where(
+                            (type) =>
+                                type != PayrollEntryType.pagoCombustible,
+                          )
                           .map(
                             (type) => DropdownMenuItem(
                               value: type,
@@ -1970,7 +1828,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Concepto',
                         hintText:
-                            'Ej: Ausencia 12/02, bonificación por meta, combustible...',
+                            'Ej: Ausencia 12/02, bonificación por meta, descuento administrativo...',
                       ),
                     ),
                     const SizedBox(height: 8),

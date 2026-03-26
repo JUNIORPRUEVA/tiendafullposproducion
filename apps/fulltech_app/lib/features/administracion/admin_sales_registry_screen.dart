@@ -5,10 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/errors/user_facing_error.dart';
 import '../../core/models/user_model.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
+import '../../core/widgets/professional_recovery_card.dart';
 import '../../features/user/data/users_repository.dart';
 import '../../modules/ventas/data/ventas_repository.dart';
 import '../../modules/ventas/sales_models.dart';
@@ -23,14 +25,19 @@ class AdminSalesRegistryScreen extends ConsumerStatefulWidget {
 
 class _AdminSalesRegistryScreenState
     extends ConsumerState<AdminSalesRegistryScreen> {
+  static const List<int> _autoRetrySecondsByAttempt = <int>[3, 6, 12];
+
   bool _loading = false;
-  String? _error;
+  UserFacingError? _error;
   SalesSummaryModel _summary = SalesSummaryModel.empty();
   List<SaleModel> _items = const [];
   List<UserModel> _users = const [];
   String? _selectedUserId;
   DateTime _from = DateTime.now().subtract(const Duration(days: 30));
   DateTime _to = DateTime.now();
+  Timer? _autoRetryTimer;
+  int _autoRetryAttempt = 0;
+  int _autoRetryCountdown = 0;
 
   @override
   void initState() {
@@ -38,11 +45,21 @@ class _AdminSalesRegistryScreenState
     unawaited(_load());
   }
 
+  @override
+  void dispose() {
+    _autoRetryTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _load() async {
+    if (_loading) return;
+    _autoRetryTimer?.cancel();
+
     if (mounted) {
       setState(() {
         _loading = true;
         _error = null;
+        _autoRetryCountdown = 0;
       });
     }
 
@@ -101,13 +118,45 @@ class _AdminSalesRegistryScreenState
         _items = filteredSales;
         _summary = filteredSummary;
         _users = users;
+        _autoRetryAttempt = 0;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '$e');
+      setState(() => _error = UserFacingError.from(e));
+      _scheduleAutoRetryIfNeeded();
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _scheduleAutoRetryIfNeeded() {
+    final error = _error;
+    if (error == null || !error.autoRetry) return;
+    if (_autoRetryAttempt >= _autoRetrySecondsByAttempt.length) return;
+
+    _autoRetryTimer?.cancel();
+    final seconds = _autoRetrySecondsByAttempt[_autoRetryAttempt];
+    setState(() => _autoRetryCountdown = seconds);
+
+    _autoRetryTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_autoRetryCountdown <= 1) {
+        timer.cancel();
+        _autoRetryAttempt += 1;
+        unawaited(_load());
+        return;
+      }
+      setState(() => _autoRetryCountdown -= 1);
+    });
+  }
+
+  Future<void> _retryNow() async {
+    _autoRetryTimer?.cancel();
+    if (mounted) setState(() => _autoRetryCountdown = 0);
+    await _load();
   }
 
   String _money(double value) =>
@@ -219,7 +268,7 @@ class _AdminSalesRegistryScreenState
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 2),
             child: DropdownButtonFormField<String?>(
-              value: _selectedUserId,
+              initialValue: _selectedUserId,
               decoration: const InputDecoration(
                 labelText: 'Filtrar por usuario',
                 prefixIcon: Icon(Icons.person_search_outlined),
@@ -289,16 +338,13 @@ class _AdminSalesRegistryScreenState
           ),
           Expanded(
             child: _error != null
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Text(
-                        _error!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    ),
+                ? ProfessionalRecoveryCard(
+                    error: _error!,
+                    autoRetryCountdown: _autoRetryCountdown > 0
+                        ? _autoRetryCountdown
+                        : null,
+                    isRetrying: _loading,
+                    onRetryNow: _retryNow,
                   )
                 : _items.isEmpty
                     ? const Center(

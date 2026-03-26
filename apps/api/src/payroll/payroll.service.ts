@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
-  PagoCombustibleTecnicoEstado,
   PayrollEntryType,
   PayrollPeriodStatus,
   PayrollServiceCommissionStatus,
@@ -269,111 +268,6 @@ export class PayrollService {
         amount: new Prisma.Decimal(dto.amount),
         cantidad: dto.cantidad == null ? null : new Prisma.Decimal(dto.cantidad),
       },
-    });
-  }
-
-  async importFuelPayments(ownerId: string, dto: { periodId: string; employeeId?: string }) {
-    const period = await this.prisma.payrollPeriod.findFirst({
-      where: { ownerId, id: dto.periodId },
-    });
-
-    if (!period) {
-      throw new NotFoundException('Quincena no encontrada');
-    }
-
-    if (period.status !== PayrollPeriodStatus.OPEN) {
-      throw new BadRequestException('Solo se pueden importar combustibles a una quincena abierta');
-    }
-
-    let tecnicoIdFilter: string | undefined;
-    if (dto.employeeId) {
-      const employee = await this.prisma.payrollEmployee.findFirst({
-        where: { ownerId, id: dto.employeeId },
-        select: { id: true, userId: true, nombre: true, telefono: true },
-      });
-      if (!employee) {
-        throw new NotFoundException('Empleado de nómina no encontrado');
-      }
-
-      tecnicoIdFilter = (await this.resolveAppUserIdForEmployee(ownerId, employee)) ?? undefined;
-      if (!tecnicoIdFilter) {
-        return { importedCount: 0, skippedCount: 0, items: [] };
-      }
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const pagos = await tx.pagoCombustibleTecnico.findMany({
-        where: {
-          estado: PagoCombustibleTecnicoEstado.PAGADO,
-          fechaPago: {
-            not: null,
-            gte: period.startDate,
-            lte: period.endDate,
-          },
-          payrollEntry: null,
-          ...(tecnicoIdFilter ? { tecnicoId: tecnicoIdFilter } : {}),
-        },
-        include: {
-          tecnico: {
-            select: { id: true, nombreCompleto: true, telefono: true },
-          },
-          salidas: {
-            select: { id: true, kmEstimados: true, litrosEstimados: true },
-          },
-        },
-        orderBy: [{ fechaPago: 'asc' }, { createdAt: 'asc' }],
-      });
-
-      const items: Array<Record<string, unknown>> = [];
-      let importedCount = 0;
-
-      for (const pago of pagos) {
-        const employee = await this.ensurePayrollEmployeeLinkedToUser(tx, ownerId, pago.tecnicoId);
-        const totalKm = this.round2(
-          pago.salidas.reduce((sum, salida) => sum + this.toNumber(salida.kmEstimados), 0),
-        );
-        const totalLitros = this.round2(
-          pago.salidas.reduce((sum, salida) => sum + this.toNumber(salida.litrosEstimados), 0),
-        );
-
-        const entry = await tx.payrollEntry.create({
-          data: {
-            ownerId,
-            periodId: period.id,
-            employeeId: employee.id,
-            pagoCombustibleTecnicoId: pago.id,
-            date: pago.fechaPago ?? pago.fechaFin,
-            type: PayrollEntryType.PAGO_COMBUSTIBLE,
-            concept: this.buildFuelConcept({
-              fechaInicio: pago.fechaInicio,
-              fechaFin: pago.fechaFin,
-              totalKm,
-              totalLitros,
-              salidasCount: pago.salidas.length,
-            }),
-            amount: pago.totalMonto,
-            cantidad: totalKm > 0 ? new Prisma.Decimal(totalKm) : null,
-          },
-        });
-
-        importedCount += 1;
-        items.push({
-          pagoId: pago.id,
-          entryId: entry.id,
-          tecnicoId: pago.tecnicoId,
-          tecnicoNombre: pago.tecnico.nombreCompleto,
-          employeeId: employee.id,
-          totalMonto: this.toNumber(pago.totalMonto),
-          totalKm,
-          totalLitros,
-        });
-      }
-
-      return {
-        importedCount,
-        skippedCount: 0,
-        items,
-      };
     });
   }
 
@@ -1115,37 +1009,6 @@ export class PayrollService {
     return null;
   }
 
-  private async resolveAppUserIdForEmployee(
-    ownerId: string,
-    employee: { id: string; userId?: string | null; nombre: string; telefono: string | null },
-  ) {
-    if ((employee.userId ?? '').trim().length > 0) {
-      return employee.userId ?? null;
-    }
-
-    const userById = await this.prisma.user.findUnique({
-      where: { id: employee.id },
-      select: { id: true },
-    });
-    if (userById) return userById.id;
-
-    const trimmedName = employee.nombre.trim();
-    if (!trimmedName) return null;
-
-    const phone = (employee.telefono ?? '').trim();
-    const users = await this.prisma.user.findMany({
-      where: {
-        nombreCompleto: trimmedName,
-        ...(phone.length > 0 ? { telefono: phone } : {}),
-      },
-      select: { id: true },
-      take: 2,
-    });
-
-    if (users.length === 1) return users[0].id;
-    return null;
-  }
-
   private async ensurePayrollEmployeeLinkedToUser(
     tx: Prisma.TransactionClient,
     ownerId: string,
@@ -1197,30 +1060,6 @@ export class PayrollService {
         activo: true,
       },
     });
-  }
-
-  private buildFuelConcept(params: {
-    fechaInicio: Date;
-    fechaFin: Date;
-    totalKm: number;
-    totalLitros: number;
-    salidasCount: number;
-  }) {
-    const start = this.formatDate(params.fechaInicio);
-    const end = this.formatDate(params.fechaFin);
-    const base = `Combustible técnico ${start} - ${end}`;
-    const details: string[] = [];
-    if (params.salidasCount > 0) details.push(`${params.salidasCount} salida(s)`);
-    if (params.totalKm > 0) details.push(`${params.totalKm.toFixed(2)} km`);
-    if (params.totalLitros > 0) details.push(`${params.totalLitros.toFixed(2)} L`);
-    return details.length === 0 ? base : `${base} · ${details.join(' · ')}`;
-  }
-
-  private formatDate(value: Date) {
-    const day = value.getDate().toString().padStart(2, '0');
-    const month = (value.getMonth() + 1).toString().padStart(2, '0');
-    const year = value.getFullYear().toString();
-    return `${day}/${month}/${year}`;
   }
 
   private round2(value: number) {

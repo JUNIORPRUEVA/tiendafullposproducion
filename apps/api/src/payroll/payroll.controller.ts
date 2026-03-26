@@ -8,7 +8,6 @@ import { CreatePayrollPeriodDto } from './dto/create-payroll-period.dto';
 import { AddPayrollEntryDto, PayrollEntriesQueryDto } from './dto/payroll-entry.dto';
 import { PayrollTotalsQueryDto } from './dto/payroll-query.dto';
 import { OverlapPeriodQueryDto } from './dto/overlap-period-query.dto';
-import { ImportFuelPaymentsDto } from './dto/import-fuel-payments.dto';
 import { ReviewServiceCommissionDto } from './dto/review-service-commission.dto';
 import { UpsertPayrollConfigDto } from './dto/upsert-payroll-config.dto';
 import { UpsertPayrollEmployeeDto } from './dto/upsert-payroll-employee.dto';
@@ -144,13 +143,6 @@ export class PayrollController {
     const ownerId = await this.ownerIdFrom(req);
     const entry = await this.payroll.addEntry(ownerId, dto);
     return this.mapEntry(entry);
-  }
-
-  @Post('import/fuel')
-  @Roles(Role.ADMIN)
-  async importFuelPayments(@Req() req: Request, @Body() dto: ImportFuelPaymentsDto) {
-    const ownerId = await this.ownerIdFrom(req);
-    return this.payroll.importFuelPayments(ownerId, dto);
   }
 
   @Get('service-commissions/pending')

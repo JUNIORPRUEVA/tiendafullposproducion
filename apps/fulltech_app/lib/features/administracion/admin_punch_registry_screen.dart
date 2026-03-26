@@ -5,10 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/errors/user_facing_error.dart';
 import '../../core/models/punch_model.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
+import '../../core/widgets/professional_recovery_card.dart';
 import '../ponche/data/punch_repository.dart';
 
 class AdminPunchRegistryScreen extends ConsumerStatefulWidget {
@@ -21,12 +23,17 @@ class AdminPunchRegistryScreen extends ConsumerStatefulWidget {
 
 class _AdminPunchRegistryScreenState
     extends ConsumerState<AdminPunchRegistryScreen> {
+  static const List<int> _autoRetrySecondsByAttempt = <int>[3, 6, 12];
+
   bool _loading = false;
-  String? _error;
+  UserFacingError? _error;
   List<PunchModel> _items = const [];
   final TextEditingController _searchCtrl = TextEditingController();
   DateTime _from = DateTime.now().subtract(const Duration(days: 30));
   DateTime _to = DateTime.now();
+  Timer? _autoRetryTimer;
+  int _autoRetryAttempt = 0;
+  int _autoRetryCountdown = 0;
 
   @override
   void initState() {
@@ -36,15 +43,20 @@ class _AdminPunchRegistryScreenState
 
   @override
   void dispose() {
+    _autoRetryTimer?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
+    if (_loading) return;
+    _autoRetryTimer?.cancel();
+
     if (mounted) {
       setState(() {
         _loading = true;
         _error = null;
+        _autoRetryCountdown = 0;
       });
     }
 
@@ -54,13 +66,47 @@ class _AdminPunchRegistryScreenState
         to: DateTime(_to.year, _to.month, _to.day),
       );
       if (!mounted) return;
-      setState(() => _items = rows);
+      setState(() {
+        _items = rows;
+        _autoRetryAttempt = 0;
+      });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '$e');
+      setState(() => _error = UserFacingError.from(e));
+      _scheduleAutoRetryIfNeeded();
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _scheduleAutoRetryIfNeeded() {
+    final error = _error;
+    if (error == null || !error.autoRetry) return;
+    if (_autoRetryAttempt >= _autoRetrySecondsByAttempt.length) return;
+
+    _autoRetryTimer?.cancel();
+    final seconds = _autoRetrySecondsByAttempt[_autoRetryAttempt];
+    setState(() => _autoRetryCountdown = seconds);
+
+    _autoRetryTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_autoRetryCountdown <= 1) {
+        timer.cancel();
+        _autoRetryAttempt += 1;
+        unawaited(_load());
+        return;
+      }
+      setState(() => _autoRetryCountdown -= 1);
+    });
+  }
+
+  Future<void> _retryNow() async {
+    _autoRetryTimer?.cancel();
+    if (mounted) setState(() => _autoRetryCountdown = 0);
+    await _load();
   }
 
   String _dateText(DateTime value) {
@@ -180,16 +226,13 @@ class _AdminPunchRegistryScreenState
           ),
           Expanded(
             child: _error != null
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Text(
-                        _error!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    ),
+                ? ProfessionalRecoveryCard(
+                    error: _error!,
+                    autoRetryCountdown: _autoRetryCountdown > 0
+                        ? _autoRetryCountdown
+                        : null,
+                    isRetrying: _loading,
+                    onRetryNow: _retryNow,
                   )
                 : visible.isEmpty
                     ? const Center(
