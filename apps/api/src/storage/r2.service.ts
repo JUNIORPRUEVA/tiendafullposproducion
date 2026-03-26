@@ -4,6 +4,7 @@ import {
   S3Client,
   DeleteObjectCommand,
   GetObjectCommand,
+  GetObjectCommandOutput,
   HeadObjectCommand,
   HeadObjectCommandOutput,
   PutObjectCommand,
@@ -131,12 +132,12 @@ export class R2Service {
       throw new InternalServerErrorException('R2 bucket no configurado');
     }
 
-    const res = await this.s3.send(
+    const res = (await this.s3.send(
       new GetObjectCommand({
         Bucket: this.bucket,
         Key: objectKey,
       }),
-    );
+    )) as GetObjectCommandOutput;
 
     if (!res.Body) {
       throw new InternalServerErrorException('R2 no devolvió contenido');

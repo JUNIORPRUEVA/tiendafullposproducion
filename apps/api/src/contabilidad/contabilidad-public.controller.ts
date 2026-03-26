@@ -8,9 +8,13 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import * as fs from 'node:fs';
-import { join } from 'node:path';
-import { lookup as lookupMime } from 'mime-types';
+import { extname, join } from 'node:path';
 import { R2Service } from '../storage/r2.service';
+
+type FiscalImageCandidates = {
+  localPaths: string[];
+  r2Keys: string[];
+};
 
 @Controller('public/contabilidad')
 export class ContabilidadPublicController {
@@ -21,33 +25,33 @@ export class ContabilidadPublicController {
     @Query('url') rawUrl: string | undefined,
     @Res() res: Response,
   ) {
-    final raw = (rawUrl ?? '').trim();
-    if (raw.isEmpty) {
+    const raw = (rawUrl ?? '').trim();
+    if (raw.length === 0) {
       throw new BadRequestException('url es requerido');
     }
 
     const candidates = this.buildCandidates(raw);
 
-    for (final localRelative in candidates.localPaths) {
+    for (const localRelative of candidates.localPaths) {
       const absolutePath = join(this.resolveUploadDir(), ...localRelative.split('/'));
       if (!fs.existsSync(absolutePath)) continue;
 
-      const contentType = lookupMime(absolutePath) || 'application/octet-stream';
+      const contentType = this.guessContentType(absolutePath);
       res.setHeader('Content-Type', contentType);
       res.sendFile(absolutePath);
       return;
     }
 
-    for (final objectKey in candidates.r2Keys) {
+    for (const objectKey of candidates.r2Keys) {
       try {
-        final object = await this.r2.getObject(objectKey);
+        const object = await this.r2.getObject(objectKey);
         res.setHeader('Content-Type', object.contentType ?? 'application/octet-stream');
         if (object.contentLength != null) {
           res.setHeader('Content-Length', String(object.contentLength));
         }
         res.send(object.body);
         return;
-      } catch (_) {
+      } catch {
         // Try the next candidate.
       }
     }
@@ -55,48 +59,51 @@ export class ContabilidadPublicController {
     throw new NotFoundException('No se encontró la imagen fiscal');
   }
 
-  ({List<String> localPaths, List<String> r2Keys}) buildCandidates(String raw) {
-    final normalized = raw.replaceAll('\\', '/').trim();
+  private buildCandidates(raw: string): FiscalImageCandidates {
+    const normalized = raw.replaceAll('\\', '/').trim();
 
-    String path = normalized;
+    let path = normalized;
     if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
       try {
-        path = Uri.parse(normalized).path;
-      } catch (_) {
+        path = new URL(normalized).pathname;
+      } catch {
         path = normalized;
       }
     }
 
-    final cleanPath = path.replaceAll(RegExp(r'/+'), '/').trim();
-    final noLeadingSlash = cleanPath.replaceFirst(RegExp(r'^/+'), '');
-    final noUploadsPrefix = noLeadingSlash.startsWith('uploads/')
-        ? noLeadingSlash.substring('uploads/'.length)
-        : noLeadingSlash;
+    const cleanPath = path.replace(/\/+/g, '/').trim();
+    const noLeadingSlash = cleanPath.replace(/^\/+/, '');
+    const noUploadsPrefix = noLeadingSlash.startsWith('uploads/')
+      ? noLeadingSlash.substring('uploads/'.length)
+      : noLeadingSlash;
 
-    final localPaths = <String>{};
-    final r2Keys = <String>{};
+    const localPaths = new Set<string>();
+    const r2Keys = new Set<string>();
 
     if (noLeadingSlash.startsWith('uploads/')) {
       localPaths.add(noLeadingSlash.substring('uploads/'.length));
       r2Keys.add(noLeadingSlash);
     }
 
-    if (noUploadsPrefix.isNotEmpty) {
+    if (noUploadsPrefix.length > 0) {
       localPaths.add(noUploadsPrefix);
       r2Keys.add(noUploadsPrefix);
-      r2Keys.add('uploads/$noUploadsPrefix');
+      r2Keys.add(`uploads/${noUploadsPrefix}`);
     }
 
-    return (localPaths: localPaths.toList(), r2Keys: r2Keys.toList());
+    return {
+      localPaths: Array.from(localPaths),
+      r2Keys: Array.from(r2Keys),
+    };
   }
 
-  String resolveUploadDir() {
+  private resolveUploadDir(): string {
     const volumeDir = '/uploads';
     const volumeExists = fs.existsSync(volumeDir);
-    final uploadDirEnv = (process.env['UPLOAD_DIR'] ?? '').trim();
+    const uploadDirEnv = (process.env['UPLOAD_DIR'] ?? '').trim();
 
-    if (uploadDirEnv.isNotEmpty) {
-      if ((uploadDirEnv == './uploads' || uploadDirEnv == 'uploads') && volumeExists) {
+    if (uploadDirEnv.length > 0) {
+      if ((uploadDirEnv === './uploads' || uploadDirEnv === 'uploads') && volumeExists) {
         return volumeDir;
       }
       return uploadDirEnv;
@@ -104,5 +111,13 @@ export class ContabilidadPublicController {
 
     if (volumeExists) return volumeDir;
     return join(process.cwd(), 'uploads');
+  }
+
+  private guessContentType(filePath: string): string {
+    const ext = extname(filePath).toLowerCase();
+    if (ext === '.png') return 'image/png';
+    if (ext === '.webp') return 'image/webp';
+    if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+    return 'application/octet-stream';
   }
 }
