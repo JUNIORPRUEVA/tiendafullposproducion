@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
@@ -16,6 +17,8 @@ class CotizacionesLocalRepository {
   static const _tableItems = 'cotizacion_items';
 
   Database? _database;
+  List<CotizacionModel> _memoryQuotes = const [];
+  CotizacionModel? _memoryDraft;
 
   Future<Database> get _db async {
     if (_database != null) return _database!;
@@ -61,6 +64,12 @@ class CotizacionesLocalRepository {
   }
 
   Future<List<CotizacionModel>> listAll() async {
+    if (kIsWeb) {
+      final items = _memoryQuotes.where((item) => !_isDraft(item)).toList(growable: false)
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return items;
+    }
+
     final db = await _db;
     final rows = await db.query(
       _tableCotizaciones,
@@ -84,10 +93,25 @@ class CotizacionesLocalRepository {
   }
 
   Future<void> upsert(CotizacionModel cotizacion) async {
+    if (kIsWeb) {
+      final next = [..._memoryQuotes.where((item) => item.id != cotizacion.id), cotizacion];
+      next.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      _memoryQuotes = next;
+      if (_memoryDraft?.id == cotizacion.id) {
+        _memoryDraft = null;
+      }
+      return;
+    }
+
     await _upsert(cotizacion, isDraft: false);
   }
 
   Future<void> saveDraft(CotizacionModel cotizacion) async {
+    if (kIsWeb) {
+      _memoryDraft = cotizacion;
+      return;
+    }
+
     final db = await _db;
     await db.delete(_tableCotizaciones, where: 'is_draft = ?', whereArgs: [1]);
     await db.delete(
@@ -98,6 +122,10 @@ class CotizacionesLocalRepository {
   }
 
   Future<CotizacionModel?> getDraft() async {
+    if (kIsWeb) {
+      return _memoryDraft;
+    }
+
     final db = await _db;
     final rows = await db.query(
       _tableCotizaciones,
@@ -121,6 +149,11 @@ class CotizacionesLocalRepository {
   }
 
   Future<void> clearDraft() async {
+    if (kIsWeb) {
+      _memoryDraft = null;
+      return;
+    }
+
     final db = await _db;
     final draftRows = await db.query(
       _tableCotizaciones,
@@ -138,6 +171,14 @@ class CotizacionesLocalRepository {
   }
 
   Future<void> deleteById(String id) async {
+    if (kIsWeb) {
+      _memoryQuotes = _memoryQuotes.where((item) => item.id != id).toList(growable: false);
+      if (_memoryDraft?.id == id) {
+        _memoryDraft = null;
+      }
+      return;
+    }
+
     final db = await _db;
     await db.transaction((txn) async {
       await txn.delete(_tableItems, where: 'cotizacion_id = ?', whereArgs: [id]);
@@ -225,5 +266,9 @@ class CotizacionesLocalRepository {
           )
           .toList(),
     );
+  }
+
+  bool _isDraft(CotizacionModel cotizacion) {
+    return _memoryDraft?.id == cotizacion.id;
   }
 }

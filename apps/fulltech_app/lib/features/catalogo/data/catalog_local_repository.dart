@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
@@ -68,6 +69,10 @@ class CatalogLocalRepository {
       return memorySnapshot;
     }
 
+    if (kIsWeb) {
+      return const CatalogLocalSnapshot(items: []);
+    }
+
     final db = await _db;
     final rows = await db.query(_tableProducts, orderBy: 'position ASC');
     final metaRows = await db.query(_tableMeta);
@@ -105,6 +110,10 @@ class CatalogLocalRepository {
       catalogVersion: catalogVersion,
     );
 
+    if (kIsWeb) {
+      return;
+    }
+
     final db = await _db;
     await db.transaction((txn) async {
       if (normalizedItems.isEmpty) {
@@ -138,6 +147,9 @@ class CatalogLocalRepository {
 
   Future<void> clearSnapshot() async {
     _memorySnapshot = const CatalogLocalSnapshot(items: []);
+    if (kIsWeb) {
+      return;
+    }
     final db = await _db;
     await db.transaction((txn) async {
       await txn.delete(_tableProducts);

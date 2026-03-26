@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
@@ -37,6 +38,7 @@ class ServiceOrdersLocalRepository {
   static const _lastSyncedAtKey = 'last_synced_at';
 
   Database? _database;
+  ServiceOrdersLocalSnapshot? _memorySnapshot;
 
   Future<Database> get _db async {
     if (_database != null) return _database!;
@@ -78,6 +80,19 @@ class ServiceOrdersLocalRepository {
   }
 
   Future<ServiceOrdersLocalSnapshot> readSnapshot() async {
+    final memorySnapshot = _memorySnapshot;
+    if (memorySnapshot != null) {
+      return memorySnapshot;
+    }
+
+    if (kIsWeb) {
+      return const ServiceOrdersLocalSnapshot(
+        orders: [],
+        clientsById: {},
+        usersById: {},
+      );
+    }
+
     final db = await _db;
     final orderRows = await db.query(_ordersTable, orderBy: 'created_at DESC');
     final clientRows = await db.query(_clientsTable);
@@ -89,7 +104,7 @@ class ServiceOrdersLocalRepository {
       limit: 1,
     );
 
-    return ServiceOrdersLocalSnapshot(
+    final snapshot = ServiceOrdersLocalSnapshot(
       orders: orderRows
           .map((row) => _decodeMap(row['payload']))
           .whereType<Map<String, dynamic>>()
@@ -113,9 +128,19 @@ class ServiceOrdersLocalRepository {
           ? null
           : DateTime.tryParse((metaRows.first['value'] ?? '').toString()),
     );
+    _memorySnapshot = snapshot;
+    return snapshot;
   }
 
   Future<ServiceOrderModel?> readOrder(String id) async {
+    if (kIsWeb) {
+      final snapshot = await readSnapshot();
+      for (final order in snapshot.orders) {
+        if (order.id == id) return order;
+      }
+      return null;
+    }
+
     final db = await _db;
     final rows = await db.query(
       _ordersTable,
@@ -134,6 +159,17 @@ class ServiceOrdersLocalRepository {
     required Map<String, ClienteModel> clientsById,
     required Map<String, UserModel> usersById,
   }) async {
+    _memorySnapshot = ServiceOrdersLocalSnapshot(
+      orders: orders.toList(growable: false),
+      clientsById: Map<String, ClienteModel>.from(clientsById),
+      usersById: Map<String, UserModel>.from(usersById),
+      lastSyncedAt: DateTime.now(),
+    );
+
+    if (kIsWeb) {
+      return;
+    }
+
     final db = await _db;
     await db.transaction((txn) async {
       await txn.delete(_ordersTable);
@@ -174,6 +210,31 @@ class ServiceOrdersLocalRepository {
     ClienteModel? client,
     Map<String, UserModel> usersById = const {},
   }) async {
+    if (kIsWeb) {
+      final snapshot = await readSnapshot();
+      final nextOrders = [...snapshot.orders];
+      final index = nextOrders.indexWhere((item) => item.id == order.id);
+      if (index >= 0) {
+        nextOrders[index] = order;
+      } else {
+        nextOrders.add(order);
+      }
+      final nextClients = Map<String, ClienteModel>.from(snapshot.clientsById);
+      final effectiveClient = client ?? order.client;
+      if (effectiveClient != null) {
+        nextClients[effectiveClient.id] = effectiveClient;
+      }
+      final nextUsers = Map<String, UserModel>.from(snapshot.usersById)
+        ..addAll(usersById);
+      _memorySnapshot = ServiceOrdersLocalSnapshot(
+        orders: nextOrders,
+        clientsById: nextClients,
+        usersById: nextUsers,
+        lastSyncedAt: DateTime.now(),
+      );
+      return;
+    }
+
     final db = await _db;
     await db.transaction((txn) async {
       await txn.insert(_ordersTable, {
@@ -201,11 +262,26 @@ class ServiceOrdersLocalRepository {
   }
 
   Future<void> deleteOrder(String id) async {
+    if (kIsWeb) {
+      final snapshot = await readSnapshot();
+      _memorySnapshot = ServiceOrdersLocalSnapshot(
+        orders: snapshot.orders.where((item) => item.id != id).toList(growable: false),
+        clientsById: snapshot.clientsById,
+        usersById: snapshot.usersById,
+        lastSyncedAt: snapshot.lastSyncedAt,
+      );
+      return;
+    }
+
     final db = await _db;
     await db.delete(_ordersTable, where: 'id = ?', whereArgs: [id]);
   }
 
   Future<Map<String, UserModel>> readUsersById() async {
+    if (kIsWeb) {
+      return Map<String, UserModel>.from((await readSnapshot()).usersById);
+    }
+
     final db = await _db;
     final rows = await db.query(_usersTable);
     return {
@@ -218,6 +294,10 @@ class ServiceOrdersLocalRepository {
   }
 
   Future<ClienteModel?> readClientById(String id) async {
+    if (kIsWeb) {
+      return (await readSnapshot()).clientsById[id];
+    }
+
     final db = await _db;
     final rows = await db.query(
       _clientsTable,

@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -95,6 +96,10 @@ class CotizacionCatalogLocalDataSource {
       return memoryUiState;
     }
 
+    if (kIsWeb) {
+      return const CotizacionCatalogUiStateSnapshot();
+    }
+
     final db = await _db;
     final rows = await db.query(
       _tableMeta,
@@ -127,6 +132,10 @@ class CotizacionCatalogLocalDataSource {
           : selectedCategory?.trim(),
       searchQuery: searchQuery.trim(),
     );
+
+    if (kIsWeb) {
+      return;
+    }
 
     final db = await _db;
     await db.transaction((txn) async {

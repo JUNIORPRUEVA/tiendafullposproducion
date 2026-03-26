@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
@@ -18,6 +19,8 @@ class CompanyManualLocalRepository {
   static const _lastSyncedAtKey = 'last_synced_at';
 
   Database? _database;
+  final Map<String, List<CompanyManualEntry>> _memoryEntriesByUser = {};
+  final Map<String, DateTime?> _memoryLastSyncedAtByUser = {};
 
   Future<Database> get _db async {
     if (_database != null) return _database!;
@@ -70,6 +73,12 @@ class CompanyManualLocalRepository {
   Future<List<CompanyManualEntry>> listEntries({
     required String viewerUserId,
   }) async {
+    if (kIsWeb) {
+      return List<CompanyManualEntry>.from(
+        _memoryEntriesByUser[viewerUserId] ?? const <CompanyManualEntry>[],
+      );
+    }
+
     final db = await _db;
     final rows = await db.query(
       _entriesTable,
@@ -84,6 +93,14 @@ class CompanyManualLocalRepository {
     required String viewerUserId,
     required String id,
   }) async {
+    if (kIsWeb) {
+      final entries = _memoryEntriesByUser[viewerUserId] ?? const <CompanyManualEntry>[];
+      for (final entry in entries) {
+        if (entry.id == id) return entry;
+      }
+      return null;
+    }
+
     final db = await _db;
     final rows = await db.query(
       _entriesTable,
@@ -99,6 +116,12 @@ class CompanyManualLocalRepository {
     required String viewerUserId,
     required List<CompanyManualEntry> entries,
   }) async {
+    if (kIsWeb) {
+      _memoryEntriesByUser[viewerUserId] = entries.toList(growable: false);
+      _memoryLastSyncedAtByUser[viewerUserId] = DateTime.now().toUtc();
+      return;
+    }
+
     final db = await _db;
     await db.transaction((txn) async {
       await txn.delete(
@@ -125,6 +148,18 @@ class CompanyManualLocalRepository {
     required String viewerUserId,
     required CompanyManualEntry entry,
   }) async {
+    if (kIsWeb) {
+      final current = [...(_memoryEntriesByUser[viewerUserId] ?? const <CompanyManualEntry>[])];
+      final index = current.indexWhere((item) => item.id == entry.id);
+      if (index >= 0) {
+        current[index] = entry;
+      } else {
+        current.add(entry);
+      }
+      _memoryEntriesByUser[viewerUserId] = current;
+      return;
+    }
+
     final db = await _db;
     await db.insert(
       _entriesTable,
@@ -137,6 +172,14 @@ class CompanyManualLocalRepository {
     required String viewerUserId,
     required String id,
   }) async {
+    if (kIsWeb) {
+      _memoryEntriesByUser[viewerUserId] =
+          (_memoryEntriesByUser[viewerUserId] ?? const <CompanyManualEntry>[])
+              .where((item) => item.id != id)
+              .toList(growable: false);
+      return;
+    }
+
     final db = await _db;
     await db.delete(
       _entriesTable,
@@ -146,6 +189,10 @@ class CompanyManualLocalRepository {
   }
 
   Future<DateTime?> readLastSyncedAt({required String viewerUserId}) async {
+    if (kIsWeb) {
+      return _memoryLastSyncedAtByUser[viewerUserId];
+    }
+
     final db = await _db;
     final rows = await db.query(
       _metaTable,
@@ -161,6 +208,32 @@ class CompanyManualLocalRepository {
     required String viewerUserId,
     required DateTime? seenAt,
   }) async {
+    if (kIsWeb) {
+      final entries = (_memoryEntriesByUser[viewerUserId] ?? const <CompanyManualEntry>[])
+          .where((entry) => entry.published)
+          .toList(growable: false);
+      final totalCount = entries.length;
+      DateTime? latestUpdatedAt;
+      for (final entry in entries) {
+        final candidate = entry.updatedAt ?? entry.createdAt;
+        if (candidate == null) continue;
+        if (latestUpdatedAt == null || candidate.isAfter(latestUpdatedAt)) {
+          latestUpdatedAt = candidate;
+        }
+      }
+      final unreadCount = seenAt == null
+          ? totalCount
+          : entries.where((entry) {
+              final candidate = entry.updatedAt ?? entry.createdAt;
+              return candidate != null && candidate.isAfter(seenAt);
+            }).length;
+      return CompanyManualSummary(
+        totalCount: totalCount,
+        unreadCount: unreadCount,
+        latestUpdatedAt: latestUpdatedAt,
+      );
+    }
+
     final db = await _db;
     final totalRows = await db.rawQuery(
       'SELECT COUNT(*) AS total_count FROM $_entriesTable WHERE viewer_user_id = ? AND published = 1',
