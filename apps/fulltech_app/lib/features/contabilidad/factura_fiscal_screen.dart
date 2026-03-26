@@ -1,6 +1,5 @@
-﻿import 'dart:typed_data';
-
-import 'package:file_picker/file_picker.dart';
+﻿import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -169,6 +168,8 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
   }
 
   Widget _buildUploadCard(BuildContext context) {
+    final selectedFile = _selectedFile;
+
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -251,18 +252,18 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
                         });
                       },
                 icon: const Icon(Icons.image_outlined),
-                label: Text(_selectedFile == null ? 'Subir imagen' : 'Cambiar imagen'),
+                label: Text(selectedFile == null ? 'Subir imagen' : 'Cambiar imagen'),
               ),
             ],
           ),
-          if (_selectedFile == null) ...[
+          if (selectedFile == null) ...[
             const SizedBox(height: 8),
             Text(
               'Selecciona la factura y luego agrega la observacion para guardarla automaticamente.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
-          if (_selectedFile != null) ...[
+          if (selectedFile != null) ...[
             const SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -276,7 +277,7 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      _selectedFile!.name,
+                      selectedFile.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -332,6 +333,7 @@ class _InvoiceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dateFmt = DateFormat('dd/MM/yyyy');
+    final note = item.note?.trim();
 
     return AppCard(
       child: Column(
@@ -359,10 +361,10 @@ class _InvoiceCard extends StatelessWidget {
               child: _FiscalInvoiceImage(imageUrl: item.imageUrl),
             ),
           ),
-          if ((item.note ?? '').trim().isNotEmpty) ...[
+          if (note != null && note.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(
-              'Nota: ${item.note!.trim()}',
+              'Nota: $note',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
@@ -570,8 +572,44 @@ class _FiscalInvoiceHistoryScreenState
   }
 
   Future<void> _openPdfDialog(BuildContext context, Uint8List bytes) async {
+    if (bytes.isEmpty) {
+      _showScreenError('No se pudo generar el PDF.');
+      return;
+    }
+
     final filename =
         'facturas_fiscales_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.pdf';
+
+    if (kIsWeb) {
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('PDF facturas fiscales'),
+          content: const Text(
+            'El PDF fue generado. En web se abre sin vista previa para evitar bloqueos del visor.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cerrar'),
+            ),
+            FilledButton.icon(
+              onPressed: () async {
+                try {
+                  await Printing.sharePdf(bytes: bytes, filename: filename);
+                } catch (e) {
+                  if (!mounted) return;
+                  _showScreenError('No se pudo descargar o compartir el PDF: $e');
+                }
+              },
+              icon: const Icon(Icons.download_outlined),
+              label: const Text('Descargar'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
 
     await showDialog<void>(
       context: context,
@@ -595,7 +633,14 @@ class _FiscalInvoiceHistoryScreenState
                     ),
                     IconButton(
                       tooltip: 'Descargar / compartir',
-                      onPressed: () => Printing.sharePdf(bytes: bytes, filename: filename),
+                      onPressed: () async {
+                        try {
+                          await Printing.sharePdf(bytes: bytes, filename: filename);
+                        } catch (e) {
+                          if (!mounted) return;
+                          _showScreenError('No se pudo descargar o compartir el PDF: $e');
+                        }
+                      },
                       icon: const Icon(Icons.download_outlined),
                     ),
                     IconButton(
@@ -707,13 +752,20 @@ class _FiscalInvoiceHistoryScreenState
                         onPressed: _invoices.isEmpty
                             ? null
                             : () async {
-                                final bytes = await buildFiscalInvoicesPdf(
-                                  from: _from,
-                                  to: _to,
-                                  invoices: _invoices,
-                                );
-                                if (!context.mounted) return;
-                                await _openPdfDialog(context, bytes);
+                                try {
+                                  final bytes = await buildFiscalInvoicesPdf(
+                                    from: _from,
+                                    to: _to,
+                                    invoices: _invoices,
+                                  );
+                                  if (!context.mounted) return;
+                                  await _openPdfDialog(context, bytes);
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  _showScreenError(
+                                    'No se pudo generar el PDF del filtro: $e',
+                                  );
+                                }
                               },
                         icon: const Icon(Icons.picture_as_pdf_outlined),
                         label: const Text('PDF del filtro'),
@@ -795,6 +847,15 @@ class _FiscalInvoiceHistoryScreenState
           ],
         ),
       ),
+    );
+  }
+
+  void _showScreenError(String message) {
+    setState(() {
+      _error = message;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
     );
   }
 }
