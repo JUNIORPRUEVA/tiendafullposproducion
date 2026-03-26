@@ -21,6 +21,127 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Aplicación empresarial FULLTECH SRL.">
   <meta name="theme-color" content="#ffffff">
+  <style>
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at top left, rgba(16, 98, 136, 0.14), transparent 34%),
+        radial-gradient(circle at bottom right, rgba(27, 144, 168, 0.10), transparent 38%),
+        linear-gradient(135deg, #f7fbfd 0%, #edf6f8 52%, #ffffff 100%);
+    }
+
+    body {
+      overflow: hidden;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    #app-loader {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      z-index: 9999;
+      transition: opacity 220ms ease, visibility 220ms ease;
+    }
+
+    #app-loader.is-hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .loader-shell {
+      width: min(100%, 420px);
+      border: 1px solid rgba(15, 23, 42, 0.07);
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.78);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 22px 64px rgba(15, 23, 42, 0.10);
+      padding: 28px 24px;
+    }
+
+    .loader-mark {
+      width: 68px;
+      height: 68px;
+      border-radius: 22px;
+      background: linear-gradient(135deg, #0f6a90 0%, #1aa7a1 100%);
+      display: grid;
+      place-items: center;
+      color: #ffffff;
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      box-shadow: 0 16px 36px rgba(15, 106, 144, 0.26);
+    }
+
+    .loader-title {
+      margin: 18px 0 6px;
+      color: #0f172a;
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+
+    .loader-copy {
+      margin: 0;
+      color: #475569;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .loader-bar {
+      margin-top: 18px;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.08);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .loader-bar::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      width: 38%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #0f6a90 0%, #1aa7a1 100%);
+      animation: loader-slide 1.25s ease-in-out infinite;
+      transform-origin: left center;
+    }
+
+    .loader-footnote {
+      margin-top: 12px;
+      color: #64748b;
+      font-size: 12px;
+      letter-spacing: 0.01em;
+    }
+
+    @keyframes loader-slide {
+      0% {
+        transform: translateX(-110%) scaleX(0.82);
+      }
+      50% {
+        transform: translateX(110%) scaleX(1.05);
+      }
+      100% {
+        transform: translateX(265%) scaleX(0.82);
+      }
+    }
+
+    @media (max-width: 640px) {
+      .loader-shell {
+        padding: 24px 20px;
+        border-radius: 24px;
+      }
+
+      .loader-title {
+        font-size: 22px;
+      }
+    }
+  </style>
 
   <!-- PWA / iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -36,7 +157,28 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <div id="app-loader" aria-live="polite">
+    <div class="loader-shell">
+      <div class="loader-mark">FT</div>
+      <h1 class="loader-title">FULLTECH</h1>
+      <p class="loader-copy">
+        Cargando la aplicacion y conectando tu configuracion inicial.
+      </p>
+      <div class="loader-bar"></div>
+      <div class="loader-footnote">La primera carga puede tardar unos segundos.</div>
+    </div>
+  </div>
   <script src="env.js"></script>
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var loader = document.getElementById('app-loader');
+      if (!loader) return;
+      loader.classList.add('is-hidden');
+      window.setTimeout(function () {
+        loader.remove();
+      }, 260);
+    });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

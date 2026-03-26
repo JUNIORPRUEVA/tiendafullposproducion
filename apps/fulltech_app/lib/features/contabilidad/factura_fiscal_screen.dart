@@ -38,7 +38,8 @@ class FacturaFiscalScreen extends ConsumerStatefulWidget {
   const FacturaFiscalScreen({super.key});
 
   @override
-  ConsumerState<FacturaFiscalScreen> createState() => _FacturaFiscalScreenState();
+  ConsumerState<FacturaFiscalScreen> createState() =>
+      _FacturaFiscalScreenState();
 }
 
 class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
@@ -67,6 +68,69 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
   void _handleNoteFocusChange() {
     if (_noteFocusNode.hasFocus || _selectedFile == null || _saving) return;
     _saveSelectedInvoice();
+  }
+
+  IconData _kindIcon(FiscalInvoiceKind kind) {
+    switch (kind) {
+      case FiscalInvoiceKind.saleCard:
+        return Icons.credit_card_rounded;
+      case FiscalInvoiceKind.sale:
+        return Icons.trending_up_rounded;
+      case FiscalInvoiceKind.purchase:
+        return Icons.inventory_2_outlined;
+    }
+  }
+
+  String _kindSubtitle(FiscalInvoiceKind kind) {
+    switch (kind) {
+      case FiscalInvoiceKind.saleCard:
+        return 'Comprobantes de ventas pagadas con tarjeta';
+      case FiscalInvoiceKind.sale:
+        return 'Facturas de ventas generales del negocio';
+      case FiscalInvoiceKind.purchase:
+        return 'Facturas de compras y abastecimiento';
+    }
+  }
+
+  String _uploadButtonLabel(FiscalInvoiceKind kind, bool hasFile) {
+    if (hasFile) return 'Cambiar imagen';
+    switch (kind) {
+      case FiscalInvoiceKind.saleCard:
+        return 'Subir venta por tarjeta';
+      case FiscalInvoiceKind.sale:
+        return 'Subir venta';
+      case FiscalInvoiceKind.purchase:
+        return 'Subir compra';
+    }
+  }
+
+  Future<void> _pickInvoiceDate(BuildContext context) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _invoiceDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (picked == null) return;
+    setState(() => _invoiceDate = picked);
+  }
+
+  Future<void> _pickInvoiceImage() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['png', 'jpg', 'jpeg', 'webp'],
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    setState(() {
+      _selectedFile = result.files.first;
+      _noteCtrl.clear();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _noteFocusNode.requestFocus();
+      }
+    });
   }
 
   Future<void> _openHistoryScreen(BuildContext context) async {
@@ -112,9 +176,7 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Factura fiscal guardada en la nube.'),
-        ),
+        const SnackBar(content: Text('Factura fiscal guardada en la nube.')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -152,177 +214,306 @@ class _FacturaFiscalScreenState extends ConsumerState<FacturaFiscalScreen> {
                 'Solo ADMIN y ASISTENTE tienen acceso completo a este módulo.',
               ),
             )
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                _buildUploadCard(context),
-                const SizedBox(height: 8),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: _ErrorBox(message: _error!),
-                  ),
-              ],
+          : Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 760),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                  children: [
+                    _buildUploadCard(context),
+                    const SizedBox(height: 10),
+                    if (_error != null) _ErrorBox(message: _error!),
+                  ],
+                ),
+              ),
             ),
     );
   }
 
   Widget _buildUploadCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isNarrow = MediaQuery.sizeOf(context).width < 460;
     final selectedFile = _selectedFile;
+    final dateLabel = DateFormat('dd/MM/yyyy').format(_invoiceDate);
+    final hasFile = selectedFile != null;
 
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SectionTitle(
-            title: 'Nueva factura fiscal',
-            trailing: Text(
-              DateFormat('dd/MM/yyyy').format(_invoiceDate),
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  scheme.primary.withValues(alpha: 0.12),
+                  scheme.secondary.withValues(alpha: 0.08),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: scheme.outlineVariant),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (isNarrow)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildHeaderInfo(context),
+                      const SizedBox(height: 12),
+                      _buildDatePill(context, dateLabel),
+                    ],
+                  )
+                else
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: _buildHeaderInfo(context)),
+                      const SizedBox(width: 12),
+                      _buildDatePill(context, dateLabel),
+                    ],
                   ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Sube la factura, escribe la nota y se guarda sola en el historial.',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 10),
-          SegmentedButton<FiscalInvoiceKind>(
-            showSelectedIcon: false,
-            segments: const [
-              ButtonSegment(value: FiscalInvoiceKind.purchase, label: Text('Compra')),
-              ButtonSegment(value: FiscalInvoiceKind.sale, label: Text('Venta')),
-            ],
-            selected: {_kind},
-            onSelectionChanged: (next) {
-              setState(() => _kind = next.first);
-            },
-          ),
-          const SizedBox(height: 10),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: OutlinedButton.icon(
-              onPressed: () => _openHistoryScreen(context),
-              icon: const Icon(Icons.history_outlined),
-              label: const Text('Abrir historial'),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              OutlinedButton.icon(
-                onPressed: _saving
-                    ? null
-                    : () async {
-                        final picked = await showDatePicker(
-                          context: context,
-                          initialDate: _invoiceDate,
-                          firstDate: DateTime(2020),
-                          lastDate: DateTime(2100),
-                        );
-                        if (picked == null) return;
-                        setState(() => _invoiceDate = picked);
-                      },
-                icon: const Icon(Icons.event_outlined),
-                label: const Text('Cambiar fecha'),
-              ),
-              OutlinedButton.icon(
-                onPressed: _saving
-                    ? null
-                    : () async {
-                        final result = await FilePicker.platform.pickFiles(
-                          type: FileType.custom,
-                          allowedExtensions: const ['png', 'jpg', 'jpeg', 'webp'],
-                          withData: true,
-                        );
-                        if (result == null || result.files.isEmpty) return;
-                        setState(() {
-                          _selectedFile = result.files.first;
-                          _noteCtrl.clear();
-                        });
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (mounted) {
-                            _noteFocusNode.requestFocus();
-                          }
-                        });
-                      },
-                icon: const Icon(Icons.image_outlined),
-                label: Text(selectedFile == null ? 'Subir imagen' : 'Cambiar imagen'),
-              ),
-            ],
-          ),
-          if (selectedFile == null) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Selecciona la factura y luego agrega la observacion para guardarla automaticamente.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-          if (selectedFile != null) ...[
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.attach_file_outlined, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      selectedFile.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w700,
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: scheme.surface.withValues(alpha: 0.82),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: scheme.outlineVariant),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: scheme.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        alignment: Alignment.center,
+                        child: Icon(_kindIcon(_kind), color: scheme.primary),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _kind.label,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _kindSubtitle(_kind),
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                FilledButton.icon(
+                  onPressed: _saving ? null : _pickInvoiceImage,
+                  icon: const Icon(Icons.upload_file_rounded),
+                  label: Text(_uploadButtonLabel(_kind, hasFile)),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Selecciona la imagen y luego escribe la observación para guardarla automáticamente.',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                if (!hasFile)
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: scheme.surface.withValues(alpha: 0.72),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: scheme.outlineVariant),
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.receipt_long_outlined,
+                          size: 34,
+                          color: scheme.primary,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Aún no has cargado una factura',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
                           ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Usa el botón superior para subir la imagen correspondiente y continuar.',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  )
+                else ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.surface.withValues(alpha: 0.82),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: scheme.outlineVariant),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.attach_file_outlined, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            selectedFile.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _noteCtrl,
+                    focusNode: _noteFocusNode,
+                    enabled: !_saving,
+                    minLines: 1,
+                    maxLines: 3,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _saveSelectedInvoice(),
+                    decoration: InputDecoration(
+                      labelText: 'Observación o nota',
+                      hintText:
+                          'Describe brevemente esta factura para guardarla.',
+                      suffixIcon: _saving
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            )
+                          : const Icon(Icons.subdirectory_arrow_left_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Al cerrar o confirmar la nota, se guarda automáticamente en la nube.',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall,
+                  ),
                 ],
-              ),
+              ],
             ),
-            const SizedBox(height: 10),
-            TextFormField(
-              controller: _noteCtrl,
-              focusNode: _noteFocusNode,
-              enabled: !_saving,
-              minLines: 1,
-              maxLines: 3,
-              textInputAction: TextInputAction.done,
-              onFieldSubmitted: (_) => _saveSelectedInvoice(),
-              decoration: InputDecoration(
-                labelText: 'Observación o nota',
-                hintText: 'Escribe la nota y presiona siguiente para guardar.',
-                suffixIcon: _saving
-                    ? const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      )
-                    : const Icon(Icons.subdirectory_arrow_left_outlined),
-              ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Tipo de factura',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w800,
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Al cerrar o confirmar la nota, se guarda automaticamente en la nube.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Selecciona la categoría que vas a cargar.',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              for (final kind in FiscalInvoiceKind.values)
+                _InvoiceKindOption(
+                  label: kind.label,
+                  subtitle: _kindSubtitle(kind),
+                  icon: _kindIcon(kind),
+                  selected: _kind == kind,
+                  onTap: () => setState(() => _kind = kind),
+                ),
+            ],
+          ),
         ],
       ),
     );
   }
 
+  Widget _buildHeaderInfo(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Nueva factura fiscal',
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Sube tus comprobantes con una vista compacta, clara y lista para móvil.',
+          style: theme.textTheme.bodyMedium,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDatePill(BuildContext context, String dateLabel) {
+    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.82),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            dateLabel,
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Cambiar fecha',
+            onPressed: _saving ? null : () => _pickInvoiceDate(context),
+            icon: const Icon(Icons.event_outlined),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _InvoiceCard extends StatelessWidget {
@@ -344,7 +535,10 @@ class _InvoiceCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   '${item.kind.label} · ${dateFmt.format(item.invoiceDate)}',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
               Text(
@@ -363,10 +557,7 @@ class _InvoiceCard extends StatelessWidget {
           ),
           if (note != null && note.isNotEmpty) ...[
             const SizedBox(height: 8),
-            Text(
-              'Nota: $note',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
+            Text('Nota: $note', style: Theme.of(context).textTheme.bodyMedium),
           ],
           const SizedBox(height: 6),
           Text(
@@ -374,6 +565,84 @@ class _InvoiceCard extends StatelessWidget {
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _InvoiceKindOption extends StatelessWidget {
+  const _InvoiceKindOption({
+    required this.label,
+    required this.subtitle,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final String subtitle;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: 210,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onTap,
+          child: Ink(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: selected
+                  ? scheme.primary.withValues(alpha: 0.12)
+                  : scheme.surface,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: selected ? scheme.primary : scheme.outlineVariant,
+                width: selected ? 1.4 : 1,
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? scheme.primary.withValues(alpha: 0.16)
+                        : scheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(
+                    icon,
+                    color: selected ? scheme.primary : scheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -423,8 +692,11 @@ class _FiscalInvoiceImage extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.image_not_supported_outlined,
-              size: 32, color: Theme.of(context).colorScheme.outline),
+          Icon(
+            Icons.image_not_supported_outlined,
+            size: 32,
+            color: Theme.of(context).colorScheme.outline,
+          ),
           const SizedBox(height: 6),
           Text(
             'Imagen no disponible',
@@ -488,11 +760,9 @@ class _FiscalInvoiceHistoryScreenState
       _error = null;
     });
     try {
-      final rows = await ref.read(contabilidadRepositoryProvider).listFiscalInvoices(
-            from: _from,
-            to: _to,
-            kind: _kindFilter,
-          );
+      final rows = await ref
+          .read(contabilidadRepositoryProvider)
+          .listFiscalInvoices(from: _from, to: _to, kind: _kindFilter);
       if (!mounted) return;
       setState(() {
         _invoices = rows;
@@ -521,10 +791,9 @@ class _FiscalInvoiceHistoryScreenState
     });
 
     try {
-      final invoices = await ref.read(contabilidadRepositoryProvider).listFiscalInvoices(
-            from: range.start,
-            to: range.end,
-          );
+      final invoices = await ref
+          .read(contabilidadRepositoryProvider)
+          .listFiscalInvoices(from: range.start, to: range.end);
       if (invoices.isEmpty) {
         if (!mounted) return;
         messenger.showSnackBar(
@@ -625,10 +894,15 @@ class _FiscalInvoiceHistoryScreenState
                       ? null
                       : () async {
                           try {
-                            await Printing.sharePdf(bytes: bytes, filename: filename);
+                            await Printing.sharePdf(
+                              bytes: bytes,
+                              filename: filename,
+                            );
                           } catch (e) {
                             if (!mounted) return;
-                            _showScreenError('No se pudo descargar o compartir el PDF: $e');
+                            _showScreenError(
+                              'No se pudo descargar o compartir el PDF: $e',
+                            );
                           }
                         },
                   icon: const Icon(Icons.download_outlined),
@@ -662,7 +936,10 @@ class _FiscalInvoiceHistoryScreenState
                         const Expanded(
                           child: Text(
                             'PDF facturas fiscales',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ),
                         FilledButton.icon(
@@ -688,7 +965,9 @@ class _FiscalInvoiceHistoryScreenState
                               ? const SizedBox(
                                   width: 18,
                                   height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 )
                               : const Icon(Icons.send_outlined),
                           label: const Text('Enviar al contable'),
@@ -700,16 +979,23 @@ class _FiscalInvoiceHistoryScreenState
                               ? null
                               : () async {
                                   try {
-                                    await Printing.sharePdf(bytes: bytes, filename: filename);
+                                    await Printing.sharePdf(
+                                      bytes: bytes,
+                                      filename: filename,
+                                    );
                                   } catch (e) {
                                     if (!mounted) return;
-                                    _showScreenError('No se pudo descargar o compartir el PDF: $e');
+                                    _showScreenError(
+                                      'No se pudo descargar o compartir el PDF: $e',
+                                    );
                                   }
                                 },
                           icon: const Icon(Icons.download_outlined),
                         ),
                         IconButton(
-                          onPressed: sending ? null : () => Navigator.pop(context),
+                          onPressed: sending
+                              ? null
+                              : () => Navigator.pop(context),
                           icon: const Icon(Icons.close),
                         ),
                       ],
@@ -749,7 +1035,9 @@ class _FiscalInvoiceHistoryScreenState
     required DateTime to,
     required String successMessage,
   }) async {
-    await ref.read(evolutionApiRepositoryProvider).sendPdfDocument(
+    await ref
+        .read(evolutionApiRepositoryProvider)
+        .sendPdfDocument(
           toNumber: _fiscalAccountantPhone,
           bytes: bytes,
           fileName: _reportFileName(from, to),
@@ -757,15 +1045,18 @@ class _FiscalInvoiceHistoryScreenState
         );
 
     if (!mounted) return;
-    ScaffoldMessenger.of(this.context).showSnackBar(
-      SnackBar(content: Text(successMessage)),
-    );
+    ScaffoldMessenger.of(
+      this.context,
+    ).showSnackBar(SnackBar(content: Text(successMessage)));
   }
 
   @override
   Widget build(BuildContext context) {
     final previousRange = _previousMonthRange();
-    final monthLabel = DateFormat('MMMM yyyy', 'es_DO').format(previousRange.start);
+    final monthLabel = DateFormat(
+      'MMMM yyyy',
+      'es_DO',
+    ).format(previousRange.start);
 
     return Scaffold(
       appBar: const CustomAppBar(
@@ -785,16 +1076,20 @@ class _FiscalInvoiceHistoryScreenState
                   SectionTitle(
                     title: 'Historial de facturas',
                     trailing: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
                         '${_invoices.length} registros',
-                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
                       ),
                     ),
                   ),
@@ -819,7 +1114,10 @@ class _FiscalInvoiceHistoryScreenState
                             context: context,
                             firstDate: DateTime(2024),
                             lastDate: DateTime(2100),
-                            initialDateRange: DateTimeRange(start: _from, end: _to),
+                            initialDateRange: DateTimeRange(
+                              start: _from,
+                              end: _to,
+                            ),
                           );
                           if (range == null) return;
                           setState(() {
@@ -879,7 +1177,9 @@ class _FiscalInvoiceHistoryScreenState
                             ? const SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Icon(Icons.send_outlined),
                         label: Text('Enviar $monthLabel'),
@@ -905,10 +1205,22 @@ class _FiscalInvoiceHistoryScreenState
                         },
                       ),
                       ChoiceChip(
+                        label: const Text('Ventas por tarjeta'),
+                        selected: _kindFilter == FiscalInvoiceKind.saleCard,
+                        onSelected: (_) async {
+                          setState(
+                            () => _kindFilter = FiscalInvoiceKind.saleCard,
+                          );
+                          await _load();
+                        },
+                      ),
+                      ChoiceChip(
                         label: const Text('Compras'),
                         selected: _kindFilter == FiscalInvoiceKind.purchase,
                         onSelected: (_) async {
-                          setState(() => _kindFilter = FiscalInvoiceKind.purchase);
+                          setState(
+                            () => _kindFilter = FiscalInvoiceKind.purchase,
+                          );
                           await _load();
                         },
                       ),
@@ -955,8 +1267,8 @@ class _FiscalInvoiceHistoryScreenState
     setState(() {
       _error = message;
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 }

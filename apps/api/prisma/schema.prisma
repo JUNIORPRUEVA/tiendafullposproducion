@@ -37,6 +37,7 @@ enum DepositOrderStatus {
 }
 
 enum FiscalInvoiceKind {
+  SALE_CARD
   SALE
   PURCHASE
 }

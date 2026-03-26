@@ -38,9 +38,15 @@ final accountingDesktopOverviewProvider =
           .where((close) => close.status != 'closed')
           .length;
       final saleInvoices = invoices
-          .where((invoice) => invoice.kind == FiscalInvoiceKind.sale)
+          .where(
+            (invoice) =>
+                invoice.kind == FiscalInvoiceKind.sale ||
+                invoice.kind == FiscalInvoiceKind.saleCard,
+          )
           .length;
-      final purchaseInvoices = invoices.length - saleInvoices;
+      final purchaseInvoices = invoices
+          .where((invoice) => invoice.kind == FiscalInvoiceKind.purchase)
+          .length;
       final dueSoon = payables
           .where(
             (service) =>
@@ -200,10 +206,7 @@ class _AccountingGlow extends StatelessWidget {
       child: Container(
         width: size,
         height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: color,
-        ),
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
       ),
     );
   }
@@ -269,7 +272,8 @@ class _AccountingMobilePage extends StatelessWidget {
                   subtitle: 'Caja diaria, arqueos y seguimiento de estados.',
                   icon: Icons.inventory_2_outlined,
                   accent: const Color(0xFF0F766E),
-                  onPressed: () => context.go(Routes.contabilidadCierresDiarios),
+                  onPressed: () =>
+                      context.go(Routes.contabilidadCierresDiarios),
                 ),
                 const SizedBox(height: 12),
                 _SectionButton(
@@ -285,7 +289,8 @@ class _AccountingMobilePage extends StatelessWidget {
                   subtitle: 'Vencimientos, compromisos y balances activos.',
                   icon: Icons.account_balance_wallet_outlined,
                   accent: const Color(0xFFEA580C),
-                  onPressed: () => context.go(Routes.contabilidadPagosPendientes),
+                  onPressed: () =>
+                      context.go(Routes.contabilidadPagosPendientes),
                 ),
               ],
             ),
@@ -307,66 +312,66 @@ class _AccountingDesktopPage extends ConsumerWidget {
     final today = DateTime.now();
 
     return SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1460),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _AccountingHeaderSection(
-                  currentDateLabel: DateFormat(
-                    'EEE, dd MMM yyyy',
-                    'es_DO',
-                  ).format(today),
-                  overviewAsync: overviewAsync,
-                ),
-                const SizedBox(height: 22),
-                _AccountingSummaryCards(overviewAsync: overviewAsync),
-                const SizedBox(height: 22),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final wide = constraints.maxWidth >= 1220;
-                    if (!wide) {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _AccountingModulesGrid(overviewAsync: overviewAsync),
-                          const SizedBox(height: 20),
-                          _AccountingQuickOverview(
-                            overviewAsync: overviewAsync,
-                            panelColor: scheme.surface,
-                          ),
-                        ],
-                      );
-                    }
-
-                    return Row(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1460),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _AccountingHeaderSection(
+                currentDateLabel: DateFormat(
+                  'EEE, dd MMM yyyy',
+                  'es_DO',
+                ).format(today),
+                overviewAsync: overviewAsync,
+              ),
+              const SizedBox(height: 22),
+              _AccountingSummaryCards(overviewAsync: overviewAsync),
+              const SizedBox(height: 22),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final wide = constraints.maxWidth >= 1220;
+                  if (!wide) {
+                    return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          flex: 9,
-                          child: _AccountingModulesGrid(
-                            overviewAsync: overviewAsync,
-                          ),
-                        ),
-                        const SizedBox(width: 20),
-                        Expanded(
-                          flex: 4,
-                          child: _AccountingQuickOverview(
-                            overviewAsync: overviewAsync,
-                            panelColor: scheme.surface,
-                          ),
+                        _AccountingModulesGrid(overviewAsync: overviewAsync),
+                        const SizedBox(height: 20),
+                        _AccountingQuickOverview(
+                          overviewAsync: overviewAsync,
+                          panelColor: scheme.surface,
                         ),
                       ],
                     );
-                  },
-                ),
-              ],
-            ),
+                  }
+
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 9,
+                        child: _AccountingModulesGrid(
+                          overviewAsync: overviewAsync,
+                        ),
+                      ),
+                      const SizedBox(width: 20),
+                      Expanded(
+                        flex: 4,
+                        child: _AccountingQuickOverview(
+                          overviewAsync: overviewAsync,
+                          panelColor: scheme.surface,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
           ),
         ),
+      ),
     );
   }
 }
@@ -861,9 +866,7 @@ class _SectionButton extends StatelessWidget {
           decoration: BoxDecoration(
             color: theme.colorScheme.surface.withValues(alpha: 0.94),
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-              color: accent.withValues(alpha: 0.18),
-            ),
+            border: Border.all(color: accent.withValues(alpha: 0.18)),
             boxShadow: const [
               BoxShadow(
                 color: Color(0x120F172A),

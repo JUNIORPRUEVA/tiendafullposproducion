@@ -1,8 +1,10 @@
-enum FiscalInvoiceKind { sale, purchase }
+enum FiscalInvoiceKind { saleCard, sale, purchase }
 
 extension FiscalInvoiceKindX on FiscalInvoiceKind {
   String get apiValue {
     switch (this) {
+      case FiscalInvoiceKind.saleCard:
+        return 'SALE_CARD';
       case FiscalInvoiceKind.sale:
         return 'SALE';
       case FiscalInvoiceKind.purchase:
@@ -12,6 +14,8 @@ extension FiscalInvoiceKindX on FiscalInvoiceKind {
 
   String get label {
     switch (this) {
+      case FiscalInvoiceKind.saleCard:
+        return 'Ventas por tarjeta';
       case FiscalInvoiceKind.sale:
         return 'Ventas';
       case FiscalInvoiceKind.purchase:
@@ -22,6 +26,8 @@ extension FiscalInvoiceKindX on FiscalInvoiceKind {
   static FiscalInvoiceKind fromApi(String raw) {
     final value = raw.trim().toUpperCase();
     switch (value) {
+      case 'SALE_CARD':
+        return FiscalInvoiceKind.saleCard;
       case 'PURCHASE':
         return FiscalInvoiceKind.purchase;
       case 'SALE':

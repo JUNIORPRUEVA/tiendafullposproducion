@@ -7,6 +7,9 @@ import '../models/fiscal_invoice_model.dart';
 import 'fiscal_invoice_image_url.dart';
 import 'fiscal_invoice_pdf_image_processor.dart';
 
+const _companyName = 'FULLTECH, SRL';
+const _companyRnc = '133080209';
+
 Future<Uint8List> buildFiscalInvoicesPdf({
   required DateTime from,
   required DateTime to,
@@ -18,51 +21,33 @@ Future<Uint8List> buildFiscalInvoicesPdf({
   );
 
   final dateFmt = DateFormat('dd/MM/yyyy');
-  final sales = invoices.where((i) => i.kind == FiscalInvoiceKind.sale).toList();
-  final purchases =
-      invoices.where((i) => i.kind == FiscalInvoiceKind.purchase).toList();
+  final generatedFmt = DateFormat('dd/MM/yyyy HH:mm');
+  final salesByCard = invoices
+      .where((i) => i.kind == FiscalInvoiceKind.saleCard)
+      .toList();
+  final sales = invoices
+      .where((i) => i.kind == FiscalInvoiceKind.sale)
+      .toList();
+  final purchases = invoices
+      .where((i) => i.kind == FiscalInvoiceKind.purchase)
+      .toList();
 
-  final salesImages = <String, pw.ImageProvider?>{};
-  for (final item in sales) {
-    try {
-      final bytes = await _downloadImageBytes(resolveFiscalInvoiceImageUrl(item.imageUrl));
-      final encoded = enhanceFiscalInvoiceImageForPdf(bytes);
-      salesImages[item.id] = pw.MemoryImage(encoded ?? bytes);
-    } catch (_) {
-      salesImages[item.id] = null;
-    }
-  }
-
-  final purchaseImages = <String, pw.ImageProvider?>{};
-  for (final item in purchases) {
-    try {
-      final bytes = await _downloadImageBytes(resolveFiscalInvoiceImageUrl(item.imageUrl));
-      final encoded = enhanceFiscalInvoiceImageForPdf(bytes);
-      purchaseImages[item.id] = pw.MemoryImage(encoded ?? bytes);
-    } catch (_) {
-      purchaseImages[item.id] = null;
-    }
-  }
+  final salesByCardImages = await _loadInvoiceImages(salesByCard);
+  final salesImages = await _loadInvoiceImages(sales);
+  final purchaseImages = await _loadInvoiceImages(purchases);
 
   doc.addPage(
     pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.all(24),
       build: (_) => [
-        pw.Text(
-          'FULLTECH, SRL',
-          style: pw.TextStyle(
-            fontSize: 20,
-            fontWeight: pw.FontWeight.bold,
-            color: PdfColors.blue900,
-          ),
+        _buildCompanyHeader(
+          from: from,
+          to: to,
+          dateFmt: dateFmt,
+          generatedFmt: generatedFmt,
         ),
-        pw.SizedBox(height: 2),
-        pw.Text('RNC: 133080209'),
-        pw.Text(
-          'Reporte de facturas fiscales del ${dateFmt.format(from)} al ${dateFmt.format(to)}',
-        ),
-        pw.SizedBox(height: 10),
+        pw.SizedBox(height: 12),
         pw.Container(
           width: double.infinity,
           padding: const pw.EdgeInsets.all(10),
@@ -74,27 +59,38 @@ Future<Uint8List> buildFiscalInvoicesPdf({
           child: pw.Row(
             children: [
               pw.Expanded(
-                child: _summaryChip('Total facturas', invoices.length.toString()),
+                child: _summaryChip(
+                  'Total facturas',
+                  invoices.length.toString(),
+                ),
               ),
               pw.SizedBox(width: 8),
               pw.Expanded(
-                child: _summaryChip('Compras', purchases.length.toString()),
+                child: _summaryChip('Tarjeta', salesByCard.length.toString()),
               ),
               pw.SizedBox(width: 8),
               pw.Expanded(
                 child: _summaryChip('Ventas', sales.length.toString()),
               ),
+              pw.SizedBox(width: 8),
+              pw.Expanded(
+                child: _summaryChip('Compras', purchases.length.toString()),
+              ),
             ],
           ),
         ),
         pw.SizedBox(height: 14),
-        _sectionTitle('Facturas de compras'),
+        _sectionTitle('Informe de ventas por tarjeta'),
         pw.SizedBox(height: 8),
-        ..._buildInvoiceSection(purchases, purchaseImages, dateFmt),
+        ..._buildInvoiceSection(salesByCard, salesByCardImages, dateFmt),
         pw.SizedBox(height: 14),
-        _sectionTitle('Facturas de ventas'),
+        _sectionTitle('Informe de ventas'),
         pw.SizedBox(height: 8),
         ..._buildInvoiceSection(sales, salesImages, dateFmt),
+        pw.SizedBox(height: 14),
+        _sectionTitle('Informe de compras'),
+        pw.SizedBox(height: 8),
+        ..._buildInvoiceSection(purchases, purchaseImages, dateFmt),
       ],
     ),
   );
@@ -108,26 +104,59 @@ List<pw.Widget> _buildInvoiceSection(
   DateFormat dateFmt,
 ) {
   if (rows.isEmpty) {
-    return [pw.Text('Sin facturas en este apartado.')];
+    return [
+      pw.Container(
+        width: double.infinity,
+        padding: const pw.EdgeInsets.all(10),
+        decoration: pw.BoxDecoration(
+          color: PdfColors.grey100,
+          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+          border: pw.Border.all(color: PdfColors.grey300),
+        ),
+        child: pw.Text('Sin facturas en este apartado.'),
+      ),
+    ];
   }
 
   return rows
       .map(
         (item) => pw.Container(
           margin: const pw.EdgeInsets.only(bottom: 10),
-          padding: const pw.EdgeInsets.all(8),
+          padding: const pw.EdgeInsets.all(10),
           decoration: pw.BoxDecoration(
-            borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
-            border: pw.Border.all(color: PdfColors.grey400),
+            color: PdfColors.white,
+            borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+            border: pw.Border.all(color: PdfColors.blue100),
           ),
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Row(
                 children: [
-                  pw.Expanded(
+                  pw.Container(
+                    padding: const pw.EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: pw.BoxDecoration(
+                      color: PdfColors.blue50,
+                      borderRadius: const pw.BorderRadius.all(
+                        pw.Radius.circular(999),
+                      ),
+                    ),
                     child: pw.Text(
                       item.kind.label,
+                      style: pw.TextStyle(
+                        fontWeight: pw.FontWeight.bold,
+                        fontSize: 10,
+                        color: PdfColors.blue900,
+                      ),
+                    ),
+                  ),
+                  pw.SizedBox(width: 8),
+                  pw.Expanded(
+                    child: pw.Text(
+                      'Factura: ${dateFmt.format(item.invoiceDate)}',
                       style: pw.TextStyle(
                         fontWeight: pw.FontWeight.bold,
                         fontSize: 12,
@@ -141,7 +170,6 @@ List<pw.Widget> _buildInvoiceSection(
                 ],
               ),
               pw.SizedBox(height: 4),
-              pw.Text('Fecha factura: ${dateFmt.format(item.invoiceDate)}'),
               pw.Text(
                 'Registrado por: ${item.createdByName ?? item.createdById ?? 'N/D'}',
               ),
@@ -153,10 +181,7 @@ List<pw.Widget> _buildInvoiceSection(
                   height: 220,
                   width: double.infinity,
                   alignment: pw.Alignment.center,
-                  child: pw.Image(
-                    images[item.id]!,
-                    fit: pw.BoxFit.contain,
-                  ),
+                  child: pw.Image(images[item.id]!, fit: pw.BoxFit.contain),
                 )
               else
                 pw.Text('Imagen no disponible en PDF (verificar URL).'),
@@ -165,6 +190,76 @@ List<pw.Widget> _buildInvoiceSection(
         ),
       )
       .toList();
+}
+
+Future<Map<String, pw.ImageProvider?>> _loadInvoiceImages(
+  List<FiscalInvoiceModel> rows,
+) async {
+  final images = <String, pw.ImageProvider?>{};
+  for (final item in rows) {
+    try {
+      final bytes = await _downloadImageBytes(
+        resolveFiscalInvoiceImageUrl(item.imageUrl),
+      );
+      final encoded = enhanceFiscalInvoiceImageForPdf(bytes);
+      images[item.id] = pw.MemoryImage(encoded ?? bytes);
+    } catch (_) {
+      images[item.id] = null;
+    }
+  }
+  return images;
+}
+
+pw.Widget _buildCompanyHeader({
+  required DateTime from,
+  required DateTime to,
+  required DateFormat dateFmt,
+  required DateFormat generatedFmt,
+}) {
+  return pw.Container(
+    width: double.infinity,
+    padding: const pw.EdgeInsets.all(16),
+    decoration: const pw.BoxDecoration(
+      color: PdfColors.blue900,
+      borderRadius: pw.BorderRadius.all(pw.Radius.circular(12)),
+    ),
+    child: pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(
+          _companyName,
+          style: pw.TextStyle(
+            fontSize: 21,
+            fontWeight: pw.FontWeight.bold,
+            color: PdfColors.white,
+          ),
+        ),
+        pw.SizedBox(height: 4),
+        pw.Text(
+          'RNC: $_companyRnc',
+          style: const pw.TextStyle(color: PdfColors.white),
+        ),
+        pw.SizedBox(height: 6),
+        pw.Text(
+          'Informe de facturas fiscales',
+          style: pw.TextStyle(
+            fontSize: 14,
+            fontWeight: pw.FontWeight.bold,
+            color: PdfColors.white,
+          ),
+        ),
+        pw.SizedBox(height: 3),
+        pw.Text(
+          'Periodo: ${dateFmt.format(from)} al ${dateFmt.format(to)}',
+          style: const pw.TextStyle(color: PdfColors.white),
+        ),
+        pw.Text(
+          'Generado: ${generatedFmt.format(DateTime.now())}',
+          style: const pw.TextStyle(color: PdfColors.white),
+        ),
+      ],
+    ),
+  );
 }
 
 pw.Widget _summaryChip(String label, String value) {

@@ -7,6 +7,7 @@ import {
 } from 'class-validator';
 
 export enum FiscalInvoiceKindDto {
+  SALE_CARD = 'SALE_CARD',
   SALE = 'SALE',
   PURCHASE = 'PURCHASE',
 }

@@ -93,11 +93,14 @@ Future<void> main() async {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
-      await _initializeSqlite();
-      await ensureContabilidadLocale(
+      final sqliteInitFuture = _initializeSqlite();
+      final localeInitFuture = ensureContabilidadLocale(
         locale: PlatformDispatcher.instance.locale.toString(),
       );
-      final authLaunchSnapshot = await loadAuthLaunchSnapshot();
+      final authLaunchSnapshotFuture = loadAuthLaunchSnapshot();
+
+      await Future.wait<void>([sqliteInitFuture, localeInitFuture]);
+      final authLaunchSnapshot = await authLaunchSnapshotFuture;
 
       FlutterError.onError = (details) {
         FlutterError.presentError(details);
