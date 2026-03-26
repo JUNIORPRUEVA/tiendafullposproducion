@@ -1,11 +1,11 @@
-import 'dart:typed_data';
-
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 
 import '../models/fiscal_invoice_model.dart';
+import 'fiscal_invoice_image_url.dart';
+import 'fiscal_invoice_pdf_image_processor.dart';
 
 Future<Uint8List> buildFiscalInvoicesPdf({
   required DateTime from,
@@ -25,8 +25,9 @@ Future<Uint8List> buildFiscalInvoicesPdf({
   final salesImages = <String, pw.ImageProvider?>{};
   for (final item in sales) {
     try {
-      final bytes = await networkImage(item.imageUrl);
-      salesImages[item.id] = bytes;
+      final bytes = await _downloadImageBytes(resolveFiscalInvoiceImageUrl(item.imageUrl));
+      final encoded = enhanceFiscalInvoiceImageForPdf(bytes);
+      salesImages[item.id] = pw.MemoryImage(encoded ?? bytes);
     } catch (_) {
       salesImages[item.id] = null;
     }
@@ -35,8 +36,9 @@ Future<Uint8List> buildFiscalInvoicesPdf({
   final purchaseImages = <String, pw.ImageProvider?>{};
   for (final item in purchases) {
     try {
-      final bytes = await networkImage(item.imageUrl);
-      purchaseImages[item.id] = bytes;
+      final bytes = await _downloadImageBytes(resolveFiscalInvoiceImageUrl(item.imageUrl));
+      final encoded = enhanceFiscalInvoiceImageForPdf(bytes);
+      purchaseImages[item.id] = pw.MemoryImage(encoded ?? bytes);
     } catch (_) {
       purchaseImages[item.id] = null;
     }
@@ -199,5 +201,19 @@ pw.Widget _sectionTitle(String title) {
       title,
       style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12),
     ),
+  );
+}
+
+Future<Uint8List> _downloadImageBytes(String imageUrl) async {
+  if (imageUrl.trim().isEmpty) {
+    throw StateError('Fiscal invoice image URL is empty');
+  }
+
+  final uri = Uri.parse(imageUrl);
+  final assetBundle = NetworkAssetBundle(uri);
+  final byteData = await assetBundle.load(uri.toString());
+  return byteData.buffer.asUint8List(
+    byteData.offsetInBytes,
+    byteData.lengthInBytes,
   );
 }

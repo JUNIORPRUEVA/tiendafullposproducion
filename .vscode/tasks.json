@@ -59,6 +59,39 @@
 			"command": "Set-Location \"c:\\Users\\PC\\Desktop\\FULLTECH\\apps\\fulltech_app\"; flutter build web --release",
 			"isBackground": false,
 			"group": "build"
+		},
+		{
+			"label": "build-fulltech-web-release",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\PC\\Desktop\\FULLTECH\\apps\\fulltech_app && flutter build web --release"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "inspect-fulltech-web-build",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Set-Location 'c:\\Users\\PC\\Desktop\\FULLTECH\\apps\\fulltech_app'; Get-Item build\\web\\main.dart.js,build\\web\\flutter_service_worker.js,build\\web\\index.html,build\\web\\flutter_bootstrap.js | Select-Object Name,@{Name='SizeMB';Expression={[math]::Round($_.Length/1MB,2)}},Length | Format-Table -AutoSize"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "inspect-fulltech-web-build-lengths",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& { Set-Location 'c:\\Users\\PC\\Desktop\\FULLTECH\\apps\\fulltech_app'; Get-Item 'build\\web\\main.dart.js','build\\web\\flutter_service_worker.js','build\\web\\index.html','build\\web\\flutter_bootstrap.js' | Select-Object Name,Length | Format-Table -AutoSize }"
+			],
+			"isBackground": false
 		}
 	]
 }

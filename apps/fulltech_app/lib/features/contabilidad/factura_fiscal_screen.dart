@@ -8,9 +8,7 @@ import 'package:printing/printing.dart';
 
 import 'package:cached_network_image/cached_network_image.dart';
 
-import '../../core/api/env.dart';
 import '../../core/auth/auth_provider.dart';
-import '../../core/utils/product_image_url.dart';
 import '../../core/auth/role_permissions.dart';
 import '../../core/evolution/evolution_api_repository.dart';
 import '../../core/errors/api_exception.dart';
@@ -18,6 +16,7 @@ import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import 'data/contabilidad_repository.dart';
 import 'models/fiscal_invoice_model.dart';
+import 'utils/fiscal_invoice_image_url.dart';
 import 'utils/fiscal_invoices_pdf_service.dart';
 import 'widgets/app_card.dart';
 import 'widgets/section_title.dart';
@@ -410,12 +409,7 @@ class _FiscalInvoiceImage extends StatelessWidget {
   const _FiscalInvoiceImage({required this.imageUrl});
 
   String _resolvedUrl() {
-    final url = normalizeProductImageUrl(
-      imageUrl: imageUrl,
-      baseUrl: Env.apiBaseUrl,
-      proxyUploadsOnWeb: false,
-    );
-    return url;
+    return resolveFiscalInvoiceImageUrl(imageUrl);
   }
 
   @override
