@@ -73,6 +73,7 @@ dependencies:
   video_player: ^2.11.1
   video_player_win: ^3.0.0
   chewie: ^1.13.0
+  sqflite_common_ffi_web: ^1.1.1
 
 dev_dependencies:
   flutter_test:

@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common_ffi_web/setup.dart';
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
 import 'core/routing/app_router.dart';
 import 'core/theme/app_theme.dart';
@@ -91,6 +93,7 @@ Future<void> main() async {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      await _initializeSqlite();
       await ensureContabilidadLocale(
         locale: PlatformDispatcher.instance.locale.toString(),
       );
@@ -110,7 +113,6 @@ Future<void> main() async {
         return true;
       };
 
-      _initializeDesktopSqlite();
       runApp(
         ProviderScope(
           overrides: [
@@ -140,8 +142,13 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
   }
 }
 
-void _initializeDesktopSqlite() {
-  if (kIsWeb) return;
+Future<void> _initializeSqlite() async {
+  if (kIsWeb) {
+    await setupSqfliteWebBinaries();
+    databaseFactory = databaseFactoryFfiWeb;
+    return;
+  }
+
   final platform = defaultTargetPlatform;
   if (platform == TargetPlatform.windows ||
       platform == TargetPlatform.linux ||
