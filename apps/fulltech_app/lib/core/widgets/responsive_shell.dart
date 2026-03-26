@@ -11,6 +11,7 @@ import '../routing/routes.dart';
 import '../theme/role_branding.dart';
 import '../utils/date_time_formatters.dart';
 import 'app_navigation.dart';
+import 'user_avatar.dart';
 
 BoxDecoration _desktopSurfaceDecoration(ThemeData theme) {
   return BoxDecoration(
@@ -304,22 +305,18 @@ class DesktopShellAppBar extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                CircleAvatar(
+                UserAvatar(
                   radius: 15,
                   backgroundColor: Colors.white.withValues(alpha: 0.14),
-                  backgroundImage: photoUrl.isEmpty
-                      ? null
-                      : NetworkImage(photoUrl),
-                  child: photoUrl.isEmpty
-                      ? Text(
-                          userInitials(currentUser),
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 12,
-                          ),
-                        )
-                      : null,
+                  imageUrl: photoUrl,
+                  child: Text(
+                    userInitials(currentUser),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
+                  ),
                 ),
                 if (!collapsed) ...[
                   const SizedBox(width: 10),

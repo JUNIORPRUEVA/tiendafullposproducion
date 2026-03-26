@@ -13,6 +13,7 @@ import '../../core/realtime/catalog_realtime_service.dart';
 import '../../core/routing/app_route_observer.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/string_utils.dart';
+import '../../core/widgets/user_avatar.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../../core/widgets/product_network_image.dart';
@@ -351,23 +352,18 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
                       child: InkWell(
                         borderRadius: BorderRadius.circular(999),
                         onTap: () => context.push(Routes.profile),
-                        child: CircleAvatar(
+                        child: UserAvatar(
                           radius: 16,
                           backgroundColor: Colors.white24,
-                          backgroundImage:
-                              (user.fotoPersonalUrl ?? '').trim().isEmpty
-                              ? null
-                              : NetworkImage(user.fotoPersonalUrl!),
-                          child: (user.fotoPersonalUrl ?? '').trim().isEmpty
-                              ? Text(
-                                  getInitials(user.nombreCompleto),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 12,
-                                  ),
-                                )
-                              : null,
+                          imageUrl: user.fotoPersonalUrl,
+                          child: Text(
+                            getInitials(user.nombreCompleto),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                          ),
                         ),
                       ),
                     ),

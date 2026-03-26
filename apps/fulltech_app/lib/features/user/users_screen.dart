@@ -13,6 +13,7 @@ import '../../core/routing/routes.dart';
 import '../../core/utils/string_utils.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
+import '../../core/widgets/user_avatar.dart';
 import '../user/application/users_controller.dart';
 import 'utils/cedula_ocr_service.dart';
 import 'utils/work_contract_preview_screen.dart';
@@ -210,23 +211,18 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                   child: InkWell(
                     borderRadius: BorderRadius.circular(999),
                     onTap: () => context.push(Routes.profile),
-                    child: CircleAvatar(
+                    child: UserAvatar(
                       radius: 16,
                       backgroundColor: Colors.white24,
-                      backgroundImage:
-                          (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
-                          ? null
-                          : NetworkImage(currentUser.fotoPersonalUrl!),
-                      child: (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
-                          ? Text(
-                              getInitials(currentUser.nombreCompleto),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 12,
-                              ),
-                            )
-                          : null,
+                      imageUrl: currentUser.fotoPersonalUrl,
+                      child: Text(
+                        getInitials(currentUser.nombreCompleto),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -284,23 +280,18 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                 child: InkWell(
                   borderRadius: BorderRadius.circular(999),
                   onTap: () => context.push(Routes.profile),
-                  child: CircleAvatar(
+                  child: UserAvatar(
                     radius: 16,
                     backgroundColor: Colors.white24,
-                    backgroundImage:
-                        (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
-                        ? null
-                        : NetworkImage(currentUser.fotoPersonalUrl!),
-                    child: (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
-                        ? Text(
-                            getInitials(currentUser.nombreCompleto),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12,
-                            ),
-                          )
-                        : null,
+                    imageUrl: currentUser.fotoPersonalUrl,
+                    child: Text(
+                      getInitials(currentUser.nombreCompleto),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -432,23 +423,18 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                 child: InkWell(
                   borderRadius: BorderRadius.circular(999),
                   onTap: () => context.push(Routes.profile),
-                  child: CircleAvatar(
+                  child: UserAvatar(
                     radius: 16,
                     backgroundColor: Colors.white24,
-                    backgroundImage:
-                        (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
-                        ? null
-                        : NetworkImage(currentUser.fotoPersonalUrl!),
-                    child: (currentUser.fotoPersonalUrl ?? '').trim().isEmpty
-                        ? Text(
-                            getInitials(currentUser.nombreCompleto),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12,
-                            ),
-                          )
-                        : null,
+                    imageUrl: currentUser.fotoPersonalUrl,
+                    child: Text(
+                      getInitials(currentUser.nombreCompleto),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -2959,20 +2945,18 @@ class _UserAvatar extends StatelessWidget {
     };
 
     final imageUrl = (user.fotoPersonalUrl ?? '').trim();
-    return CircleAvatar(
+    return UserAvatar(
       radius: radius,
       backgroundColor: background,
-      backgroundImage: imageUrl.isEmpty ? null : NetworkImage(imageUrl),
-      child: imageUrl.isEmpty
-          ? Text(
-              getInitials(user.nombreCompleto),
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
-                fontSize: radius * 0.72,
-              ),
-            )
-          : null,
+      imageUrl: imageUrl,
+      child: Text(
+        getInitials(user.nombreCompleto),
+        style: TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: radius * 0.72,
+        ),
+      ),
     );
   }
 }

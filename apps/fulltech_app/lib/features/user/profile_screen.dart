@@ -9,6 +9,7 @@ import '../../core/utils/string_utils.dart';
 import '../../core/models/user_model.dart';
 import '../user/data/users_repository.dart';
 import 'work_contract_screen.dart';
+import '../../core/widgets/user_avatar.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -745,29 +746,23 @@ class _ProfileAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasPhoto = (user?.fotoPersonalUrl ?? '').trim().isNotEmpty;
-
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         customBorder: const CircleBorder(),
-        child: CircleAvatar(
+        child: UserAvatar(
           radius: radius,
           backgroundColor: color,
-          backgroundImage: hasPhoto
-              ? NetworkImage(user!.fotoPersonalUrl!)
-              : null,
-          child: !hasPhoto
-              ? Text(
-                  getInitials(user?.nombreCompleto ?? 'U'),
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: radius >= 50 ? 28 : 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                )
-              : null,
+          imageUrl: user?.fotoPersonalUrl,
+          child: Text(
+            getInitials(user?.nombreCompleto ?? 'U'),
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: radius >= 50 ? 28 : 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
         ),
       ),
     );

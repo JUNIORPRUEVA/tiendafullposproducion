@@ -13,6 +13,7 @@ import '../../core/realtime/operations_realtime_service.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/user_avatar.dart';
 import '../../core/widgets/app_navigation.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../../core/utils/safe_url_launcher.dart';
@@ -839,22 +840,18 @@ class _ProfileAvatarButton extends ConsumerWidget {
       padding: const EdgeInsets.only(right: 8),
       child: GestureDetector(
         onTap: () => context.push(Routes.profile),
-        child: CircleAvatar(
+        child: UserAvatar(
           radius: 17,
           backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-          backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
-              ? NetworkImage(photoUrl)
-              : null,
-          child: (photoUrl == null || photoUrl.isEmpty)
-              ? Text(
-                  initial,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
-                  ),
-                )
-              : null,
+          imageUrl: photoUrl,
+          child: Text(
+            initial,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).colorScheme.onPrimaryContainer,
+            ),
+          ),
         ),
       ),
     );

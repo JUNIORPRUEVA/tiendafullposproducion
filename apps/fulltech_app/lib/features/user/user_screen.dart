@@ -6,6 +6,7 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/user_avatar.dart';
 
 String _getInitials(String name) {
   final initials = name
@@ -38,22 +39,18 @@ class UserScreen extends ConsumerWidget {
                 child: InkWell(
                   borderRadius: BorderRadius.circular(999),
                   onTap: () => context.push(Routes.profile),
-                  child: CircleAvatar(
+                  child: UserAvatar(
                     radius: 16,
                     backgroundColor: Colors.white24,
-                    backgroundImage: (user.fotoPersonalUrl ?? '').trim().isEmpty
-                        ? null
-                        : NetworkImage(user.fotoPersonalUrl!),
-                    child: (user.fotoPersonalUrl ?? '').trim().isEmpty
-                        ? Text(
-                            _getInitials(user.nombreCompleto),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12,
-                            ),
-                          )
-                        : null,
+                    imageUrl: user.fotoPersonalUrl,
+                    child: Text(
+                      _getInitials(user.nombreCompleto),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -68,23 +65,18 @@ class UserScreen extends ConsumerWidget {
             Center(
               child: Column(
                 children: [
-                  CircleAvatar(
+                  UserAvatar(
                     radius: 50,
                     backgroundColor: Theme.of(context).colorScheme.primary,
-                    backgroundImage:
-                        (user?.fotoPersonalUrl ?? '').trim().isEmpty
-                        ? null
-                        : NetworkImage(user!.fotoPersonalUrl!),
-                    child: (user?.fotoPersonalUrl ?? '').trim().isEmpty
-                        ? Text(
-                            _getInitials(user?.nombreCompleto ?? 'U'),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          )
-                        : null,
+                    imageUrl: user?.fotoPersonalUrl,
+                    child: Text(
+                      _getInitials(user?.nombreCompleto ?? 'U'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   Text(
