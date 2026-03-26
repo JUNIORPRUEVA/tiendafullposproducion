@@ -101,33 +101,52 @@
       position: relative;
     }
 
-    .loader-bar::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      width: 38%;
+    .loader-progress {
+      height: 100%;
+      width: 12%;
       border-radius: inherit;
       background: linear-gradient(90deg, #0f6a90 0%, #1aa7a1 100%);
-      animation: loader-slide 1.25s ease-in-out infinite;
-      transform-origin: left center;
+      box-shadow: 0 0 18px rgba(15, 106, 144, 0.18);
+      transition: width 180ms ease;
+    }
+
+    .loader-bar::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 96px;
+      background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.45) 50%, transparent 100%);
+      animation: loader-glow 1.4s linear infinite;
+    }
+
+    .loader-meta {
+      margin-top: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
     }
 
     .loader-footnote {
-      margin-top: 12px;
       color: #64748b;
       font-size: 12px;
       letter-spacing: 0.01em;
     }
 
-    @keyframes loader-slide {
+    .loader-percent {
+      color: #0f6a90;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+
+    @keyframes loader-glow {
       0% {
-        transform: translateX(-110%) scaleX(0.82);
-      }
-      50% {
-        transform: translateX(110%) scaleX(1.05);
+        transform: translateX(-120%);
       }
       100% {
-        transform: translateX(265%) scaleX(0.82);
+        transform: translateX(420%);
       }
     }
 
@@ -164,15 +183,71 @@
       <p class="loader-copy">
         Cargando la aplicacion y conectando tu configuracion inicial.
       </p>
-      <div class="loader-bar"></div>
-      <div class="loader-footnote">La primera carga puede tardar unos segundos.</div>
+      <div class="loader-bar">
+        <div id="loader-progress" class="loader-progress"></div>
+      </div>
+      <div class="loader-meta">
+        <div id="loader-status" class="loader-footnote">Preparando recursos iniciales...</div>
+        <div id="loader-percent" class="loader-percent">12%</div>
+      </div>
     </div>
   </div>
   <script src="env.js"></script>
   <script>
+    (function () {
+      var progress = 12;
+      var progressBar = document.getElementById('loader-progress');
+      var progressLabel = document.getElementById('loader-percent');
+      var statusLabel = document.getElementById('loader-status');
+      var milestones = [
+        { at: 18, text: 'Cargando configuracion base...' },
+        { at: 34, text: 'Descargando motor de la app...' },
+        { at: 52, text: 'Inicializando interfaz...' },
+        { at: 72, text: 'Preparando modulos...' },
+        { at: 88, text: 'Abriendo FULLTECH...' }
+      ];
+      var milestoneIndex = 0;
+
+      function renderProgress(value) {
+        progress = Math.max(12, Math.min(100, value));
+        if (progressBar) {
+          progressBar.style.width = progress + '%';
+        }
+        if (progressLabel) {
+          progressLabel.textContent = progress + '%';
+        }
+        while (milestoneIndex < milestones.length && progress >= milestones[milestoneIndex].at) {
+          if (statusLabel) {
+            statusLabel.textContent = milestones[milestoneIndex].text;
+          }
+          milestoneIndex += 1;
+        }
+      }
+
+      var timer = window.setInterval(function () {
+        if (progress >= 90) {
+          window.clearInterval(timer);
+          return;
+        }
+        var next = progress + (progress < 50 ? 7 : progress < 80 ? 4 : 2);
+        renderProgress(next);
+      }, 220);
+
+      window.__finishAppLoader = function () {
+        window.clearInterval(timer);
+        renderProgress(100);
+        if (statusLabel) {
+          statusLabel.textContent = 'Listo';
+        }
+      };
+    })();
+
     window.addEventListener('flutter-first-frame', function () {
       var loader = document.getElementById('app-loader');
       if (!loader) return;
+      if (typeof window.__finishAppLoader === 'function') {
+        window.__finishAppLoader();
+      }
       loader.classList.add('is-hidden');
       window.setTimeout(function () {
         loader.remove();

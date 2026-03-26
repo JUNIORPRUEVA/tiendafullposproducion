@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:sqflite_common_ffi_web/setup.dart';
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
 import 'core/routing/app_router.dart';
@@ -93,13 +92,13 @@ Future<void> main() async {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
-      final sqliteInitFuture = _initializeSqlite();
+      _initializeSqlite();
       final localeInitFuture = ensureContabilidadLocale(
         locale: PlatformDispatcher.instance.locale.toString(),
       );
       final authLaunchSnapshotFuture = loadAuthLaunchSnapshot();
 
-      await Future.wait<void>([sqliteInitFuture, localeInitFuture]);
+      await localeInitFuture;
       final authLaunchSnapshot = await authLaunchSnapshotFuture;
 
       FlutterError.onError = (details) {
@@ -145,9 +144,8 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
   }
 }
 
-Future<void> _initializeSqlite() async {
+void _initializeSqlite() {
   if (kIsWeb) {
-    await setupSqfliteWebBinaries();
     databaseFactory = databaseFactoryFfiWeb;
     return;
   }
