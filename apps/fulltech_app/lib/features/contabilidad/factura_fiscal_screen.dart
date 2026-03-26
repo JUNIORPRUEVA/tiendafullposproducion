@@ -540,23 +540,15 @@ class _FiscalInvoiceHistoryScreenState
         to: range.end,
         invoices: invoices,
       );
-      final fileStamp = DateFormat('yyyy_MM').format(range.start);
-      final caption =
-          'Reporte de facturas fiscales del ${DateFormat('dd/MM/yyyy').format(range.start)} al ${DateFormat('dd/MM/yyyy').format(range.end)}.';
-
-      await ref.read(evolutionApiRepositoryProvider).sendPdfDocument(
-            toNumber: _fiscalAccountantPhone,
-            bytes: bytes,
-            fileName: 'reporte_facturas_fiscales_$fileStamp.pdf',
-            caption: caption,
-          );
+      await _sendReportToAccountant(
+        bytes: bytes,
+        from: range.start,
+        to: range.end,
+        successMessage: 'Reporte del mes pasado enviado al contable.',
+      );
 
       if (!mounted) return;
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Reporte del mes pasado enviado al contable.'),
-        ),
-      );
+      messenger.clearSnackBars();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -571,98 +563,202 @@ class _FiscalInvoiceHistoryScreenState
     }
   }
 
-  Future<void> _openPdfDialog(BuildContext context, Uint8List bytes) async {
+  Future<void> _openPdfDialog(
+    BuildContext context,
+    Uint8List bytes, {
+    required DateTime from,
+    required DateTime to,
+  }) async {
     if (bytes.isEmpty) {
       _showScreenError('No se pudo generar el PDF.');
       return;
     }
 
-    final filename =
-        'facturas_fiscales_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.pdf';
+    final filename = _reportFileName(from, to);
 
     if (kIsWeb) {
       await showDialog<void>(
         context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('PDF facturas fiscales'),
-          content: const Text(
-            'El PDF fue generado. En web se abre sin vista previa para evitar bloqueos del visor.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cerrar'),
+        builder: (_) {
+          var sending = false;
+          return StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              title: const Text('PDF facturas fiscales'),
+              content: const Text(
+                'El PDF fue generado. En web se abre sin vista previa para evitar bloqueos del visor.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: sending ? null : () => Navigator.pop(context),
+                  child: const Text('Cerrar'),
+                ),
+                FilledButton.icon(
+                  onPressed: sending
+                      ? null
+                      : () async {
+                          setDialogState(() => sending = true);
+                          try {
+                            await _sendReportToAccountant(
+                              bytes: bytes,
+                              from: from,
+                              to: to,
+                              successMessage:
+                                  'Reporte del filtro enviado al contable.',
+                            );
+                          } finally {
+                            if (context.mounted) {
+                              setDialogState(() => sending = false);
+                            }
+                          }
+                        },
+                  icon: sending
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send_outlined),
+                  label: const Text('Enviar al contable'),
+                ),
+                FilledButton.icon(
+                  onPressed: sending
+                      ? null
+                      : () async {
+                          try {
+                            await Printing.sharePdf(bytes: bytes, filename: filename);
+                          } catch (e) {
+                            if (!mounted) return;
+                            _showScreenError('No se pudo descargar o compartir el PDF: $e');
+                          }
+                        },
+                  icon: const Icon(Icons.download_outlined),
+                  label: const Text('Descargar'),
+                ),
+              ],
             ),
-            FilledButton.icon(
-              onPressed: () async {
-                try {
-                  await Printing.sharePdf(bytes: bytes, filename: filename);
-                } catch (e) {
-                  if (!mounted) return;
-                  _showScreenError('No se pudo descargar o compartir el PDF: $e');
-                }
-              },
-              icon: const Icon(Icons.download_outlined),
-              label: const Text('Descargar'),
-            ),
-          ],
-        ),
+          );
+        },
       );
       return;
     }
 
     await showDialog<void>(
       context: context,
-      builder: (_) => Dialog(
-        insetPadding: const EdgeInsets.all(16),
-        child: SizedBox(
-          width: 960,
-          height: 700,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
-                child: Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'PDF facturas fiscales',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                      ),
+      builder: (_) {
+        var sending = false;
+        return StatefulBuilder(
+          builder: (context, setDialogState) => Dialog(
+            insetPadding: const EdgeInsets.all(16),
+            child: SizedBox(
+              width: 960,
+              height: 700,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'PDF facturas fiscales',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                        FilledButton.icon(
+                          onPressed: sending
+                              ? null
+                              : () async {
+                                  setDialogState(() => sending = true);
+                                  try {
+                                    await _sendReportToAccountant(
+                                      bytes: bytes,
+                                      from: from,
+                                      to: to,
+                                      successMessage:
+                                          'Reporte del filtro enviado al contable.',
+                                    );
+                                  } finally {
+                                    if (context.mounted) {
+                                      setDialogState(() => sending = false);
+                                    }
+                                  }
+                                },
+                          icon: sending
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.send_outlined),
+                          label: const Text('Enviar al contable'),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          tooltip: 'Descargar / compartir',
+                          onPressed: sending
+                              ? null
+                              : () async {
+                                  try {
+                                    await Printing.sharePdf(bytes: bytes, filename: filename);
+                                  } catch (e) {
+                                    if (!mounted) return;
+                                    _showScreenError('No se pudo descargar o compartir el PDF: $e');
+                                  }
+                                },
+                          icon: const Icon(Icons.download_outlined),
+                        ),
+                        IconButton(
+                          onPressed: sending ? null : () => Navigator.pop(context),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      tooltip: 'Descargar / compartir',
-                      onPressed: () async {
-                        try {
-                          await Printing.sharePdf(bytes: bytes, filename: filename);
-                        } catch (e) {
-                          if (!mounted) return;
-                          _showScreenError('No se pudo descargar o compartir el PDF: $e');
-                        }
-                      },
-                      icon: const Icon(Icons.download_outlined),
+                  ),
+                  Expanded(
+                    child: PdfPreview(
+                      canChangePageFormat: false,
+                      canDebug: false,
+                      allowPrinting: true,
+                      allowSharing: true,
+                      build: (_) async => bytes,
                     ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              Expanded(
-                child: PdfPreview(
-                  canChangePageFormat: false,
-                  canDebug: false,
-                  allowPrinting: true,
-                  allowSharing: true,
-                  build: (_) async => bytes,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
+    );
+  }
+
+  String _reportFileName(DateTime from, DateTime to) {
+    final fromStamp = DateFormat('yyyyMMdd').format(from);
+    final toStamp = DateFormat('yyyyMMdd').format(to);
+    return 'facturas_fiscales_${fromStamp}_$toStamp.pdf';
+  }
+
+  String _reportCaption(DateTime from, DateTime to) {
+    return 'Reporte de facturas fiscales del ${DateFormat('dd/MM/yyyy').format(from)} al ${DateFormat('dd/MM/yyyy').format(to)}.';
+  }
+
+  Future<void> _sendReportToAccountant({
+    required Uint8List bytes,
+    required DateTime from,
+    required DateTime to,
+    required String successMessage,
+  }) async {
+    await ref.read(evolutionApiRepositoryProvider).sendPdfDocument(
+          toNumber: _fiscalAccountantPhone,
+          bytes: bytes,
+          fileName: _reportFileName(from, to),
+          caption: _reportCaption(from, to),
+        );
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(this.context).showSnackBar(
+      SnackBar(content: Text(successMessage)),
     );
   }
 
@@ -759,7 +855,12 @@ class _FiscalInvoiceHistoryScreenState
                                     invoices: _invoices,
                                   );
                                   if (!context.mounted) return;
-                                  await _openPdfDialog(context, bytes);
+                                  await _openPdfDialog(
+                                    context,
+                                    bytes,
+                                    from: _from,
+                                    to: _to,
+                                  );
                                 } catch (e) {
                                   if (!mounted) return;
                                   _showScreenError(
