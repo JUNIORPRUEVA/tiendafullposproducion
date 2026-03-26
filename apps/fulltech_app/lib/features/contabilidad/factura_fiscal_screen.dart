@@ -6,7 +6,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 
+import 'package:cached_network_image/cached_network_image.dart';
+
+import '../../core/api/env.dart';
 import '../../core/auth/auth_provider.dart';
+import '../../core/utils/product_image_url.dart';
 import '../../core/auth/role_permissions.dart';
 import '../../core/evolution/evolution_api_repository.dart';
 import '../../core/errors/api_exception.dart';
@@ -353,15 +357,7 @@ class _InvoiceCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(10),
             child: AspectRatio(
               aspectRatio: 16 / 9,
-              child: Image.network(
-                item.imageUrl,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => Container(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  alignment: Alignment.center,
-                  child: const Text('No se pudo cargar imagen'),
-                ),
-              ),
+              child: _FiscalInvoiceImage(imageUrl: item.imageUrl),
             ),
           ),
           if ((item.note ?? '').trim().isNotEmpty) ...[
@@ -404,6 +400,55 @@ class _ErrorBox extends StatelessWidget {
           fontWeight: FontWeight.w700,
         ),
       ),
+    );
+  }
+}
+
+class _FiscalInvoiceImage extends StatelessWidget {
+  final String imageUrl;
+
+  const _FiscalInvoiceImage({required this.imageUrl});
+
+  String _resolvedUrl() {
+    final url = normalizeProductImageUrl(
+      imageUrl: imageUrl,
+      baseUrl: Env.apiBaseUrl,
+      proxyUploadsOnWeb: false,
+    );
+    return url;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final url = _resolvedUrl();
+    final fallback = Container(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.image_not_supported_outlined,
+              size: 32, color: Theme.of(context).colorScheme.outline),
+          const SizedBox(height: 6),
+          Text(
+            'Imagen no disponible',
+            style: TextStyle(color: Theme.of(context).colorScheme.outline),
+          ),
+        ],
+      ),
+    );
+
+    if (url.isEmpty) return fallback;
+
+    return CachedNetworkImage(
+      imageUrl: url,
+      fit: BoxFit.contain,
+      placeholder: (_, __) => Container(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        alignment: Alignment.center,
+        child: const CircularProgressIndicator(strokeWidth: 2),
+      ),
+      errorWidget: (_, __, ___) => fallback,
     );
   }
 }
