@@ -251,6 +251,24 @@ enum NotificationStatus {
   FAILED
 }
 
+enum NotificationContentType {
+  TEXT
+  DOCUMENT
+}
+
+enum ServiceOrderNotificationJobKind {
+  THIRTY_MINUTES_BEFORE
+  FIFTEEN_MINUTES_PENDING
+}
+
+enum ServiceOrderNotificationJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
 enum ServiceClosingApprovalStatus {
   PENDING
   APPROVED
@@ -358,6 +376,7 @@ model User {
 
   clients Client[]
   payrollEmployees PayrollEmployee[] @relation("PayrollOwner")
+  confirmedServiceOrders ServiceOrder[] @relation("ServiceOrderConfirmedBy")
   payrollProfile PayrollEmployee? @relation("PayrollEmployeeUser")
   payrollPeriods PayrollPeriod[]
   payrollEmployeeConfigs PayrollEmployeeConfig[]
@@ -593,9 +612,13 @@ model NotificationOutbox {
   id                String              @id @default(uuid()) @db.Uuid
   channel           NotificationChannel @default(WHATSAPP)
   status            NotificationStatus  @default(PENDING)
+  contentType       NotificationContentType @default(TEXT) @map("content_type")
   templateKey       String              @map("template_key")
   dedupeKey         String?             @unique @map("dedupe_key")
   messageText       String              @map("message_text")
+  mediaBase64       String?             @db.Text @map("media_base64")
+  mediaFileName     String?             @map("media_file_name")
+  mediaMimeType     String?             @map("media_mime_type")
   payload           Json?
   recipientUserId   String?             @db.Uuid @map("recipient_user_id")
   toNumber          String              @map("to_number")
@@ -615,6 +638,30 @@ model NotificationOutbox {
   @@index([status, nextAttemptAt])
   @@index([lockedAt])
   @@map("notification_outbox")
+}
+
+model ServiceOrderNotificationJob {
+  id          String                            @id @default(uuid()) @db.Uuid
+  orderId     String                            @db.Uuid @map("order_id")
+  kind        ServiceOrderNotificationJobKind
+  status      ServiceOrderNotificationJobStatus @default(PENDING)
+  dedupeKey   String                            @unique @map("dedupe_key")
+  runAt       DateTime                          @map("run_at")
+  payload     Json?
+  attempts    Int                               @default(0)
+  lockedAt    DateTime?                         @map("locked_at")
+  lockedBy    String?                           @map("locked_by")
+  lastError   String?                           @map("last_error")
+  completedAt DateTime?                         @map("completed_at")
+  createdAt   DateTime                          @default(now()) @map("created_at")
+  updatedAt   DateTime                          @updatedAt @map("updated_at")
+
+  order ServiceOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([status, runAt])
+  @@index([lockedAt])
+  @@map("service_order_notification_jobs")
 }
 
 model Punch {
@@ -1378,7 +1425,10 @@ model ServiceOrder {
   category          ServiceOrderCategory
   serviceType       ServiceOrderType     @map("service_type")
   status            ServiceOrderStatus   @default(PENDIENTE)
+  scheduledFor      DateTime?            @map("scheduled_for")
   finalizedAt       DateTime?            @map("finalized_at")
+  technicianConfirmedAt   DateTime?      @map("technician_confirmed_at")
+  technicianConfirmedById String?        @db.Uuid @map("technician_confirmed_by")
   technicalNote     String?              @db.Text @map("technical_note")
   extraRequirements String?              @db.Text @map("extra_requirements")
   parentOrderId     String?              @db.Uuid @map("parent_order_id")
@@ -1393,18 +1443,22 @@ model ServiceOrder {
   childOrders ServiceOrder[]  @relation("ServiceOrderParent")
   createdBy   User            @relation("ServiceOrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   assignedTo  User?           @relation("ServiceOrderAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  technicianConfirmedBy User? @relation("ServiceOrderConfirmedBy", fields: [technicianConfirmedById], references: [id], onDelete: SetNull)
   evidences   ServiceEvidence[]
   reports     ServiceReport[]
   payrollServiceCommissionRequests PayrollServiceCommissionRequest[]
+  notificationJobs ServiceOrderNotificationJob[]
 
   @@index([clientId])
   @@index([quotationId])
   @@index([category])
   @@index([serviceType])
   @@index([status])
+  @@index([scheduledFor])
   @@index([finalizedAt])
   @@index([createdById])
   @@index([assignedToId])
+  @@index([technicianConfirmedById])
   @@index([parentOrderId])
   @@index([status, assignedToId])
   @@index([clientId, createdAt])

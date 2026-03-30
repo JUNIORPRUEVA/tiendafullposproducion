@@ -10,10 +10,7 @@ class ServiceOrderCardActionState {
   final bool loading;
   final String? error;
 
-  const ServiceOrderCardActionState({
-    this.loading = false,
-    this.error,
-  });
+  const ServiceOrderCardActionState({this.loading = false, this.error});
 
   ServiceOrderCardActionState copyWith({
     bool? loading,
@@ -30,26 +27,20 @@ class ServiceOrderCardActionState {
 /// Family provider for per-card actions (one controller per order ID).
 final serviceOrderCardActionsProvider = StateNotifierProvider.autoDispose
     .family<
-        ServiceOrderCardActionsController,
-        ServiceOrderCardActionState,
-        String>(
-  (ref, orderId) {
-    return ServiceOrderCardActionsController(
-      orderId: orderId,
-      ref: ref,
-    );
-  },
-);
+      ServiceOrderCardActionsController,
+      ServiceOrderCardActionState,
+      String
+    >((ref, orderId) {
+      return ServiceOrderCardActionsController(orderId: orderId, ref: ref);
+    });
 
 class ServiceOrderCardActionsController
     extends StateNotifier<ServiceOrderCardActionState> {
   final String orderId;
   final Ref ref;
 
-  ServiceOrderCardActionsController({
-    required this.orderId,
-    required this.ref,
-  }) : super(const ServiceOrderCardActionState());
+  ServiceOrderCardActionsController({required this.orderId, required this.ref})
+    : super(const ServiceOrderCardActionState());
 
   /// Change the order status and return the updated order.
   Future<ServiceOrderModel> changeStatus(ServiceOrderStatus newStatus) async {
@@ -63,6 +54,22 @@ class ServiceOrderCardActionsController
       final message = error is ApiException
           ? error.message
           : 'No se pudo cambiar el estado';
+      state = state.copyWith(loading: false, error: message);
+      rethrow;
+    }
+  }
+
+  Future<ServiceOrderModel> confirmOrder() async {
+    state = state.copyWith(loading: true, clearError: true);
+    try {
+      final api = ref.read(serviceOrdersApiProvider);
+      final updated = await api.confirmOrder(orderId);
+      state = state.copyWith(loading: false);
+      return updated;
+    } catch (error) {
+      final message = error is ApiException
+          ? error.message
+          : 'No se pudo confirmar la orden';
       state = state.copyWith(loading: false, error: message);
       rethrow;
     }

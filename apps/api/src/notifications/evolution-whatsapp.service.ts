@@ -13,6 +13,12 @@ type EvolutionHttpError = {
   responseBodyPreview?: string;
 };
 
+type EvolutionAttemptResult = {
+  ok: boolean;
+  status: number;
+  bodyPreview: string;
+};
+
 @Injectable()
 export class EvolutionWhatsAppService {
   constructor(private readonly prisma: PrismaService) {}
@@ -98,25 +104,12 @@ export class EvolutionWhatsAppService {
     }
   }
 
-  async sendTextMessage(params: { toNumber: string; message: string }) {
+  private isMockEnabled() {
     const mock = (process.env.NOTIFICATIONS_MOCK_SUCCESS ?? '').trim().toLowerCase();
-    const mockEnabled = mock === '1' || mock === 'true' || mock === 'yes';
+    return mock === '1' || mock === 'true' || mock === 'yes';
+  }
 
-    // Mock mode: validate inputs but skip external calls.
-    if (mockEnabled) {
-      const number = this.normalizeWhatsAppNumber(params.toNumber);
-      if (!number) {
-        throw new BadRequestException('Número de WhatsApp inválido');
-      }
-      const message = (params.message ?? '').toString();
-      if (!message.trim()) {
-        throw new BadRequestException('Mensaje vacío');
-      }
-      return;
-    }
-
-    const config = await this.getRuntimeConfig();
-
+  private validateRuntimeConfig(config: EvolutionRuntimeConfig) {
     if (!config.baseUrl) {
       throw new BadRequestException('Evolution API: falta Base URL en Ajustes > Configuración de API');
     }
@@ -126,11 +119,68 @@ export class EvolutionWhatsAppService {
     if (!config.apiKey) {
       throw new BadRequestException('Evolution API: falta API Key en Ajustes > Configuración de API');
     }
+  }
 
-    const number = this.normalizeWhatsAppNumber(params.toNumber);
+  private validateNumber(rawNumber: string) {
+    const number = this.normalizeWhatsAppNumber(rawNumber);
     if (!number) {
       throw new BadRequestException('Número de WhatsApp inválido');
     }
+    return number;
+  }
+
+  private buildHttpError(status: number, bodyPreview: string, attemptLabel?: string) {
+    const err: EvolutionHttpError = {
+      status,
+      message: `Evolution API error (HTTP ${status})`,
+      responseBodyPreview: bodyPreview,
+    };
+
+    const suffix = [attemptLabel ? `Payload: ${attemptLabel}` : '', bodyPreview ? `Response: ${bodyPreview}` : '']
+      .filter(Boolean)
+      .join(' · ');
+    const error = new Error(`${err.message}${suffix ? ` · ${suffix}` : ''}`) as Error & {
+      status?: number;
+    };
+    error.status = status;
+    return error;
+  }
+
+  private async postAttempt(
+    endpoint: string,
+    init: RequestInit,
+    label?: string,
+  ): Promise<EvolutionAttemptResult> {
+    const res = await fetch(endpoint, init);
+    const bodyPreview = res.ok ? '' : await this.readResponseBodySafe(res);
+    if (res.ok) {
+      return { ok: true, status: res.status, bodyPreview };
+    }
+
+    return {
+      ok: false,
+      status: res.status,
+      bodyPreview: label ? `${label}${bodyPreview ? ` · ${bodyPreview}` : ''}` : bodyPreview,
+    };
+  }
+
+  async sendTextMessage(params: { toNumber: string; message: string }) {
+    const mockEnabled = this.isMockEnabled();
+
+    // Mock mode: validate inputs but skip external calls.
+    if (mockEnabled) {
+      this.validateNumber(params.toNumber);
+      const message = (params.message ?? '').toString();
+      if (!message.trim()) {
+        throw new BadRequestException('Mensaje vacío');
+      }
+      return;
+    }
+
+    const config = await this.getRuntimeConfig();
+    this.validateRuntimeConfig(config);
+
+    const number = this.validateNumber(params.toNumber);
 
     const message = (params.message ?? '').toString();
     if (!message.trim()) {
@@ -151,16 +201,148 @@ export class EvolutionWhatsAppService {
     if (res.ok) return;
 
     const bodyPreview = await this.readResponseBodySafe(res);
-    const err: EvolutionHttpError = {
-      status: res.status,
-      message: `Evolution API error (HTTP ${res.status})`,
-      responseBodyPreview: bodyPreview,
+    throw this.buildHttpError(res.status, bodyPreview);
+  }
+
+  async sendPdfDocument(params: {
+    toNumber: string;
+    bytes: Uint8Array;
+    fileName: string;
+    caption?: string;
+  }) {
+    const mockEnabled = this.isMockEnabled();
+    const number = this.validateNumber(params.toNumber);
+    const bytes = params.bytes instanceof Uint8Array ? params.bytes : new Uint8Array(params.bytes);
+    if (!bytes.length) {
+      throw new BadRequestException('El PDF está vacío y no se puede enviar');
+    }
+
+    const fileName = (params.fileName ?? '').trim() || 'cotizacion.pdf';
+    const caption = (params.caption ?? '').trim();
+
+    if (mockEnabled) {
+      return;
+    }
+
+    const config = await this.getRuntimeConfig();
+    this.validateRuntimeConfig(config);
+
+    const endpoint = `${config.baseUrl}/message/sendMedia/${encodeURIComponent(config.instanceName)}`;
+    const mediaBase64 = Buffer.from(bytes).toString('base64');
+    const jsonHeaders = {
+      apikey: config.apiKey,
+      'content-type': 'application/json',
     };
 
-    const error = new Error(
-      `${err.message}${err.responseBodyPreview ? ` · Response: ${err.responseBodyPreview}` : ''}`,
-    ) as Error & { status?: number };
-    (error as any).status = err.status;
-    throw error;
+    const attempts: Array<{ label: string; init: RequestInit }> = [
+      {
+        label: 'nested:mediaMessage',
+        init: {
+          method: 'POST',
+          headers: jsonHeaders,
+          body: JSON.stringify({
+            number,
+            ...(caption ? { caption } : {}),
+            mediaMessage: {
+              mediatype: 'document',
+              mimetype: 'application/pdf',
+              ...(caption ? { caption } : {}),
+              media: mediaBase64,
+              fileName,
+            },
+          }),
+        },
+      },
+      {
+        label: 'flat:media+fileName',
+        init: {
+          method: 'POST',
+          headers: jsonHeaders,
+          body: JSON.stringify({
+            number,
+            mediatype: 'document',
+            mimetype: 'application/pdf',
+            ...(caption ? { caption } : {}),
+            media: mediaBase64,
+            fileName,
+          }),
+        },
+      },
+    ];
+
+    for (const fieldName of ['media', 'file', 'document']) {
+      const form = new FormData();
+      form.set('number', number);
+      if (caption) {
+        form.set('caption', caption);
+      }
+      form.set(fieldName, new Blob([bytes], { type: 'application/pdf' }), fileName);
+
+      attempts.push({
+        label: `multipart:min:${fieldName}`,
+        init: {
+          method: 'POST',
+          headers: { apikey: config.apiKey },
+          body: form,
+        },
+      });
+    }
+
+    const fullMultipart = new FormData();
+    fullMultipart.set('number', number);
+    if (caption) {
+      fullMultipart.set('caption', caption);
+    }
+    fullMultipart.set('mediatype', 'document');
+    fullMultipart.set('mimetype', 'application/pdf');
+    fullMultipart.set('fileName', fileName);
+    fullMultipart.set('media', new Blob([bytes], { type: 'application/pdf' }), fileName);
+    attempts.push({
+      label: 'multipart:full',
+      init: {
+        method: 'POST',
+        headers: { apikey: config.apiKey },
+        body: fullMultipart,
+      },
+    });
+
+    let lastFailure: EvolutionAttemptResult | null = null;
+    let serverErrors = 0;
+    let attemptsTried = 0;
+    const startedAt = Date.now();
+
+    for (const attempt of attempts) {
+      if (attemptsTried >= 12) break;
+      if (Date.now() - startedAt > 20_000) break;
+      attemptsTried += 1;
+
+      const result = await this.postAttempt(endpoint, attempt.init, attempt.label);
+      if (result.ok) {
+        return;
+      }
+
+      lastFailure = result;
+      if (result.status >= 500) {
+        serverErrors += 1;
+        if (serverErrors >= 2) {
+          break;
+        }
+      }
+
+      if (result.status === 401 || result.status === 403) {
+        break;
+      }
+
+      const retryable = [400, 404, 415, 422].includes(result.status) || result.status >= 500;
+      if (!retryable) {
+        break;
+      }
+    }
+
+    if (!lastFailure) {
+      throw new Error('No se pudo enviar PDF con Evolution API');
+    }
+
+    throw this.buildHttpError(lastFailure.status, lastFailure.bodyPreview);
   }
 }

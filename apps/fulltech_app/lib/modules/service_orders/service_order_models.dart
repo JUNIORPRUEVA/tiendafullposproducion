@@ -486,7 +486,10 @@ class ServiceOrderModel {
   final String? parentOrderId;
   final String createdById;
   final String? assignedToId;
+  final DateTime? scheduledFor;
   final DateTime? finalizedAt;
+  final DateTime? technicianConfirmedAt;
+  final String? technicianConfirmedById;
   final DateTime createdAt;
   final DateTime updatedAt;
   final List<ServiceOrderEvidenceModel> evidences;
@@ -505,7 +508,10 @@ class ServiceOrderModel {
     required this.parentOrderId,
     required this.createdById,
     required this.assignedToId,
+    required this.scheduledFor,
     required this.finalizedAt,
+    required this.technicianConfirmedAt,
+    required this.technicianConfirmedById,
     required this.createdAt,
     required this.updatedAt,
     this.evidences = const [],
@@ -538,7 +544,10 @@ class ServiceOrderModel {
     String? parentOrderId,
     String? createdById,
     String? assignedToId,
+    DateTime? scheduledFor,
     DateTime? finalizedAt,
+    DateTime? technicianConfirmedAt,
+    String? technicianConfirmedById,
     DateTime? createdAt,
     DateTime? updatedAt,
     List<ServiceOrderEvidenceModel>? evidences,
@@ -571,7 +580,12 @@ class ServiceOrderModel {
       assignedToId: clearAssignedToId
           ? null
           : (assignedToId ?? this.assignedToId),
-        finalizedAt: finalizedAt ?? this.finalizedAt,
+      scheduledFor: scheduledFor ?? this.scheduledFor,
+      finalizedAt: finalizedAt ?? this.finalizedAt,
+      technicianConfirmedAt:
+          technicianConfirmedAt ?? this.technicianConfirmedAt,
+      technicianConfirmedById:
+          technicianConfirmedById ?? this.technicianConfirmedById,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       evidences: evidences ?? this.evidences,
@@ -603,9 +617,16 @@ class ServiceOrderModel {
       parentOrderId: json['parentOrderId']?.toString(),
       createdById: (json['createdById'] ?? '').toString(),
       assignedToId: json['assignedToId']?.toString(),
-        finalizedAt: json['finalizedAt'] == null
+      scheduledFor: json['scheduledFor'] == null
+          ? null
+          : DateTime.tryParse(json['scheduledFor'].toString()),
+      finalizedAt: json['finalizedAt'] == null
           ? null
           : DateTime.tryParse(json['finalizedAt'].toString()),
+      technicianConfirmedAt: json['technicianConfirmedAt'] == null
+          ? null
+          : DateTime.tryParse(json['technicianConfirmedAt'].toString()),
+      technicianConfirmedById: json['technicianConfirmedById']?.toString(),
       createdAt:
           DateTime.tryParse((json['createdAt'] ?? '').toString()) ??
           DateTime.now(),
@@ -643,7 +664,10 @@ class ServiceOrderModel {
       'parentOrderId': parentOrderId,
       'createdById': createdById,
       'assignedToId': assignedToId,
+      'scheduledFor': scheduledFor?.toIso8601String(),
       'finalizedAt': finalizedAt?.toIso8601String(),
+      'technicianConfirmedAt': technicianConfirmedAt?.toIso8601String(),
+      'technicianConfirmedById': technicianConfirmedById,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
       'evidences': evidences
@@ -662,6 +686,7 @@ class CreateServiceOrderRequest {
   final String? technicalNote;
   final String? extraRequirements;
   final String? assignedToId;
+  final DateTime? scheduledFor;
 
   const CreateServiceOrderRequest({
     required this.clientId,
@@ -671,6 +696,7 @@ class CreateServiceOrderRequest {
     this.technicalNote,
     this.extraRequirements,
     this.assignedToId,
+    this.scheduledFor,
   });
 
   Map<String, dynamic> toJson() {
@@ -684,6 +710,7 @@ class CreateServiceOrderRequest {
       if ((extraRequirements ?? '').trim().isNotEmpty)
         'extraRequirements': extraRequirements!.trim(),
       if ((assignedToId ?? '').trim().isNotEmpty) 'assignedToId': assignedToId,
+      if (scheduledFor != null) 'scheduledFor': scheduledFor!.toIso8601String(),
     };
   }
 }
@@ -696,6 +723,7 @@ class UpdateServiceOrderRequest {
   final String? technicalNote;
   final String? extraRequirements;
   final String? assignedToId;
+  final DateTime? scheduledFor;
 
   const UpdateServiceOrderRequest({
     required this.clientId,
@@ -705,6 +733,7 @@ class UpdateServiceOrderRequest {
     this.technicalNote,
     this.extraRequirements,
     this.assignedToId,
+    this.scheduledFor,
   });
 
   Map<String, dynamic> toJson() {
@@ -722,6 +751,7 @@ class UpdateServiceOrderRequest {
       'assignedToId': assignedToId?.trim().isEmpty == true
           ? null
           : assignedToId?.trim(),
+      'scheduledFor': scheduledFor?.toIso8601String(),
     };
   }
 }

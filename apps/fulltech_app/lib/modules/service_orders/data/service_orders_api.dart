@@ -177,6 +177,20 @@ class ServiceOrdersApi {
     }
   }
 
+  Future<ServiceOrderModel> confirmOrder(String id) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.serviceOrderConfirm(id),
+        options: _backgroundOptions,
+      );
+      return ServiceOrderModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo confirmar la orden');
+    }
+  }
+
   Future<ServiceOrderEvidenceModel> addEvidence(
     String orderId,
     CreateServiceOrderEvidenceRequest request,

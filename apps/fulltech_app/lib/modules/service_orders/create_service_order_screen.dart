@@ -64,14 +64,14 @@ class _CreateServiceOrderScreenState
     final controller = ref.read(provider.notifier);
     final user = ref.watch(authStateProvider).user;
     final isCreatorEditingOrder =
-      widget.args?.isEditMode == true &&
-      widget.args?.editSource?.createdById == user?.id;
+        widget.args?.isEditMode == true &&
+        widget.args?.editSource?.createdById == user?.id;
     final canManageOperationalFields =
-      user?.appRole.isTechnician == true ||
-      user?.appRole.isAdmin == true ||
-      isCreatorEditingOrder;
+        user?.appRole.isTechnician == true ||
+        user?.appRole.isAdmin == true ||
+        isCreatorEditingOrder;
     final canAssignTechnician =
-      user?.appRole.isAdmin == true || isCreatorEditingOrder;
+        user?.appRole.isAdmin == true || isCreatorEditingOrder;
     final canCreateClients =
         user?.appRole == AppRole.admin ||
         user?.appRole == AppRole.asistente ||
@@ -449,6 +449,32 @@ class _CreateServiceOrderScreenState
                     .toList(growable: false),
                 onChanged: (value) => controller.setServiceType(value),
               ),
+              const SizedBox(height: 12),
+              InputSelector(
+                label: 'Fecha y hora del servicio',
+                value: state.scheduledFor == null
+                    ? 'Programar visita'
+                    : DateFormat(
+                        'dd/MM/yyyy h:mm a',
+                        'es_DO',
+                      ).format(state.scheduledFor!),
+                hint: state.scheduledFor == null
+                    ? 'Opcional. Se enviará recordatorio 30 minutos antes.'
+                    : 'La notificación se activará 30 minutos antes.',
+                icon: Icons.event_available_outlined,
+                onTap: () => _pickScheduledFor(context, state, controller),
+              ),
+              if (state.scheduledFor != null) ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => controller.setScheduledFor(null),
+                    icon: const Icon(Icons.event_busy_outlined),
+                    label: const Text('Quitar fecha programada'),
+                  ),
+                ),
+              ],
               if (canAssignTechnician) ...[
                 const SizedBox(height: 12),
                 InputSelector(
@@ -614,6 +640,39 @@ class _CreateServiceOrderScreenState
         setState(() => _inlineFlowBusy = false);
       }
     }
+  }
+
+  Future<void> _pickScheduledFor(
+    BuildContext context,
+    CreateServiceOrderState state,
+    CreateServiceOrderController controller,
+  ) async {
+    final now = DateTime.now();
+    final initial = state.scheduledFor ?? now.add(const Duration(hours: 1));
+
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(now.year + 2),
+    );
+    if (pickedDate == null || !context.mounted || !mounted) return;
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (pickedTime == null || !context.mounted || !mounted) return;
+
+    controller.setScheduledFor(
+      DateTime(
+        pickedDate.year,
+        pickedDate.month,
+        pickedDate.day,
+        pickedTime.hour,
+        pickedTime.minute,
+      ),
+    );
   }
 
   Future<void> _pickTechnician(

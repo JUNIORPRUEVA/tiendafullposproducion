@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -16,6 +17,7 @@ import { RedisService } from '../common/redis/redis.service';
 import { PayrollService } from '../payroll/payroll.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CatalogRealtimeRelayService } from '../products/catalog-realtime-relay.service';
+import { ServiceOrderNotificationsListener } from '../notifications/service-order-notifications.listener';
 import { CloneServiceOrderDto } from './dto/clone-service-order.dto';
 import { CreateEvidenceDto } from './dto/create-evidence.dto';
 import { CreateReportDto } from './dto/create-report.dto';
@@ -83,11 +85,14 @@ type ServiceSalesOrderWithRelations = Prisma.ServiceOrderGetPayload<{
 
 @Injectable()
 export class ServiceOrdersService {
+  private readonly logger = new Logger(ServiceOrdersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly realtime: CatalogRealtimeRelayService,
     private readonly payroll: PayrollService,
+    private readonly orderNotifications: ServiceOrderNotificationsListener,
   ) {}
 
   async create(user: AuthUser, dto: CreateServiceOrderDto) {
@@ -101,6 +106,9 @@ export class ServiceOrdersService {
       const mapped = this.mapOrder(created);
       await this.invalidateCachesForOrder(created.id);
       this.emitOrderEvent('service.created', created.id, mapped);
+      await this.runNotificationHook(`service.created:${created.id}`, () =>
+        this.orderNotifications.handleOrderCreated(created.id),
+      );
       return mapped;
     } catch (error) {
       this.rethrowWriteError(error);
@@ -229,6 +237,9 @@ export class ServiceOrdersService {
     const serviceType = this.cleanOptionalText(dto.serviceType, dto.service_type) as ApiServiceOrderType | null;
     const technicalNote = this.cleanOptionalText(dto.technicalNote, dto.technical_note);
     const extraRequirements = this.cleanOptionalText(dto.extraRequirements, dto.extra_requirements);
+    const scheduledFor = this.hasScheduledForInput(dto)
+      ? this.parseOptionalDate(dto.scheduledFor, dto.scheduled_for, 'scheduled_for')
+      : current.scheduledFor;
     const assignedToId = this.hasAssignedToInput(dto)
       ? await this.resolveAssignedToId(dto.assignedToId, dto.assigned_to)
       : current.assignedToId;
@@ -249,6 +260,7 @@ export class ServiceOrdersService {
           serviceType: serviceType
             ? SERVICE_ORDER_TYPE_TO_DB[serviceType]
             : current.serviceType,
+          scheduledFor,
           technicalNote: this.hasTextInput(dto, 'technicalNote', 'technical_note')
             ? technicalNote
             : current.technicalNote,
@@ -261,6 +273,9 @@ export class ServiceOrdersService {
       const mapped = this.mapOrder(updated);
       await this.invalidateCachesForOrder(updated.id);
       this.emitOrderEvent('service.updated', updated.id, mapped);
+      await this.runNotificationHook(`service.updated:${updated.id}`, () =>
+        this.orderNotifications.handleOrderUpdated(updated.id),
+      );
       return mapped;
     } catch (error) {
       this.rethrowWriteError(error);
@@ -271,8 +286,9 @@ export class ServiceOrdersService {
     const item = await this.findOrderOrThrow(user, id);
     this.assertCanModifyOrder(user, item);
 
+    const previousStatus = this.toApiStatus(item.status);
     const nextStatus = dto.status as ApiServiceOrderStatus;
-    this.assertValidStatusTransition(this.toApiStatus(item.status), nextStatus);
+    this.assertValidStatusTransition(previousStatus, nextStatus);
     const resolvedAssignedToId =
       nextStatus === 'finalizado' && user.role === Role.TECNICO
         ? user.id
@@ -294,6 +310,55 @@ export class ServiceOrdersService {
       const mapped = this.mapOrder(updated);
       await this.invalidateCachesForOrder(updated.id);
       this.emitOrderEvent('service.status_changed', updated.id, mapped);
+      await this.runNotificationHook(`service.status_changed:${updated.id}:${previousStatus}->${nextStatus}`, () =>
+        this.orderNotifications.handleStatusChanged(updated.id, previousStatus, nextStatus),
+      );
+      return mapped;
+    } catch (error) {
+      this.rethrowWriteError(error);
+    }
+  }
+
+  async confirm(user: AuthUser, id: string) {
+    const item = await this.findOrderOrThrow(user, id);
+
+    if (user.role !== Role.TECNICO) {
+      throw new ForbiddenException('Solo un técnico puede confirmar esta orden');
+    }
+
+    if (item.status !== PrismaServiceOrderStatus.PENDIENTE) {
+      throw new BadRequestException('Solo se pueden confirmar órdenes pendientes');
+    }
+
+    if (item.technicianConfirmedById === user.id) {
+      const snapshot = await this.findOrderWithRelationsOrThrow(user, id);
+      return this.mapOrder(snapshot);
+    }
+
+    if (item.technicianConfirmedById && item.technicianConfirmedById !== user.id) {
+      throw new BadRequestException('La orden ya fue confirmada por otro técnico');
+    }
+
+    if (item.assignedToId && item.assignedToId !== user.id) {
+      throw new ForbiddenException('La orden está asignada a otro técnico');
+    }
+
+    try {
+      const updated = await this.prisma.serviceOrder.update({
+        where: { id },
+        include: { client: true },
+        data: {
+          assignedToId: item.assignedToId ?? user.id,
+          technicianConfirmedAt: item.technicianConfirmedAt ?? new Date(),
+          technicianConfirmedById: item.technicianConfirmedById ?? user.id,
+        },
+      });
+      const mapped = this.mapOrder(updated);
+      await this.invalidateCachesForOrder(updated.id);
+      this.emitOrderEvent('service.confirmed', updated.id, mapped);
+      await this.runNotificationHook(`service.confirmed:${updated.id}:${user.id}`, () =>
+        this.orderNotifications.handleOrderConfirmed(updated.id, user.id),
+      );
       return mapped;
     } catch (error) {
       this.rethrowWriteError(error);
@@ -379,6 +444,9 @@ export class ServiceOrdersService {
       const mapped = this.mapOrder(cloned);
       await this.invalidateCachesForOrder(cloned.id);
       this.emitOrderEvent('service.created', cloned.id, mapped);
+      await this.runNotificationHook(`service.created:${cloned.id}`, () =>
+        this.orderNotifications.handleOrderCreated(cloned.id),
+      );
       return mapped;
     } catch (error) {
       this.rethrowWriteError(error);
@@ -458,6 +526,7 @@ export class ServiceOrdersService {
     const quotationId = this.requireAliasValue(dto.quotationId, dto.quotation_id, 'quotation_id');
     const category = this.requireDirectValue(dto.category, 'category') as ApiServiceOrderCategory;
     const serviceType = this.requireAliasValue(dto.serviceType, dto.service_type, 'service_type') as ApiServiceOrderType;
+    const scheduledFor = this.parseOptionalDate(dto.scheduledFor, dto.scheduled_for, 'scheduled_for');
     const technicalNote = this.cleanOptionalText(dto.technicalNote, dto.technical_note);
     const extraRequirements = this.cleanOptionalText(dto.extraRequirements, dto.extra_requirements);
     const assignedToId = await this.resolveAssignedToId(dto.assignedToId, dto.assigned_to);
@@ -471,6 +540,7 @@ export class ServiceOrdersService {
       category: SERVICE_ORDER_CATEGORY_TO_DB[category],
       serviceType: SERVICE_ORDER_TYPE_TO_DB[serviceType],
       status: SERVICE_ORDER_STATUS_TO_DB.pendiente,
+      scheduledFor,
       technicalNote,
       extraRequirements,
       createdById: user.id,
@@ -695,6 +765,11 @@ export class ServiceOrdersService {
       Object.prototype.hasOwnProperty.call(dto, 'assigned_to');
   }
 
+  private hasScheduledForInput(dto: UpdateServiceOrderDto) {
+    return Object.prototype.hasOwnProperty.call(dto, 'scheduledFor') ||
+      Object.prototype.hasOwnProperty.call(dto, 'scheduled_for');
+  }
+
   private assertCanFullyEditOrder(
     user: AuthUser,
     item: { createdById: string },
@@ -801,6 +876,15 @@ export class ServiceOrdersService {
     ) {
       throw new ForbiddenException('Not authorized to modify this order');
     }
+
+    if (dto.scheduledFor !== undefined || dto.scheduled_for !== undefined) {
+      const nextScheduledFor = this.parseOptionalDate(dto.scheduledFor, dto.scheduled_for, 'scheduled_for');
+      const currentIso = current.scheduledFor?.toISOString() ?? null;
+      const nextIso = nextScheduledFor?.toISOString() ?? null;
+      if (currentIso !== nextIso) {
+        throw new ForbiddenException('Not authorized to modify this order');
+      }
+    }
   }
 
   private assertCanAddEvidenceType(user: AuthUser, type: ApiServiceEvidenceType) {
@@ -903,6 +987,34 @@ export class ServiceOrdersService {
     return null;
   }
 
+  private parseOptionalDate(
+    primary?: string | null,
+    alias?: string | null,
+    fieldName = 'date',
+  ): Date | null {
+    for (const value of [primary, alias]) {
+      if (value == null) continue;
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      const parsed = new Date(trimmed);
+      if (Number.isNaN(parsed.getTime())) {
+        throw new BadRequestException(`El campo ${fieldName} debe ser una fecha válida`);
+      }
+      return parsed;
+    }
+
+    return null;
+  }
+
+  private async runNotificationHook(label: string, action: () => Promise<void>) {
+    try {
+      await action();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Notification hook failed ${label}: ${message}`);
+    }
+  }
+
   private toApiStatus(status: ServiceOrderRecord['status']) {
     return SERVICE_ORDER_STATUS_FROM_DB[status];
   }
@@ -969,7 +1081,10 @@ export class ServiceOrdersService {
       category: SERVICE_ORDER_CATEGORY_FROM_DB[item.category],
       serviceType: SERVICE_ORDER_TYPE_FROM_DB[item.serviceType],
       status: SERVICE_ORDER_STATUS_FROM_DB[item.status],
+      scheduledFor: item.scheduledFor,
       finalizedAt: item.finalizedAt,
+      technicianConfirmedAt: item.technicianConfirmedAt,
+      technicianConfirmedById: item.technicianConfirmedById,
       technicalNote: item.technicalNote,
       extraRequirements: item.extraRequirements,
       parentOrderId: item.parentOrderId,

@@ -17,7 +17,7 @@ class ApiRoutes {
   static const usersMeWorkContractSign = '/users/me/work-contract/sign';
   static String userWorkContractAiEdit(String id) =>
       '/users/$id/work-contract/ai-edit';
-    static const upload = '/upload';
+  static const upload = '/upload';
 
   // Ponche
   static const punch = '/punch';
@@ -148,17 +148,18 @@ class ApiRoutes {
   static const cotizacionAiAnalyze = '/cotizaciones/ai/analyze';
   static const cotizacionAiChat = '/cotizaciones/ai/chat';
 
-    // Service orders
-    static const serviceOrders = '/service-orders';
-    static const serviceOrderSalesSummary = '/service-orders/sales-summary';
-    static String serviceOrderDetail(String id) => '/service-orders/$id';
-    static String serviceOrderUpdate(String id) => '/service-orders/$id';
-    static String serviceOrderDelete(String id) => '/service-orders/$id';
-    static String serviceOrderStatus(String id) => '/service-orders/$id/status';
-    static String serviceOrderEvidences(String id) =>
-            '/service-orders/$id/evidences';
-    static String serviceOrderReport(String id) => '/service-orders/$id/report';
-    static String serviceOrderClone(String id) => '/service-orders/$id/clone';
+  // Service orders
+  static const serviceOrders = '/service-orders';
+  static const serviceOrderSalesSummary = '/service-orders/sales-summary';
+  static String serviceOrderDetail(String id) => '/service-orders/$id';
+  static String serviceOrderUpdate(String id) => '/service-orders/$id';
+  static String serviceOrderDelete(String id) => '/service-orders/$id';
+  static String serviceOrderStatus(String id) => '/service-orders/$id/status';
+  static String serviceOrderConfirm(String id) => '/service-orders/$id/confirm';
+  static String serviceOrderEvidences(String id) =>
+      '/service-orders/$id/evidences';
+  static String serviceOrderReport(String id) => '/service-orders/$id/report';
+  static String serviceOrderClone(String id) => '/service-orders/$id/clone';
 
   // Asistente IA (global)
   static const aiChat = '/ai/chat';

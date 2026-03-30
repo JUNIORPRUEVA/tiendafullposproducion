@@ -28,6 +28,7 @@ class CreateServiceOrderState {
   final ClienteModel? selectedClient;
   final CotizacionModel? selectedQuotation;
   final UserModel? selectedTechnician;
+  final DateTime? scheduledFor;
   final ServiceOrderCategory category;
   final ServiceOrderType? serviceType;
   final ServiceOrderModel? cloneSource;
@@ -50,6 +51,7 @@ class CreateServiceOrderState {
     this.selectedClient,
     this.selectedQuotation,
     this.selectedTechnician,
+    this.scheduledFor,
     this.category = ServiceOrderCategory.camara,
     this.serviceType,
     this.cloneSource,
@@ -76,6 +78,7 @@ class CreateServiceOrderState {
     ClienteModel? selectedClient,
     CotizacionModel? selectedQuotation,
     UserModel? selectedTechnician,
+    DateTime? scheduledFor,
     ServiceOrderCategory? category,
     ServiceOrderType? serviceType,
     ServiceOrderModel? cloneSource,
@@ -108,6 +111,7 @@ class CreateServiceOrderState {
       selectedTechnician: clearSelectedTechnician
           ? null
           : (selectedTechnician ?? this.selectedTechnician),
+      scheduledFor: scheduledFor ?? this.scheduledFor,
       category: category ?? this.category,
       serviceType: serviceType ?? this.serviceType,
       cloneSource: cloneSource ?? this.cloneSource,
@@ -148,6 +152,8 @@ class CreateServiceOrderController
         CreateServiceOrderState(
           cloneSource: args?.cloneSource,
           editSource: args?.editSource,
+          scheduledFor:
+              args?.editSource?.scheduledFor ?? args?.cloneSource?.scheduledFor,
           category:
               args?.editSource?.category ??
               args?.cloneSource?.category ??
@@ -161,13 +167,13 @@ class CreateServiceOrderController
   String get _ownerId => ref.read(authStateProvider).user?.id ?? '';
   AppRole get _currentRole =>
       ref.read(authStateProvider).user?.appRole ?? AppRole.unknown;
-    bool get _isCreatorEditingOrder =>
+  bool get _isCreatorEditingOrder =>
       args?.isEditMode == true && args?.editSource?.createdById == _ownerId;
   bool get _canEditOperationalNotes =>
       _currentRole == AppRole.tecnico ||
       _currentRole == AppRole.admin ||
       _isCreatorEditingOrder;
-    bool get _canAssignTechnician =>
+  bool get _canAssignTechnician =>
       _currentRole == AppRole.admin || _isCreatorEditingOrder;
 
   Future<void> load() async {
@@ -222,6 +228,7 @@ class CreateServiceOrderController
         technicians: technicians,
         selectedClient: selectedClient,
         selectedTechnician: selectedTechnician,
+        scheduledFor: seedOrder?.scheduledFor,
         serviceType: seedOrder?.serviceType,
       );
       if (selectedClient != null) {
@@ -435,6 +442,10 @@ class CreateServiceOrderController
     );
   }
 
+  void setScheduledFor(DateTime? value) {
+    state = state.copyWith(scheduledFor: value, clearActionError: true);
+  }
+
   Future<CreateServiceOrderSubmissionResult> submit({
     required String technicalNote,
     required String extraRequirements,
@@ -481,6 +492,7 @@ class CreateServiceOrderController
                     technicalNote: technicalNoteValue,
                     extraRequirements: extraRequirementsValue,
                     assignedToId: assignedToId,
+                    scheduledFor: state.scheduledFor,
                   ),
                 )
           : state.isCloneMode
@@ -506,6 +518,7 @@ class CreateServiceOrderController
                     technicalNote: technicalNoteValue,
                     extraRequirements: extraRequirementsValue,
                     assignedToId: assignedToId,
+                    scheduledFor: state.scheduledFor,
                   ),
                 );
       final warningMessage = await _sendDraftReferences(result.id);

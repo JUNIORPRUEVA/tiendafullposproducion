@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/app_role.dart';
+import '../../../core/auth/auth_provider.dart';
 import '../../../core/utils/app_feedback.dart';
 import '../service_order_models.dart';
 import '../application/service_order_card_actions_controller.dart';
@@ -10,7 +12,7 @@ import '../application/service_order_card_actions_controller.dart';
 enum _EvidencePickType { image, video }
 
 /// Modal que muestra 3 opciones de acciones rápidas para una orden.
-/// 
+///
 /// 1. Cambiar estado
 /// 2. Agregar evidencia (imagen/video)
 /// 3. Agregar reporte técnico
@@ -55,10 +57,25 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(serviceOrderCardActionsProvider(orderId));
+    final currentUser = ref.watch(authStateProvider).user;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final screenHeight = MediaQuery.sizeOf(context).height;
+    final canConfirmOrder =
+        currentUser?.appRole.isTechnician == true &&
+        order.status == ServiceOrderStatus.pendiente &&
+        (order.assignedToId == null || order.assignedToId == currentUser?.id);
     final actionCards = <Widget>[
+      if (canConfirmOrder)
+        _ActionButton(
+          icon: Icons.check_circle_outline_rounded,
+          label: 'Confirmar servicio',
+          subtitle: 'Toma la orden en la app y avisa al creador.',
+          isHighlighted: true,
+          badgeText: 'Nuevo',
+          isLoading: state.loading,
+          onTap: state.loading ? null : () => _confirmOrder(context, ref),
+        ),
       _ActionButton(
         icon: Icons.sync_alt_rounded,
         label: 'Cambiar estado',
@@ -121,9 +138,13 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                           height: 42,
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(12),
-                            color: const Color(0xFF22D3EE).withValues(alpha: 0.16),
+                            color: const Color(
+                              0xFF22D3EE,
+                            ).withValues(alpha: 0.16),
                             border: Border.all(
-                              color: const Color(0xFF22D3EE).withValues(alpha: 0.5),
+                              color: const Color(
+                                0xFF22D3EE,
+                              ).withValues(alpha: 0.5),
                             ),
                           ),
                           child: const Icon(
@@ -166,10 +187,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                   ),
                   child: Text(
                     state.error!,
-                    style: TextStyle(
-                      color: colorScheme.error,
-                      fontSize: 13,
-                    ),
+                    style: TextStyle(color: colorScheme.error, fontSize: 13),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -220,11 +238,19 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    const _InstructionBullet(text: 'Pre-instalacion: suba 1 a 2 fotos o 1 video.'),
+                    const _InstructionBullet(
+                      text: 'Pre-instalacion: suba 1 a 2 fotos o 1 video.',
+                    ),
                     const SizedBox(height: 6),
-                    const _InstructionBullet(text: 'Post-instalacion: suba 1 a 2 videos y tambien 3 a 5 fotos.'),
+                    const _InstructionBullet(
+                      text:
+                          'Post-instalacion: suba 1 a 2 videos y tambien 3 a 5 fotos.',
+                    ),
                     const SizedBox(height: 6),
-                    const _InstructionBullet(text: 'Orden obligatorio: primero pre-instalacion y luego post-instalacion.'),
+                    const _InstructionBullet(
+                      text:
+                          'Orden obligatorio: primero pre-instalacion y luego post-instalacion.',
+                    ),
                   ],
                 ),
               ),
@@ -245,13 +271,11 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
   }
 
   Future<void> _changeStatus(BuildContext sheetContext, WidgetRef ref) async {
-    final statuses = [
-      order.status,
-      ...order.status.allowedNextStatuses,
-    ].fold<List<ServiceOrderStatus>>([], (acc, item) {
-      if (!acc.contains(item)) acc.add(item);
-      return acc;
-    });
+    final statuses = [order.status, ...order.status.allowedNextStatuses]
+        .fold<List<ServiceOrderStatus>>([], (acc, item) {
+          if (!acc.contains(item)) acc.add(item);
+          return acc;
+        });
 
     if (!sheetContext.mounted) return;
 
@@ -334,6 +358,28 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     }
   }
 
+  Future<void> _confirmOrder(BuildContext sheetContext, WidgetRef ref) async {
+    try {
+      await ref
+          .read(serviceOrderCardActionsProvider(orderId).notifier)
+          .confirmOrder();
+
+      if (!sheetContext.mounted) return;
+      Navigator.pop(sheetContext);
+
+      if (!parentContext.mounted) return;
+      await AppFeedback.showInfo(parentContext, 'Orden confirmada');
+      onOrderUpdated();
+    } catch (_) {
+      if (!sheetContext.mounted) return;
+      final error = ref.read(serviceOrderCardActionsProvider(orderId)).error;
+      await AppFeedback.showError(
+        sheetContext,
+        error ?? 'No se pudo confirmar la orden',
+      );
+    }
+  }
+
   Future<void> _addEvidence(BuildContext sheetContext, WidgetRef ref) async {
     final selectedType = await _pickEvidenceType(sheetContext);
     if (selectedType == null) {
@@ -402,7 +448,8 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                 );
             uploadedCount++;
           } catch (_) {
-            lastError = ref.read(serviceOrderCardActionsProvider(orderId)).error ??
+            lastError =
+                ref.read(serviceOrderCardActionsProvider(orderId)).error ??
                 'No se pudo subir una de las imagenes';
           }
         }
@@ -438,7 +485,9 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
       if (!parentContext.mounted) return;
       await AppFeedback.showInfo(
         parentContext,
-        isVideo ? 'Video agregado correctamente' : 'Imagen agregada correctamente',
+        isVideo
+            ? 'Video agregado correctamente'
+            : 'Imagen agregada correctamente',
       );
       onOrderUpdated();
     } catch (_) {
@@ -527,18 +576,28 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+                      color: colorScheme.surfaceContainerHighest.withValues(
+                        alpha: 0.55,
+                      ),
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(color: colorScheme.outlineVariant),
                     ),
                     child: const Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _InstructionBullet(text: 'Pre-instalacion: 1 a 2 fotos o 1 video.'),
+                        _InstructionBullet(
+                          text: 'Pre-instalacion: 1 a 2 fotos o 1 video.',
+                        ),
                         SizedBox(height: 6),
-                        _InstructionBullet(text: 'Post-instalacion: 1 a 2 videos y tambien 3 a 5 fotos.'),
+                        _InstructionBullet(
+                          text:
+                              'Post-instalacion: 1 a 2 videos y tambien 3 a 5 fotos.',
+                        ),
                         SizedBox(height: 6),
-                        _InstructionBullet(text: 'Orden obligatorio: primero pre-instalacion y luego post-instalacion.'),
+                        _InstructionBullet(
+                          text:
+                              'Orden obligatorio: primero pre-instalacion y luego post-instalacion.',
+                        ),
                       ],
                     ),
                   ),
@@ -546,15 +605,19 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                   _EvidenceTypeButton(
                     icon: Icons.image_outlined,
                     title: 'Subir imagen',
-                    subtitle: 'Usa esta opción para fotos del antes, proceso y resultado final',
-                    onTap: () => Navigator.pop(modalContext, _EvidencePickType.image),
+                    subtitle:
+                        'Usa esta opción para fotos del antes, proceso y resultado final',
+                    onTap: () =>
+                        Navigator.pop(modalContext, _EvidencePickType.image),
                   ),
                   const SizedBox(height: 10),
                   _EvidenceTypeButton(
                     icon: Icons.videocam_outlined,
                     title: 'Subir video',
-                    subtitle: 'Usa esta opción para recorridos, funcionamiento o pruebas del sistema',
-                    onTap: () => Navigator.pop(modalContext, _EvidencePickType.video),
+                    subtitle:
+                        'Usa esta opción para recorridos, funcionamiento o pruebas del sistema',
+                    onTap: () =>
+                        Navigator.pop(modalContext, _EvidencePickType.video),
                   ),
                 ],
               ),
@@ -598,7 +661,8 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                 _EvidenceTypeButton(
                   icon: Icons.assignment_ind_outlined,
                   title: ServiceReportType.requerimientoCliente.label,
-                  subtitle: 'Para solicitudes o requerimientos adicionales del cliente',
+                  subtitle:
+                      'Para solicitudes o requerimientos adicionales del cliente',
                   onTap: () => Navigator.pop(
                     modalContext,
                     ServiceReportType.requerimientoCliente,
@@ -618,11 +682,10 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                 _EvidenceTypeButton(
                   icon: Icons.notes_outlined,
                   title: ServiceReportType.otros.label,
-                  subtitle: 'Para cualquier otra observación relevante de la orden',
-                  onTap: () => Navigator.pop(
-                    modalContext,
-                    ServiceReportType.otros,
-                  ),
+                  subtitle:
+                      'Para cualquier otra observación relevante de la orden',
+                  onTap: () =>
+                      Navigator.pop(modalContext, ServiceReportType.otros),
                 ),
               ],
             ),
@@ -702,11 +765,19 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                         child: const Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _InstructionBullet(text: 'Detalle qué se hizo en la visita técnica.'),
+                            _InstructionBullet(
+                              text: 'Detalle qué se hizo en la visita técnica.',
+                            ),
                             SizedBox(height: 6),
-                            _InstructionBullet(text: 'Anote requerimientos extra del cliente o solicitudes especiales.'),
+                            _InstructionBullet(
+                              text:
+                                  'Anote requerimientos extra del cliente o solicitudes especiales.',
+                            ),
                             SizedBox(height: 6),
-                            _InstructionBullet(text: 'Registre levantamiento, materiales faltantes o pendientes detectados.'),
+                            _InstructionBullet(
+                              text:
+                                  'Registre levantamiento, materiales faltantes o pendientes detectados.',
+                            ),
                           ],
                         ),
                       ),
@@ -807,7 +878,9 @@ class _ActionButton extends StatelessWidget {
     final iconContainerColor = isHighlighted
         ? const Color(0xFF0369A1).withValues(alpha: 0.18)
         : colorScheme.primary.withValues(alpha: 0.12);
-    final iconColor = isHighlighted ? const Color(0xFF075985) : colorScheme.primary;
+    final iconColor = isHighlighted
+        ? const Color(0xFF075985)
+        : colorScheme.primary;
 
     return Material(
       color: Colors.transparent,
@@ -818,9 +891,7 @@ class _ActionButton extends StatelessWidget {
           decoration: BoxDecoration(
             color: cardColor,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: borderColor,
-            ),
+            border: Border.all(color: borderColor),
             boxShadow: isHighlighted
                 ? const [
                     BoxShadow(
@@ -844,20 +915,14 @@ class _ActionButton extends StatelessWidget {
                 child: Center(
                   child: isLoading
                       ? SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation(
-                            iconColor,
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation(iconColor),
                           ),
-                        ),
-                      )
-                      : Icon(
-                        icon,
-                        color: iconColor,
-                        size: 20,
-                      ),
+                        )
+                      : Icon(icon, color: iconColor, size: 20),
                 ),
               ),
               const SizedBox(width: 10),
@@ -879,12 +944,19 @@ class _ActionButton extends StatelessWidget {
                         ),
                         if (badgeText != null)
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF0284C7).withValues(alpha: 0.14),
+                              color: const Color(
+                                0xFF0284C7,
+                              ).withValues(alpha: 0.14),
                               borderRadius: BorderRadius.circular(999),
                               border: Border.all(
-                                color: const Color(0xFF0284C7).withValues(alpha: 0.32),
+                                color: const Color(
+                                  0xFF0284C7,
+                                ).withValues(alpha: 0.32),
                               ),
                             ),
                             child: Text(
@@ -1107,7 +1179,10 @@ class _StatusSelectionTile extends StatelessWidget {
               ),
               if (isCurrent)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
                   decoration: BoxDecoration(
                     color: status.color.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(999),

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { hostname } from 'os';
 import { PrismaService } from '../prisma/prisma.service';
@@ -10,6 +10,8 @@ const WORKER_ID = `${hostname()}-${process.pid}`;
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly evolution: EvolutionWhatsAppService,
@@ -238,9 +240,13 @@ export class NotificationsService {
 
     const commonData = {
       channel: 'WHATSAPP' as const,
+      contentType: 'TEXT' as any,
       templateKey: 'custom_text',
       dedupeKey,
       messageText,
+      mediaBase64: null as any,
+      mediaFileName: null as any,
+      mediaMimeType: null as any,
       payload: (params.payload ?? null) as any,
       recipientUserId: (params.recipientUserId ?? null) as any,
       toNumber: rawPhone,
@@ -367,6 +373,7 @@ export class NotificationsService {
     return this.prisma.notificationOutbox.create({
       data: {
         channel: 'WHATSAPP',
+        contentType: 'TEXT' as any,
         status: 'PENDING',
         templateKey: 'custom_text',
         dedupeKey: params.dedupeKey ?? null,
@@ -378,6 +385,68 @@ export class NotificationsService {
         attempts: 0,
         nextAttemptAt: new Date(),
       },
+    });
+  }
+
+  async enqueueWhatsAppDocument(params: {
+    toNumber: string;
+    messageText: string;
+    fileName: string;
+    bytes: Uint8Array;
+    mimeType?: string;
+    dedupeKey?: string;
+    payload?: unknown;
+    recipientUserId?: string | null;
+  }) {
+    const rawPhone = (params.toNumber ?? '').toString().trim();
+    const normalized = this.evolution.normalizeWhatsAppNumber(rawPhone);
+    const fileName = (params.fileName ?? '').toString().trim() || 'document.pdf';
+    const mimeType = (params.mimeType ?? 'application/pdf').toString().trim() || 'application/pdf';
+    const bytes = params.bytes instanceof Uint8Array ? params.bytes : new Uint8Array(params.bytes);
+    let messageText = (params.messageText ?? '').toString();
+    messageText = await this.maybeInjectOrderNumber(messageText, params.payload);
+
+    const data = {
+      channel: 'WHATSAPP' as const,
+      contentType: 'DOCUMENT' as any,
+      status: (!normalized || !bytes.length || !messageText.trim()) ? 'FAILED' as const : 'PENDING' as const,
+      templateKey: 'custom_document',
+      dedupeKey: params.dedupeKey ?? null,
+      messageText,
+      mediaBase64: bytes.length ? Buffer.from(bytes).toString('base64') : null,
+      mediaFileName: fileName,
+      mediaMimeType: mimeType,
+      payload: (params.payload ?? null) as any,
+      recipientUserId: (params.recipientUserId ?? null) as any,
+      toNumber: rawPhone,
+      toNumberNormalized: normalized || '',
+      attempts: 0,
+      nextAttemptAt: new Date(),
+      lastError: !normalized
+        ? 'Número de WhatsApp inválido'
+        : !bytes.length
+          ? 'El documento está vacío'
+          : !messageText.trim()
+            ? 'Mensaje vacío'
+            : null,
+    };
+
+    if (params.dedupeKey?.trim()) {
+      return this.prisma.notificationOutbox.upsert({
+        where: { dedupeKey: params.dedupeKey.trim() },
+        create: data,
+        update: {
+          ...data,
+          lockedAt: null,
+          lockedBy: null,
+          sentAt: null,
+          lastStatusCode: null,
+        },
+      });
+    }
+
+    return this.prisma.notificationOutbox.create({
+      data,
     });
   }
 
@@ -401,6 +470,7 @@ export class NotificationsService {
       return this.prisma.notificationOutbox.create({
         data: {
           channel: 'WHATSAPP',
+          contentType: 'TEXT' as any,
           status: 'FAILED',
           templateKey: params.payload.template,
           dedupeKey: params.dedupeKey ?? null,
@@ -420,6 +490,7 @@ export class NotificationsService {
       return this.prisma.notificationOutbox.create({
         data: {
           channel: 'WHATSAPP',
+          contentType: 'TEXT' as any,
           status: 'FAILED',
           templateKey: params.payload.template,
           dedupeKey: params.dedupeKey ?? null,
@@ -438,6 +509,7 @@ export class NotificationsService {
     return this.prisma.notificationOutbox.create({
       data: {
         channel: 'WHATSAPP',
+        contentType: 'TEXT' as any,
         status: 'PENDING',
         templateKey: params.payload.template,
         dedupeKey: params.dedupeKey ?? null,
@@ -564,10 +636,28 @@ export class NotificationsService {
           // ignore and attempt send
         }
 
-        await this.evolution.sendTextMessage({
-          toNumber: row.toNumberNormalized,
-          message: row.messageText,
-        });
+        const contentType = String((row as any).contentType ?? 'TEXT').toUpperCase();
+        if (contentType === 'DOCUMENT') {
+          const mediaBase64 = ((row as any).mediaBase64 ?? '').toString();
+          const mediaFileName = ((row as any).mediaFileName ?? '').toString().trim() || 'document.pdf';
+          if (!mediaBase64.trim()) {
+            throw new Error('Documento faltante en notification_outbox');
+          }
+
+          await this.evolution.sendPdfDocument({
+            toNumber: row.toNumberNormalized,
+            bytes: Buffer.from(mediaBase64, 'base64'),
+            fileName: mediaFileName,
+            caption: row.messageText,
+          });
+        } else {
+          await this.evolution.sendTextMessage({
+            toNumber: row.toNumberNormalized,
+            message: row.messageText,
+          });
+        }
+
+        this.logger.log(`notification sent id=${row.id} contentType=${contentType} to=${row.toNumberNormalized}`);
 
         await this.prisma.notificationOutbox.update({
           where: { id: row.id },
@@ -668,6 +758,8 @@ export class NotificationsService {
         const maxAttempts = 6;
         const errMsg = (e as any)?.message ? String((e as any).message) : String(e);
         const statusCode = typeof (e as any)?.status === 'number' ? (e as any).status : null;
+
+        this.logger.warn(`notification failed id=${row.id} attempts=${attempts} status=${statusCode ?? 'n/a'} error=${errMsg}`);
 
         await this.prisma.notificationOutbox.update({
           where: { id: row.id },

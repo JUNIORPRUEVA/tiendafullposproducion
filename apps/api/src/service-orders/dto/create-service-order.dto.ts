@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsDateString, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
 import {
   SERVICE_ORDER_CATEGORY_VALUES,
   SERVICE_ORDER_STATUS_VALUES,
@@ -61,4 +61,12 @@ export class CreateServiceOrderDto {
   @IsOptional()
   @IsUUID()
   assigned_to?: string;
+
+  @IsOptional()
+  @IsDateString()
+  scheduledFor?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  scheduled_for?: string | null;
 }
