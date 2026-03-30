@@ -114,6 +114,31 @@
 			],
 			"isBackground": false,
 			"group": "build"
+		},
+		{
+			"label": "build-fulltech-installer",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\PC\\Desktop\\FULLTECH\\installer && \"C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe\" setup.iss"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "build-fulltech-installer-powershell",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				"Set-Location 'c:\\Users\\PC\\Desktop\\FULLTECH\\installer'; & 'C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe' 'setup.iss'"
+			],
+			"isBackground": false,
+			"group": "build"
 		}
 	]
 }

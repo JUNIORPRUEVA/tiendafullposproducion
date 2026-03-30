@@ -87,6 +87,7 @@ type CatalogProductsResponse = {
 };
 
 type CatalogSourceMode = 'direct-db' | 'integration-api';
+type ProductsSourcePreference = 'FULLPOS' | 'FULLPOS_DIRECT' | 'LOCAL' | '';
 
 type FullposDbColumnMap = {
   id: string;
@@ -126,6 +127,7 @@ const FULLTECH_ALLOWED_FULLPOS_COMPANY_ID = '2';
 @Injectable()
 export class CatalogProductsService {
   private readonly logger = new Logger(CatalogProductsService.name);
+  private readonly productsSourcePreference: ProductsSourcePreference;
   private readonly fullposBaseUrl: string;
   private readonly fullposIntegrationToken: string;
   private readonly fullposTimeoutMs: number;
@@ -139,6 +141,10 @@ export class CatalogProductsService {
   private schemaPromise?: Promise<FullposDirectSchema>;
 
   constructor(private readonly config: ConfigService) {
+    const rawSource = (config.get<string>('PRODUCTS_SOURCE') ?? '').trim().toUpperCase();
+    this.productsSourcePreference = rawSource === 'FULLPOS' || rawSource === 'FULLPOS_DIRECT' || rawSource === 'LOCAL'
+      ? rawSource as ProductsSourcePreference
+      : '';
     this.fullposBaseUrl = (config.get<string>('FULLPOS_INTEGRATION_BASE_URL') ?? '')
       .trim()
       .replace(/\/$/, '');
@@ -182,6 +188,16 @@ export class CatalogProductsService {
       } catch (error) {
         const message = this.describeDirectDbError(error);
         this.logger.error(`[catalog-products][direct-db] ${message}`);
+
+        if (this.canFallbackToIntegrationApi()) {
+          this.logger.warn(
+            `[catalog-products][direct-db] falling back to FULLPOS integration API after direct DB failure. error=${message}`,
+          );
+          const response = await this.findAllFromIntegrationApi();
+          this.logger.log(`[catalog-products] source=FULLPOS total=${response.total} fallback=direct-db`);
+          return response;
+        }
+
         throw new ServiceUnavailableException(
           `No se pudo leer el catalogo desde FULLPOS_DIRECT. ${message}`,
         );
@@ -203,10 +219,23 @@ export class CatalogProductsService {
   }
 
   private resolveMode(): CatalogSourceMode {
+    if (this.productsSourcePreference === 'FULLPOS') {
+      return 'integration-api';
+    }
+
+    if (this.productsSourcePreference === 'FULLPOS_DIRECT') {
+      return this.fullposDirectDatabaseUrl ? 'direct-db' : 'integration-api';
+    }
+
     if (this.fullposDirectDatabaseUrl) {
       return 'direct-db';
     }
+
     return 'integration-api';
+  }
+
+  private canFallbackToIntegrationApi(): boolean {
+    return this.fullposBaseUrl.length > 0 && this.fullposIntegrationToken.length > 0;
   }
 
   private async findAllFromDirectDb(): Promise<CatalogProductsResponse> {

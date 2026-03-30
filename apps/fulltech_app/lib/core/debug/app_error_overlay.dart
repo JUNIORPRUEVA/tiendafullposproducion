@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -16,6 +17,7 @@ class AppErrorOverlay extends StatefulWidget {
 class _AppErrorOverlayState extends State<AppErrorOverlay> {
   int? _lastShownEventId;
   bool _dialogOpen = false;
+  bool _retrying = false;
 
   @override
   void initState() {
@@ -64,8 +66,8 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
 
   Future<void> _showDetails(BuildContext context, AppErrorDetails error) async {
     final full = error.toClipboardString();
-    final sections = <Widget>[
-      _Section(label: 'Error', value: error.message),
+    final technicalSections = <Widget>[
+      _Section(label: 'Resumen tecnico', value: error.message),
       if ((error.endpointUrl ?? '').trim().isNotEmpty)
         _Section(label: 'Endpoint', value: error.endpointUrl!),
       if ((error.method ?? '').trim().isNotEmpty)
@@ -77,43 +79,295 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
       if (error.stackTrace.trim().isNotEmpty)
         _Section(label: 'Stack trace', value: error.stackTrace),
     ];
+    final severityColor = _severityColor(context, error.severity);
+    final severityIcon = _severityIcon(error.severity);
+    var showTechnical = false;
+    final canRetry = error.onRetry != null;
 
     await showDialog<void>(
       context: context,
       useRootNavigator: true,
       barrierDismissible: true,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Error detectado'),
-          content: SizedBox(
-            width: 720,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: sections,
+        final theme = Theme.of(dialogContext);
+        final scheme = theme.colorScheme;
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return Dialog(
+              insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 500),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: scheme.surface.withValues(alpha: 0.985),
+                    borderRadius: BorderRadius.circular(28),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        blurRadius: 32,
+                        offset: const Offset(0, 18),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(28),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                severityColor.withValues(alpha: 0.14),
+                                scheme.surface,
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 54,
+                                height: 54,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      severityColor.withValues(alpha: 0.22),
+                                      severityColor.withValues(alpha: 0.08),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                child: Icon(severityIcon, color: severityColor, size: 28),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      error.title,
+                                      style: theme.textTheme.titleLarge?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: -0.2,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _subtitleFor(error),
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: scheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () {
+                                  AppErrorReporter.instance.clear();
+                                  Navigator.of(dialogContext, rootNavigator: true).pop();
+                                },
+                                tooltip: 'Cerrar',
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(22, 18, 22, 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                error.userMessage,
+                                style: theme.textTheme.bodyLarge?.copyWith(
+                                  height: 1.45,
+                                  color: scheme.onSurface.withValues(alpha: 0.92),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.shield_outlined, size: 18, color: severityColor),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        canRetry
+                                            ? 'Puedes intentar nuevamente sin salir de la pantalla.'
+                                            : 'Tu informacion sigue protegida y la aplicacion puede continuar.' ,
+                                        style: theme.textTheme.bodyMedium?.copyWith(
+                                          color: scheme.onSurfaceVariant,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (kDebugMode) ...[
+                                const SizedBox(height: 10),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: TextButton.icon(
+                                    onPressed: () {
+                                      setDialogState(() => showTechnical = !showTechnical);
+                                    },
+                                    icon: Icon(
+                                      showTechnical
+                                          ? Icons.unfold_less_rounded
+                                          : Icons.code_rounded,
+                                    ),
+                                    label: Text(
+                                      showTechnical
+                                          ? 'Ocultar detalle tecnico'
+                                          : 'Ver detalle tecnico',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              if (kDebugMode && showTechnical)
+                                ConstrainedBox(
+                                  constraints: const BoxConstraints(maxHeight: 260),
+                                  child: SingleChildScrollView(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: technicalSections,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                          child: Wrap(
+                            alignment: WrapAlignment.end,
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: [
+                              if (kDebugMode)
+                                TextButton(
+                                  onPressed: () async {
+                                    await Clipboard.setData(ClipboardData(text: full));
+                                    if (!dialogContext.mounted) return;
+                                  },
+                                  child: const Text('Copiar reporte'),
+                                ),
+                              if (canRetry)
+                                OutlinedButton.icon(
+                                  onPressed: _retrying
+                                      ? null
+                                      : () async {
+                                          setDialogState(() => _retrying = true);
+                                          try {
+                                            await error.onRetry!.call();
+                                            AppErrorReporter.instance.clear();
+                                            if (!dialogContext.mounted) return;
+                                            Navigator.of(dialogContext, rootNavigator: true).pop();
+                                          } catch (retryError, retryStack) {
+                                            AppErrorReporter.instance.record(
+                                              retryError,
+                                              retryStack,
+                                              context: error.context,
+                                              title: error.title,
+                                              userMessage: error.userMessage,
+                                              technicalDetails: error.technicalDetails,
+                                              severity: error.severity,
+                                              dedupeKey: 'retry-${error.eventId}',
+                                              retryLabel: error.retryLabel,
+                                              onRetry: error.onRetry,
+                                            );
+                                          } finally {
+                                            if (dialogContext.mounted) {
+                                              setDialogState(() => _retrying = false);
+                                            } else {
+                                              _retrying = false;
+                                            }
+                                          }
+                                        },
+                                  icon: _retrying
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        )
+                                      : const Icon(Icons.refresh_rounded),
+                                  label: Text(error.retryLabel ?? 'Reintentar'),
+                                ),
+                              FilledButton.icon(
+                                onPressed: () {
+                                  AppErrorReporter.instance.clear();
+                                  Navigator.of(dialogContext, rootNavigator: true).pop();
+                                },
+                                icon: const Icon(Icons.check_rounded),
+                                label: Text(canRetry ? 'Ahora no' : 'Entendido'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                await Clipboard.setData(ClipboardData(text: full));
-                if (!dialogContext.mounted) return;
-              },
-              child: const Text('Copiar error'),
-            ),
-            TextButton(
-              onPressed: () {
-                AppErrorReporter.instance.clear();
-                Navigator.of(dialogContext, rootNavigator: true).pop();
-              },
-              child: const Text('Cerrar'),
-            ),
-          ],
+            );
+          },
         );
       },
     );
+  }
+
+  Color _severityColor(BuildContext context, AppErrorSeverity severity) {
+    final scheme = Theme.of(context).colorScheme;
+    switch (severity) {
+      case AppErrorSeverity.warning:
+        return Colors.orange.shade700;
+      case AppErrorSeverity.fatal:
+        return scheme.error;
+      case AppErrorSeverity.error:
+        return scheme.error;
+    }
+  }
+
+  IconData _severityIcon(AppErrorSeverity severity) {
+    switch (severity) {
+      case AppErrorSeverity.warning:
+        return Icons.warning_amber_rounded;
+      case AppErrorSeverity.fatal:
+        return Icons.dangerous_rounded;
+      case AppErrorSeverity.error:
+        return Icons.error_outline_rounded;
+    }
+  }
+
+  String _subtitleFor(AppErrorDetails error) {
+    if (error.onRetry != null) {
+      return 'Puedes intentar nuevamente ahora.';
+    }
+
+    switch (error.severity) {
+      case AppErrorSeverity.warning:
+        return 'La aplicacion puede seguir funcionando.';
+      case AppErrorSeverity.fatal:
+        return 'Necesita atencion antes de continuar.';
+      case AppErrorSeverity.error:
+        return 'El sistema detecto una incidencia controlada.';
+    }
   }
 
   @override

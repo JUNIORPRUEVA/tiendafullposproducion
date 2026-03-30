@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../../core/storage/resilient_local_database.dart';
 import '../../core/auth/app_role.dart';
 import 'company_manual_models.dart';
 
@@ -24,10 +24,8 @@ class CompanyManualLocalRepository {
 
   Future<Database> get _db async {
     if (_database != null) return _database!;
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, _dbName);
-    _database = await openDatabase(
-      path,
+    _database = await openResilientLocalDatabase(
+      fileName: _dbName,
       version: _dbVersion,
       onCreate: (db, version) async {
         await db.execute('''

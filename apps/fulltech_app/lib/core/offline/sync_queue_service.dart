@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../debug/app_error_reporter.dart';
 import '../debug/trace_log.dart';
 import 'offline_store.dart';
 import 'pending_sync_action.dart';
@@ -120,14 +121,37 @@ class SyncQueueService extends StateNotifier<SyncQueueState> {
   }
 
   Future<void> refreshStats() async {
-    final stats = await _store.pendingActionStats();
-    _patchState(
-      (current) => current.copyWith(
-        pendingCount: stats['pending'] ?? 0,
-        syncingCount: stats['syncing'] ?? 0,
-        errorCount: stats['error'] ?? 0,
-      ),
-    );
+    try {
+      final stats = await _store.pendingActionStats();
+      _patchState(
+        (current) => current.copyWith(
+          pendingCount: stats['pending'] ?? 0,
+          syncingCount: stats['syncing'] ?? 0,
+          errorCount: stats['error'] ?? 0,
+        ),
+      );
+    } catch (error, stackTrace) {
+      TraceLog.log(
+        'sync_queue',
+        'refresh stats failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      AppErrorReporter.instance.record(
+        error,
+        stackTrace,
+        context: 'SyncQueue.refreshStats',
+        title: 'Sincronizacion en segundo plano limitada',
+        userMessage:
+            'No se pudo actualizar el estado de la cola offline. La app seguira operando y reintentara automaticamente.',
+        technicalDetails: 'Fallo al consultar estadisticas locales de sincronizacion.',
+        severity: AppErrorSeverity.warning,
+        dedupeKey: 'sync-queue-refresh-stats-failed',
+        retryLabel: 'Reintentar',
+        onRetry: refreshStats,
+      );
+      _patchState((current) => current.copyWith(lastError: '$error'));
+    }
   }
 
   Future<void> processPending() async {
@@ -179,6 +203,28 @@ class SyncQueueService extends StateNotifier<SyncQueueState> {
           _patchState((current) => current.copyWith(lastError: '$error'));
         }
       }
+    } catch (error, stackTrace) {
+      TraceLog.log(
+        'sync_queue',
+        'process pending failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      AppErrorReporter.instance.record(
+        error,
+        stackTrace,
+        context: 'SyncQueue.processPending',
+        title: 'Sincronizacion protegida',
+        userMessage:
+            'La sincronizacion en segundo plano encontro un problema y seguira reintentando sin cerrar la aplicacion.',
+        technicalDetails:
+            'La cola offline detecto un error no controlado mientras procesaba acciones pendientes.',
+        severity: AppErrorSeverity.warning,
+        dedupeKey: 'sync-queue-process-pending-failed',
+        retryLabel: 'Reintentar',
+        onRetry: processPending,
+      );
+      _patchState((current) => current.copyWith(lastError: '$error'));
     } finally {
       _processing = false;
       _patchState((current) => current.copyWith(isProcessing: false));

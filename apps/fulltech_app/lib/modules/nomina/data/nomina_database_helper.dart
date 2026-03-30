@@ -1,8 +1,8 @@
 import 'dart:math';
 
-import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
+import '../../../core/storage/resilient_local_database.dart';
 import '../nomina_models.dart';
 
 class NominaDatabaseHelper {
@@ -27,10 +27,8 @@ class NominaDatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
-    final dbPath = await getDatabasesPath();
-    final fullPath = path.join(dbPath, _dbName);
-    return openDatabase(
-      fullPath,
+    return openResilientLocalDatabase(
+      fileName: _dbName,
       version: _dbVersion,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,

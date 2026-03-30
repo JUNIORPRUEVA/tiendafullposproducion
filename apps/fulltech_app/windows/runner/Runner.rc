@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.fulltech" "\0"
-            VALUE "FileDescription", "fulltech_app" "\0"
+            VALUE "CompanyName", "FullTech" "\0"
+            VALUE "FileDescription", "FullTech Desktop" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "fulltech_app" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.fulltech. All rights reserved." "\0"
+            VALUE "InternalName", "FullTech" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 FullTech. All rights reserved." "\0"
             VALUE "OriginalFilename", "fulltech_app.exe" "\0"
-            VALUE "ProductName", "fulltech_app" "\0"
+            VALUE "ProductName", "FullTech" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

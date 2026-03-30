@@ -1,11 +1,12 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../debug/app_error_reporter.dart';
 import '../debug/trace_log.dart';
+import '../storage/resilient_local_database.dart';
 import 'pending_sync_action.dart';
 
 class OfflineStore {
@@ -18,25 +19,38 @@ class OfflineStore {
 
   Database? _database;
   Future<Database>? _opening;
+  bool _preferencesFallbackEnabled = false;
 
   Future<Database?> _dbOrNull() async {
-    if (kIsWeb) return null;
+    if (kIsWeb || _preferencesFallbackEnabled) return null;
     if (_database != null) return _database;
-    if (_opening != null) return _opening!;
+    if (_opening != null) {
+      try {
+        return await _opening!;
+      } catch (_) {
+        return null;
+      }
+    }
 
     _opening = _openDatabase();
-    final db = await _opening!;
-    _database = db;
-    _opening = null;
-    return db;
+    try {
+      final db = await _opening!;
+      _database = db;
+      return db;
+    } catch (error, stackTrace) {
+      _enablePreferencesFallback(error, stackTrace);
+      return null;
+    } finally {
+      _opening = null;
+    }
   }
 
   Future<Database> _openDatabase() async {
-    final databasesPath = await getDatabasesPath();
-    final dbPath = p.join(databasesPath, 'fulltech_offline.db');
-    return openDatabase(
-      dbPath,
+    TraceLog.log('offline_store', 'opening sqlite db path=fulltech_offline.db');
+    return openResilientLocalDatabase(
+      fileName: 'fulltech_offline.db',
       version: 1,
+      allowInMemoryFallback: false,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE cache_entries (
@@ -59,6 +73,29 @@ class OfflineStore {
           )
         ''');
       },
+    );
+  }
+
+  void _enablePreferencesFallback(Object error, StackTrace stackTrace) {
+    if (_preferencesFallbackEnabled) return;
+    _preferencesFallbackEnabled = true;
+    TraceLog.log(
+      'offline_store',
+      'sqlite unavailable, switching to shared preferences fallback',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    AppErrorReporter.instance.record(
+      error,
+      stackTrace,
+      context: 'OfflineStore.SQLite',
+      title: 'Modo offline limitado',
+      userMessage:
+          'No pudimos iniciar la base local del dispositivo. La app seguira funcionando con almacenamiento alternativo y sincronizacion protegida.',
+      technicalDetails:
+          'SQLite no pudo abrir el archivo local; se activo el fallback de SharedPreferences para evitar bloqueo del sistema.',
+      severity: AppErrorSeverity.warning,
+      dedupeKey: 'offline-store-sqlite-open-failed',
     );
   }
 
@@ -85,7 +122,25 @@ class OfflineStore {
     }
 
     final db = await _dbOrNull();
-    final rows = await db!.query(
+    if (db == null) {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('$_webCachePrefix$key');
+      if (raw == null || raw.trim().isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final updatedAtMs = (decoded['updatedAtMs'] as num?)?.toInt();
+      if (maxAge != null && updatedAtMs != null) {
+        final age = DateTime.now().difference(
+          DateTime.fromMillisecondsSinceEpoch(updatedAtMs),
+        );
+        if (age > maxAge) return null;
+      }
+      final payload = decoded['payload'];
+      if (payload is Map) return payload.cast<String, dynamic>();
+      return null;
+    }
+
+    final rows = await db.query(
       'cache_entries',
       columns: ['payload', 'updated_at'],
       where: 'cache_key = ?',
@@ -121,7 +176,16 @@ class OfflineStore {
     }
 
     final db = await _dbOrNull();
-    await db!.insert('cache_entries', {
+    if (db == null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        '$_webCachePrefix$key',
+        jsonEncode({'payload': payload, 'updatedAtMs': updatedAtMs}),
+      );
+      return;
+    }
+
+    await db.insert('cache_entries', {
       'cache_key': key,
       'payload': jsonEncode(payload),
       'updated_at': updatedAtMs,
@@ -136,7 +200,13 @@ class OfflineStore {
     }
 
     final db = await _dbOrNull();
-    await db!.delete(
+    if (db == null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('$_webCachePrefix$key');
+      return;
+    }
+
+    await db.delete(
       'cache_entries',
       where: 'cache_key = ?',
       whereArgs: [key],
@@ -160,7 +230,22 @@ class OfflineStore {
     }
 
     final db = await _dbOrNull();
-    await db!.insert('pending_actions', {
+    if (db == null) {
+      final prefs = await SharedPreferences.getInstance();
+      final items = await listPendingActions();
+      final next = [
+        for (final item in items)
+          if (item.id != action.id) item,
+        action,
+      ];
+      await prefs.setString(
+        _webPendingKey,
+        jsonEncode(next.map((item) => item.toMap()).toList()),
+      );
+      return;
+    }
+
+    await db.insert('pending_actions', {
       'id': action.id,
       'type': action.type,
       'scope': action.scope,
@@ -188,7 +273,20 @@ class OfflineStore {
     }
 
     final db = await _dbOrNull();
-    final rows = await db!.query(
+    if (db == null) {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_webPendingKey);
+      if (raw == null || raw.trim().isEmpty) return const [];
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const [];
+      return decoded
+          .whereType<Map>()
+          .map((row) => PendingSyncAction.fromMap(row.cast<String, dynamic>()))
+          .toList(growable: false)
+        ..sort((a, b) => a.updatedAt.compareTo(b.updatedAt));
+    }
+
+    final rows = await db.query(
       'pending_actions',
       orderBy: 'updated_at ASC',
       limit: limit,
@@ -226,7 +324,17 @@ class OfflineStore {
     }
 
     final db = await _dbOrNull();
-    await db!.delete('pending_actions', where: 'id = ?', whereArgs: [id]);
+    if (db == null) {
+      final prefs = await SharedPreferences.getInstance();
+      final next = (await listPendingActions())
+          .where((item) => item.id != id)
+          .map((item) => item.toMap())
+          .toList(growable: false);
+      await prefs.setString(_webPendingKey, jsonEncode(next));
+      return;
+    }
+
+    await db.delete('pending_actions', where: 'id = ?', whereArgs: [id]);
   }
 
   Future<void> updatePendingAction(PendingSyncAction action) async {

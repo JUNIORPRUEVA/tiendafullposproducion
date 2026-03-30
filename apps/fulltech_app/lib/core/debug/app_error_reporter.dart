@@ -3,9 +3,15 @@ import 'package:flutter/widgets.dart';
 
 import '../errors/api_exception.dart';
 
+enum AppErrorSeverity { warning, error, fatal }
+
+typedef AppErrorRetryCallback = Future<void> Function();
+
 class AppErrorDetails {
   final int eventId;
   final DateTime capturedAt;
+  final String title;
+  final String userMessage;
   final String message;
   final String stackTrace;
   final String? context;
@@ -14,13 +20,21 @@ class AppErrorDetails {
   final String? apiResponse;
   final String? technicalDetails;
   final String errorType;
+  final AppErrorSeverity severity;
+  final String? retryLabel;
+  final AppErrorRetryCallback? onRetry;
 
   const AppErrorDetails({
     required this.eventId,
     required this.capturedAt,
+    required this.title,
+    required this.userMessage,
     required this.message,
     required this.stackTrace,
     required this.errorType,
+    required this.severity,
+    this.retryLabel,
+    this.onRetry,
     this.context,
     this.endpointUrl,
     this.method,
@@ -30,7 +44,8 @@ class AppErrorDetails {
 
   String toConsoleString() {
     final lines = <String>[
-      '[AppError][$eventId] $message',
+      '[AppError][$eventId][${severity.name}] $title',
+      'message: $message',
       'type: $errorType',
       if (context != null && context!.trim().isNotEmpty) 'context: $context',
       if (method != null && method!.trim().isNotEmpty) 'method: $method',
@@ -47,7 +62,10 @@ class AppErrorDetails {
 
   String toClipboardString() {
     final lines = <String>[
+      'Titulo: $title',
+      'Mensaje para usuario: $userMessage',
       'Mensaje: $message',
+      'Severidad: ${severity.name}',
       'Tipo: $errorType',
       if (context != null && context!.trim().isNotEmpty) 'Contexto: $context',
       if (method != null && method!.trim().isNotEmpty) 'Metodo: $method',
@@ -74,6 +92,7 @@ class AppErrorReporter {
       ValueNotifier<AppErrorDetails?>(null);
 
   final List<AppErrorDetails> _history = <AppErrorDetails>[];
+  final Map<String, DateTime> _recentDedupe = <String, DateTime>{};
 
   List<AppErrorDetails> get history => List.unmodifiable(_history);
 
@@ -95,11 +114,49 @@ class AppErrorReporter {
 
   void clear() => _setLastError(null);
 
-  void record(Object error, StackTrace stack, {String? context}) {
-    final details = _buildDetails(error, stack, context: context);
+  void record(
+    Object error,
+    StackTrace stack, {
+    String? context,
+    String? title,
+    String? userMessage,
+    String? technicalDetails,
+    AppErrorSeverity severity = AppErrorSeverity.error,
+    String? dedupeKey,
+    String? retryLabel,
+    AppErrorRetryCallback? onRetry,
+  }) {
+    if (_shouldSkipDedupe(dedupeKey)) return;
+    final details = _buildDetails(
+      error,
+      stack,
+      context: context,
+      title: title,
+      userMessage: userMessage,
+      technicalDetails: technicalDetails,
+      severity: severity,
+      retryLabel: retryLabel,
+      onRetry: onRetry,
+    );
     _log(details);
     _remember(details);
     _setLastError(details);
+  }
+
+  bool _shouldSkipDedupe(String? dedupeKey) {
+    final key = _clean(dedupeKey);
+    if (key == null) return false;
+
+    final now = DateTime.now();
+    _recentDedupe.removeWhere(
+      (_, at) => now.difference(at) > const Duration(minutes: 2),
+    );
+    final lastSeenAt = _recentDedupe[key];
+    if (lastSeenAt != null && now.difference(lastSeenAt) < const Duration(minutes: 2)) {
+      return true;
+    }
+    _recentDedupe[key] = now;
+    return false;
   }
 
   void _remember(AppErrorDetails details) {
@@ -117,24 +174,38 @@ class AppErrorReporter {
     Object error,
     StackTrace stack, {
     String? context,
+    String? title,
+    String? userMessage,
+    String? technicalDetails,
+    required AppErrorSeverity severity,
+    String? retryLabel,
+    AppErrorRetryCallback? onRetry,
   }) {
     final stackText = stack.toString();
     final normalizedStack = _truncate(stackText, maxChars: 16000);
     final normalizedContext = _clean(context);
     final eventId = ++_eventSeq;
+    final resolvedTitle = _clean(title) ?? _defaultTitleForSeverity(severity);
+    final resolvedUserMessage =
+      _clean(userMessage) ?? _defaultUserMessageForSeverity(severity);
 
     if (error is ApiException) {
       return AppErrorDetails(
         eventId: eventId,
         capturedAt: DateTime.now(),
+        title: resolvedTitle,
+        userMessage: resolvedUserMessage,
         message: error.message,
         stackTrace: normalizedStack,
         context: normalizedContext,
         endpointUrl: error.uri?.toString(),
         method: _clean(error.method),
         apiResponse: _clean(error.responseBody),
-        technicalDetails: _clean(error.technicalDetails),
+        technicalDetails: _clean(technicalDetails) ?? _clean(error.technicalDetails),
         errorType: error.runtimeType.toString(),
+        severity: severity,
+        retryLabel: _clean(retryLabel),
+        onRetry: onRetry,
       );
     }
 
@@ -142,6 +213,8 @@ class AppErrorReporter {
       return AppErrorDetails(
         eventId: eventId,
         capturedAt: DateTime.now(),
+        title: resolvedTitle,
+        userMessage: resolvedUserMessage,
         message: error.message?.trim().isNotEmpty == true
             ? error.message!.trim()
             : error.toString(),
@@ -150,18 +223,27 @@ class AppErrorReporter {
         endpointUrl: error.requestOptions.uri.toString(),
         method: _clean(error.requestOptions.method.toUpperCase()),
         apiResponse: _clean(_stringifyApiResponse(error.response?.data)),
-        technicalDetails: _clean(error.error?.toString()),
+        technicalDetails: _clean(technicalDetails) ?? _clean(error.error?.toString()),
         errorType: error.runtimeType.toString(),
+        severity: severity,
+        retryLabel: _clean(retryLabel),
+        onRetry: onRetry,
       );
     }
 
     return AppErrorDetails(
       eventId: eventId,
       capturedAt: DateTime.now(),
+      title: resolvedTitle,
+      userMessage: resolvedUserMessage,
       message: error.toString(),
       stackTrace: normalizedStack,
       context: normalizedContext,
+      technicalDetails: _clean(technicalDetails),
       errorType: error.runtimeType.toString(),
+      severity: severity,
+      retryLabel: _clean(retryLabel),
+      onRetry: onRetry,
     );
   }
 
@@ -169,6 +251,28 @@ class AppErrorReporter {
     final exception = details.exception;
     final stack = details.stack ?? StackTrace.current;
     record(exception, stack, context: 'FlutterError');
+  }
+
+  String _defaultTitleForSeverity(AppErrorSeverity severity) {
+    switch (severity) {
+      case AppErrorSeverity.warning:
+        return 'Atencion del sistema';
+      case AppErrorSeverity.fatal:
+        return 'No fue posible continuar';
+      case AppErrorSeverity.error:
+        return 'Algo salio mal';
+    }
+  }
+
+  String _defaultUserMessageForSeverity(AppErrorSeverity severity) {
+    switch (severity) {
+      case AppErrorSeverity.warning:
+        return 'Detectamos una incidencia menor. Puedes seguir usando la aplicacion mientras lo intentamos de nuevo.';
+      case AppErrorSeverity.fatal:
+        return 'Ocurrio un problema que impide completar esta accion en este momento.';
+      case AppErrorSeverity.error:
+        return 'No pudimos completar la accion. Intentalo nuevamente en unos segundos.';
+    }
   }
 
   String? _clean(String? value) {

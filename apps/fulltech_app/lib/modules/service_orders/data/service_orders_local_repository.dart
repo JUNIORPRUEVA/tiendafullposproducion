@@ -2,9 +2,9 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../../../core/storage/resilient_local_database.dart';
 import '../../../core/models/user_model.dart';
 import '../../clientes/cliente_model.dart';
 import '../service_order_models.dart';
@@ -42,10 +42,8 @@ class ServiceOrdersLocalRepository {
 
   Future<Database> get _db async {
     if (_database != null) return _database!;
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, _dbName);
-    _database = await openDatabase(
-      path,
+    _database = await openResilientLocalDatabase(
+      fileName: _dbName,
       version: _dbVersion,
       onCreate: (db, version) async {
         await db.execute('''
