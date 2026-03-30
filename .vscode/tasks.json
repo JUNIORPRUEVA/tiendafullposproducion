@@ -139,6 +139,16 @@
 			],
 			"isBackground": false,
 			"group": "build"
+		},
+		{
+			"label": "check-purge-clients-service-orders-help",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\PC\\Desktop\\FULLTECH\\apps\\api && npm run db:purge:clients-service-orders -- --help"
+			],
+			"isBackground": false
 		}
 	]
 }

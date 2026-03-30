@@ -18,6 +18,7 @@
     "test:smoke:reservation-reminder": "ts-node scripts/smoke-reservation-reminder.ts",
     "test:smoke:service-orders": "node scripts/smoke-service-orders.cjs",
     "test:smoke:service-orders:http": "node scripts/smoke-service-orders-http.cjs",
+    "db:purge:clients-service-orders": "ts-node scripts/purge-clients-service-orders.ts",
     "auth:reset-password": "node scripts/reset-password.cjs",
     "test:smoke": "ts-node scripts/smoke-test.ts"
   },
