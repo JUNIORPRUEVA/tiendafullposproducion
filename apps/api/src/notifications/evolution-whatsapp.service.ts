@@ -229,6 +229,7 @@ export class EvolutionWhatsAppService {
 
     const endpoint = `${config.baseUrl}/message/sendMedia/${encodeURIComponent(config.instanceName)}`;
     const mediaBase64 = Buffer.from(bytes).toString('base64');
+    const multipartBytes = Uint8Array.from(bytes);
     const jsonHeaders = {
       apikey: config.apiKey,
       'content-type': 'application/json',
@@ -276,7 +277,7 @@ export class EvolutionWhatsAppService {
       if (caption) {
         form.set('caption', caption);
       }
-      form.set(fieldName, new Blob([bytes], { type: 'application/pdf' }), fileName);
+      form.set(fieldName, new Blob([multipartBytes], { type: 'application/pdf' }), fileName);
 
       attempts.push({
         label: `multipart:min:${fieldName}`,
@@ -296,7 +297,7 @@ export class EvolutionWhatsAppService {
     fullMultipart.set('mediatype', 'document');
     fullMultipart.set('mimetype', 'application/pdf');
     fullMultipart.set('fileName', fileName);
-    fullMultipart.set('media', new Blob([bytes], { type: 'application/pdf' }), fileName);
+    fullMultipart.set('media', new Blob([multipartBytes], { type: 'application/pdf' }), fileName);
     attempts.push({
       label: 'multipart:full',
       init: {
