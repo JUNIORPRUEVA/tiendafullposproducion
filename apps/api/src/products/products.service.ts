@@ -78,19 +78,6 @@ export class ProductsService {
     }
   }
 
-  private assertDebugPurgeEnabled() {
-    const nodeEnv = (
-      this.config.get<string>('NODE_ENV') ??
-      process.env.NODE_ENV ??
-      'development'
-    ).trim().toLowerCase();
-    if (nodeEnv === 'production') {
-      throw new ConflictException(
-        'La limpieza masiva solo está disponible fuera de producción.',
-      );
-    }
-  }
-
   private isSchemaMismatch(error: unknown) {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       return error.code === 'P2021' || error.code === 'P2022';
@@ -233,7 +220,6 @@ export class ProductsService {
 
   async purgeAllForDebug() {
     this.assertWritable();
-    this.assertDebugPurgeEnabled();
     const deleted = await this.prisma.product.deleteMany();
     return {
       ok: true,

@@ -6,7 +6,6 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import {
   Prisma,
   Role,
@@ -94,21 +93,7 @@ export class ServiceOrdersService {
     private readonly realtime: CatalogRealtimeRelayService,
     private readonly payroll: PayrollService,
     private readonly orderNotifications: ServiceOrderNotificationsListener,
-    private readonly config: ConfigService,
   ) {}
-
-  private assertDebugPurgeEnabled() {
-    const nodeEnv = (
-      this.config.get<string>('NODE_ENV') ??
-      process.env.NODE_ENV ??
-      'development'
-    ).trim().toLowerCase();
-    if (nodeEnv === 'production') {
-      throw new ForbiddenException(
-        'La limpieza masiva solo está disponible fuera de producción.',
-      );
-    }
-  }
 
   async create(user: AuthUser, dto: CreateServiceOrderDto) {
     const payload = await this.buildCreatePayload(user, dto);
@@ -484,7 +469,6 @@ export class ServiceOrdersService {
 
   async purgeAllForDebug(user: AuthUser) {
     this.assertAdminDelete(user);
-    this.assertDebugPurgeEnabled();
 
     const deleted = await this.prisma.serviceOrder.deleteMany();
     await this.redis.delByPattern('service-orders:list:*');

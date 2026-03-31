@@ -1,11 +1,10 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../auth/app_role.dart';
 import '../models/user_model.dart';
 
 bool canUseDebugAdminAction(UserModel? user, {bool enabled = true}) {
-  return kDebugMode && enabled && user?.appRole.isAdmin == true;
+  return enabled && user?.appRole.isAdmin == true;
 }
 
 class DebugAdminActionButton extends StatelessWidget {
@@ -58,7 +57,7 @@ Future<bool> confirmDebugAdminPurge(
       return AlertDialog(
         title: Text('Limpiar $moduleLabel'),
         content: Text(
-          'Esta acción solo está disponible para administradores en modo debug. '
+          'Esta acción solo está disponible para administradores. '
           'Se eliminará $impactLabel y no se puede deshacer. ¿Deseas continuar?',
         ),
         actions: [

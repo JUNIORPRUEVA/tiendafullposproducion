@@ -83,19 +83,6 @@ export class CotizacionesService {
     }
   }
 
-  private assertDebugPurgeEnabled() {
-    const nodeEnv = (
-      this.config.get<string>('NODE_ENV') ??
-      process.env.NODE_ENV ??
-      'development'
-    ).trim().toLowerCase();
-    if (nodeEnv === 'production') {
-      throw new ForbiddenException(
-        'La limpieza masiva solo está disponible fuera de producción.',
-      );
-    }
-  }
-
   private async resolveCustomerIdByPhone(
     tx: Prisma.TransactionClient,
     input: {
@@ -418,7 +405,6 @@ export class CotizacionesService {
     if (user.role !== Role.ADMIN) {
       throw new ForbiddenException('Solo un administrador puede limpiar cotizaciones.');
     }
-    this.assertDebugPurgeEnabled();
 
     const quotes = await this.prisma.cotizacion.findMany({
       select: { id: true },

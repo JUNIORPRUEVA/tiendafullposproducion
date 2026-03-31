@@ -1,28 +1,11 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSaleDto, CreateSaleItemDto } from './dto/create-sale.dto';
 
 @Injectable()
 export class SalesService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
-  ) {}
-
-  private assertDebugPurgeEnabled() {
-    const nodeEnv = (
-      this.config.get<string>('NODE_ENV') ??
-      process.env.NODE_ENV ??
-      'development'
-    ).trim().toLowerCase();
-    if (nodeEnv === 'production') {
-      throw new ForbiddenException(
-        'La limpieza masiva solo está disponible fuera de producción.',
-      );
-    }
-  }
+  constructor(private readonly prisma: PrismaService) {}
 
   private isSchemaMismatch(error: unknown) {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -349,7 +332,6 @@ export class SalesService {
     if (`${user.role}`.trim().toUpperCase() !== 'ADMIN') {
       throw new ForbiddenException('Solo un administrador puede limpiar ventas.');
     }
-    this.assertDebugPurgeEnabled();
 
     const deleted = await this.prisma.sale.deleteMany();
     return {

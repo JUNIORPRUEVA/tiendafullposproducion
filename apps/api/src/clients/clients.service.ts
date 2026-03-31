@@ -5,7 +5,6 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Prisma, Role, type Client } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizePhone } from '../common/utils/normalize-phone';
@@ -19,10 +18,7 @@ type AuthUser = { id: string; role: Role };
 
 @Injectable()
 export class ClientsService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   private static readonly adminLikeRoles = new Set<Role>([Role.ADMIN, Role.ASISTENTE]);
 
@@ -105,19 +101,6 @@ export class ClientsService {
   private assertAdmin(user: AuthUser, message: string) {
     if (user.role !== Role.ADMIN) {
       throw new ForbiddenException(message);
-    }
-  }
-
-  private assertDebugPurgeEnabled() {
-    const nodeEnv = (
-      this.config.get<string>('NODE_ENV') ??
-      process.env.NODE_ENV ??
-      'development'
-    ).trim().toLowerCase();
-    if (nodeEnv === 'production') {
-      throw new ForbiddenException(
-        'La limpieza masiva solo está disponible fuera de producción.',
-      );
     }
   }
 
@@ -427,7 +410,6 @@ export class ClientsService {
 
   async purgeAllForDebug(user: AuthUser) {
     this.assertAdmin(user, 'Only admin can purge clients');
-    this.assertDebugPurgeEnabled();
 
     const clients = await this.prisma.client.findMany({
       select: { id: true },
