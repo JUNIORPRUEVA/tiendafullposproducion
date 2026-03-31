@@ -1,6 +1,6 @@
 import 'dart:async';
+import 'dart:typed_data';
 
-import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -1520,11 +1520,6 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
           builder: (context, setDialogState) {
             final phone = (cotizacion.customerPhone ?? '').trim();
             final canSend = phone.isNotEmpty && !sendingWhatsApp;
-
-            String fileName() {
-              final dateFmt = DateFormat('yyyyMMdd_HHmm');
-              return 'cotizacion_${dateFmt.format(cotizacion.createdAt)}_${cotizacion.id.substring(0, 6)}.pdf';
-            }
 
             Future<void> sendWhatsApp() async {
               setDialogState(() => sendingWhatsApp = true);
