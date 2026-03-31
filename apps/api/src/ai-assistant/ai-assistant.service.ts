@@ -442,7 +442,7 @@ export class AiAssistantService {
     if (path === '/ponche') return true;
     if (path.startsWith('/catalogo')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING]);
     if (path.startsWith('/ventas')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR]);
-    if (path.startsWith('/cotizaciones')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING]);
+    if (path.startsWith('/cotizaciones')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING, Role.TECNICO]);
     if (path.startsWith('/clientes')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING]);
     if (path.startsWith('/nomina')) return role === Role.ADMIN;
     if (path.startsWith('/manual-interno')) return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING, Role.TECNICO]);
@@ -467,7 +467,7 @@ export class AiAssistantService {
       case 'ventas':
         return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR]);
       case 'cotizaciones':
-        return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING]);
+        return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.MARKETING, Role.TECNICO]);
       case 'clientes':
         return true;
       case 'nomina':

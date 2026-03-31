@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/auth/app_role.dart';
+import '../../core/auth/auth_provider.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import 'cotizacion_models.dart';
@@ -34,6 +36,17 @@ class _CotizacionesHistorialScreenState
 
   String _money(double value) =>
       NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(value);
+
+  bool _canEditOrDelete(CotizacionModel item) {
+    final user = ref.read(authStateProvider).user;
+    if (user == null) return false;
+    if (user.appRole == AppRole.admin) return true;
+
+    final createdByUserId = (item.createdByUserId ?? '').trim();
+    if (createdByUserId.isEmpty) return false;
+
+    return createdByUserId == user.id.trim();
+  }
 
   @override
   void initState() {
@@ -157,6 +170,8 @@ class _CotizacionesHistorialScreenState
                 Text(
                   'Fecha: ${DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(item.createdAt)}',
                 ),
+                if ((item.createdByUserName ?? '').trim().isNotEmpty)
+                  Text('Creada por: ${item.createdByUserName}'),
                 if (item.note.trim().isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Text('Nota: ${item.note}'),
@@ -231,7 +246,9 @@ class _CotizacionesHistorialScreenState
 
     return Scaffold(
       appBar: CustomAppBar(
-        title: phone.isEmpty ? 'Historial cotizaciones' : 'Cotizaciones · $phone',
+        title: phone.isEmpty
+            ? 'Historial cotizaciones'
+            : 'Cotizaciones · $phone',
         fallbackRoute: Routes.cotizaciones,
         showLogo: false,
         showDepartmentLabel: false,
@@ -265,6 +282,7 @@ class _CotizacionesHistorialScreenState
                   return const LinearProgressIndicator();
                 }
                 final item = _items[_refreshing ? index - 1 : index];
+                final canEditOrDelete = _canEditOrDelete(item);
                 return Card(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -297,6 +315,15 @@ class _CotizacionesHistorialScreenState
                           'Líneas: ${item.items.length} · Total: ${_money(item.total)}',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
+                        if ((item.createdByUserName ?? '')
+                            .trim()
+                            .isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            'Creada por: ${item.createdByUserName}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
                         const SizedBox(height: 8),
                         Wrap(
                           spacing: 8,
@@ -308,17 +335,18 @@ class _CotizacionesHistorialScreenState
                               label: const Text('Ver'),
                             ),
                             if (widget.pickForEditor) ...[
-                              OutlinedButton.icon(
-                                onPressed: () => Navigator.pop(
-                                  context,
-                                  CotizacionEditorPayload(
-                                    source: item,
-                                    duplicate: false,
+                              if (canEditOrDelete)
+                                OutlinedButton.icon(
+                                  onPressed: () => Navigator.pop(
+                                    context,
+                                    CotizacionEditorPayload(
+                                      source: item,
+                                      duplicate: false,
+                                    ),
                                   ),
+                                  icon: const Icon(Icons.edit_outlined),
+                                  label: const Text('Editar'),
                                 ),
-                                icon: const Icon(Icons.edit_outlined),
-                                label: const Text('Editar'),
-                              ),
                               OutlinedButton.icon(
                                 onPressed: () => Navigator.pop(
                                   context,
@@ -330,11 +358,12 @@ class _CotizacionesHistorialScreenState
                                 icon: const Icon(Icons.copy_all_outlined),
                                 label: const Text('Duplicar'),
                               ),
-                              OutlinedButton.icon(
-                                onPressed: () => _delete(item),
-                                icon: const Icon(Icons.delete_outline),
-                                label: const Text('Eliminar'),
-                              ),
+                              if (canEditOrDelete)
+                                OutlinedButton.icon(
+                                  onPressed: () => _delete(item),
+                                  icon: const Icon(Icons.delete_outline),
+                                  label: const Text('Eliminar'),
+                                ),
                             ],
                           ],
                         ),

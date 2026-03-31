@@ -9,6 +9,7 @@ import { AnalyzeCotizacionAiDto } from './dto/analyze-cotizacion-ai.dto';
 import { ChatCotizacionAiDto } from './dto/chat-cotizacion-ai.dto';
 import { CotizacionesQueryDto } from './dto/cotizaciones-query.dto';
 import { CreateCotizacionDto } from './dto/create-cotizacion.dto';
+import { SendCotizacionWhatsappDto } from './dto/send-cotizacion-whatsapp.dto';
 import { UpdateCotizacionDto } from './dto/update-cotizacion.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -17,45 +18,52 @@ export class CotizacionesController {
   constructor(private readonly cotizaciones: CotizacionesService) {}
 
   @Get()
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   list(@Req() req: Request, @Query() query: CotizacionesQueryDto) {
     const user = req.user as { id: string; role: Role };
     return this.cotizaciones.list(user, query);
   }
 
   @Get(':id')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   getOne(@Req() req: Request, @Param('id') id: string) {
     const user = req.user as { id: string; role: Role };
     return this.cotizaciones.findOne(user, id);
   }
 
   @Post('ai/analyze')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   analyzeAi(@Req() req: Request, @Body() dto: AnalyzeCotizacionAiDto) {
     const user = req.user as { id: string; role: Role };
     return this.cotizaciones.analyzeAssistant(user, dto);
   }
 
   @Post('ai/chat')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   chatAi(@Req() req: Request, @Body() dto: ChatCotizacionAiDto) {
     const user = req.user as { id: string; role: Role };
     return this.cotizaciones.chatAssistant(user, dto);
   }
 
   @Post()
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   create(@Req() req: Request, @Body() dto: CreateCotizacionDto) {
     const user = req.user as { id: string; role: Role };
     return this.cotizaciones.create(user, dto);
   }
 
   @Patch(':id')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   update(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateCotizacionDto) {
     const user = req.user as { id: string; role: Role };
     return this.cotizaciones.update(user, id, dto);
+  }
+
+  @Post('send-whatsapp')
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
+  sendWhatsApp(@Req() req: Request, @Body() dto: SendCotizacionWhatsappDto) {
+    const user = req.user as { id: string; role: Role };
+    return this.cotizaciones.sendWhatsApp(user, dto);
   }
 
   @Delete('debug/purge')
@@ -66,7 +74,7 @@ export class CotizacionesController {
   }
 
   @Delete(':id')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   remove(@Req() req: Request, @Param('id') id: string) {
     const user = req.user as { id: string; role: Role };
     return this.cotizaciones.remove(user, id);

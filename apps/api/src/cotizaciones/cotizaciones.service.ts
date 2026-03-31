@@ -4,11 +4,13 @@ import { createHash } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { CompanyManualAudience, CompanyManualEntryKind, Prisma, Role } from '@prisma/client';
 import { RedisService } from '../common/redis/redis.service';
+import { EvolutionWhatsAppService } from '../notifications/evolution-whatsapp.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizePhone } from '../common/utils/normalize-phone';
 import { AnalyzeCotizacionAiDto } from './dto/analyze-cotizacion-ai.dto';
 import { ChatCotizacionAiDto } from './dto/chat-cotizacion-ai.dto';
 import { CreateCotizacionDto, CreateCotizacionItemDto } from './dto/create-cotizacion.dto';
+import { SendCotizacionWhatsappDto } from './dto/send-cotizacion-whatsapp.dto';
 import { UpdateCotizacionDto } from './dto/update-cotizacion.dto';
 
 type AiRuntimeConfig = {
@@ -48,7 +50,57 @@ export class CotizacionesService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly redis: RedisService,
+    private readonly evolutionWhatsApp: EvolutionWhatsAppService,
   ) {}
+
+  private buildQuoteInclude() {
+    return {
+      items: { orderBy: { createdAt: 'asc' as const } },
+      createdBy: {
+        select: {
+          id: true,
+          nombreCompleto: true,
+          email: true,
+        },
+      },
+    } satisfies Prisma.CotizacionInclude;
+  }
+
+  private parsePdfBase64(value: string) {
+    const trimmed = (value ?? '').trim();
+    if (!trimmed) {
+      throw new BadRequestException('Debes enviar el PDF de la cotización.');
+    }
+
+    const base64 = trimmed.startsWith('data:')
+      ? trimmed.slice(trimmed.indexOf(',') + 1)
+      : trimmed;
+
+    let bytes: Buffer;
+    try {
+      bytes = Buffer.from(base64, 'base64');
+    } catch {
+      throw new BadRequestException('El PDF de la cotización no es válido.');
+    }
+
+    if (!bytes.length) {
+      throw new BadRequestException('El PDF de la cotización llegó vacío.');
+    }
+
+    return bytes;
+  }
+
+  private async buildQuoteWhatsAppCaption(customerName: string) {
+    const row = await this.prisma.appConfig.findUnique({
+      where: { id: 'global' },
+      select: { companyName: true },
+    });
+
+    const companyName = (row?.companyName ?? '').trim() || 'FULLTECH';
+    const safeCustomerName = customerName.trim() || 'cliente';
+
+    return `Hola ${safeCustomerName}, te compartimos tu cotización de ${companyName}. Si deseas continuar, responde a este mensaje y te ayudamos.`;
+  }
 
   private buildQuotesListCacheKey(
     user: { id: string; role: Role },
@@ -155,16 +207,11 @@ export class CotizacionesService {
       ];
     }
 
-    // Non-admin users only see their own cotizaciones.
-    if (user.role !== Role.ADMIN) {
-      where.createdByUserId = user.id;
-    }
-
     const items = await this.prisma.cotizacion.findMany({
       where,
       take,
       orderBy: { createdAt: 'desc' },
-      include: { items: { orderBy: { createdAt: 'asc' } } },
+      include: this.buildQuoteInclude(),
     });
 
     const response = { items };
@@ -183,14 +230,10 @@ export class CotizacionesService {
 
     const item = await this.prisma.cotizacion.findUnique({
       where: { id },
-      include: { items: { orderBy: { createdAt: 'asc' } } },
+      include: this.buildQuoteInclude(),
     });
 
     if (!item) throw new NotFoundException('Cotización no encontrada');
-
-    if (user.role !== Role.ADMIN && item.createdByUserId !== user.id) {
-      throw new ForbiddenException('No puedes ver esta cotización');
-    }
 
     await this.redis.set(cacheKey, item);
     return item;
@@ -272,7 +315,7 @@ export class CotizacionesService {
             })),
           },
         },
-        include: { items: { orderBy: { createdAt: 'asc' } } },
+        include: this.buildQuoteInclude(),
       });
 
       await this.touchClientActivity(tx, customerId, created.createdAt);
@@ -376,7 +419,7 @@ export class CotizacionesService {
               }
             : undefined,
         },
-        include: { items: { orderBy: { createdAt: 'asc' } } },
+        include: this.buildQuoteInclude(),
       });
 
       await this.touchClientActivity(tx, nextCustomerId ?? null, updated.updatedAt);
@@ -399,6 +442,42 @@ export class CotizacionesService {
     await this.prisma.cotizacion.delete({ where: { id } });
     await this.invalidateQuoteCache('cotizacion.remove');
     return { ok: true };
+  }
+
+  async sendWhatsApp(
+    user: { id: string; role: Role },
+    dto: SendCotizacionWhatsappDto,
+  ) {
+    const customerPhone = dto.customerPhone.trim();
+    const customerName = dto.customerName.trim();
+    if (!customerPhone) {
+      throw new BadRequestException('El teléfono del cliente es obligatorio.');
+    }
+    if (!customerName) {
+      throw new BadRequestException('El nombre del cliente es obligatorio.');
+    }
+
+    const bytes = this.parsePdfBase64(dto.pdfBase64);
+    const fileName = (dto.fileName ?? '').trim() || 'cotizacion.pdf';
+    const normalizedPhone = this.evolutionWhatsApp.normalizeWhatsAppNumber(customerPhone);
+    const caption = await this.buildQuoteWhatsAppCaption(customerName);
+
+    await this.evolutionWhatsApp.sendPdfDocument({
+      toNumber: customerPhone,
+      bytes,
+      fileName,
+      caption,
+    });
+
+    this.logger.log(
+      `Quote WhatsApp sent by user=${user.id} role=${user.role} to=${normalizedPhone || customerPhone}`,
+    );
+
+    return {
+      ok: true,
+      normalizedPhone,
+      sentAt: new Date().toISOString(),
+    };
   }
 
   async purgeAllForDebug(user: { id: string; role: Role }) {

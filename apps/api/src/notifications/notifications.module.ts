@@ -17,6 +17,10 @@ import { ServiceOrderQuotationPdfService } from './service-order-quotation-pdf.s
     ServiceOrderNotificationJobsProcessor,
     ServiceOrderNotificationsListener,
   ],
-  exports: [NotificationsService, ServiceOrderNotificationsListener],
+  exports: [
+    NotificationsService,
+    ServiceOrderNotificationsListener,
+    EvolutionWhatsAppService,
+  ],
 })
 export class NotificationsModule {}

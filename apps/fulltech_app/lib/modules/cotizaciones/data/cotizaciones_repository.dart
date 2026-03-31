@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -102,7 +104,8 @@ class CotizacionesRepository {
         queryParameters: {
           if (customerPhone != null && customerPhone.trim().isNotEmpty)
             'customerPhone': customerPhone.trim(),
-          if (userId != null && userId.trim().isNotEmpty) 'userId': userId.trim(),
+          if (userId != null && userId.trim().isNotEmpty)
+            'userId': userId.trim(),
           if (from != null) 'from': _dateOnly(from),
           if (to != null) 'to': _dateOnly(to),
           'take': take,
@@ -145,28 +148,35 @@ class CotizacionesRepository {
     final normalizedUserId = (userId ?? '').trim();
     final filteredByPhone = phone.isEmpty
         ? items
-        : items.where((item) => (item.customerPhone ?? '').trim() == phone).toList(growable: false);
+        : items
+              .where((item) => (item.customerPhone ?? '').trim() == phone)
+              .toList(growable: false);
     final filtered = normalizedUserId.isEmpty
         ? filteredByPhone
         : filteredByPhone
-              .where((item) => (item.createdByUserId ?? '').trim() == normalizedUserId)
+              .where(
+                (item) =>
+                    (item.createdByUserId ?? '').trim() == normalizedUserId,
+              )
               .toList(growable: false);
-    final filteredByDate = filtered.where((item) {
-      final created = DateTime(
-        item.createdAt.year,
-        item.createdAt.month,
-        item.createdAt.day,
-      );
-      if (from != null) {
-        final start = DateTime(from.year, from.month, from.day);
-        if (created.isBefore(start)) return false;
-      }
-      if (to != null) {
-        final end = DateTime(to.year, to.month, to.day);
-        if (created.isAfter(end)) return false;
-      }
-      return true;
-    }).toList(growable: false);
+    final filteredByDate = filtered
+        .where((item) {
+          final created = DateTime(
+            item.createdAt.year,
+            item.createdAt.month,
+            item.createdAt.day,
+          );
+          if (from != null) {
+            final start = DateTime(from.year, from.month, from.day);
+            if (created.isBefore(start)) return false;
+          }
+          if (to != null) {
+            final end = DateTime(to.year, to.month, to.day);
+            if (created.isAfter(end)) return false;
+          }
+          return true;
+        })
+        .toList(growable: false);
     return filteredByDate.take(take).toList(growable: false);
   }
 
@@ -258,7 +268,10 @@ class CotizacionesRepository {
       );
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudieron limpiar las cotizaciones'),
+        _extractMessage(
+          e.response?.data,
+          'No se pudieron limpiar las cotizaciones',
+        ),
         e.response?.statusCode,
       );
     }
@@ -331,6 +344,34 @@ class CotizacionesRepository {
         payload: {'id': id},
       );
       return true;
+    }
+  }
+
+  Future<void> sendWhatsAppQuotation({
+    required String customerName,
+    required String customerPhone,
+    required List<int> pdfBytes,
+    String? fileName,
+  }) async {
+    try {
+      await _dio.post(
+        ApiRoutes.cotizacionSendWhatsapp,
+        data: {
+          'customerName': customerName.trim(),
+          'customerPhone': customerPhone.trim(),
+          'pdfBase64': base64Encode(pdfBytes),
+          if (fileName != null && fileName.trim().isNotEmpty)
+            'fileName': fileName.trim(),
+        },
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(
+          e.response?.data,
+          'No se pudo enviar la cotización por WhatsApp',
+        ),
+        e.response?.statusCode,
+      );
     }
   }
 }

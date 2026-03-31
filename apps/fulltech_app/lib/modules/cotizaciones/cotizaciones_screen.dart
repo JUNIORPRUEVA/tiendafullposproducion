@@ -13,7 +13,6 @@ import '../../core/cache/fulltech_cache_manager.dart';
 import '../../core/cache/local_json_cache.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../../core/debug/debug_admin_action.dart';
-import '../../core/evolution/evolution_api_repository.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/models/product_model.dart';
 import '../../core/realtime/catalog_realtime_service.dart';
@@ -538,7 +537,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   double get _subtotal => _items.fold(0, (sum, item) => sum + item.total);
   double get _itbisAmount => _includeItbis ? (_subtotal * _itbisRate) : 0;
   double get _total => _subtotal + _itbisAmount;
-  double get _totalCost => _items.fold(0, (sum, item) => sum + item.subtotalCost);
+  double get _totalCost =>
+      _items.fold(0, (sum, item) => sum + item.subtotalCost);
   double get _utilityAmount => _total - _totalCost;
 
   String _money(double value) =>
@@ -1449,9 +1449,12 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   }
 
   CotizacionModel _buildDraftCotizacion() {
+    final user = ref.read(authStateProvider).user;
     return CotizacionModel(
       id: _editingId ?? _newId(),
       createdAt: _editingCreatedAt ?? DateTime.now(),
+      createdByUserId: user?.id,
+      createdByUserName: user?.nombreCompleto,
       customerId: _selectedClientId,
       customerName: _selectedClientName,
       customerPhone: _selectedClientPhone,
@@ -1460,6 +1463,30 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       itbisRate: _itbisRate,
       items: [..._items],
     );
+  }
+
+  Future<void> _sendCotizacionViaWhatsApp({
+    required CotizacionModel cotizacion,
+    Uint8List? pdfBytes,
+  }) async {
+    final company = await ref
+        .read(companySettingsRepositoryProvider)
+        .getSettings();
+    final bytes =
+        pdfBytes ??
+        await buildCotizacionPdf(cotizacion: cotizacion, company: company);
+    final dateFmt = DateFormat('yyyyMMdd_HHmm');
+    final fileName =
+        'cotizacion_${dateFmt.format(cotizacion.createdAt)}_${cotizacion.id.substring(0, 6)}.pdf';
+
+    await ref
+        .read(cotizacionesRepositoryProvider)
+        .sendWhatsAppQuotation(
+          customerName: cotizacion.customerName,
+          customerPhone: cotizacion.customerPhone ?? '',
+          pdfBytes: bytes,
+          fileName: fileName,
+        );
   }
 
   Future<void> _openPdfPreview() async {
@@ -1492,40 +1519,20 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         return StatefulBuilder(
           builder: (context, setDialogState) {
             final phone = (cotizacion.customerPhone ?? '').trim();
-            final evolution = ref.read(evolutionApiRepositoryProvider);
-            final normalizedPhone = evolution.normalizeWhatsAppNumber(phone);
-            final canSend = normalizedPhone.isNotEmpty && !sendingWhatsApp;
+            final canSend = phone.isNotEmpty && !sendingWhatsApp;
 
             String fileName() {
               final dateFmt = DateFormat('yyyyMMdd_HHmm');
               return 'cotizacion_${dateFmt.format(cotizacion.createdAt)}_${cotizacion.id.substring(0, 6)}.pdf';
             }
 
-            String caption() {
-              final name = cotizacion.customerName.trim();
-              final safeName = name.isEmpty ? 'cliente' : name;
-              return 'Señor(a) $safeName, aquí está el presupuesto. Por favor, hágame saber cualquier detalle.';
-            }
-
             Future<void> sendWhatsApp() async {
               setDialogState(() => sendingWhatsApp = true);
               try {
-                final cancelToken = CancelToken();
-                await evolution
-                    .sendPdfDocument(
-                      toNumber: normalizedPhone,
-                      bytes: bytes,
-                      fileName: fileName(),
-                      caption: caption(),
-                      cancelToken: cancelToken,
-                    )
-                    .timeout(
-                      const Duration(seconds: 25),
-                      onTimeout: () {
-                        cancelToken.cancel('timeout');
-                        throw TimeoutException('timeout');
-                      },
-                    );
+                await _sendCotizacionViaWhatsApp(
+                  cotizacion: cotizacion,
+                  pdfBytes: bytes,
+                ).timeout(const Duration(seconds: 25));
                 if (!scaffoldContext.mounted) return;
                 ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
                   const SnackBar(
@@ -1543,15 +1550,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                 );
               } on ApiException catch (e) {
                 if (!scaffoldContext.mounted) return;
-                ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      normalizedPhone.isEmpty
-                          ? 'Teléfono inválido para WhatsApp.'
-                          : e.message,
-                    ),
-                  ),
-                );
+                ScaffoldMessenger.maybeOf(
+                  scaffoldContext,
+                )?.showSnackBar(SnackBar(content: Text(e.message)));
               } catch (e) {
                 if (!scaffoldContext.mounted) return;
                 ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
@@ -1720,8 +1721,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
           content: Text(
             widget.returnSavedQuotation
                 ? wasEditing
-                    ? 'Cotización actualizada'
-                    : 'Cotización creada'
+                      ? 'Cotización actualizada'
+                      : 'Cotización creada'
                 : queued
                 ? 'Cotización guardada localmente. Se sincronizará en segundo plano.'
                 : wasEditing
@@ -1754,13 +1755,16 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     final confirmed = await confirmDebugAdminPurge(
       context,
       moduleLabel: 'cotizaciones',
-      impactLabel: 'todas las cotizaciones guardadas y su historial relacionado',
+      impactLabel:
+          'todas las cotizaciones guardadas y su historial relacionado',
     );
     if (!confirmed || !mounted) return;
 
     setState(() => _purgingAllDebug = true);
     try {
-      final result = await ref.read(cotizacionesRepositoryProvider).purgeAllDebug();
+      final result = await ref
+          .read(cotizacionesRepositoryProvider)
+          .purgeAllDebug();
       if (!mounted) return;
 
       _commitEditorChange(_resetEditorState);
@@ -1773,9 +1777,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     } catch (e) {
       if (!mounted) return;
       final message = e is ApiException ? e.message : '$e';
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) {
         setState(() => _purgingAllDebug = false);
@@ -2072,30 +2076,30 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                     ),
                   ],
                 ),
-                if (ref.watch(authStateProvider).user?.appRole == AppRole.admin)
-                  ...[
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            'Utilidad total',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: Colors.green,
-                            ),
-                          ),
-                        ),
-                        Text(
-                          _money(_utilityAmount),
-                          style: const TextStyle(
+                if (ref.watch(authStateProvider).user?.appRole ==
+                    AppRole.admin) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Utilidad total',
+                          style: TextStyle(
                             fontWeight: FontWeight.w700,
                             color: Colors.green,
                           ),
                         ),
-                      ],
-                    ),
-                  ],
+                      ),
+                      Text(
+                        _money(_utilityAmount),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: Colors.green,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 10),
                 Row(
                   children: [
