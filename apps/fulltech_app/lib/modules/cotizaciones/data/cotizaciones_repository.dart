@@ -249,6 +249,21 @@ class CotizacionesRepository {
     }
   }
 
+  Future<Map<String, dynamic>> purgeAllDebug() async {
+    try {
+      final res = await _dio.delete(ApiRoutes.cotizacionesDebugPurge);
+      await _local.clearAll();
+      return Map<String, dynamic>.from(
+        (res.data as Map?) ?? const <String, dynamic>{},
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudieron limpiar las cotizaciones'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
   Future<void> deleteById(String id) async {
     try {
       await _dio.delete(ApiRoutes.cotizacionDetail(id));

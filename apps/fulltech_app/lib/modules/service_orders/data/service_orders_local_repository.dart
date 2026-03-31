@@ -275,6 +275,30 @@ class ServiceOrdersLocalRepository {
     await db.delete(_ordersTable, where: 'id = ?', whereArgs: [id]);
   }
 
+  Future<void> clearSnapshot() async {
+    _memorySnapshot = const ServiceOrdersLocalSnapshot(
+      orders: [],
+      clientsById: {},
+      usersById: {},
+    );
+
+    if (kIsWeb) {
+      return;
+    }
+
+    final db = await _db;
+    await db.transaction((txn) async {
+      await txn.delete(_ordersTable);
+      await txn.delete(_clientsTable);
+      await txn.delete(_usersTable);
+      await txn.delete(
+        _metaTable,
+        where: 'key = ?',
+        whereArgs: [_lastSyncedAtKey],
+      );
+    });
+  }
+
   Future<Map<String, UserModel>> readUsersById() async {
     if (kIsWeb) {
       return Map<String, UserModel>.from((await readSnapshot()).usersById);

@@ -55,6 +55,7 @@ class ApiRoutes {
 
   // Clientes
   static const clients = '/clients';
+    static const clientsDebugPurge = '/clients/debug/purge';
   static String clientDetail(String id) => '/clients/$id';
   static String clientProfile(String id) => '/clients/$id/profile';
   static String clientTimeline(String id) => '/clients/$id/timeline';
@@ -62,6 +63,7 @@ class ApiRoutes {
   // Productos
   static const products = '/products';
   static const catalogProducts = '/catalog/products';
+    static const productsDebugPurge = '/products/debug/purge';
   static const productsUpload = '/products/upload';
   static String productDetail(String id) => '/products/$id';
   static String updateProduct(String id) => '/products/$id';
@@ -69,6 +71,7 @@ class ApiRoutes {
 
   // Ventas
   static const sales = '/sales';
+    static const salesDebugPurge = '/sales/debug/purge';
   static const salesSummary = '/sales/summary';
   static String saleDetail(String id) => '/sales/$id';
 
@@ -144,12 +147,14 @@ class ApiRoutes {
 
   // Cotizaciones (nube)
   static const cotizaciones = '/cotizaciones';
+    static const cotizacionesDebugPurge = '/cotizaciones/debug/purge';
   static String cotizacionDetail(String id) => '/cotizaciones/$id';
   static const cotizacionAiAnalyze = '/cotizaciones/ai/analyze';
   static const cotizacionAiChat = '/cotizaciones/ai/chat';
 
   // Service orders
   static const serviceOrders = '/service-orders';
+    static const serviceOrdersDebugPurge = '/service-orders/debug/purge';
   static const serviceOrderSalesSummary = '/service-orders/sales-summary';
   static String serviceOrderDetail(String id) => '/service-orders/$id';
   static String serviceOrderUpdate(String id) => '/service-orders/$id';

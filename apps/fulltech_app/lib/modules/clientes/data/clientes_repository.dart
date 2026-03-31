@@ -322,6 +322,20 @@ class ClientesRepository {
     }
   }
 
+  Future<Map<String, dynamic>> purgeAllDebug() async {
+    try {
+      final res = await _dio.delete(ApiRoutes.clientsDebugPurge);
+      return Map<String, dynamic>.from(
+        (res.data as Map?) ?? const <String, dynamic>{},
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudieron limpiar los clientes'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
   Future<ClienteModel> upsertClient({
     required String ownerId,
     required ClienteModel cliente,

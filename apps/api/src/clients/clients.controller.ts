@@ -62,6 +62,12 @@ export class ClientsController {
     return this.clients.updateLocation(this.userOrThrow(req), id, dto);
   }
 
+  @Delete('debug/purge')
+  @Roles(Role.ADMIN)
+  purgeAllForDebug(@Req() req: Request) {
+    return this.clients.purgeAllForDebug(this.userOrThrow(req));
+  }
+
   @Delete(':id')
   @Roles(Role.ADMIN)
   remove(@Req() req: Request, @Param('id') id: string) {

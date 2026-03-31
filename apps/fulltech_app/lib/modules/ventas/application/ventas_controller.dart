@@ -142,6 +142,18 @@ class VentasController extends StateNotifier<VentasState> {
     }
   }
 
+  Future<int> purgeAllDebug() async {
+    final result = await ref.read(ventasRepositoryProvider).purgeAllDebug();
+    state = state.copyWith(
+      sales: const [],
+      summary: SalesSummaryModel.empty(),
+      serviceSummary: ServiceSalesSummaryModel.empty(),
+      clearError: true,
+      clearServiceSummaryError: true,
+    );
+    return (result['deletedSales'] as num?)?.toInt() ?? 0;
+  }
+
   Future<void> setPreset(SalesRangePreset preset) async {
     final now = DateTime.now();
     SalesDateRange nextRange;

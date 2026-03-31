@@ -205,6 +205,18 @@ class ServiceOrdersListController
     await ref.read(serviceOrdersLocalRepositoryProvider).deleteOrder(id);
   }
 
+  Future<int> purgeAllDebug() async {
+    final result = await ref.read(serviceOrdersApiProvider).purgeAllDebug();
+    await ref.read(serviceOrdersLocalRepositoryProvider).clearSnapshot();
+    state = state.copyWith(
+      items: const [],
+      clientsById: const {},
+      usersById: const {},
+      clearError: true,
+    );
+    return (result['deletedServiceOrders'] as num?)?.toInt() ?? 0;
+  }
+
   void upsertOrder(ServiceOrderModel order) {
     final nextClientMap = {...state.clientsById};
     if (order.client != null) {

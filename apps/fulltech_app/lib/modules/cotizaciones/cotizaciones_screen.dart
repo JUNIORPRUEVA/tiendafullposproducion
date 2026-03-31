@@ -12,6 +12,7 @@ import '../../core/auth/app_role.dart';
 import '../../core/cache/fulltech_cache_manager.dart';
 import '../../core/cache/local_json_cache.dart';
 import '../../core/company/company_settings_repository.dart';
+import '../../core/debug/debug_admin_action.dart';
 import '../../core/evolution/evolution_api_repository.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/models/product_model.dart';
@@ -57,6 +58,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   final LocalJsonCache _editorDraftCache = LocalJsonCache();
   Timer? _persistEditorDraftTimer;
   bool _restoringEditorDraft = false;
+  bool _purgingAllDebug = false;
 
   final TextEditingController _searchCtrl = TextEditingController();
 
@@ -1748,7 +1750,41 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     }
   }
 
+  Future<void> _purgeAllDebug() async {
+    final confirmed = await confirmDebugAdminPurge(
+      context,
+      moduleLabel: 'cotizaciones',
+      impactLabel: 'todas las cotizaciones guardadas y su historial relacionado',
+    );
+    if (!confirmed || !mounted) return;
+
+    setState(() => _purgingAllDebug = true);
+    try {
+      final result = await ref.read(cotizacionesRepositoryProvider).purgeAllDebug();
+      if (!mounted) return;
+
+      _commitEditorChange(_resetEditorState);
+      _schedulePersistEditorDraft(immediate: true);
+
+      final deleted = (result['deletedQuotes'] as num?)?.toInt() ?? 0;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text('Se limpiaron $deleted cotizaciones.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      final message = e is ApiException ? e.message : '$e';
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _purgingAllDebug = false);
+      }
+    }
+  }
+
   AppBar _buildMobileAppBar() {
+    final currentUser = ref.read(authStateProvider).user;
     return AppBar(
       titleSpacing: 0,
       title: Padding(
@@ -1818,6 +1854,12 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
               onPressed: _openHistory,
               icon: const Icon(Icons.history),
             ),
+            DebugAdminActionButton(
+              user: currentUser,
+              busy: _purgingAllDebug,
+              tooltip: 'Limpiar módulo (debug)',
+              onPressed: _purgeAllDebug,
+            ),
           ],
         ),
       ),
@@ -1825,9 +1867,18 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   }
 
   AppBar _buildDesktopAppBar() {
+    final currentUser = ref.read(authStateProvider).user;
     return AppBar(
       title: const Text('Cotizaciones'),
-      actions: const [SizedBox(width: 8)],
+      actions: [
+        DebugAdminActionButton(
+          user: currentUser,
+          busy: _purgingAllDebug,
+          tooltip: 'Limpiar módulo (debug)',
+          onPressed: _purgeAllDebug,
+        ),
+        const SizedBox(width: 8),
+      ],
     );
   }
 

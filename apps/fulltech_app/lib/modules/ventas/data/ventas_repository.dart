@@ -131,6 +131,20 @@ class VentasRepository {
     }
   }
 
+  Future<Map<String, dynamic>> purgeAllDebug() async {
+    try {
+      final res = await _dio.delete(ApiRoutes.salesDebugPurge);
+      return Map<String, dynamic>.from(
+        (res.data as Map?) ?? const <String, dynamic>{},
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudieron limpiar las ventas'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
   Future<SaleModel> getById(String id) async {
     try {
       final res = await _dio.get(ApiRoutes.saleDetail(id));

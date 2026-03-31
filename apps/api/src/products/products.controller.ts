@@ -193,6 +193,13 @@ export class ProductsController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(Role.ADMIN)
+  @Delete('debug/purge')
+  purgeAllForDebug() {
+    return this.products.purgeAllForDebug();
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(Role.ADMIN, Role.ASISTENTE)
   @Delete(':id')
   remove(@Param('id') id: string) {

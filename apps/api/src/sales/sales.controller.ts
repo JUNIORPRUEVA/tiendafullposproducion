@@ -1,11 +1,14 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { Role } from '@prisma/client';
 import { Request } from 'express';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/roles.guard';
 import { SalesService } from './sales.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { SalesRangeQueryDto } from './dto/sales-range-query.dto';
 
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller('sales')
 export class SalesController {
   constructor(private readonly sales: SalesService) {}
@@ -26,6 +29,13 @@ export class SalesController {
   create(@Req() req: Request, @Body() dto: CreateSaleDto) {
     const user = req.user as { id: string; role: string };
     return this.sales.create(user.id, dto);
+  }
+
+  @Delete('debug/purge')
+  @Roles(Role.ADMIN)
+  purgeAllForDebug(@Req() req: Request) {
+    const user = req.user as { id: string; role: string };
+    return this.sales.purgeAllForDebug(user);
   }
 
   @Delete(':id')

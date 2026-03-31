@@ -184,4 +184,18 @@ class CatalogRepository {
       );
     }
   }
+
+  Future<Map<String, dynamic>> purgeAllDebug() async {
+    try {
+      final res = await _dio.delete(ApiRoutes.productsDebugPurge);
+      return Map<String, dynamic>.from(
+        (res.data as Map?) ?? const <String, dynamic>{},
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudieron limpiar los productos'),
+        e.response?.statusCode,
+      );
+    }
+  }
 }

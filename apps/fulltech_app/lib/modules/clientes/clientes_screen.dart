@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/debug/debug_admin_action.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
@@ -22,6 +23,7 @@ class ClientesScreen extends ConsumerStatefulWidget {
 class _ClientesScreenState extends ConsumerState<ClientesScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   Timer? _debounce;
+  bool _purgingAllDebug = false;
 
   @override
   void dispose() {
@@ -35,6 +37,35 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
     _debounce = Timer(const Duration(milliseconds: 350), () {
       ref.read(clientesControllerProvider.notifier).load(search: value);
     });
+  }
+
+  Future<void> _purgeAllDebug() async {
+    final confirmed = await confirmDebugAdminPurge(
+      context,
+      moduleLabel: 'clientes',
+      impactLabel: 'todos los clientes y sus datos relacionados',
+    );
+    if (!confirmed || !mounted) return;
+
+    setState(() => _purgingAllDebug = true);
+    try {
+      final deleted = await ref
+          .read(clientesControllerProvider.notifier)
+          .purgeAllDebug();
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text('Se limpiaron $deleted clientes.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text('$e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _purgingAllDebug = false);
+      }
+    }
   }
 
   @override
@@ -55,6 +86,12 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
             tooltip: 'Actualizar',
             onPressed: state.refreshing ? null : controller.refresh,
             icon: const Icon(Icons.refresh_rounded),
+          ),
+          DebugAdminActionButton(
+            user: currentUser,
+            busy: _purgingAllDebug,
+            tooltip: 'Limpiar tabla (debug)',
+            onPressed: _purgeAllDebug,
           ),
           IconButton(
             tooltip: 'Nuevo cliente',

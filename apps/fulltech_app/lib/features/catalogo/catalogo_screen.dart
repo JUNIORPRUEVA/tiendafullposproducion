@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/company/company_settings_repository.dart';
+import '../../core/debug/debug_admin_action.dart';
 import '../../core/models/product_model.dart';
 import '../../core/realtime/catalog_realtime_service.dart';
 import '../../core/routing/app_route_observer.dart';
@@ -43,6 +44,7 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
   DateTime? _lastAutoSyncAt;
   Timer? _liveSyncTimer;
   StreamSubscription<CatalogRealtimeMessage>? _realtimeSubscription;
+  bool _purgingAllDebug = false;
   bool _routeObserverSubscribed = false;
   RouteObserver<ModalRoute<dynamic>>? _routeObserver;
   static const Duration _liveSyncInterval = Duration(minutes: 2);
@@ -154,6 +156,41 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
           .read(catalogControllerProvider.notifier)
           .load(silent: true, forceRemote: true);
     });
+  }
+
+  Future<void> _purgeAllDebug() async {
+    final user = ref.read(authStateProvider).user;
+    final settings = ref.read(companySettingsProvider).valueOrNull;
+    final canManage =
+        canUseDebugAdminAction(user) && !(settings?.productsReadOnly ?? true);
+    if (!canManage) {
+      return;
+    }
+
+    final confirmed = await confirmDebugAdminPurge(
+      context,
+      moduleLabel: 'catálogo',
+      impactLabel: 'todos los productos locales visibles en este módulo',
+    );
+    if (!confirmed || !mounted) return;
+
+    setState(() => _purgingAllDebug = true);
+    try {
+      final deleted = await ref.read(catalogControllerProvider.notifier).purgeAllDebug();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Se limpiaron $deleted productos.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _purgingAllDebug = false);
+      }
+    }
   }
 
   @override
@@ -312,6 +349,13 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
               darkerTone: true,
               highContrast: true,
               actions: [
+                DebugAdminActionButton(
+                  user: user,
+                  enabled: canManage,
+                  busy: _purgingAllDebug,
+                  tooltip: 'Limpiar tabla (debug)',
+                  onPressed: _purgeAllDebug,
+                ),
                 Padding(
                   padding: const EdgeInsets.only(right: 4),
                   child: Badge(

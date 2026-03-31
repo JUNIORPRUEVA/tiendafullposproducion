@@ -266,4 +266,20 @@ class ClientesController extends StateNotifier<ClientesState> {
       rethrow;
     }
   }
+
+  Future<int> purgeAllDebug() async {
+    state = state.copyWith(saving: true, clearActionError: true);
+    try {
+      final result = await ref.read(clientesRepositoryProvider).purgeAllDebug();
+      state = state.copyWith(items: const [], saving: false);
+      await _persistSnapshot(const []);
+      return (result['deletedClients'] as num?)?.toInt() ?? 0;
+    } catch (e) {
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudieron limpiar los clientes';
+      state = state.copyWith(saving: false, actionError: message);
+      rethrow;
+    }
+  }
 }

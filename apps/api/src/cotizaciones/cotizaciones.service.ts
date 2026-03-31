@@ -83,6 +83,19 @@ export class CotizacionesService {
     }
   }
 
+  private assertDebugPurgeEnabled() {
+    const nodeEnv = (
+      this.config.get<string>('NODE_ENV') ??
+      process.env.NODE_ENV ??
+      'development'
+    ).trim().toLowerCase();
+    if (nodeEnv === 'production') {
+      throw new ForbiddenException(
+        'La limpieza masiva solo está disponible fuera de producción.',
+      );
+    }
+  }
+
   private async resolveCustomerIdByPhone(
     tx: Prisma.TransactionClient,
     input: {
@@ -399,6 +412,41 @@ export class CotizacionesService {
     await this.prisma.cotizacion.delete({ where: { id } });
     await this.invalidateQuoteCache('cotizacion.remove');
     return { ok: true };
+  }
+
+  async purgeAllForDebug(user: { id: string; role: Role }) {
+    if (user.role !== Role.ADMIN) {
+      throw new ForbiddenException('Solo un administrador puede limpiar cotizaciones.');
+    }
+    this.assertDebugPurgeEnabled();
+
+    const quotes = await this.prisma.cotizacion.findMany({
+      select: { id: true },
+    });
+    const quoteIds = quotes.map((item) => item.id);
+
+    if (quoteIds.length === 0) {
+      return { ok: true, deletedQuotes: 0, deletedServiceOrders: 0 };
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const deletedServiceOrders = await tx.serviceOrder.deleteMany({
+        where: { quotationId: { in: quoteIds } },
+      });
+      const deletedQuotes = await tx.cotizacion.deleteMany({
+        where: { id: { in: quoteIds } },
+      });
+      return {
+        deletedQuotes: deletedQuotes.count,
+        deletedServiceOrders: deletedServiceOrders.count,
+      };
+    });
+
+    await this.invalidateQuoteCache('cotizacion.debug_purge');
+    await this.redis.delByPattern('service-orders:list:*');
+    await this.redis.delByPattern('service-orders:detail:*');
+
+    return { ok: true, ...result };
   }
 
   async analyzeAssistant(

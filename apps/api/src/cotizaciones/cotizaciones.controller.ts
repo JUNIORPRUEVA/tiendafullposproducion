@@ -58,6 +58,13 @@ export class CotizacionesController {
     return this.cotizaciones.update(user, id, dto);
   }
 
+  @Delete('debug/purge')
+  @Roles(Role.ADMIN)
+  purgeAllForDebug(@Req() req: Request) {
+    const user = req.user as { id: string; role: Role };
+    return this.cotizaciones.purgeAllForDebug(user);
+  }
+
   @Delete(':id')
   @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR)
   remove(@Req() req: Request, @Param('id') id: string) {

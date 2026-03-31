@@ -184,6 +184,21 @@ class CotizacionesLocalRepository {
     });
   }
 
+  Future<void> clearAll() async {
+    _memoryQuotes = const [];
+    _memoryDraft = null;
+
+    if (kIsWeb) {
+      return;
+    }
+
+    final db = await _db;
+    await db.transaction((txn) async {
+      await txn.delete(_tableItems);
+      await txn.delete(_tableCotizaciones);
+    });
+  }
+
   Future<void> _upsert(CotizacionModel cotizacion, {required bool isDraft}) async {
     final db = await _db;
     final now = DateTime.now().toIso8601String();

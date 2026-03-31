@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_provider.dart';
+import '../../core/debug/debug_admin_action.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/models/user_model.dart';
 import '../../core/realtime/operations_realtime_service.dart';
@@ -39,6 +40,7 @@ class _ServiceOrdersListScreenState
   final Set<String> _busyOrderIds = <String>{};
   final Set<String> _creatingFromOrderIds = <String>{};
   bool _mobileControlsCollapsed = true;
+  bool _purgingAllDebug = false;
   StreamSubscription<OperationsRealtimeMessage>?
       _operationsRealtimeSubscription;
 
@@ -79,6 +81,35 @@ class _ServiceOrdersListScreenState
       controller.upsertOrder(ServiceOrderModel.fromJson(payload));
     } catch (_) {
       unawaited(controller.refresh());
+    }
+  }
+
+  Future<void> _purgeAllDebug() async {
+    final confirmed = await confirmDebugAdminPurge(
+      context,
+      moduleLabel: 'operaciones',
+      impactLabel: 'todas las órdenes de servicio visibles en este módulo',
+    );
+    if (!confirmed || !mounted) return;
+
+    setState(() => _purgingAllDebug = true);
+    try {
+      final deleted = await ref
+          .read(serviceOrdersListControllerProvider.notifier)
+          .purgeAllDebug();
+      if (!mounted) return;
+      AppFeedback.showInfo(
+        context,
+        'Se limpiaron $deleted órdenes de servicio.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      final message = e is ApiException ? e.message : '$e';
+      AppFeedback.showError(context, message);
+    } finally {
+      if (mounted) {
+        setState(() => _purgingAllDebug = false);
+      }
     }
   }
 
@@ -150,6 +181,12 @@ class _ServiceOrdersListScreenState
             onPressed: state.refreshing ? null : controller.refresh,
             icon: const Icon(Icons.refresh_rounded),
             tooltip: 'Actualizar',
+          ),
+          DebugAdminActionButton(
+            user: currentUser,
+            busy: _purgingAllDebug,
+            tooltip: 'Limpiar tabla (debug)',
+            onPressed: _purgeAllDebug,
           ),
           const SizedBox(width: 4),
         ],

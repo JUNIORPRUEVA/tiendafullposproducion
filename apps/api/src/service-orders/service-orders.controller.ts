@@ -77,6 +77,12 @@ export class ServiceOrdersController {
     return this.serviceOrders.clone(req.user as JwtUser, id, dto);
   }
 
+  @Delete('debug/purge')
+  @Roles(Role.ADMIN)
+  purgeAllForDebug(@Req() req: Request) {
+    return this.serviceOrders.purgeAllForDebug(req.user as JwtUser);
+  }
+
   @Delete(':id')
   @Roles(Role.ADMIN)
   remove(@Req() req: Request, @Param('id') id: string) {

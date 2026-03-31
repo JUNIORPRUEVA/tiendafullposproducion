@@ -243,4 +243,21 @@ class CatalogController extends StateNotifier<CatalogState> {
       rethrow;
     }
   }
+
+  Future<int> purgeAllDebug() async {
+    state = state.copyWith(saving: true, actionError: null);
+    try {
+      final result = await ref.read(catalogRepositoryProvider).purgeAllDebug();
+      await ref.read(catalogLocalRepositoryProvider).clearSnapshot();
+      state = state.copyWith(items: const [], saving: false, clearError: true);
+      _lastSuccessfulRemoteSyncAt = DateTime.now();
+      return (result['deletedProducts'] as num?)?.toInt() ?? 0;
+    } catch (e) {
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudieron limpiar los productos';
+      state = state.copyWith(saving: false, actionError: message);
+      rethrow;
+    }
+  }
 }

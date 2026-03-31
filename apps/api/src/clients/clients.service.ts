@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma, Role, type Client } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizePhone } from '../common/utils/normalize-phone';
@@ -18,7 +19,10 @@ type AuthUser = { id: string; role: Role };
 
 @Injectable()
 export class ClientsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
 
   private static readonly adminLikeRoles = new Set<Role>([Role.ADMIN, Role.ASISTENTE]);
 
@@ -101,6 +105,19 @@ export class ClientsService {
   private assertAdmin(user: AuthUser, message: string) {
     if (user.role !== Role.ADMIN) {
       throw new ForbiddenException(message);
+    }
+  }
+
+  private assertDebugPurgeEnabled() {
+    const nodeEnv = (
+      this.config.get<string>('NODE_ENV') ??
+      process.env.NODE_ENV ??
+      'development'
+    ).trim().toLowerCase();
+    if (nodeEnv === 'production') {
+      throw new ForbiddenException(
+        'La limpieza masiva solo está disponible fuera de producción.',
+      );
     }
   }
 
@@ -406,6 +423,65 @@ export class ClientsService {
     await this.findAccessibleClientOrThrow(user, id);
     await this.prisma.client.update({ where: { id }, data: { isDeleted: true } });
     return { ok: true };
+  }
+
+  async purgeAllForDebug(user: AuthUser) {
+    this.assertAdmin(user, 'Only admin can purge clients');
+    this.assertDebugPurgeEnabled();
+
+    const clients = await this.prisma.client.findMany({
+      select: { id: true },
+    });
+    const clientIds = clients.map((item) => item.id);
+
+    if (clientIds.length === 0) {
+      return {
+        ok: true,
+        deletedClients: 0,
+        deletedQuotations: 0,
+        deletedServiceOrders: 0,
+        deletedLegacyServices: 0,
+      };
+    }
+
+    const quotations = await this.prisma.cotizacion.findMany({
+      where: { customerId: { in: clientIds } },
+      select: { id: true },
+    });
+    const quotationIds = quotations.map((item) => item.id);
+    const serviceOrderWhere: Prisma.ServiceOrderWhereInput =
+      quotationIds.length > 0
+        ? {
+            OR: [
+              { clientId: { in: clientIds } },
+              { quotationId: { in: quotationIds } },
+            ],
+          }
+        : { clientId: { in: clientIds } };
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const deletedServiceOrders = await tx.serviceOrder.deleteMany({
+        where: serviceOrderWhere,
+      });
+      const deletedLegacyServices = await tx.service.deleteMany({
+        where: { customerId: { in: clientIds } },
+      });
+      const deletedQuotations = await tx.cotizacion.deleteMany({
+        where: { customerId: { in: clientIds } },
+      });
+      const deletedClients = await tx.client.deleteMany({
+        where: { id: { in: clientIds } },
+      });
+
+      return {
+        deletedClients: deletedClients.count,
+        deletedQuotations: deletedQuotations.count,
+        deletedServiceOrders: deletedServiceOrders.count,
+        deletedLegacyServices: deletedLegacyServices.count,
+      };
+    });
+
+    return { ok: true, ...result };
   }
 
   async getProfile(user: AuthUser, id: string) {

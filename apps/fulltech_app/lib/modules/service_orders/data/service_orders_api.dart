@@ -141,6 +141,20 @@ class ServiceOrdersApi {
     }
   }
 
+  Future<Map<String, dynamic>> purgeAllDebug() async {
+    try {
+      final res = await _dio.delete(
+        ApiRoutes.serviceOrdersDebugPurge,
+        options: _backgroundOptions,
+      );
+      return Map<String, dynamic>.from(
+        (res.data as Map?) ?? const <String, dynamic>{},
+      );
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudieron limpiar las órdenes');
+    }
+  }
+
   Future<ServiceOrderModel> cloneOrder(
     String sourceOrderId,
     CloneServiceOrderRequest request,

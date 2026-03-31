@@ -18,27 +18,27 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly catalogProducts: CatalogProductsService,
-    config: ConfigService
+    private readonly config: ConfigService,
   ) {
-    const base = config.get<string>('PUBLIC_BASE_URL') ?? config.get<string>('API_BASE_URL') ?? '';
+    const base = this.config.get<string>('PUBLIC_BASE_URL') ?? this.config.get<string>('API_BASE_URL') ?? '';
     this.publicBaseUrl = base.trim().replace(/\/$/, '');
 
-    const rawFallback = (config.get<string>('PRODUCTS_ALLOW_LOCAL_FALLBACK') ?? '').trim().toLowerCase();
+    const rawFallback = (this.config.get<string>('PRODUCTS_ALLOW_LOCAL_FALLBACK') ?? '').trim().toLowerCase();
     this.allowLocalFallback = rawFallback === '1' || rawFallback === 'true' || rawFallback === 'yes';
 
-    const rawSource = (config.get<string>('PRODUCTS_SOURCE') ?? '').trim().toUpperCase();
-    const nodeEnv = (config.get<string>('NODE_ENV') ?? process.env.NODE_ENV ?? 'development').toLowerCase();
+    const rawSource = (this.config.get<string>('PRODUCTS_SOURCE') ?? '').trim().toUpperCase();
+    const nodeEnv = (this.config.get<string>('NODE_ENV') ?? process.env.NODE_ENV ?? 'development').toLowerCase();
 
-    const fullposBaseUrl = (config.get<string>('FULLPOS_INTEGRATION_BASE_URL') ?? '').trim();
-    const fullposIntegrationToken = (config.get<string>('FULLPOS_INTEGRATION_TOKEN') ?? '').trim();
+    const fullposBaseUrl = (this.config.get<string>('FULLPOS_INTEGRATION_BASE_URL') ?? '').trim();
+    const fullposIntegrationToken = (this.config.get<string>('FULLPOS_INTEGRATION_TOKEN') ?? '').trim();
     const fullposDirectDatabaseUrl = (
-      config.get<string>('FULLPOS_DIRECT_DATABASE_URL') ??
-      config.get<string>('FULLPOS_DB_URL') ??
+      this.config.get<string>('FULLPOS_DIRECT_DATABASE_URL') ??
+      this.config.get<string>('FULLPOS_DB_URL') ??
       ''
     ).trim();
     const fullposDirectCompanyId = (
-      config.get<string>('FULLPOS_DIRECT_COMPANY_ID') ??
-      config.get<string>('FULLPOS_COMPANY_ID') ??
+      this.config.get<string>('FULLPOS_DIRECT_COMPANY_ID') ??
+      this.config.get<string>('FULLPOS_COMPANY_ID') ??
       ''
     ).trim();
     const fullposConfigured = fullposBaseUrl.length > 0 && fullposIntegrationToken.length > 0;
@@ -75,6 +75,19 @@ export class ProductsService {
   private assertWritable() {
     if (this.productsSource === 'FULLPOS' || this.productsSource === 'FULLPOS_DIRECT') {
       throw new ConflictException('Productos en modo solo-lectura: fuente FULLPOS (cloud). Administra productos en FULLPOS.');
+    }
+  }
+
+  private assertDebugPurgeEnabled() {
+    const nodeEnv = (
+      this.config.get<string>('NODE_ENV') ??
+      process.env.NODE_ENV ??
+      'development'
+    ).trim().toLowerCase();
+    if (nodeEnv === 'production') {
+      throw new ConflictException(
+        'La limpieza masiva solo está disponible fuera de producción.',
+      );
     }
   }
 
@@ -216,6 +229,16 @@ export class ProductsService {
     await this.findOne(id);
     await this.prisma.product.delete({ where: { id } });
     return { ok: true };
+  }
+
+  async purgeAllForDebug() {
+    this.assertWritable();
+    this.assertDebugPurgeEnabled();
+    const deleted = await this.prisma.product.deleteMany();
+    return {
+      ok: true,
+      deletedProducts: deleted.count,
+    };
   }
 
   private mapProduct(product: Product) {

@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/debug/debug_admin_action.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
@@ -36,6 +37,7 @@ class MisVentasScreen extends ConsumerStatefulWidget {
 class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
   bool _goalNotified = false;
   String _lastRangeKey = '';
+  bool _purgingAllDebug = false;
 
   bool _isDesktop(BuildContext context) =>
       MediaQuery.sizeOf(context).width >= 1180;
@@ -54,6 +56,33 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
     return '${_quincenaName(from, to)} · ${_date(from)} - ${_date(to)}';
   }
 
+  Future<void> _purgeAllDebug() async {
+    final confirmed = await confirmDebugAdminPurge(
+      context,
+      moduleLabel: 'ventas',
+      impactLabel: 'todas las ventas registradas en este módulo',
+    );
+    if (!confirmed || !mounted) return;
+
+    setState(() => _purgingAllDebug = true);
+    try {
+      final deleted = await ref.read(ventasControllerProvider.notifier).purgeAllDebug();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Se limpiaron $deleted ventas.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _purgingAllDebug = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(ventasControllerProvider);
@@ -70,6 +99,12 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
         showLogo: false,
         showDepartmentLabel: false,
         actions: [
+          DebugAdminActionButton(
+            user: user,
+            busy: _purgingAllDebug,
+            tooltip: 'Limpiar tabla (debug)',
+            onPressed: _purgeAllDebug,
+          ),
           IconButton(
             tooltip: 'Informe PDF de quincena',
             onPressed: () async {
