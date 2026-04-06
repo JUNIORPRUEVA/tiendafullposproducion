@@ -87,6 +87,7 @@ type CompanyDocumentContext = {
   rnc: string;
   phone: string;
   address: string;
+  logoBase64: string;
 };
 
 @Injectable()
@@ -171,7 +172,10 @@ export class OrderDocumentFlowService {
   async generate(user: AuthUser, id: string) {
     this.assertAssistantOrAdmin(user);
     const current = await this.findFlowById(id);
-    const invoiceDraft = this.normalizeInvoiceDraft(current.invoiceDraftJson, current.order);
+    const invoiceDraft = this.syncInvoiceDraftWithQuotation(
+      this.normalizeInvoiceDraft(current.invoiceDraftJson, current.order),
+      current.order,
+    );
     const warrantyDraft = this.normalizeWarrantyDraft(current.warrantyDraftJson, current.order);
 
     const invoiceFinalUrl = await this.writeInvoicePdf(current, invoiceDraft);
@@ -368,6 +372,7 @@ export class OrderDocumentFlowService {
       approvedBy: flow.approvedBy,
       order: {
         id: flow.order.id,
+        quotationId: flow.order.quotation?.id ?? null,
         status: flow.order.status,
         serviceType: this.enumLabel(flow.order.serviceType),
         category: this.enumLabel(flow.order.category),
@@ -427,6 +432,29 @@ export class OrderDocumentFlowService {
         'No cubre daños por manipulación externa o uso indebido.',
         'Conservar factura y este documento para futuras reclamaciones.',
       ],
+    };
+  }
+
+  private syncInvoiceDraftWithQuotation(draft: InvoiceDraft, order: ServiceOrderContext): InvoiceDraft {
+    const quotationItems = order.quotation.items.map((item) => ({
+      description: this.toText(item.productNameSnapshot),
+      qty: Number(item.qty),
+      unitPrice: Number(item.unitPrice),
+      lineTotal: Number(item.lineTotal),
+    })).filter((item) => item.description.length > 0);
+
+    if (quotationItems.length === 0) {
+      return draft;
+    }
+
+    return {
+      ...draft,
+      clientName: this.toText(order.client.nombre, draft.clientName),
+      clientPhone: this.toText(order.client.telefono, draft.clientPhone),
+      items: quotationItems,
+      subtotal: Number(order.quotation.subtotal),
+      tax: Number(order.quotation.itbisAmount),
+      total: Number(order.quotation.total),
     };
   }
 
@@ -494,6 +522,12 @@ export class OrderDocumentFlowService {
     const fileName = 'invoice-final.pdf';
     const relativePath = join('document-flows', flow.id, fileName).replace(/\\/g, '/');
     const absolutePath = this.buildAbsoluteUploadPath(relativePath);
+    const company = await this.getCompanyDocumentContext();
+    const issueDate = flow.order.finalizedAt ?? flow.order.updatedAt ?? flow.order.createdAt ?? new Date();
+    const invoiceNumber = `FACT-${flow.order.id.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+    const contentWidth = 515;
+    const leftColumnWidth = 250;
+    const rightColumnWidth = contentWidth - leftColumnWidth;
 
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     const chunks: Buffer[] = [];
@@ -502,27 +536,137 @@ export class OrderDocumentFlowService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
     });
-    doc.fontSize(18).text('Factura de servicio');
-    doc.moveDown(0.5);
-    doc.fontSize(11).text(`Orden: ${draft.orderId}`);
-    doc.text(`Cliente: ${draft.clientName}`);
-    doc.text(`Teléfono: ${draft.clientPhone}`);
-    doc.text(`Moneda: ${draft.currency}`);
-    doc.moveDown(0.8);
-    doc.fontSize(12).text('Detalle');
-    doc.moveDown(0.4);
-    for (const item of draft.items) {
-      doc.fontSize(10).text(
-        `${item.description} | Cant: ${item.qty.toFixed(2)} | Unit: ${item.unitPrice.toFixed(2)} | Total: ${item.lineTotal.toFixed(2)}`,
-      );
+
+    const logoBuffer = this.decodeLogoBase64(company.logoBase64);
+    const headerTop = doc.y;
+    if (logoBuffer) {
+      try {
+        doc.image(logoBuffer, doc.page.margins.left, headerTop, {
+          fit: [58, 58],
+          align: 'left',
+          valign: 'top',
+        });
+      } catch (error) {
+        this.logger.warn(`No se pudo insertar logo en factura PDF: ${error}`);
+      }
     }
-    doc.moveDown(0.8);
-    doc.fontSize(11).text(`Subtotal: ${draft.subtotal.toFixed(2)}`);
-    doc.text(`Impuesto: ${draft.tax.toFixed(2)}`);
-    doc.text(`Total: ${draft.total.toFixed(2)}`);
+
+    const infoX = doc.page.margins.left + 72;
+    doc.font('Helvetica-Bold').fontSize(16).text(company.companyName, infoX, headerTop, {
+      width: leftColumnWidth - 72,
+      align: 'left',
+    });
+    doc.font('Helvetica').fontSize(9);
+    let companyInfoY = headerTop + 20;
+    const companyLines = [
+      company.rnc.length > 0 ? `RNC: ${company.rnc}` : '',
+      company.phone.length > 0 ? `Tel: ${company.phone}` : '',
+      company.address,
+    ].filter((value) => value.trim().length > 0);
+    for (const line of companyLines) {
+      doc.text(line, infoX, companyInfoY, {
+        width: leftColumnWidth - 72,
+        align: 'left',
+      });
+      companyInfoY += 12;
+    }
+
+    const invoiceMetaX = doc.page.margins.left + leftColumnWidth + 15;
+    doc.font('Helvetica-Bold').fontSize(15).text('Factura', invoiceMetaX, headerTop, {
+      width: rightColumnWidth - 15,
+      align: 'left',
+    });
+    doc.font('Helvetica').fontSize(10);
+    const metaLines = [
+      `No. factura: ${invoiceNumber}`,
+      `Orden: ${draft.orderId}`,
+      `Moneda: ${draft.currency}`,
+    ];
+    let metaY = headerTop + 22;
+    for (const line of metaLines) {
+      doc.text(line, invoiceMetaX, metaY, {
+        width: rightColumnWidth - 15,
+        align: 'left',
+      });
+      metaY += 13;
+    }
+
+    const dividerY = Math.max(companyInfoY, metaY) + 8;
+    doc.moveTo(doc.page.margins.left, dividerY).lineTo(doc.page.width - doc.page.margins.right, dividerY).stroke('#D9DEE7');
+
+    const clientBlockTop = dividerY + 14;
+    doc.font('Helvetica-Bold').fontSize(11).text('Datos del cliente', doc.page.margins.left, clientBlockTop, {
+      width: 250,
+      align: 'left',
+    });
+    doc.font('Helvetica').fontSize(10);
+    let clientY = clientBlockTop + 16;
+    const clientLines = [
+      `Cliente: ${draft.clientName}`,
+      `Teléfono: ${draft.clientPhone}`,
+      flow.order.client.direccion?.trim().length ? `Dirección: ${flow.order.client.direccion?.trim()}` : '',
+    ].filter((value) => `${value}`.trim().length > 0);
+    for (const line of clientLines) {
+      doc.text(line, doc.page.margins.left, clientY, {
+        width: 280,
+        align: 'left',
+      });
+      clientY += 13;
+    }
+
+    const detailMetaX = doc.page.margins.left + 320;
+    doc.font('Helvetica-Bold').fontSize(11).text('Datos de factura', detailMetaX, clientBlockTop, {
+      width: 180,
+      align: 'left',
+    });
+    doc.font('Helvetica').fontSize(10);
+    doc.text(`Fecha: ${issueDate.toLocaleDateString('es-DO')}`, detailMetaX, clientBlockTop + 16, {
+      width: 180,
+      align: 'left',
+    });
+    doc.text(`Comprobante: ${invoiceNumber}`, detailMetaX, clientBlockTop + 29, {
+      width: 180,
+      align: 'left',
+    });
+
+    const tableTop = Math.max(clientY, clientBlockTop + 45) + 16;
+    const tableX = doc.page.margins.left;
+    const descWidth = 250;
+    const qtyWidth = 70;
+    const priceWidth = 90;
+    const totalWidth = 105;
+
+    doc.roundedRect(tableX, tableTop, contentWidth, 24, 6).fill('#EEF3FB');
+    doc.fillColor('#1F2430').font('Helvetica-Bold').fontSize(10);
+    doc.text('Detalle', tableX + 10, tableTop + 7, { width: descWidth - 20, align: 'left' });
+    doc.text('Cant.', tableX + descWidth, tableTop + 7, { width: qtyWidth, align: 'center' });
+    doc.text('Precio', tableX + descWidth + qtyWidth, tableTop + 7, { width: priceWidth - 10, align: 'right' });
+    doc.text('Subtotal', tableX + descWidth + qtyWidth + priceWidth, tableTop + 7, { width: totalWidth - 10, align: 'right' });
+
+    let rowY = tableTop + 30;
+    doc.font('Helvetica').fontSize(10).fillColor('#111827');
+    for (const item of draft.items) {
+      const rowHeight = Math.max(22, doc.heightOfString(item.description, { width: descWidth - 20 }) + 8);
+      doc.roundedRect(tableX, rowY - 4, contentWidth, rowHeight, 4).stroke('#E5EAF2');
+      doc.text(item.description, tableX + 10, rowY, { width: descWidth - 20, align: 'left' });
+      doc.text(item.qty.toFixed(2), tableX + descWidth, rowY, { width: qtyWidth, align: 'center' });
+      doc.text(item.unitPrice.toFixed(2), tableX + descWidth + qtyWidth, rowY, { width: priceWidth - 10, align: 'right' });
+      doc.text(item.lineTotal.toFixed(2), tableX + descWidth + qtyWidth + priceWidth, rowY, { width: totalWidth - 10, align: 'right' });
+      rowY += rowHeight + 6;
+    }
+
+    const totalsX = tableX + 315;
+    doc.font('Helvetica').fontSize(10);
+    doc.text(`Subtotal: ${draft.subtotal.toFixed(2)}`, totalsX, rowY + 8, { width: 200, align: 'right' });
+    doc.text(`Impuesto: ${draft.tax.toFixed(2)}`, totalsX, rowY + 22, { width: 200, align: 'right' });
+    doc.font('Helvetica-Bold').fontSize(12).text(`Total: ${draft.total.toFixed(2)}`, totalsX, rowY + 38, { width: 200, align: 'right' });
+
     if (draft.notes.trim().length > 0) {
-      doc.moveDown(0.8);
-      doc.text(`Notas: ${draft.notes}`);
+      doc.font('Helvetica-Bold').fontSize(11).text('Notas', tableX, rowY + 46, { width: 120, align: 'left' });
+      doc.font('Helvetica').fontSize(10).text(draft.notes, tableX, rowY + 62, {
+        width: 280,
+        align: 'left',
+      });
     }
     doc.end();
     writeFileSync(absolutePath, await pdfBuffer);
@@ -638,6 +782,7 @@ export class OrderDocumentFlowService {
         rnc: true,
         phone: true,
         address: true,
+        logoBase64: true,
       },
     });
 
@@ -646,7 +791,19 @@ export class OrderDocumentFlowService {
       rnc: this.toText(appConfig?.rnc),
       phone: this.toText(appConfig?.phone),
       address: this.toText(appConfig?.address),
+      logoBase64: this.toText(appConfig?.logoBase64),
     };
+  }
+
+  private decodeLogoBase64(raw: string) {
+    const value = this.toText(raw);
+    if (value.length === 0) return null;
+    const normalized = value.includes(',') ? value.split(',').pop() ?? '' : value;
+    try {
+      return Buffer.from(normalized, 'base64');
+    } catch {
+      return null;
+    }
   }
 
   private buildAbsoluteUploadPath(relativePath: string) {

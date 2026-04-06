@@ -36,6 +36,84 @@ class _ServiceOrderDetailScreenState
     });
   }
 
+  Future<void> _showQuotationPreviewDialog(CotizacionModel quotation) {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final mediaQuery = MediaQuery.of(dialogContext);
+        final theme = Theme.of(dialogContext);
+        final maxWidth = mediaQuery.size.width >= 1100
+            ? 980.0
+            : mediaQuery.size.width >= 700
+            ? 760.0
+            : mediaQuery.size.width - 24;
+        final maxHeight = mediaQuery.size.height * 0.9;
+
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 20,
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: maxWidth,
+              maxHeight: maxHeight,
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(20, 18, 14, 18),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerLowest,
+                    border: Border(
+                      bottom: BorderSide(
+                        color: theme.colorScheme.outlineVariant,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Vista de cotización',
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Consulta productos, observaciones y totales de la cotización vinculada.',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        icon: const Icon(Icons.close_rounded),
+                        tooltip: 'Cerrar',
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: _QuotationDialogBody(quotation: quotation),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final orderId = widget.orderId;
@@ -204,7 +282,12 @@ class _ServiceOrderDetailScreenState
                                 message:
                                     'No se encontró una cotización vinculada o aún no se pudo cargar.',
                               )
-                            : _QuotationSection(quotation: state.quotation!),
+                            : _QuotationPreviewLauncher(
+                                quotation: state.quotation!,
+                                onOpen: () => _showQuotationPreviewDialog(
+                                  state.quotation!,
+                                ),
+                              ),
                       ),
                       const SizedBox(height: 18),
                       ExpandableSectionCard(
@@ -1864,7 +1947,266 @@ class _QuotationSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dateFmt = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
+    final qtyFmt = NumberFormat('#,##0.##', 'es_DO');
     final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFD7E4F4)),
+          ),
+          child: Wrap(
+            spacing: 18,
+            runSpacing: 12,
+            children: [
+              _QuotationMetaBlock(
+                label: 'Cotización',
+                value: _shortQuotationId(quotation.id),
+              ),
+              _QuotationMetaBlock(
+                label: 'Fecha',
+                value: dateFmt.format(quotation.createdAt.toLocal()),
+              ),
+              _QuotationMetaBlock(
+                label: 'Condición fiscal',
+                value: quotation.includeItbis
+                    ? '${(quotation.itbisRate * 100).toStringAsFixed(0)}% ITBIS'
+                    : 'Sin ITBIS',
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Detalle de ventas',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFD7E4F4)),
+          ),
+          child: Table(
+            columnWidths: const {
+              0: FlexColumnWidth(4.6),
+              1: FlexColumnWidth(1.1),
+              2: FlexColumnWidth(1.6),
+              3: FlexColumnWidth(1.7),
+            },
+            defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+            children: [
+              TableRow(
+                decoration: const BoxDecoration(
+                  color: Color(0xFFEAF1FF),
+                ),
+                children: const [
+                  _QuotationTableHeaderCell(
+                    text: 'Descripción',
+                    align: TextAlign.left,
+                  ),
+                  _QuotationTableHeaderCell(
+                    text: 'Cant.',
+                    align: TextAlign.center,
+                  ),
+                  _QuotationTableHeaderCell(
+                    text: 'Unitario',
+                    align: TextAlign.right,
+                  ),
+                  _QuotationTableHeaderCell(
+                    text: 'Importe',
+                    align: TextAlign.right,
+                  ),
+                ],
+              ),
+              if (quotation.items.isEmpty)
+                TableRow(
+                  children: [
+                    _QuotationTableBodyCell(
+                      text: 'No hay items registrados en esta cotización.',
+                    ),
+                    const _QuotationTableBodyCell(
+                      text: '-',
+                      align: TextAlign.center,
+                    ),
+                    const _QuotationTableBodyCell(
+                      text: '-',
+                      align: TextAlign.right,
+                    ),
+                    _QuotationTableBodyCell(
+                      text: money.format(0),
+                      align: TextAlign.right,
+                      emphasized: true,
+                    ),
+                  ],
+                )
+              else
+                for (var index = 0; index < quotation.items.length; index++)
+                  TableRow(
+                    decoration: BoxDecoration(
+                      color: index.isEven
+                          ? Colors.white
+                          : const Color(0xFFFAFBFD),
+                    ),
+                    children: [
+                      _QuotationTableBodyCell(
+                        text: quotation.items[index].nombre.trim(),
+                      ),
+                      _QuotationTableBodyCell(
+                        text: qtyFmt.format(quotation.items[index].qty),
+                        align: TextAlign.center,
+                      ),
+                      _QuotationTableBodyCell(
+                        text: money.format(quotation.items[index].unitPrice),
+                        align: TextAlign.right,
+                      ),
+                      _QuotationTableBodyCell(
+                        text: money.format(quotation.items[index].total),
+                        align: TextAlign.right,
+                        emphasized: true,
+                      ),
+                    ],
+                  ),
+            ],
+          ),
+        ),
+        if (_hasContent(quotation.note)) ...[
+          const SizedBox(height: 16),
+          Text(
+            'Nota',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFD7E4F4)),
+            ),
+            child: Text(
+              quotation.note.trim(),
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _QuotationDialogBody extends StatelessWidget {
+  const _QuotationDialogBody({required this.quotation});
+
+  final CotizacionModel quotation;
+
+  @override
+  Widget build(BuildContext context) {
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+
+    return Column(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+            child: _QuotationSection(quotation: quotation),
+          ),
+        ),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(
+              top: BorderSide(color: Color(0xFFD7E4F4)),
+            ),
+          ),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 360),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFD7E4F4)),
+                ),
+                child: Column(
+                  children: [
+                    _QuotationTotalRow(
+                      label: 'Subtotal',
+                      value: money.format(quotation.subtotalBeforeDiscount),
+                    ),
+                    if (quotation.hasDiscount) ...[
+                      const SizedBox(height: 8),
+                      _QuotationTotalRow(
+                        label: 'Descuento aplicado',
+                        value: '-${money.format(quotation.discountAmount)}',
+                        valueColor: const Color(0xFFB42318),
+                      ),
+                      const SizedBox(height: 8),
+                      _QuotationTotalRow(
+                        label: 'Subtotal con descuento',
+                        value: money.format(quotation.subtotal),
+                      ),
+                    ],
+                    if (quotation.includeItbis) ...[
+                      const SizedBox(height: 8),
+                      _QuotationTotalRow(
+                        label: 'ITBIS',
+                        value: money.format(quotation.itbisAmount),
+                      ),
+                    ],
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 10),
+                      child: Divider(height: 1),
+                    ),
+                    _QuotationTotalRow(
+                      label: 'Total general',
+                      value: money.format(quotation.total),
+                      emphasized: true,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _QuotationPreviewLauncher extends StatelessWidget {
+  const _QuotationPreviewLauncher({
+    required this.quotation,
+    required this.onOpen,
+  });
+
+  final CotizacionModel quotation;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final theme = Theme.of(context);
 
     return Container(
       width: double.infinity,
@@ -1881,33 +2223,20 @@ class _QuotationSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Cotización vinculada',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Documento asociado a esta orden de servicio.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const _DocumentBadge(label: 'Cotización'),
-            ],
+          Text(
+            'Abrir cotización',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 6),
+          Text(
+            'Visualiza los productos, observaciones y el total en una vista separada.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 14),
           Wrap(
             spacing: 10,
             runSpacing: 10,
@@ -1917,81 +2246,54 @@ class _QuotationSection extends StatelessWidget {
                 text: 'No. ${_shortQuotationId(quotation.id)}',
               ),
               _MetaPill(
-                icon: Icons.schedule_rounded,
-                text: DateFormat(
-                  'dd/MM/yyyy h:mm a',
-                  'es_DO',
-                ).format(quotation.createdAt.toLocal()),
-              ),
-              _MetaPill(
                 icon: Icons.inventory_2_outlined,
                 text: '${quotation.items.length} items',
               ),
+              _MetaPill(
+                icon: Icons.payments_outlined,
+                text: money.format(quotation.total),
+              ),
             ],
           ),
-          if (_hasContent(quotation.note)) ...[
-            const SizedBox(height: 16),
-            _ReadOnlyField(
-              label: 'Observación',
-              value: quotation.note,
-            ),
-          ],
           const SizedBox(height: 16),
-          if (quotation.items.isEmpty)
-            const _EmptySectionState(
-              icon: Icons.inventory_2_outlined,
-              title: 'Sin items en la cotización',
-              message: 'La cotización vinculada no tiene productos o servicios cargados.',
-            )
-          else
-            Column(
-              children: quotation.items
-                  .asMap()
-                  .entries
-                  .map(
-                    (entry) => Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _QuotationItemCard(
-                        index: entry.key + 1,
-                        item: entry.value,
-                        money: money,
-                      ),
-                    ),
-                  )
-                  .toList(growable: false),
+          FilledButton.tonalIcon(
+            onPressed: onOpen,
+            icon: const Icon(Icons.visibility_outlined),
+            label: const Text('Ver cotización'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuotationMetaBlock extends StatelessWidget {
+  const _QuotationMetaBlock({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SizedBox(
+      width: 200,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: theme.colorScheme.onSurfaceVariant,
             ),
-          const SizedBox(height: 16),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFD7E4F4)),
-            ),
-            child: Column(
-              children: [
-                _QuotationTotalRow(
-                  label: 'Subtotal',
-                  value: money.format(quotation.subtotal),
-                ),
-                if (quotation.includeItbis) ...[
-                  const SizedBox(height: 8),
-                  _QuotationTotalRow(
-                    label: 'ITBIS',
-                    value: money.format(quotation.itbisAmount),
-                  ),
-                ],
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 10),
-                  child: Divider(height: 1),
-                ),
-                _QuotationTotalRow(
-                  label: 'Total',
-                  value: money.format(quotation.total),
-                  emphasized: true,
-                ),
-              ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -2000,80 +2302,57 @@ class _QuotationSection extends StatelessWidget {
   }
 }
 
-class _QuotationItemCard extends StatelessWidget {
-  const _QuotationItemCard({
-    required this.index,
-    required this.item,
-    required this.money,
+class _QuotationTableHeaderCell extends StatelessWidget {
+  const _QuotationTableHeaderCell({
+    required this.text,
+    this.align = TextAlign.left,
   });
 
-  final int index;
-  final CotizacionItem item;
-  final NumberFormat money;
+  final String text;
+  final TextAlign align;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF7FAFF),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFD7E4F4)),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      child: Text(
+        text,
+        textAlign: align,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+          fontWeight: FontWeight.w800,
+          color: const Color(0xFF163A63),
+        ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 28,
-                height: 28,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE8F0FA),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  '$index',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  item.nombre,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _MetaPill(
-                icon: Icons.tag_outlined,
-                text: 'Cantidad ${item.qty.toStringAsFixed(item.qty % 1 == 0 ? 0 : 2)}',
-              ),
-              _MetaPill(
-                icon: Icons.attach_money_rounded,
-                text: 'Unitario ${money.format(item.unitPrice)}',
-              ),
-              _MetaPill(
-                icon: Icons.calculate_outlined,
-                text: 'Total ${money.format(item.total)}',
-              ),
-            ],
-          ),
-        ],
+    );
+  }
+}
+
+class _QuotationTableBodyCell extends StatelessWidget {
+  const _QuotationTableBodyCell({
+    required this.text,
+    this.align = TextAlign.left,
+    this.emphasized = false,
+  });
+
+  final String text;
+  final TextAlign align;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: const BoxDecoration(
+        border: Border(
+          top: BorderSide(color: Color(0xFFD7E4F4)),
+        ),
+      ),
+      child: Text(
+        text,
+        textAlign: align,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+          fontWeight: emphasized ? FontWeight.w700 : FontWeight.w500,
+        ),
       ),
     );
   }
@@ -2084,11 +2363,13 @@ class _QuotationTotalRow extends StatelessWidget {
     required this.label,
     required this.value,
     this.emphasized = false,
+    this.valueColor,
   });
 
   final String label;
   final String value;
   final bool emphasized;
+  final Color? valueColor;
 
   @override
   Widget build(BuildContext context) {
@@ -2103,33 +2384,8 @@ class _QuotationTotalRow extends StatelessWidget {
     return Row(
       children: [
         Expanded(child: Text(label, style: textStyle)),
-        Text(value, style: textStyle),
+        Text(value, style: textStyle?.copyWith(color: valueColor)),
       ],
-    );
-  }
-}
-
-class _DocumentBadge extends StatelessWidget {
-  const _DocumentBadge({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8F0FA),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFC9D9EE)),
-      ),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-          fontWeight: FontWeight.w800,
-          color: const Color(0xFF163A63),
-        ),
-      ),
     );
   }
 }

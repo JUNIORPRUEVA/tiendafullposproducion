@@ -107,6 +107,7 @@ class DocumentFlowClientSummary {
 
 class DocumentFlowOrderSummary {
   final String id;
+  final String? quotationId;
   final String status;
   final String serviceType;
   final String category;
@@ -118,6 +119,7 @@ class DocumentFlowOrderSummary {
 
   const DocumentFlowOrderSummary({
     required this.id,
+    this.quotationId,
     required this.status,
     required this.serviceType,
     required this.category,
@@ -131,6 +133,7 @@ class DocumentFlowOrderSummary {
   factory DocumentFlowOrderSummary.fromJson(Map<String, dynamic> json) {
     return DocumentFlowOrderSummary(
       id: (json['id'] ?? '').toString(),
+      quotationId: json['quotationId']?.toString(),
       status: (json['status'] ?? '').toString(),
       serviceType: (json['serviceType'] ?? '').toString(),
       category: (json['category'] ?? '').toString(),

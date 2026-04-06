@@ -38,10 +38,12 @@ class CotizacionesScreen extends ConsumerStatefulWidget {
   const CotizacionesScreen({
     super.key,
     this.initialClient,
+    this.initialQuotation,
     this.returnSavedQuotation = false,
   });
 
   final ClienteModel? initialClient;
+  final CotizacionModel? initialQuotation;
   final bool returnSavedQuotation;
 
   @override
@@ -107,6 +109,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     WidgetsBinding.instance.addObserver(this);
     _subscribeRealtime();
     _applyInitialClient();
+    _applyInitialQuotation();
     unawaited(_bootstrapCatalog());
     _startLiveSync();
     if (!widget.returnSavedQuotation) {
@@ -143,6 +146,22 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     _selectedClientId = client.id;
     _selectedClientName = client.nombre;
     _selectedClientPhone = client.telefono;
+  }
+
+  void _applyInitialQuotation() {
+    final quotation = widget.initialQuotation;
+    if (quotation == null) return;
+    _items
+      ..clear()
+      ..addAll(quotation.items.map((item) => item.copyWith()));
+    _selectedClientId = quotation.customerId;
+    _selectedClientName = quotation.customerName;
+    _selectedClientPhone = quotation.customerPhone;
+    _note = quotation.note;
+    _includeItbis = quotation.includeItbis;
+    _generalDiscountAmount = quotation.globalDiscountAmount;
+    _editingId = quotation.id;
+    _editingCreatedAt = quotation.createdAt;
   }
 
   void _subscribeRouteObserver() {
