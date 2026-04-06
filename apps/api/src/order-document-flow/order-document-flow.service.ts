@@ -525,9 +525,16 @@ export class OrderDocumentFlowService {
     const company = await this.getCompanyDocumentContext();
     const issueDate = flow.order.finalizedAt ?? flow.order.updatedAt ?? flow.order.createdAt ?? new Date();
     const invoiceNumber = `FACT-${flow.order.id.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
-    const contentWidth = 515;
-    const leftColumnWidth = 250;
-    const rightColumnWidth = contentWidth - leftColumnWidth;
+    const pageWidth = 515;
+    const leftColumnWidth = 300;
+    const rightColumnWidth = 185;
+    const tableWidth = pageWidth;
+    const descriptionWidth = 245;
+    const qtyWidth = 70;
+    const priceWidth = 90;
+    const amountWidth = tableWidth - descriptionWidth - qtyWidth - priceWidth;
+    const money = (value: number) => `RD$ ${value.toFixed(2)}`;
+    const quantity = (value: number) => value % 1 === 0 ? value.toFixed(0) : value.toFixed(2);
 
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     const chunks: Buffer[] = [];
@@ -538,136 +545,234 @@ export class OrderDocumentFlowService {
     });
 
     const logoBuffer = this.decodeLogoBase64(company.logoBase64);
-    const headerTop = doc.y;
-    if (logoBuffer) {
-      try {
-        doc.image(logoBuffer, doc.page.margins.left, headerTop, {
-          fit: [58, 58],
-          align: 'left',
-          valign: 'top',
-        });
-      } catch (error) {
-        this.logger.warn(`No se pudo insertar logo en factura PDF: ${error}`);
+    const drawTableHeader = (top: number) => {
+      doc.save();
+      doc.roundedRect(doc.page.margins.left, top, tableWidth, 24, 6).fill('#EAF1FF');
+      doc.restore();
+      doc.fillColor('#1F2430').font('Helvetica-Bold').fontSize(10);
+      doc.text('Descripción', doc.page.margins.left + 10, top + 7, {
+        width: descriptionWidth - 20,
+        align: 'left',
+      });
+      doc.text('Cant.', doc.page.margins.left + descriptionWidth, top + 7, {
+        width: qtyWidth,
+        align: 'center',
+      });
+      doc.text('Precio', doc.page.margins.left + descriptionWidth + qtyWidth, top + 7, {
+        width: priceWidth - 10,
+        align: 'right',
+      });
+      doc.text('Importe', doc.page.margins.left + descriptionWidth + qtyWidth + priceWidth, top + 7, {
+        width: amountWidth - 10,
+        align: 'right',
+      });
+    };
+
+    const drawHeader = () => {
+      const top = doc.y;
+      doc.save();
+      doc.roundedRect(doc.page.margins.left, top, pageWidth, 94, 14).fill('#F8FAFC');
+      doc.restore();
+
+      if (logoBuffer) {
+        try {
+          doc.image(logoBuffer, doc.page.margins.left + 14, top + 16, {
+            fit: [60, 60],
+            align: 'left',
+            valign: 'top',
+          });
+        } catch (error) {
+          this.logger.warn(`No se pudo insertar logo en factura PDF: ${error}`);
+        }
       }
-    }
 
-    const infoX = doc.page.margins.left + 72;
-    doc.font('Helvetica-Bold').fontSize(16).text(company.companyName, infoX, headerTop, {
-      width: leftColumnWidth - 72,
-      align: 'left',
-    });
-    doc.font('Helvetica').fontSize(9);
-    let companyInfoY = headerTop + 20;
-    const companyLines = [
-      company.rnc.length > 0 ? `RNC: ${company.rnc}` : '',
-      company.phone.length > 0 ? `Tel: ${company.phone}` : '',
-      company.address,
-    ].filter((value) => value.trim().length > 0);
-    for (const line of companyLines) {
-      doc.text(line, infoX, companyInfoY, {
-        width: leftColumnWidth - 72,
+      const companyInfoX = doc.page.margins.left + 88;
+      doc.fillColor('#243145').font('Helvetica-Bold').fontSize(17).text(company.companyName, companyInfoX, top + 14, {
+        width: leftColumnWidth - 74,
         align: 'left',
       });
-      companyInfoY += 12;
-    }
 
-    const invoiceMetaX = doc.page.margins.left + leftColumnWidth + 15;
-    doc.font('Helvetica-Bold').fontSize(15).text('Factura', invoiceMetaX, headerTop, {
-      width: rightColumnWidth - 15,
-      align: 'left',
-    });
-    doc.font('Helvetica').fontSize(10);
-    const metaLines = [
-      `No. factura: ${invoiceNumber}`,
-      `Orden: ${draft.orderId}`,
-      `Moneda: ${draft.currency}`,
-    ];
-    let metaY = headerTop + 22;
-    for (const line of metaLines) {
-      doc.text(line, invoiceMetaX, metaY, {
-        width: rightColumnWidth - 15,
+      doc.font('Helvetica').fontSize(9).fillColor('#687385');
+      const companyLines = [
+        company.rnc.length > 0 ? `RNC: ${company.rnc}` : '',
+        company.phone.length > 0 ? `Tel: ${company.phone}` : '',
+        company.address,
+      ].filter((value) => value.trim().length > 0);
+      let companyLineY = top + 36;
+      for (const line of companyLines) {
+        doc.text(line, companyInfoX, companyLineY, {
+          width: leftColumnWidth - 74,
+          align: 'left',
+        });
+        companyLineY += 11;
+      }
+
+      const metaX = doc.page.margins.left + leftColumnWidth + 20;
+      doc.save();
+      doc.roundedRect(metaX, top + 12, rightColumnWidth, 68, 12).fill('#243145');
+      doc.restore();
+      doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(14).text('FACTURA', metaX + 12, top + 20, {
+        width: rightColumnWidth - 24,
         align: 'left',
       });
-      metaY += 13;
-    }
+      doc.font('Helvetica').fontSize(9.5);
+      const metaLines = [
+        `Factura No.: ${invoiceNumber}`,
+        `Fecha: ${issueDate.toLocaleDateString('es-DO')}`,
+        `Moneda: ${draft.currency}`,
+      ];
+      let metaLineY = top + 40;
+      for (const line of metaLines) {
+        doc.text(line, metaX + 12, metaLineY, {
+          width: rightColumnWidth - 24,
+          align: 'left',
+        });
+        metaLineY += 11;
+      }
 
-    const dividerY = Math.max(companyInfoY, metaY) + 8;
-    doc.moveTo(doc.page.margins.left, dividerY).lineTo(doc.page.width - doc.page.margins.right, dividerY).stroke('#D9DEE7');
+      doc.y = top + 108;
+    };
 
-    const clientBlockTop = dividerY + 14;
-    doc.font('Helvetica-Bold').fontSize(11).text('Datos del cliente', doc.page.margins.left, clientBlockTop, {
-      width: 250,
-      align: 'left',
-    });
-    doc.font('Helvetica').fontSize(10);
-    let clientY = clientBlockTop + 16;
-    const clientLines = [
-      `Cliente: ${draft.clientName}`,
-      `Teléfono: ${draft.clientPhone}`,
-      flow.order.client.direccion?.trim().length ? `Dirección: ${flow.order.client.direccion?.trim()}` : '',
-    ].filter((value) => `${value}`.trim().length > 0);
-    for (const line of clientLines) {
-      doc.text(line, doc.page.margins.left, clientY, {
-        width: 280,
+    const drawCustomerBlock = () => {
+      const top = doc.y;
+      doc.save();
+      doc.roundedRect(doc.page.margins.left, top, pageWidth, 72, 12).fill('#FFFFFF');
+      doc.roundedRect(doc.page.margins.left, top, pageWidth, 72, 12).stroke('#E7ECF2');
+      doc.restore();
+
+      doc.fillColor('#243145').font('Helvetica-Bold').fontSize(11).text('Facturar a', doc.page.margins.left + 14, top + 12, {
+        width: 220,
         align: 'left',
       });
-      clientY += 13;
-    }
+      doc.font('Helvetica').fontSize(10).fillColor('#1F2430');
+      const clientLines = [
+        draft.clientName,
+        `Tel: ${draft.clientPhone}`,
+        flow.order.client.direccion?.trim() ?? '',
+      ].filter((value) => value.trim().length > 0);
+      let clientY = top + 28;
+      for (const line of clientLines) {
+        doc.text(line, doc.page.margins.left + 14, clientY, {
+          width: 250,
+          align: 'left',
+        });
+        clientY += 12;
+      }
 
-    const detailMetaX = doc.page.margins.left + 320;
-    doc.font('Helvetica-Bold').fontSize(11).text('Datos de factura', detailMetaX, clientBlockTop, {
-      width: 180,
-      align: 'left',
-    });
-    doc.font('Helvetica').fontSize(10);
-    doc.text(`Fecha: ${issueDate.toLocaleDateString('es-DO')}`, detailMetaX, clientBlockTop + 16, {
-      width: 180,
-      align: 'left',
-    });
-    doc.text(`Comprobante: ${invoiceNumber}`, detailMetaX, clientBlockTop + 29, {
-      width: 180,
-      align: 'left',
-    });
+      doc.fillColor('#243145').font('Helvetica-Bold').fontSize(11).text('Referencia', doc.page.margins.left + 320, top + 12, {
+        width: 180,
+        align: 'left',
+      });
+      doc.font('Helvetica').fontSize(10).fillColor('#1F2430');
+      doc.text(`Orden: ${draft.orderId}`, doc.page.margins.left + 320, top + 28, {
+        width: 170,
+        align: 'left',
+      });
+      doc.text(`Comprobante: ${invoiceNumber}`, doc.page.margins.left + 320, top + 40, {
+        width: 170,
+        align: 'left',
+      });
 
-    const tableTop = Math.max(clientY, clientBlockTop + 45) + 16;
-    const tableX = doc.page.margins.left;
-    const descWidth = 250;
-    const qtyWidth = 70;
-    const priceWidth = 90;
-    const totalWidth = 105;
+      doc.y = top + 88;
+    };
 
-    doc.roundedRect(tableX, tableTop, contentWidth, 24, 6).fill('#EEF3FB');
-    doc.fillColor('#1F2430').font('Helvetica-Bold').fontSize(10);
-    doc.text('Detalle', tableX + 10, tableTop + 7, { width: descWidth - 20, align: 'left' });
-    doc.text('Cant.', tableX + descWidth, tableTop + 7, { width: qtyWidth, align: 'center' });
-    doc.text('Precio', tableX + descWidth + qtyWidth, tableTop + 7, { width: priceWidth - 10, align: 'right' });
-    doc.text('Subtotal', tableX + descWidth + qtyWidth + priceWidth, tableTop + 7, { width: totalWidth - 10, align: 'right' });
+    drawHeader();
+    drawCustomerBlock();
+    drawTableHeader(doc.y);
 
-    let rowY = tableTop + 30;
-    doc.font('Helvetica').fontSize(10).fillColor('#111827');
+    let rowY = doc.y + 32;
+    let rowIndex = 0;
     for (const item of draft.items) {
-      const rowHeight = Math.max(22, doc.heightOfString(item.description, { width: descWidth - 20 }) + 8);
-      doc.roundedRect(tableX, rowY - 4, contentWidth, rowHeight, 4).stroke('#E5EAF2');
-      doc.text(item.description, tableX + 10, rowY, { width: descWidth - 20, align: 'left' });
-      doc.text(item.qty.toFixed(2), tableX + descWidth, rowY, { width: qtyWidth, align: 'center' });
-      doc.text(item.unitPrice.toFixed(2), tableX + descWidth + qtyWidth, rowY, { width: priceWidth - 10, align: 'right' });
-      doc.text(item.lineTotal.toFixed(2), tableX + descWidth + qtyWidth + priceWidth, rowY, { width: totalWidth - 10, align: 'right' });
+      const rowHeight = Math.max(24, doc.heightOfString(item.description, { width: descriptionWidth - 20 }) + 10);
+      const nextBottom = rowY + rowHeight + 6;
+      if (nextBottom > doc.page.height - doc.page.margins.bottom - 130) {
+        doc.addPage();
+        drawHeader();
+        drawCustomerBlock();
+        drawTableHeader(doc.y);
+        rowY = doc.y + 32;
+      }
+
+      doc.save();
+      doc.roundedRect(doc.page.margins.left, rowY - 4, tableWidth, rowHeight, 6)
+        .fill(rowIndex.isEven ? '#FFFFFF' : '#FAFBFD');
+      doc.roundedRect(doc.page.margins.left, rowY - 4, tableWidth, rowHeight, 6)
+        .stroke('#E7ECF2');
+      doc.restore();
+
+      doc.fillColor('#1F2430').font('Helvetica').fontSize(10);
+      doc.text(item.description, doc.page.margins.left + 10, rowY + 3, {
+        width: descriptionWidth - 20,
+        align: 'left',
+      });
+      doc.text(quantity(item.qty), doc.page.margins.left + descriptionWidth, rowY + 3, {
+        width: qtyWidth,
+        align: 'center',
+      });
+      doc.text(money(item.unitPrice), doc.page.margins.left + descriptionWidth + qtyWidth, rowY + 3, {
+        width: priceWidth - 10,
+        align: 'right',
+      });
+      doc.font('Helvetica-Bold').text(money(item.lineTotal), doc.page.margins.left + descriptionWidth + qtyWidth + priceWidth, rowY + 3, {
+        width: amountWidth - 10,
+        align: 'right',
+      });
       rowY += rowHeight + 6;
+      rowIndex += 1;
     }
 
-    const totalsX = tableX + 315;
-    doc.font('Helvetica').fontSize(10);
-    doc.text(`Subtotal: ${draft.subtotal.toFixed(2)}`, totalsX, rowY + 8, { width: 200, align: 'right' });
-    doc.text(`Impuesto: ${draft.tax.toFixed(2)}`, totalsX, rowY + 22, { width: 200, align: 'right' });
-    doc.font('Helvetica-Bold').fontSize(12).text(`Total: ${draft.total.toFixed(2)}`, totalsX, rowY + 38, { width: 200, align: 'right' });
+    const notesText = draft.notes.trim();
+    const notesHeight = notesText.length > 0
+      ? Math.max(54, doc.heightOfString(notesText, { width: 240 }) + 28)
+      : 0;
+    const totalsHeight = 88;
+    if (rowY + Math.max(notesHeight, totalsHeight) > doc.page.height - doc.page.margins.bottom - 20) {
+      doc.addPage();
+      drawHeader();
+      drawCustomerBlock();
+      rowY = doc.y;
+    }
 
-    if (draft.notes.trim().length > 0) {
-      doc.font('Helvetica-Bold').fontSize(11).text('Notas', tableX, rowY + 46, { width: 120, align: 'left' });
-      doc.font('Helvetica').fontSize(10).text(draft.notes, tableX, rowY + 62, {
-        width: 280,
+    if (notesText.length > 0) {
+      doc.save();
+      doc.roundedRect(doc.page.margins.left, rowY + 6, 255, notesHeight, 12).fill('#FFFFFF');
+      doc.roundedRect(doc.page.margins.left, rowY + 6, 255, notesHeight, 12).stroke('#E7ECF2');
+      doc.restore();
+      doc.fillColor('#243145').font('Helvetica-Bold').fontSize(11).text('Notas', doc.page.margins.left + 14, rowY + 18, {
+        width: 220,
+        align: 'left',
+      });
+      doc.fillColor('#1F2430').font('Helvetica').fontSize(10).text(notesText, doc.page.margins.left + 14, rowY + 34, {
+        width: 227,
         align: 'left',
       });
     }
+
+    const totalsX = doc.page.margins.left + 275;
+    doc.save();
+    doc.roundedRect(totalsX, rowY + 6, 240, totalsHeight, 12).fill('#F8FAFC');
+    doc.roundedRect(totalsX, rowY + 6, 240, totalsHeight, 12).stroke('#D9E6FF');
+    doc.restore();
+    doc.fillColor('#243145').font('Helvetica-Bold').fontSize(11).text('Totales', totalsX + 14, rowY + 18, {
+      width: 210,
+      align: 'left',
+    });
+    doc.font('Helvetica').fontSize(10).fillColor('#1F2430');
+    doc.text('Subtotal', totalsX + 14, rowY + 38, { width: 100, align: 'left' });
+    doc.text(money(draft.subtotal), totalsX + 120, rowY + 38, { width: 100, align: 'right' });
+    doc.text('Impuesto', totalsX + 14, rowY + 53, { width: 100, align: 'left' });
+    doc.text(money(draft.tax), totalsX + 120, rowY + 53, { width: 100, align: 'right' });
+    doc.moveTo(totalsX + 14, rowY + 70).lineTo(totalsX + 226, rowY + 70).stroke('#D9DEE7');
+    doc.font('Helvetica-Bold').fontSize(12).fillColor('#243145');
+    doc.text('Total', totalsX + 14, rowY + 76, { width: 100, align: 'left' });
+    doc.text(money(draft.total), totalsX + 120, rowY + 76, { width: 100, align: 'right' });
+
+    doc.fillColor('#687385').font('Helvetica').fontSize(8.5).text(
+      'Documento generado por FULLTECH. Verifique cantidades, precios y datos del cliente antes de compartirlo.',
+      doc.page.margins.left,
+      doc.page.height - doc.page.margins.bottom - 10,
+      { width: pageWidth, align: 'center' },
+    );
     doc.end();
     writeFileSync(absolutePath, await pdfBuffer);
     return `/${join('uploads', relativePath).replace(/\\/g, '/')}`;

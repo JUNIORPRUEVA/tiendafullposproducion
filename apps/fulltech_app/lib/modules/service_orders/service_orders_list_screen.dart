@@ -42,7 +42,7 @@ class _ServiceOrdersListScreenState
   bool _mobileControlsCollapsed = true;
   bool _purgingAllDebug = false;
   StreamSubscription<OperationsRealtimeMessage>?
-      _operationsRealtimeSubscription;
+  _operationsRealtimeSubscription;
 
   @override
   void initState() {
@@ -119,8 +119,8 @@ class _ServiceOrdersListScreenState
     final controller = ref.read(serviceOrdersListControllerProvider.notifier);
     final currentUser = ref.watch(authStateProvider).user;
     final canManageStatusAsRole =
-      currentUser?.appRole.isAdmin == true ||
-      currentUser?.appRole.isTechnician == true;
+        currentUser?.appRole.isAdmin == true ||
+        currentUser?.appRole.isTechnician == true;
     final isAdmin = currentUser?.appRole.isAdmin ?? false;
     final currentUserId = currentUser?.id ?? '';
     final width = MediaQuery.sizeOf(context).width;
@@ -136,7 +136,21 @@ class _ServiceOrdersListScreenState
       usersById: state.usersById,
       userIdSelector: (order) => order.assignedToId,
     );
-    final contentMaxWidth = isDesktop ? 1100.0 : double.infinity;
+    final contentMaxWidth = isDesktop ? 1240.0 : double.infinity;
+    final gpsReadyCount = visibleOrders.where((order) {
+      final client = order.client ?? state.clientsById[order.clientId];
+      final preview = parseClientLocationPreview(client?.locationUrl);
+      return buildClientNavigationUri(preview, client?.locationUrl) != null;
+    }).length;
+    final scheduledCount = visibleOrders
+        .where((order) => order.scheduledFor != null)
+        .length;
+    final pendingCount = visibleOrders
+        .where((order) => order.status == ServiceOrderStatus.pendiente)
+        .length;
+    final inProgressCount = visibleOrders
+        .where((order) => order.status == ServiceOrderStatus.enProceso)
+        .length;
 
     return Scaffold(
       drawer: isDesktop
@@ -244,18 +258,75 @@ class _ServiceOrdersListScreenState
                         constraints: BoxConstraints(maxWidth: contentMaxWidth),
                         child: Padding(
                           padding: const EdgeInsets.only(bottom: 8),
-                          child: isDesktop || !_mobileControlsCollapsed
+                          child: isDesktop
+                              ? Column(
+                                  children: [
+                                    _DesktopOperationsOverviewPanel(
+                                      filter: _filter,
+                                      activeCount: visibleOrders.length,
+                                      pendingCount: pendingCount,
+                                      inProgressCount: inProgressCount,
+                                      gpsReadyCount: gpsReadyCount,
+                                      scheduledCount: scheduledCount,
+                                      refreshing: state.refreshing,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _OperationsControlPanel(
+                                      filter: _filter,
+                                      activeCount: visibleOrders.length,
+                                      refreshing: state.refreshing,
+                                      onCollapse: null,
+                                      onReset: _filter.hasActiveFilters
+                                          ? () {
+                                              setState(() {
+                                                _filter =
+                                                    const ServiceOrdersFilter.mainDefault();
+                                              });
+                                            }
+                                          : null,
+                                      onToggleStatus: (status) {
+                                        setState(() {
+                                          final nextStatuses = {
+                                            ..._filter.statuses,
+                                          };
+                                          if (nextStatuses.contains(status)) {
+                                            nextStatuses.remove(status);
+                                          } else {
+                                            nextStatuses.add(status);
+                                          }
+                                          _filter = _filter.copyWith(
+                                            statuses: nextStatuses,
+                                          );
+                                        });
+                                      },
+                                      onToggleServiceType: (serviceType) {
+                                        setState(() {
+                                          final nextTypes = {
+                                            ..._filter.serviceTypes,
+                                          };
+                                          if (nextTypes.contains(serviceType)) {
+                                            nextTypes.remove(serviceType);
+                                          } else {
+                                            nextTypes.add(serviceType);
+                                          }
+                                          _filter = _filter.copyWith(
+                                            serviceTypes: nextTypes,
+                                          );
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                )
+                              : !_mobileControlsCollapsed
                               ? _OperationsControlPanel(
                                   filter: _filter,
                                   activeCount: visibleOrders.length,
                                   refreshing: state.refreshing,
-                                  onCollapse: isDesktop
-                                      ? null
-                                      : () {
-                                          setState(() {
-                                            _mobileControlsCollapsed = true;
-                                          });
-                                        },
+                                  onCollapse: () {
+                                    setState(() {
+                                      _mobileControlsCollapsed = true;
+                                    });
+                                  },
                                   onReset: _filter.hasActiveFilters
                                       ? () {
                                           setState(() {
@@ -266,7 +337,9 @@ class _ServiceOrdersListScreenState
                                       : null,
                                   onToggleStatus: (status) {
                                     setState(() {
-                                      final nextStatuses = {..._filter.statuses};
+                                      final nextStatuses = {
+                                        ..._filter.statuses,
+                                      };
                                       if (nextStatuses.contains(status)) {
                                         nextStatuses.remove(status);
                                       } else {
@@ -279,7 +352,9 @@ class _ServiceOrdersListScreenState
                                   },
                                   onToggleServiceType: (serviceType) {
                                     setState(() {
-                                      final nextTypes = {..._filter.serviceTypes};
+                                      final nextTypes = {
+                                        ..._filter.serviceTypes,
+                                      };
                                       if (nextTypes.contains(serviceType)) {
                                         nextTypes.remove(serviceType);
                                       } else {
@@ -321,10 +396,16 @@ class _ServiceOrdersListScreenState
                   }
 
                   final order = visibleOrders[index - 1];
-                    final canChangeOrderStatus =
-                      canManageStatusAsRole || currentUserId == order.createdById;
+                  final canChangeOrderStatus =
+                      canManageStatusAsRole ||
+                      currentUserId == order.createdById;
                   final client =
                       order.client ?? state.clientsById[order.clientId];
+                  final assignedToId = (order.assignedToId ?? '').trim();
+                  final technicianName = assignedToId.isEmpty
+                      ? ''
+                      : (state.usersById[assignedToId]?.nombreCompleto ??
+                            assignedToId);
                   return Center(
                     child: ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: contentMaxWidth),
@@ -340,10 +421,11 @@ class _ServiceOrdersListScreenState
                                   .usersById[order.createdById]
                                   ?.nombreCompleto ??
                               order.createdById,
+                          technicianName: technicianName,
                           statusBusy: _busyOrderIds.contains(order.id),
                           isTechnician:
                               currentUser?.appRole.isTechnician ?? false,
-                            onChangeStatus: canChangeOrderStatus
+                          onChangeStatus: canChangeOrderStatus
                               ? (status) => _changeOrderStatus(order, status)
                               : null,
                           creatingNewOrder: _creatingFromOrderIds.contains(
@@ -1972,17 +2054,13 @@ class _CollapsedOperationsPanelToggle extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.tune_rounded,
-                size: 17,
-                color: colorScheme.primary,
-              ),
+              Icon(Icons.tune_rounded, size: 17, color: colorScheme.primary),
               const SizedBox(width: 8),
               Text(
                 'Panel',
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
               ),
               const SizedBox(width: 8),
               _PanelMetaPill(
@@ -2267,12 +2345,236 @@ class _CreateOrderFab extends StatelessWidget {
   }
 }
 
+class _DesktopOperationsOverviewPanel extends StatelessWidget {
+  const _DesktopOperationsOverviewPanel({
+    required this.filter,
+    required this.activeCount,
+    required this.pendingCount,
+    required this.inProgressCount,
+    required this.gpsReadyCount,
+    required this.scheduledCount,
+    required this.refreshing,
+  });
+
+  final ServiceOrdersFilter filter;
+  final int activeCount;
+  final int pendingCount;
+  final int inProgressCount;
+  final int gpsReadyCount;
+  final int scheduledCount;
+  final bool refreshing;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final now = DateTime.now();
+    final dateLabel = DateFormat('EEEE d MMMM · h:mm a', 'es_DO').format(now);
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            colorScheme.primary.withValues(alpha: 0.10),
+            colorScheme.surface,
+            const Color(0xFFEEF6F3),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.85),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.shadow.withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 3,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Operaciones',
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Vista de escritorio optimizada para revisar carga operativa, filtros activos y contexto logístico en un solo panel.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _PanelMetaPill(
+                        icon: Icons.tune_rounded,
+                        text: filter.summaryLabel,
+                        accent: colorScheme.primary,
+                      ),
+                      _PanelMetaPill(
+                        icon: Icons.calendar_month_rounded,
+                        text: _capitalize(dateLabel),
+                      ),
+                      if (refreshing)
+                        _PanelMetaPill(
+                          icon: Icons.sync_rounded,
+                          text: 'Sincronizando datos',
+                          accent: colorScheme.primary,
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              flex: 4,
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  _DesktopOperationsMetricCard(
+                    title: 'Órdenes visibles',
+                    value: '$activeCount',
+                    caption: 'Resultado actual del filtro',
+                    icon: Icons.layers_outlined,
+                    accent: colorScheme.primary,
+                  ),
+                  _DesktopOperationsMetricCard(
+                    title: 'Pendientes',
+                    value: '$pendingCount',
+                    caption: 'A la espera de ejecución',
+                    icon: Icons.pending_actions_rounded,
+                    accent: const Color(0xFFD97706),
+                  ),
+                  _DesktopOperationsMetricCard(
+                    title: 'En proceso',
+                    value: '$inProgressCount',
+                    caption: 'Trabajo en campo o curso',
+                    icon: Icons.construction_rounded,
+                    accent: const Color(0xFF0F6CBD),
+                  ),
+                  _DesktopOperationsMetricCard(
+                    title: 'GPS listo',
+                    value: '$gpsReadyCount',
+                    caption: 'Clientes con ubicación navegable',
+                    icon: Icons.location_on_outlined,
+                    accent: const Color(0xFF047857),
+                  ),
+                  _DesktopOperationsMetricCard(
+                    title: 'Agendadas',
+                    value: '$scheduledCount',
+                    caption: 'Con fecha programada',
+                    icon: Icons.event_available_rounded,
+                    accent: const Color(0xFF7C3AED),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopOperationsMetricCard extends StatelessWidget {
+  const _DesktopOperationsMetricCard({
+    required this.title,
+    required this.value,
+    required this.caption,
+    required this.icon,
+    required this.accent,
+  });
+
+  final String title;
+  final String value;
+  final String caption;
+  final IconData icon;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      width: 172,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: accent.withValues(alpha: 0.16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: accent, size: 18),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            value,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w900,
+              color: accent,
+              height: 1,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            title,
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            caption,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              height: 1.25,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ServiceOrderListCard extends StatelessWidget {
   const _ServiceOrderListCard({
     required this.order,
     required this.client,
     required this.clientName,
     required this.creatorName,
+    required this.technicianName,
     required this.onTap,
     required this.statusBusy,
     required this.creatingNewOrder,
@@ -2286,6 +2588,7 @@ class _ServiceOrderListCard extends StatelessWidget {
   final ClienteModel? client;
   final String clientName;
   final String creatorName;
+  final String technicianName;
   final VoidCallback onTap;
   final bool statusBusy;
   final bool creatingNewOrder;
@@ -2297,6 +2600,8 @@ class _ServiceOrderListCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDesktop =
+        MediaQuery.sizeOf(context).width >= kDesktopShellBreakpoint;
     final locationUrl = client?.locationUrl;
     final locationPreview = parseClientLocationPreview(locationUrl);
     final locationUri = buildClientNavigationUri(locationPreview, locationUrl);
@@ -2316,6 +2621,278 @@ class _ServiceOrderListCard extends StatelessWidget {
     final hasClientInfo = hasClientName || hasClientPhone;
     final callUri = _buildPhoneUri(clientPhone);
     final whatsappUri = _buildWhatsAppUri(clientPhone);
+
+    if (isDesktop) {
+      final assignedLabel = technicianName.trim().isEmpty
+          ? 'Sin técnico asignado'
+          : technicianName.trim();
+      final scheduleLabel = order.scheduledFor == null
+          ? 'Sin agenda definida'
+          : DateFormat(
+              'dd/MM/yyyy · h:mm a',
+              'es_DO',
+            ).format(order.scheduledFor!.toLocal());
+      final detailSummary = _firstMeaningfulText(
+        order.extraRequirements,
+        order.technicalNote,
+      );
+      final gpsLabel =
+          locationPreview.latitude != null && locationPreview.longitude != null
+          ? '${locationPreview.latitude!.toStringAsFixed(5)}, ${locationPreview.longitude!.toStringAsFixed(5)}'
+          : (locationUri != null ? 'Ubicación vinculada' : 'Sin GPS');
+
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: onTap,
+          child: Ink(
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFFFAFBFD), Color(0xFFF4F7FB)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.65),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: theme.colorScheme.shadow.withValues(alpha: 0.045),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 4,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _PanelMetaPill(
+                              icon: Icons.tag_rounded,
+                              text: '#${_compactOrderId(order.id)}',
+                              accent: theme.colorScheme.primary,
+                            ),
+                            _PanelMetaPill(
+                              icon: Icons.calendar_today_outlined,
+                              text: topLineText,
+                            ),
+                            if (isPriorityInstallation) const _PriorityPill(),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          clientDisplayName.isEmpty
+                              ? 'Cliente sin nombre'
+                              : clientDisplayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '${order.category.label} · ${order.serviceType.label}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (detailSummary != null) ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surface.withValues(
+                                alpha: 0.92,
+                              ),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: theme.colorScheme.outlineVariant
+                                    .withValues(alpha: 0.7),
+                              ),
+                            ),
+                            child: Text(
+                              detailSummary,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            if (hasClientPhone)
+                              _DesktopInlineInfoChip(
+                                icon: Icons.phone_outlined,
+                                text: clientPhone,
+                              ),
+                            _DesktopInlineInfoChip(
+                              icon: Icons.person_outline_rounded,
+                              text: hasCreatorName
+                                  ? 'Creó $creatorDisplayName'
+                                  : 'Sin creador visible',
+                            ),
+                            _DesktopInlineInfoChip(
+                              icon: Icons.engineering_outlined,
+                              text: assignedLabel,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    flex: 3,
+                    child: Column(
+                      children: [
+                        _DesktopOrderInfoTile(
+                          icon: Icons.event_available_rounded,
+                          label: 'Agenda',
+                          value: scheduleLabel,
+                          accent: const Color(0xFF0F6CBD),
+                        ),
+                        const SizedBox(height: 10),
+                        _DesktopOrderInfoTile(
+                          icon: Icons.location_on_outlined,
+                          label: 'GPS',
+                          value: gpsLabel,
+                          accent: locationUri != null
+                              ? const Color(0xFF047857)
+                              : theme.colorScheme.onSurfaceVariant,
+                          trailing: locationUri != null
+                              ? TextButton.icon(
+                                  onPressed: () =>
+                                      safeOpenUrl(context, locationUri),
+                                  icon: const Icon(
+                                    Icons.near_me_rounded,
+                                    size: 16,
+                                  ),
+                                  label: const Text('Abrir'),
+                                )
+                              : null,
+                        ),
+                        const SizedBox(height: 10),
+                        _DesktopOrderInfoTile(
+                          icon: Icons.collections_outlined,
+                          label: 'Archivos',
+                          value:
+                              '${order.referenceItems.length} referencias · ${order.technicalEvidenceItems.length} evidencias',
+                          accent: const Color(0xFF7C3AED),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  SizedBox(
+                    width: 220,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: _StatusBadge(status: order.status),
+                        ),
+                        const SizedBox(height: 10),
+                        if (!isTechnician && onChangeStatus != null)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: _InlineStatusButton(
+                              order: order,
+                              busy: statusBusy,
+                              onSelected: onChangeStatus!,
+                            ),
+                          ),
+                        if (trailing != null && !isTechnician) ...[
+                          const SizedBox(height: 10),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: trailing!,
+                          ),
+                        ],
+                        if (onCreateNewOrder != null) ...[
+                          const SizedBox(height: 10),
+                          FilledButton.tonalIcon(
+                            onPressed: creatingNewOrder
+                                ? null
+                                : onCreateNewOrder,
+                            icon: creatingNewOrder
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.add_rounded, size: 16),
+                            label: const Text('Nueva orden'),
+                          ),
+                        ],
+                        const SizedBox(height: 14),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            if (callUri != null)
+                              _ContactIconButton(
+                                icon: Icons.call_outlined,
+                                tooltip: 'Llamar cliente',
+                                onTap: () => safeOpenUrl(context, callUri),
+                                size: 42,
+                              ),
+                            if (whatsappUri != null)
+                              _ContactIconButton(
+                                icon: Icons.chat_bubble_outline_rounded,
+                                tooltip: 'Escribir por WhatsApp',
+                                onTap: () => safeOpenUrl(context, whatsappUri),
+                                size: 42,
+                              ),
+                            if (locationUri != null)
+                              _ContactIconButton(
+                                icon: Icons.location_searching_rounded,
+                                tooltip: 'Abrir GPS',
+                                onTap: () => safeOpenUrl(context, locationUri),
+                                size: 42,
+                              ),
+                          ],
+                        ),
+                        if (isTechnician) ...[
+                          const SizedBox(height: 10),
+                          _TechnicianQuickActionButton(order: order),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -2634,6 +3211,156 @@ class _ServiceOrderListCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _DesktopInlineInfoChip extends StatelessWidget {
+  const _DesktopInlineInfoChip({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.75),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: theme.colorScheme.primary),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopOrderInfoTile extends StatelessWidget {
+  const _DesktopOrderInfoTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.accent,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color accent;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: accent.withValues(alpha: 0.16)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, size: 18, color: accent),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+        ],
+      ),
+    );
+  }
+}
+
+class _PriorityPill extends StatelessWidget {
+  const _PriorityPill();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFD97706).withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: const Color(0xFFD97706).withValues(alpha: 0.26),
+        ),
+      ),
+      child: const Text(
+        'Prioridad',
+        style: TextStyle(
+          color: Color(0xFFB45309),
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          height: 1,
+        ),
+      ),
+    );
+  }
+}
+
+String _compactOrderId(String rawId) {
+  final normalized = rawId.trim();
+  if (normalized.length <= 8) return normalized;
+  return normalized.substring(0, 8).toUpperCase();
+}
+
+String? _firstMeaningfulText(String? primary, String? secondary) {
+  final candidates = [primary, secondary];
+  for (final candidate in candidates) {
+    final value = (candidate ?? '').trim();
+    if (value.isNotEmpty) {
+      return value;
+    }
+  }
+  return null;
 }
 
 class _PanelMetaPill extends StatelessWidget {

@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -10,6 +11,7 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
 import '../../core/widgets/custom_app_bar.dart';
+import '../clientes/cliente_model.dart';
 import '../cotizaciones/cotizacion_models.dart';
 import 'application/service_order_detail_controller.dart';
 import 'service_order_models.dart';
@@ -34,6 +36,19 @@ class _ServiceOrderDetailScreenState
     setState(() {
       _expandedSection = _expandedSection == sectionKey ? null : sectionKey;
     });
+  }
+
+  Future<void> _copyOrderInformation(
+    ServiceOrderModel order,
+    ServiceOrderDetailState state,
+  ) async {
+    final payload = _buildWhatsAppReadyOrderMessage(order, state);
+    await Clipboard.setData(ClipboardData(text: payload));
+    if (!mounted) return;
+    await AppFeedback.showInfo(
+      context,
+      'Información copiada al portapapeles',
+    );
   }
 
   Future<void> _showQuotationPreviewDialog(CotizacionModel quotation) {
@@ -209,6 +224,13 @@ class _ServiceOrderDetailScreenState
               tooltip: 'Editar orden',
             ),
           IconButton(
+            onPressed: state.loading || state.working || order == null
+                ? null
+                : () => _copyOrderInformation(order, state),
+            icon: const Icon(Icons.content_copy_rounded),
+            tooltip: 'Copiar información',
+          ),
+          IconButton(
             onPressed: state.loading || state.working
                 ? null
                 : controller.refresh,
@@ -381,26 +403,9 @@ class _ServiceOrderDetailScreenState
                                 message:
                                     'Todavía no se han cargado referencias para esta orden.',
                               )
-                            : Column(
-                                children: order.referenceItems
-                                    .asMap()
-                                    .entries
-                                    .map(
-                                      (entry) => Padding(
-                                        padding: const EdgeInsets.only(
-                                          bottom: 12,
-                                        ),
-                                        child: _FadeSlideIn(
-                                          delayMs: 40 * entry.key,
-                                          child: EvidenceCard(
-                                            evidence: entry.value,
-                                            variant:
-                                                EvidenceCardVariant.reference,
-                                          ),
-                                        ),
-                                      ),
-                                    )
-                                    .toList(growable: false),
+                            : _EvidenceCollection(
+                                items: order.referenceItems,
+                                variant: EvidenceCardVariant.reference,
                               ),
                       ),
                       const SizedBox(height: 18),
@@ -472,26 +477,9 @@ class _ServiceOrderDetailScreenState
                                 message:
                                     'Agrega archivos del trabajo cuando el técnico empiece a documentar la visita.',
                               )
-                            : Column(
-                                children: order.technicalEvidenceItems
-                                    .asMap()
-                                    .entries
-                                    .map(
-                                      (entry) => Padding(
-                                        padding: const EdgeInsets.only(
-                                          bottom: 12,
-                                        ),
-                                        child: _FadeSlideIn(
-                                          delayMs: 40 * entry.key,
-                                          child: EvidenceCard(
-                                            evidence: entry.value,
-                                            variant:
-                                                EvidenceCardVariant.technical,
-                                          ),
-                                        ),
-                                      ),
-                                    )
-                                    .toList(growable: false),
+                            : _EvidenceCollection(
+                                items: order.technicalEvidenceItems,
+                                variant: EvidenceCardVariant.technical,
                               ),
                       ),
                       const SizedBox(height: 18),
@@ -1675,15 +1663,85 @@ class _PlaceholderChip extends StatelessWidget {
 
 enum EvidenceCardVariant { reference, technical }
 
+class _EvidenceCollection extends StatelessWidget {
+  const _EvidenceCollection({required this.items, required this.variant});
+
+  static const double _compactCardWidth = 228;
+  static const double _compactCarouselHeight = 286;
+
+  final List<ServiceOrderEvidenceModel> items;
+  final EvidenceCardVariant variant;
+
+  @override
+  Widget build(BuildContext context) {
+    final imageItems = items.where((item) => item.type.isImage).toList(growable: false);
+    final otherItems = items.where((item) => !item.type.isImage).toList(growable: false);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (imageItems.isNotEmpty) ...[
+          SizedBox(
+            height: _compactCarouselHeight,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: imageItems.length,
+              separatorBuilder: (context, index) => const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final evidence = imageItems[index];
+                return SizedBox(
+                  width: _compactCardWidth,
+                  child: _FadeSlideIn(
+                    delayMs: 30 * index,
+                    child: EvidenceCard(
+                      evidence: evidence,
+                      variant: variant,
+                      compactMedia: true,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          if (otherItems.isNotEmpty) const SizedBox(height: 14),
+        ],
+        if (otherItems.isNotEmpty)
+          Column(
+            children: otherItems
+                .asMap()
+                .entries
+                .map(
+                  (entry) => Padding(
+                    padding: EdgeInsets.only(
+                      bottom: entry.key == otherItems.length - 1 ? 0 : 12,
+                    ),
+                    child: _FadeSlideIn(
+                      delayMs: 40 * entry.key,
+                      child: EvidenceCard(
+                        evidence: entry.value,
+                        variant: variant,
+                      ),
+                    ),
+                  ),
+                )
+                .toList(growable: false),
+          ),
+      ],
+    );
+  }
+}
+
 class EvidenceCard extends StatelessWidget {
   const EvidenceCard({
     super.key,
     required this.evidence,
     required this.variant,
+    this.compactMedia = false,
   });
 
   final ServiceOrderEvidenceModel evidence;
   final EvidenceCardVariant variant;
+  final bool compactMedia;
 
   @override
   Widget build(BuildContext context) {
@@ -1698,6 +1756,15 @@ class EvidenceCard extends StatelessWidget {
         : evidence.type.isImage
         ? const Color(0xFF0F8C6B)
         : const Color(0xFF2563EB);
+
+    if (compactMedia && evidence.type.isImage) {
+      return _CompactImageEvidenceCard(
+        evidence: evidence,
+        tint: tint,
+        borderColor: borderColor,
+        iconColor: iconColor,
+      );
+    }
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -1773,6 +1840,7 @@ class EvidenceCard extends StatelessWidget {
               localPath: evidence.localPath,
               previewBytes: evidence.previewBytes,
               fileName: evidence.fileName,
+              compact: compactMedia,
               showHeader: false,
               showSurface: false,
             ),
@@ -1791,6 +1859,140 @@ class EvidenceCard extends StatelessWidget {
                 'La subida fallo. Puedes reintentar agregando el archivo nuevamente.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.error,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactImageEvidenceCard extends StatelessWidget {
+  const _CompactImageEvidenceCard({
+    required this.evidence,
+    required this.tint,
+    required this.borderColor,
+    required this.iconColor,
+  });
+
+  final ServiceOrderEvidenceModel evidence;
+  final Color tint;
+  final Color borderColor;
+  final Color iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: tint,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: borderColor),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: EvidenceItemWidget(
+                  type: evidence.type,
+                  url: evidence.content,
+                  createdAt: evidence.createdAt,
+                  localPath: evidence.localPath,
+                  previewBytes: evidence.previewBytes,
+                  fileName: evidence.fileName,
+                  compact: true,
+                  showHeader: false,
+                  showSurface: false,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: iconColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    Icons.image_outlined,
+                    size: 18,
+                    color: iconColor,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        evidence.type.label,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        DateFormat(
+                          'dd/MM/yyyy h:mm a',
+                          'es_DO',
+                        ).format(evidence.createdAt.toLocal()),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (evidence.isPendingUpload) ...[
+                  const SizedBox(width: 8),
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ] else if (evidence.hasUploadError) ...[
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.error_outline,
+                    size: 16,
+                    color: theme.colorScheme.error,
+                  ),
+                ],
+              ],
+            ),
+            if (evidence.isPendingUpload) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Subiendo al servidor en segundo plano...',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ] else if (evidence.hasUploadError) ...[
+              const SizedBox(height: 8),
+              Text(
+                'La subida fallo. Puedes reintentar agregando el archivo nuevamente.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -2536,6 +2738,216 @@ List<_InfoItemData> _buildOrderFacts(
 
 bool _hasContent(String? value) {
   return (value ?? '').trim().isNotEmpty;
+}
+
+String _buildWhatsAppReadyOrderMessage(
+  ServiceOrderModel order,
+  ServiceOrderDetailState state,
+) {
+  final client = state.client ?? order.client;
+  final quotation = state.quotation;
+  final sections = <String>[
+    '*DETALLE DE ORDEN ${_shortOrderId(order.id)}*',
+    _buildClientWhatsappSection(client),
+    _buildOrderWhatsappSection(order, state),
+    _buildEvidenceWhatsappSection(
+      title: 'REFERENCIAS',
+      items: order.referenceItems,
+    ),
+    _buildEvidenceWhatsappSection(
+      title: 'EVIDENCIAS TÉCNICAS',
+      items: order.technicalEvidenceItems,
+    ),
+    _buildReportsWhatsappSection(order, state),
+    _buildQuotationWhatsappSection(quotation),
+  ];
+
+  return sections
+      .where((section) => section.trim().isNotEmpty)
+      .join('\n\n');
+}
+
+String _buildClientWhatsappSection(ClienteModel? client) {
+  final lines = <String>['*CLIENTE*'];
+
+  if (client == null) {
+    lines.add('Nombre: No disponible');
+    return lines.join('\n');
+  }
+
+  lines.add('Nombre: ${_valueOrFallback(client.nombre, fallback: 'No disponible')}');
+  lines.add('Teléfono: ${_valueOrFallback(client.telefono, fallback: 'No disponible')}');
+  if (_hasContent(client.locationUrl)) {
+    lines.add('Ubicación: ${client.locationUrl!.trim()}');
+  }
+  if (_hasContent(client.direccion)) {
+    lines.add('Dirección: ${client.direccion!.trim()}');
+  }
+  if (_hasContent(client.correo)) {
+    lines.add('Correo: ${client.correo!.trim()}');
+  }
+
+  return lines.join('\n');
+}
+
+String _buildOrderWhatsappSection(
+  ServiceOrderModel order,
+  ServiceOrderDetailState state,
+) {
+  final technicianName = order.assignedToId == null
+      ? null
+      : state.usersById[order.assignedToId!]?.nombreCompleto ??
+          order.assignedToId;
+  final creatorName =
+      state.usersById[order.createdById]?.nombreCompleto ?? order.createdById;
+  final lines = <String>[
+    '*ORDEN*',
+    'No. orden: ${_shortOrderId(order.id)}',
+    'Estado: ${order.status.label}',
+    'Tipo de servicio: ${order.serviceType.label}',
+    'Categoría: ${order.category.label}',
+    'Creada por: ${creatorName.trim()}',
+    'Fecha de creación: ${_formatDateTime(order.createdAt)}',
+    'Última actualización: ${_formatDateTime(order.updatedAt)}',
+  ];
+
+  if (_hasContent(technicianName)) {
+    lines.add('Técnico asignado: ${technicianName!.trim()}');
+  }
+  if (order.scheduledFor != null) {
+    lines.add('Fecha programada: ${_formatDateTime(order.scheduledFor!)}');
+  }
+  if (order.finalizedAt != null) {
+    lines.add('Fecha de finalización: ${_formatDateTime(order.finalizedAt!)}');
+  }
+  if (order.technicianConfirmedAt != null) {
+    lines.add(
+      'Confirmación técnica: ${_formatDateTime(order.technicianConfirmedAt!)}',
+    );
+  }
+  if (_hasContent(order.technicalNote)) {
+    lines.add('Nota técnica: ${order.technicalNote!.trim()}');
+  }
+  if (_hasContent(order.extraRequirements)) {
+    lines.add('Requisitos extra: ${order.extraRequirements!.trim()}');
+  }
+
+  return lines.join('\n');
+}
+
+String _buildEvidenceWhatsappSection({
+  required String title,
+  required List<ServiceOrderEvidenceModel> items,
+}) {
+  final lines = <String>['*$title*'];
+  if (items.isEmpty) {
+    lines.add('Sin registros');
+    return lines.join('\n');
+  }
+
+  for (var index = 0; index < items.length; index++) {
+    final item = items[index];
+    final label = item.type.label;
+    if (item.type.isText) {
+      lines.add('${index + 1}. $label: ${_valueOrFallback(item.content)}');
+      continue;
+    }
+
+    final link = _buildEvidenceShareLink(item);
+    final fileName = (item.fileName ?? '').trim();
+    final parts = <String>['${index + 1}. $label'];
+    if (fileName.isNotEmpty) {
+      parts.add(fileName);
+    }
+    if (link.isNotEmpty) {
+      parts.add(link);
+    }
+    if (item.isPendingUpload) {
+      parts.add('(pendiente de subir)');
+    }
+    lines.add(parts.join(' - '));
+  }
+
+  return lines.join('\n');
+}
+
+String _buildReportsWhatsappSection(
+  ServiceOrderModel order,
+  ServiceOrderDetailState state,
+) {
+  final lines = <String>['*REPORTES*'];
+  if (order.reports.isEmpty) {
+    lines.add('Sin reportes');
+    return lines.join('\n');
+  }
+
+  for (var index = 0; index < order.reports.length; index++) {
+    final report = order.reports[index];
+    final authorName =
+        state.usersById[report.createdById]?.nombreCompleto ?? report.createdById;
+    lines.add(
+      '${index + 1}. ${report.type.label}: ${report.report.trim()} (${authorName.trim()} - ${_formatDateTime(report.createdAt)})',
+    );
+  }
+  return lines.join('\n');
+}
+
+String _buildQuotationWhatsappSection(CotizacionModel? quotation) {
+  final lines = <String>['*COTIZACIÓN*'];
+  if (quotation == null) {
+    lines.add('Sin cotización vinculada');
+    return lines.join('\n');
+  }
+
+  final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+  final qtyFmt = NumberFormat('#,##0.##', 'es_DO');
+  lines.add('No. cotización: ${_shortQuotationId(quotation.id)}');
+  lines.add('Fecha: ${_formatDateTime(quotation.createdAt)}');
+
+  if (quotation.items.isEmpty) {
+    lines.add('Detalle: Sin items');
+  } else {
+    lines.add('Detalle:');
+    for (var index = 0; index < quotation.items.length; index++) {
+      final item = quotation.items[index];
+      lines.add(
+        '${index + 1}. ${item.nombre.trim()} | Cant: ${qtyFmt.format(item.qty)} | Unit: ${money.format(item.unitPrice)} | Importe: ${money.format(item.total)}',
+      );
+    }
+  }
+
+  if (_hasContent(quotation.note)) {
+    lines.add('Observación: ${quotation.note.trim()}');
+  }
+
+  lines.add('Subtotal: ${money.format(quotation.subtotalBeforeDiscount)}');
+  if (quotation.hasDiscount) {
+    lines.add('Descuento aplicado: -${money.format(quotation.discountAmount)}');
+    lines.add('Subtotal con descuento: ${money.format(quotation.subtotal)}');
+  }
+  if (quotation.includeItbis) {
+    lines.add('ITBIS: ${money.format(quotation.itbisAmount)}');
+  }
+  lines.add('Total general: ${money.format(quotation.total)}');
+
+  return lines.join('\n');
+}
+
+String _buildEvidenceShareLink(ServiceOrderEvidenceModel item) {
+  final content = item.content.trim();
+  final localPath = (item.localPath ?? '').trim();
+  if (content.isNotEmpty) return content;
+  if (localPath.isNotEmpty) return localPath;
+  return '';
+}
+
+String _formatDateTime(DateTime value) {
+  return DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(value.toLocal());
+}
+
+String _valueOrFallback(String? value, {String fallback = 'No disponible'}) {
+  final normalized = (value ?? '').trim();
+  return normalized.isEmpty ? fallback : normalized;
 }
 
 String _shortQuotationId(String id) {

@@ -555,19 +555,26 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   }
 
   double get _subtotal => _items.fold(0, (sum, item) => sum + item.total);
-  double get _subtotalBeforeDiscount =>
-      _items.fold(0, (sum, item) => sum + (item.effectiveOriginalUnitPrice * item.qty));
+  double get _subtotalBeforeDiscount => _items.fold(
+    0,
+    (sum, item) => sum + (item.effectiveOriginalUnitPrice * item.qty),
+  );
   double get _lineDiscountAmount =>
       _items.fold(0, (sum, item) => sum + item.discountAmount);
   double get _grossTotalBeforeGeneralDiscount => _subtotal + _itbisAmount;
   double get _effectiveGeneralDiscountAmount {
     final maxDiscount = _grossTotalBeforeGeneralDiscount;
     if (_generalDiscountAmount <= 0) return 0;
-    return _generalDiscountAmount > maxDiscount ? maxDiscount : _generalDiscountAmount;
+    return _generalDiscountAmount > maxDiscount
+        ? maxDiscount
+        : _generalDiscountAmount;
   }
-  double get _discountAmount => _lineDiscountAmount + _effectiveGeneralDiscountAmount;
+
+  double get _discountAmount =>
+      _lineDiscountAmount + _effectiveGeneralDiscountAmount;
   double get _itbisAmount => _includeItbis ? (_subtotal * _itbisRate) : 0;
-  double get _total => _grossTotalBeforeGeneralDiscount - _effectiveGeneralDiscountAmount;
+  double get _total =>
+      _grossTotalBeforeGeneralDiscount - _effectiveGeneralDiscountAmount;
   double get _totalCost =>
       _items.fold(0, (sum, item) => sum + item.subtotalCost);
   double get _utilityAmount => _total - _totalCost;
@@ -1106,15 +1113,13 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
   void _setUnitPrice(int index, double price) {
     if (price < 0) return;
-    _commitEditorChange(
-      () {
-        final current = _items[index];
-        _items[index] = current.copyWith(
-          originalUnitPrice: _nextOriginalUnitPrice(current, price),
-          unitPrice: price,
-        );
-      },
-    );
+    _commitEditorChange(() {
+      final current = _items[index];
+      _items[index] = current.copyWith(
+        originalUnitPrice: _nextOriginalUnitPrice(current, price),
+        unitPrice: price,
+      );
+    });
   }
 
   double? _nextOriginalUnitPrice(CotizacionItem item, double nextUnitPrice) {
@@ -1303,17 +1308,17 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
               ),
               OutlinedButton.icon(
                 onPressed: () async {
-                  final created = await Navigator.of(
-                    context,
-                    rootNavigator: true,
-                  ).push<ClienteModel>(
-                    MaterialPageRoute(
-                      fullscreenDialog: true,
-                      builder: (_) => const ClienteFormScreen(
-                        returnSavedClient: true,
-                      ),
-                    ),
-                  );
+                  final created =
+                      await Navigator.of(
+                        context,
+                        rootNavigator: true,
+                      ).push<ClienteModel>(
+                        MaterialPageRoute(
+                          fullscreenDialog: true,
+                          builder: (_) =>
+                              const ClienteFormScreen(returnSavedClient: true),
+                        ),
+                      );
                   if (!context.mounted || !mounted || created == null) return;
                   _commitEditorChange(() {
                     _selectedClientId = created.id;
@@ -1330,18 +1335,19 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                   onPressed: () async {
                     final clientId = (_selectedClientId ?? '').trim();
                     if (clientId.isEmpty) return;
-                    final updated = await Navigator.of(
-                      context,
-                      rootNavigator: true,
-                    ).push<ClienteModel>(
-                      MaterialPageRoute(
-                        fullscreenDialog: true,
-                        builder: (_) => ClienteFormScreen(
-                          clienteId: clientId,
-                          returnSavedClient: true,
-                        ),
-                      ),
-                    );
+                    final updated =
+                        await Navigator.of(
+                          context,
+                          rootNavigator: true,
+                        ).push<ClienteModel>(
+                          MaterialPageRoute(
+                            fullscreenDialog: true,
+                            builder: (_) => ClienteFormScreen(
+                              clienteId: clientId,
+                              returnSavedClient: true,
+                            ),
+                          ),
+                        );
                     if (!context.mounted || !mounted || updated == null) {
                       return;
                     }
@@ -3179,36 +3185,26 @@ class _DesktopTicketItemState extends State<_DesktopTicketItem> {
                         fontSize: 12,
                       ),
                     ),
-                    if (hasDiscount)
-                      Text(
-                        'Descuento aplicado: -$discountText',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: Colors.red.shade700,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 10,
-                        ),
-                      ),
-                    if (item.isExternal)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primary,
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          'Manual',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onPrimary,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 9,
-                          ),
+                    if (hasDiscount || item.isExternal)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: [
+                            if (hasDiscount)
+                              _buildTicketTag(
+                                label: 'Desc. -$discountText',
+                                backgroundColor: Colors.red.shade50,
+                                foregroundColor: Colors.red.shade700,
+                              ),
+                            if (item.isExternal)
+                              _buildTicketTag(
+                                label: 'Manual',
+                                backgroundColor: theme.colorScheme.primary,
+                                foregroundColor: theme.colorScheme.onPrimary,
+                              ),
+                          ],
                         ),
                       ),
                   ],
@@ -3312,6 +3308,30 @@ class _DesktopTicketItemState extends State<_DesktopTicketItem> {
   }
 }
 
+Widget _buildTicketTag({
+  required String label,
+  required Color backgroundColor,
+  required Color foregroundColor,
+}) {
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    decoration: BoxDecoration(
+      color: backgroundColor,
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: foregroundColor,
+        fontWeight: FontWeight.w800,
+        fontSize: 9,
+      ),
+    ),
+  );
+}
+
 class _DesktopTicketDraft {
   const _DesktopTicketDraft({
     required this.id,
@@ -3401,7 +3421,7 @@ class _DesktopTicketDraft {
       selectedClientPhone: map['selectedClientPhone']?.toString(),
       note: (map['note'] ?? '').toString(),
       includeItbis: map['includeItbis'] == true,
-        globalDiscountAmount:
+      globalDiscountAmount:
           (map['globalDiscountAmount'] as num?)?.toDouble() ?? 0,
       editingId: map['editingId']?.toString(),
       editingCreatedAt: DateTime.tryParse(
@@ -3474,6 +3494,8 @@ class _TicketCompactItemState extends State<_TicketCompactItem> {
   Widget build(BuildContext context) {
     final item = widget.item;
     final hasDiscount = item.hasDiscount;
+    final discountText = widget.money(item.discountAmount);
+    final theme = Theme.of(context);
     final qtyText = item.qty % 1 == 0
         ? item.qty.toStringAsFixed(0)
         : item.qty.toStringAsFixed(2);
@@ -3487,142 +3509,179 @@ class _TicketCompactItemState extends State<_TicketCompactItem> {
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
             color: item.isExternal
-                ? Theme.of(
-                    context,
-                  ).colorScheme.primaryContainer.withValues(alpha: 0.30)
-                : Theme.of(context).colorScheme.surface,
+                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.30)
+                : theme.colorScheme.surface,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: item.isExternal
-                  ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.45)
-                  : Theme.of(context).colorScheme.outlineVariant,
+                  ? theme.colorScheme.primary.withValues(alpha: 0.45)
+                  : theme.colorScheme.outlineVariant,
             ),
           ),
           child: Row(
             children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  item.nombre,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 11,
-                  ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: (item.imageUrl ?? '').trim().isEmpty
+                      ? Container(
+                          color: item.isExternal
+                              ? theme.colorScheme.primaryContainer
+                              : theme.colorScheme.surfaceContainerHighest,
+                          child: Icon(
+                            item.isExternal
+                                ? Icons.edit_note_outlined
+                                : Icons.inventory_2_outlined,
+                            size: 15,
+                            color: item.isExternal
+                                ? theme.colorScheme.primary
+                                : null,
+                          ),
+                        )
+                      : ProductNetworkImage(
+                          imageUrl: item.imageUrl!,
+                          productId: item.productId,
+                          productName: item.nombre,
+                          originalUrl: item.imageUrl,
+                          fit: BoxFit.cover,
+                          loading: Container(
+                            color: theme.colorScheme.surfaceContainerHighest,
+                          ),
+                          fallback: Container(
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            child: const Icon(
+                              Icons.broken_image_outlined,
+                              size: 14,
+                            ),
+                          ),
+                        ),
                 ),
-                if (hasDiscount)
-                  Text(
-                    'Descuento: -${widget.money(item.discountAmount)}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.red.shade700,
-                    ),
-                  ),
-                if (item.isExternal)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primary,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      'Manual',
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      item.nombre,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w800,
-                        color: Theme.of(context).colorScheme.onPrimary,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
                       ),
                     ),
+                    if (hasDiscount || item.isExternal)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: [
+                            if (hasDiscount)
+                              _buildTicketTag(
+                                label: 'Desc. -$discountText',
+                                backgroundColor: Colors.red.shade50,
+                                foregroundColor: Colors.red.shade700,
+                              ),
+                            if (item.isExternal)
+                              _buildTicketTag(
+                                label: 'Manual',
+                                backgroundColor: theme.colorScheme.primary,
+                                foregroundColor: theme.colorScheme.onPrimary,
+                              ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              SizedBox(
+                width: 86,
+                child: TextField(
+                  controller: _priceCtrl,
+                  style: const TextStyle(fontSize: 11),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
                   ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 6),
-          SizedBox(
-            width: 86,
-            child: TextField(
-              controller: _priceCtrl,
-              style: const TextStyle(fontSize: 11),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: const InputDecoration(
-                isDense: true,
-                hintText: 'Precio',
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 8,
-                ),
-                border: OutlineInputBorder(),
-              ),
-              onSubmitted: (value) {
-                final next = double.tryParse(value.trim());
-                if (next != null) widget.onChangePrice(next);
-              },
-            ),
-          ),
-          if (hasDiscount)
-            Padding(
-              padding: const EdgeInsets.only(left: 6),
-              child: Text(
-                widget.money(item.effectiveOriginalUnitPrice),
-                style: TextStyle(
-                  fontSize: 9,
-                  decoration: TextDecoration.lineThrough,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    hintText: 'Precio',
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 8,
+                    ),
+                    border: OutlineInputBorder(),
+                  ),
+                  onSubmitted: (value) {
+                    final next = double.tryParse(value.trim());
+                    if (next != null) widget.onChangePrice(next);
+                  },
                 ),
               ),
-            ),
-          const SizedBox(width: 6),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minHeight: 28, minWidth: 28),
-            splashRadius: 14,
-            onPressed: widget.onMinus,
-            icon: const Icon(Icons.remove_circle_outline, size: 18),
-          ),
-          Text(
-            qtyText,
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11),
-          ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minHeight: 28, minWidth: 28),
-            splashRadius: 14,
-            onPressed: widget.onPlus,
-            icon: const Icon(Icons.add_circle_outline, size: 18),
-          ),
-          const SizedBox(width: 6),
-          if (widget.onEdit != null)
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minHeight: 28, minWidth: 28),
-              splashRadius: 14,
-              tooltip: 'Editar producto manual',
-              onPressed: widget.onEdit,
-              icon: const Icon(Icons.edit_outlined, size: 16),
-            ),
-          Text(
-            widget.money(item.total),
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
+              if (hasDiscount)
+                Padding(
+                  padding: const EdgeInsets.only(left: 6),
+                  child: Text(
+                    widget.money(item.effectiveOriginalUnitPrice),
+                    style: TextStyle(
+                      fontSize: 9,
+                      decoration: TextDecoration.lineThrough,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              const SizedBox(width: 6),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minHeight: 28, minWidth: 28),
+                splashRadius: 14,
+                onPressed: widget.onMinus,
+                icon: const Icon(Icons.remove_circle_outline, size: 18),
+              ),
+              Text(
+                qtyText,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11,
+                ),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minHeight: 28, minWidth: 28),
+                splashRadius: 14,
+                onPressed: widget.onPlus,
+                icon: const Icon(Icons.add_circle_outline, size: 18),
+              ),
+              const SizedBox(width: 6),
+              if (widget.onEdit != null)
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minHeight: 28,
+                    minWidth: 28,
+                  ),
+                  splashRadius: 14,
+                  tooltip: 'Editar producto manual',
+                  onPressed: widget.onEdit,
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                ),
+              Text(
+                widget.money(item.total),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               IconButton(
                 visualDensity: VisualDensity.compact,
                 padding: EdgeInsets.zero,
