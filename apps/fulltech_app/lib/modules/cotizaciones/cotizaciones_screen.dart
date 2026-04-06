@@ -75,6 +75,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
   bool _includeItbis = false;
   static const double _itbisRate = 0.18;
+  double _generalDiscountAmount = 0;
 
   String? _editingId;
   DateTime? _editingCreatedAt;
@@ -535,12 +536,19 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   }
 
   double get _subtotal => _items.fold(0, (sum, item) => sum + item.total);
-    double get _subtotalBeforeDiscount =>
+  double get _subtotalBeforeDiscount =>
       _items.fold(0, (sum, item) => sum + (item.effectiveOriginalUnitPrice * item.qty));
-    double get _discountAmount =>
+  double get _lineDiscountAmount =>
       _items.fold(0, (sum, item) => sum + item.discountAmount);
+  double get _grossTotalBeforeGeneralDiscount => _subtotal + _itbisAmount;
+  double get _effectiveGeneralDiscountAmount {
+    final maxDiscount = _grossTotalBeforeGeneralDiscount;
+    if (_generalDiscountAmount <= 0) return 0;
+    return _generalDiscountAmount > maxDiscount ? maxDiscount : _generalDiscountAmount;
+  }
+  double get _discountAmount => _lineDiscountAmount + _effectiveGeneralDiscountAmount;
   double get _itbisAmount => _includeItbis ? (_subtotal * _itbisRate) : 0;
-  double get _total => _subtotal + _itbisAmount;
+  double get _total => _grossTotalBeforeGeneralDiscount - _effectiveGeneralDiscountAmount;
   double get _totalCost =>
       _items.fold(0, (sum, item) => sum + item.subtotalCost);
   double get _utilityAmount => _total - _totalCost;
@@ -563,6 +571,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       selectedClientPhone: _selectedClientPhone,
       note: _note,
       includeItbis: _includeItbis,
+      globalDiscountAmount: _generalDiscountAmount,
       editingId: _editingId,
       editingCreatedAt: _editingCreatedAt,
       selectedCategory: _selectedCategory,
@@ -599,6 +608,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     _selectedClientPhone = draft.selectedClientPhone;
     _note = draft.note;
     _includeItbis = draft.includeItbis;
+    _generalDiscountAmount = draft.globalDiscountAmount;
     _editingId = draft.editingId;
     _editingCreatedAt = draft.editingCreatedAt;
     _selectedCategory = draft.selectedCategory;
@@ -614,6 +624,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     _selectedClientPhone = null;
     _note = '';
     _includeItbis = false;
+    _generalDiscountAmount = 0;
     _editingId = null;
     _editingCreatedAt = null;
   }
@@ -924,27 +935,22 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   }
 
   Future<void> _applyGeneralDiscount() async {
-    if (_items.isEmpty || _subtotal <= 0) return;
+    if (_items.isEmpty || _grossTotalBeforeGeneralDiscount <= 0) return;
     final input = await _openDiscountDialog(
       title: 'Descuento general',
-      subtitle: 'Se distribuirá proporcionalmente entre todas las líneas.',
+      subtitle: 'Se aplicará directamente al total de la cotización.',
     );
     if (input == null || !mounted) return;
 
-    final rawFactor = input.type == _DiscountType.percent
-        ? 1 - (input.amount / 100)
-        : 1 - (input.amount / _subtotal);
-    final factor = rawFactor.clamp(0, 1).toDouble();
+    final nextDiscount = input.type == _DiscountType.percent
+        ? _grossTotalBeforeGeneralDiscount * (input.amount / 100)
+        : input.amount;
+    final boundedDiscount = nextDiscount
+        .clamp(0, _grossTotalBeforeGeneralDiscount)
+        .toDouble();
 
     _commitEditorChange(() {
-      for (var index = 0; index < _items.length; index++) {
-        final item = _items[index];
-        final nextUnitPrice = item.unitPrice * factor;
-        _items[index] = item.copyWith(
-          originalUnitPrice: _nextOriginalUnitPrice(item, nextUnitPrice),
-          unitPrice: nextUnitPrice,
-        );
-      }
+      _generalDiscountAmount = boundedDiscount;
     });
   }
 
@@ -1376,6 +1382,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       note: _note,
       includeItbis: _includeItbis,
       itbisRate: _itbisRate,
+      globalDiscountAmount: _effectiveGeneralDiscountAmount,
       items: [..._items],
     );
   }
@@ -3326,6 +3333,7 @@ class _DesktopTicketDraft {
     required this.selectedClientPhone,
     required this.note,
     required this.includeItbis,
+    required this.globalDiscountAmount,
     required this.editingId,
     required this.editingCreatedAt,
     required this.selectedCategory,
@@ -3345,6 +3353,7 @@ class _DesktopTicketDraft {
       selectedClientPhone: null,
       note: '',
       includeItbis: false,
+      globalDiscountAmount: 0,
       editingId: null,
       editingCreatedAt: null,
       selectedCategory: null,
@@ -3360,6 +3369,7 @@ class _DesktopTicketDraft {
   final String? selectedClientPhone;
   final String note;
   final bool includeItbis;
+  final double globalDiscountAmount;
   final String? editingId;
   final DateTime? editingCreatedAt;
   final String? selectedCategory;
@@ -3380,6 +3390,7 @@ class _DesktopTicketDraft {
     'selectedClientPhone': selectedClientPhone,
     'note': note,
     'includeItbis': includeItbis,
+    'globalDiscountAmount': globalDiscountAmount,
     'editingId': editingId,
     'editingCreatedAt': editingCreatedAt?.toIso8601String(),
     'selectedCategory': selectedCategory,
@@ -3401,6 +3412,8 @@ class _DesktopTicketDraft {
       selectedClientPhone: map['selectedClientPhone']?.toString(),
       note: (map['note'] ?? '').toString(),
       includeItbis: map['includeItbis'] == true,
+        globalDiscountAmount:
+          (map['globalDiscountAmount'] as num?)?.toDouble() ?? 0,
       editingId: map['editingId']?.toString(),
       editingCreatedAt: DateTime.tryParse(
         (map['editingCreatedAt'] ?? '').toString(),

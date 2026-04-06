@@ -1,0 +1,2 @@
+ALTER TABLE "Cotizacion"
+ADD COLUMN IF NOT EXISTS "globalDiscountAmount" DECIMAL(12, 2) NOT NULL DEFAULT 0;

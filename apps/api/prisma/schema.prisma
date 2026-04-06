@@ -1550,6 +1550,7 @@ model Cotizacion {
   note            String?  
   includeItbis    Boolean  @default(false)
   itbisRate       Decimal  @default(0.18) @db.Decimal(5, 4)
+  globalDiscountAmount Decimal @default(0) @db.Decimal(12, 2)
   subtotal        Decimal  @db.Decimal(12, 2)
   subtotalCost    Decimal? @db.Decimal(12, 2)
   itbisAmount     Decimal  @db.Decimal(12, 2)

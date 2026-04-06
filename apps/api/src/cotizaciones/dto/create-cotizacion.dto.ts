@@ -64,6 +64,12 @@ export class CreateCotizacionDto {
   @Min(0)
   itbisRate?: number;
 
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  globalDiscountAmount?: number;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateCotizacionItemDto)

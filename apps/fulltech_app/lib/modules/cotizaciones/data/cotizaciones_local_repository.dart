@@ -12,7 +12,7 @@ final cotizacionesLocalRepositoryProvider =
 
 class CotizacionesLocalRepository {
   static const _dbName = 'cotizaciones_local.db';
-  static const _dbVersion = 2;
+  static const _dbVersion = 3;
   static const _tableCotizaciones = 'cotizaciones';
   static const _tableItems = 'cotizacion_items';
 
@@ -37,6 +37,7 @@ class CotizacionesLocalRepository {
             note TEXT,
             include_itbis INTEGER NOT NULL DEFAULT 0,
             itbis_rate REAL NOT NULL DEFAULT 0.18,
+            global_discount_amount REAL NOT NULL DEFAULT 0,
             is_draft INTEGER NOT NULL DEFAULT 0
           )
         ''');
@@ -62,6 +63,11 @@ class CotizacionesLocalRepository {
         if (oldVersion < 2) {
           await db.execute(
             'ALTER TABLE $_tableItems ADD COLUMN original_unit_price REAL',
+          );
+        }
+        if (oldVersion < 3) {
+          await db.execute(
+            'ALTER TABLE $_tableCotizaciones ADD COLUMN global_discount_amount REAL NOT NULL DEFAULT 0',
           );
         }
       },
@@ -222,6 +228,7 @@ class CotizacionesLocalRepository {
         'note': cotizacion.note,
         'include_itbis': cotizacion.includeItbis ? 1 : 0,
         'itbis_rate': cotizacion.itbisRate,
+        'global_discount_amount': cotizacion.globalDiscountAmount,
         'is_draft': isDraft ? 1 : 0,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
 
@@ -276,6 +283,8 @@ class CotizacionesLocalRepository {
       note: (row['note'] ?? '').toString(),
       includeItbis: (row['include_itbis'] as num?)?.toInt() == 1,
       itbisRate: (row['itbis_rate'] as num?)?.toDouble() ?? 0.18,
+        globalDiscountAmount:
+          (row['global_discount_amount'] as num?)?.toDouble() ?? 0,
       items: itemRows
           .map(
             (itemRow) => CotizacionItem(

@@ -30,6 +30,12 @@ export class UpdateCotizacionDto {
 	itbisRate?: number;
 
 	@IsOptional()
+	@Type(() => Number)
+	@IsNumber()
+	@Min(0)
+	globalDiscountAmount?: number;
+
+	@IsOptional()
 	@IsArray()
 	@ValidateNested({ each: true })
 	@Type(() => CreateCotizacionItemDto)

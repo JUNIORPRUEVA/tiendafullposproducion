@@ -272,7 +272,12 @@ export class CotizacionesService {
     }
 
     const itbisAmount = includeItbis ? subtotal.mul(itbisRate) : new Prisma.Decimal(0);
-    const total = subtotal.plus(itbisAmount);
+    const grossTotal = subtotal.plus(itbisAmount);
+    const generalDiscountAmountRaw = dto.globalDiscountAmount ?? 0;
+    const generalDiscountAmount = new Prisma.Decimal(
+      Math.max(0, Math.min(generalDiscountAmountRaw, this.toNumber(grossTotal))),
+    );
+    const total = grossTotal.minus(generalDiscountAmount);
     const totalCost = hasUnknownCost ? null : subtotalCost;
     const totalProfit = hasUnknownCost ? null : total.minus(subtotalCost);
 
@@ -295,6 +300,7 @@ export class CotizacionesService {
           note: note.length ? note : null,
           includeItbis,
           itbisRate,
+          globalDiscountAmount,
           subtotal,
           subtotalCost: totalCost,
           itbisAmount,
@@ -339,6 +345,10 @@ export class CotizacionesService {
     const includeItbis = dto.includeItbis ?? current.includeItbis;
     const itbisRateRaw = dto.itbisRate ?? this.toNumber(current.itbisRate);
     const itbisRate = new Prisma.Decimal(Math.max(0, Math.min(itbisRateRaw, 1)));
+    const currentGeneralDiscountAmount = this.toNumber(
+      (current as { globalDiscountAmount?: Prisma.Decimal | number | string | null })
+        .globalDiscountAmount,
+    );
 
     const nextItems = dto.items ? await this.normalizeItems(dto.items as CreateCotizacionItemDto[]) : null;
 
@@ -348,6 +358,9 @@ export class CotizacionesService {
     let totalCost = current.totalCost == null ? null : new Prisma.Decimal(current.totalCost);
     let total = new Prisma.Decimal(current.total);
     let totalProfit = current.totalProfit == null ? null : new Prisma.Decimal(current.totalProfit);
+    let generalDiscountAmount = new Prisma.Decimal(
+      Math.max(0, dto.globalDiscountAmount ?? currentGeneralDiscountAmount),
+    );
 
     if (nextItems) {
       subtotal = new Prisma.Decimal(0);
@@ -362,9 +375,20 @@ export class CotizacionesService {
         }
       }
       itbisAmount = includeItbis ? subtotal.mul(itbisRate) : new Prisma.Decimal(0);
-      total = subtotal.plus(itbisAmount);
+      const grossTotal = subtotal.plus(itbisAmount);
+      generalDiscountAmount = new Prisma.Decimal(
+        Math.max(0, Math.min(this.toNumber(generalDiscountAmount), this.toNumber(grossTotal))),
+      );
+      total = grossTotal.minus(generalDiscountAmount);
       totalCost = hasUnknownCost ? null : subtotalCost;
       totalProfit = hasUnknownCost ? null : total.minus(subtotalCost);
+    } else if (dto.globalDiscountAmount !== undefined) {
+      const grossTotal = subtotal.plus(itbisAmount);
+      generalDiscountAmount = new Prisma.Decimal(
+        Math.max(0, Math.min(dto.globalDiscountAmount, this.toNumber(grossTotal))),
+      );
+      total = grossTotal.minus(generalDiscountAmount);
+      totalProfit = totalCost == null ? null : total.minus(totalCost);
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -398,6 +422,7 @@ export class CotizacionesService {
           note: dto.note !== undefined ? (dto.note?.trim().length ? dto.note.trim() : null) : current.note,
           includeItbis,
           itbisRate,
+          globalDiscountAmount: generalDiscountAmount,
           subtotal,
           subtotalCost,
           itbisAmount,

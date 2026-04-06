@@ -152,6 +152,7 @@ class CotizacionModel {
   final String note;
   final bool includeItbis;
   final double itbisRate;
+  final double globalDiscountAmount;
   final List<CotizacionItem> items;
 
   const CotizacionModel({
@@ -165,6 +166,7 @@ class CotizacionModel {
     required this.note,
     required this.includeItbis,
     required this.itbisRate,
+    this.globalDiscountAmount = 0,
     required this.items,
   });
 
@@ -173,10 +175,16 @@ class CotizacionModel {
     0,
     (sum, item) => sum + (item.effectiveOriginalUnitPrice * item.qty),
   );
-  double get discountAmount => items.fold(0, (sum, item) => sum + item.discountAmount);
+  double get lineDiscountAmount =>
+      items.fold(0, (sum, item) => sum + item.discountAmount);
+  double get discountAmount => lineDiscountAmount + globalDiscountAmount;
   bool get hasDiscount => discountAmount > 0.0001;
   double get itbisAmount => includeItbis ? subtotal * itbisRate : 0;
-  double get total => subtotal + itbisAmount;
+  double get totalBeforeGeneralDiscount => subtotal + itbisAmount;
+  double get total {
+    final nextTotal = totalBeforeGeneralDiscount - globalDiscountAmount;
+    return nextTotal > 0 ? nextTotal : 0;
+  }
 
   CotizacionModel copyWith({
     String? id,
@@ -189,6 +197,7 @@ class CotizacionModel {
     String? note,
     bool? includeItbis,
     double? itbisRate,
+    double? globalDiscountAmount,
     List<CotizacionItem>? items,
   }) {
     return CotizacionModel(
@@ -202,6 +211,7 @@ class CotizacionModel {
       note: note ?? this.note,
       includeItbis: includeItbis ?? this.includeItbis,
       itbisRate: itbisRate ?? this.itbisRate,
+      globalDiscountAmount: globalDiscountAmount ?? this.globalDiscountAmount,
       items: items ?? this.items,
     );
   }
@@ -217,6 +227,7 @@ class CotizacionModel {
     'note': note,
     'includeItbis': includeItbis,
     'itbisRate': itbisRate,
+    'globalDiscountAmount': globalDiscountAmount,
     'items': items.map((item) => item.toMap()).toList(),
   };
 
@@ -235,6 +246,8 @@ class CotizacionModel {
       note: (map['note'] ?? '').toString(),
       includeItbis: map['includeItbis'] == true,
       itbisRate: (map['itbisRate'] as num?)?.toDouble() ?? 0.18,
+        globalDiscountAmount:
+          (map['globalDiscountAmount'] as num?)?.toDouble() ?? 0,
       items: rawItems
           .whereType<Map>()
           .map((row) => CotizacionItem.fromMap(row.cast<String, dynamic>()))
@@ -278,6 +291,7 @@ class CotizacionModel {
       note: (map['note'] ?? '').toString(),
       includeItbis: map['includeItbis'] == true,
       itbisRate: _asDouble(map['itbisRate'], 0.18),
+      globalDiscountAmount: _asDouble(map['globalDiscountAmount']),
       items: rawItems
           .whereType<Map>()
           .map((row) => CotizacionItem.fromApi(row.cast<String, dynamic>()))
@@ -293,6 +307,7 @@ class CotizacionModel {
     if (note.trim().isNotEmpty) 'note': note.trim(),
     'includeItbis': includeItbis,
     'itbisRate': itbisRate,
+    if (globalDiscountAmount > 0) 'globalDiscountAmount': globalDiscountAmount,
     'items': items.map((item) => item.toCreateDto()).toList(),
   };
 
