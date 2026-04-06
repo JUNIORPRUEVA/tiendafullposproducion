@@ -4,6 +4,7 @@ class CotizacionItem {
   final String productId;
   final String nombre;
   final String? imageUrl;
+  final double? originalUnitPrice;
   final double unitPrice;
   final double qty;
   final double? costUnit;
@@ -13,6 +14,7 @@ class CotizacionItem {
     required this.productId,
     required this.nombre,
     required this.imageUrl,
+    this.originalUnitPrice,
     required this.unitPrice,
     required this.qty,
     this.costUnit,
@@ -20,6 +22,17 @@ class CotizacionItem {
   });
 
   bool get isExternal => !_isUuid(productId);
+
+  double get effectiveOriginalUnitPrice => originalUnitPrice ?? unitPrice;
+
+  bool get hasDiscount => unitPrice < effectiveOriginalUnitPrice;
+
+  double get discountUnitAmount {
+    final discount = effectiveOriginalUnitPrice - unitPrice;
+    return discount > 0 ? discount : 0;
+  }
+
+  double get discountAmount => discountUnitAmount * qty;
 
   double get total => unitPrice * qty;
   
@@ -29,6 +42,7 @@ class CotizacionItem {
     String? productId,
     String? nombre,
     String? imageUrl,
+    double? originalUnitPrice,
     double? unitPrice,
     double? qty,
     double? costUnit,
@@ -38,6 +52,7 @@ class CotizacionItem {
       productId: productId ?? this.productId,
       nombre: nombre ?? this.nombre,
       imageUrl: imageUrl ?? this.imageUrl,
+      originalUnitPrice: originalUnitPrice ?? this.originalUnitPrice,
       unitPrice: unitPrice ?? this.unitPrice,
       qty: qty ?? this.qty,
       costUnit: costUnit ?? this.costUnit,
@@ -49,6 +64,7 @@ class CotizacionItem {
     'productId': productId,
     'nombre': nombre,
     'imageUrl': imageUrl,
+    'originalUnitPrice': originalUnitPrice,
     'unitPrice': unitPrice,
     'qty': qty,
     'costUnit': costUnit,
@@ -60,6 +76,7 @@ class CotizacionItem {
     'productName': nombre,
     if (imageUrl != null && imageUrl!.trim().isNotEmpty)
       'productImageSnapshot': imageUrl,
+    if (originalUnitPrice != null) 'originalUnitPriceSnapshot': originalUnitPrice,
     'qty': qty,
     'unitPrice': unitPrice,
     if ((costUnit ?? externalCostUnit) != null)
@@ -79,6 +96,7 @@ class CotizacionItem {
       productId: (map['productId'] ?? '').toString(),
       nombre: (map['nombre'] ?? '').toString(),
       imageUrl: map['imageUrl']?.toString(),
+      originalUnitPrice: (map['originalUnitPrice'] as num?)?.toDouble(),
       unitPrice: (map['unitPrice'] as num?)?.toDouble() ?? 0,
       qty: (map['qty'] as num?)?.toDouble() ?? 0,
       costUnit: (map['costUnit'] as num?)?.toDouble(),
@@ -98,6 +116,8 @@ class CotizacionItem {
     final parsedCostSnapshot = rawCostSnapshot == null
         ? null
         : _asDouble(rawCostSnapshot);
+    final rawOriginalUnitPrice =
+      map['originalUnitPriceSnapshot'] ?? map['originalUnitPrice'];
     final isExternalItem = !_isUuid((map['productId'] ?? '').toString());
     return CotizacionItem(
       productId: (map['productId'] ?? '').toString(),
@@ -110,6 +130,9 @@ class CotizacionItem {
       imageUrl:
           (map['productImageSnapshot'] ?? map['imageUrl'] ?? map['image_url'])
               ?.toString(),
+        originalUnitPrice: rawOriginalUnitPrice == null
+          ? null
+          : _asDouble(rawOriginalUnitPrice),
       unitPrice: _asDouble(map['unitPrice']),
       qty: _asDouble(map['qty']),
       costUnit: parsedCostSnapshot,
@@ -146,6 +169,12 @@ class CotizacionModel {
   });
 
   double get subtotal => items.fold(0, (sum, item) => sum + item.total);
+  double get subtotalBeforeDiscount => items.fold(
+    0,
+    (sum, item) => sum + (item.effectiveOriginalUnitPrice * item.qty),
+  );
+  double get discountAmount => items.fold(0, (sum, item) => sum + item.discountAmount);
+  bool get hasDiscount => discountAmount > 0.0001;
   double get itbisAmount => includeItbis ? subtotal * itbisRate : 0;
   double get total => subtotal + itbisAmount;
 

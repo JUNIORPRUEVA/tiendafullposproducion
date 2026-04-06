@@ -17,6 +17,7 @@ import { RedisService } from '../common/redis/redis.service';
 import { PayrollService } from '../payroll/payroll.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CatalogRealtimeRelayService } from '../products/catalog-realtime-relay.service';
+import { OrderDocumentFlowService } from '../order-document-flow/order-document-flow.service';
 import { ServiceOrderNotificationsListener } from '../notifications/service-order-notifications.listener';
 import { CloneServiceOrderDto } from './dto/clone-service-order.dto';
 import { CreateEvidenceDto } from './dto/create-evidence.dto';
@@ -93,6 +94,7 @@ export class ServiceOrdersService {
     private readonly realtime: CatalogRealtimeRelayService,
     private readonly payroll: PayrollService,
     private readonly orderNotifications: ServiceOrderNotificationsListener,
+    private readonly orderDocumentFlows: OrderDocumentFlowService,
   ) {}
 
   async create(user: AuthUser, dto: CreateServiceOrderDto) {
@@ -313,6 +315,7 @@ export class ServiceOrdersService {
       await this.runNotificationHook(`service.status_changed:${updated.id}:${previousStatus}->${nextStatus}`, () =>
         this.orderNotifications.handleStatusChanged(updated.id, previousStatus, nextStatus),
       );
+      await this.runDocumentFlowHook(updated.id, updated.status);
       return mapped;
     } catch (error) {
       this.rethrowWriteError(error);
@@ -519,6 +522,15 @@ export class ServiceOrdersService {
   private async invalidateCachesForOrder(id: string) {
     await this.redis.delByPattern('service-orders:list:*');
     await this.redis.delByPattern(`service-orders:detail:*:*:${id}`);
+  }
+
+  private async runDocumentFlowHook(orderId: string, status: PrismaServiceOrderStatus) {
+    try {
+      await this.orderDocumentFlows.syncFromServiceOrderStatus(orderId, status);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Document flow hook failed order=${orderId} status=${status} error=${message}`);
+    }
   }
 
   private emitOrderEvent(type: string, serviceId: string, service?: unknown) {

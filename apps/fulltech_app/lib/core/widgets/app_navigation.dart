@@ -61,6 +61,12 @@ List<AppNavigationSection> buildAppNavigationSections(
             title: 'Operaciones',
             route: Routes.serviceOrders,
           ),
+        if (can(AppPermission.viewDocumentFlows))
+          const AppNavigationItem(
+            icon: Icons.verified_outlined,
+            title: 'Flujo documental',
+            route: Routes.documentFlows,
+          ),
         if (can(AppPermission.viewClients))
           const AppNavigationItem(
             icon: Icons.group_outlined,
@@ -199,11 +205,13 @@ String resolveNavigationTitle(
   if (path == Routes.registrarVenta) return 'Nueva venta';
   if (path == Routes.serviceOrders) return 'Operaciones';
   if (path == Routes.serviceOrderCreate) return 'Crear orden';
+  if (path == Routes.documentFlows) return 'Flujo documental';
   if (path == Routes.cotizacionesHistorial) return 'Historial de cotizaciones';
   if (path == Routes.clienteNuevo) return 'Nuevo cliente';
   if (path == Routes.ai) return 'IA';
   if (path == Routes.profile) return 'Perfil';
   if (path.startsWith('${Routes.serviceOrders}/')) return 'Detalle de orden';
+  if (path.startsWith('${Routes.documentFlows}/')) return 'Detalle documental';
   if (path.startsWith('/clientes/') && path.endsWith('/editar')) {
     return 'Editar cliente';
   }
@@ -227,6 +235,7 @@ bool desktopShellShouldShowOwnAppBar(String location) {
     Routes.clientes,
     Routes.ventas,
     Routes.serviceOrders,
+    Routes.documentFlows,
     Routes.cotizaciones,
     Routes.nomina,
     Routes.misPagos,
@@ -247,6 +256,7 @@ bool desktopShellShouldShowOwnAppBar(String location) {
   if (path == Routes.cotizacionesHistorial) return false;
   if (path == Routes.registrarVenta) return false;
   if (path == Routes.serviceOrderCreate) return false;
+  if (path.startsWith('${Routes.documentFlows}/')) return false;
   if (path == Routes.clienteNuevo) return false;
   if (path.startsWith('${Routes.serviceOrders}/')) return false;
   if (path.startsWith('/clientes/')) return false;

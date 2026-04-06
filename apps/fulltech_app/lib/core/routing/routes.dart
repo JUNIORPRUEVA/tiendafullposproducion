@@ -21,6 +21,8 @@ class Routes {
   static const serviceOrders = '/service-orders';
   static const serviceOrderCreate = '/service-orders/nueva';
   static const serviceOrderDetail = '/service-orders/:id';
+  static const documentFlows = '/document-flows';
+  static const documentFlowDetail = '/document-flows/:orderId';
   static const registrarVenta = '/ventas/nueva';
   static const clienteNuevo = '/clientes/nuevo';
   static const clienteDetalle = '/clientes/:id';
@@ -38,4 +40,5 @@ class Routes {
   static String clienteDetail(String id) => '/clientes/$id';
   static String clienteEdit(String id) => '/clientes/$id/editar';
   static String serviceOrderById(String id) => '/service-orders/$id';
+  static String documentFlowByOrderId(String orderId) => '/document-flows/$orderId';
 }

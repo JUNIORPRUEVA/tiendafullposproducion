@@ -26,6 +26,8 @@ import '../../modules/configuracion/configuracion_screen.dart';
 import '../../modules/manual_interno/manual_interno_screen.dart';
 import '../../modules/cotizaciones/cotizaciones_historial_screen.dart';
 import '../../modules/cotizaciones/cotizaciones_screen.dart';
+import '../../modules/document_flows/document_flow_detail_screen.dart';
+import '../../modules/document_flows/document_flows_screen.dart';
 import '../../modules/service_orders/create_service_order_screen.dart';
 import '../../modules/service_orders/service_order_detail_screen.dart';
 import '../../modules/service_orders/service_order_models.dart';
@@ -172,6 +174,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const ServiceOrdersListScreen(),
           ),
           GoRoute(
+            path: Routes.documentFlows,
+            builder: (context, state) => const DocumentFlowsScreen(),
+          ),
+          GoRoute(
             path: Routes.serviceOrderCreate,
             builder: (context, state) {
               final args = state.extra is ServiceOrderCreateArgs
@@ -185,6 +191,13 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) {
               final id = state.pathParameters['id'] ?? '';
               return ServiceOrderDetailScreen(orderId: id);
+            },
+          ),
+          GoRoute(
+            path: Routes.documentFlowDetail,
+            builder: (context, state) {
+              final orderId = state.pathParameters['orderId'] ?? '';
+              return DocumentFlowDetailScreen(orderId: orderId);
             },
           ),
           GoRoute(

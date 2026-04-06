@@ -28,6 +28,12 @@ export class CreateCotizacionItemDto {
   @Type(() => Number)
   @IsNumber()
   @Min(0)
+  originalUnitPriceSnapshot?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
   costUnitSnapshot?: number;
 }
 

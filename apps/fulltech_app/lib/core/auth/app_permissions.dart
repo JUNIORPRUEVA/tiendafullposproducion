@@ -9,6 +9,7 @@ enum AppPermission {
 
   // Core modules
   viewOperations,
+  viewDocumentFlows,
   viewPunch,
 
   // Technician
@@ -43,6 +44,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.viewProfile,
     AppPermission.viewMyPayments,
     AppPermission.viewOperations,
+    AppPermission.viewDocumentFlows,
     AppPermission.viewTechOperations,
     AppPermission.viewPunch,
     AppPermission.viewCatalog,
@@ -62,6 +64,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.viewProfile,
     AppPermission.viewMyPayments,
     AppPermission.viewOperations,
+    AppPermission.viewDocumentFlows,
     AppPermission.viewPunch,
     AppPermission.viewCatalog,
     AppPermission.viewSales,

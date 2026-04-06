@@ -306,6 +306,7 @@ export class CotizacionesService {
               productId: item.productId,
               productNameSnapshot: item.productNameSnapshot,
               productImageSnapshot: item.productImageSnapshot,
+              originalUnitPriceSnapshot: item.originalUnitPriceSnapshot,
               qty: item.qty,
               unitPrice: item.unitPrice,
               costUnitSnapshot: item.costUnitSnapshot,
@@ -409,6 +410,7 @@ export class CotizacionesService {
                   productId: item.productId,
                   productNameSnapshot: item.productNameSnapshot,
                   productImageSnapshot: item.productImageSnapshot,
+                  originalUnitPriceSnapshot: item.originalUnitPriceSnapshot,
                   qty: item.qty,
                   unitPrice: item.unitPrice,
                   costUnitSnapshot: item.costUnitSnapshot,
@@ -694,6 +696,11 @@ export class CotizacionesService {
       }
 
       const productImageSnapshot = product?.imagen ?? item.productImageSnapshot ?? null;
+      const originalUnitPriceSnapshot = product
+        ? new Prisma.Decimal(item.originalUnitPriceSnapshot ?? item.unitPrice)
+        : item.originalUnitPriceSnapshot != null
+          ? new Prisma.Decimal(item.originalUnitPriceSnapshot)
+          : unitPrice;
       const costUnitSnapshot = product
         ? new Prisma.Decimal(product.costo)
         : item.costUnitSnapshot != null
@@ -707,6 +714,7 @@ export class CotizacionesService {
         productId: product?.id ?? productId,
         productNameSnapshot,
         productImageSnapshot,
+        originalUnitPriceSnapshot,
         qty,
         unitPrice,
         costUnitSnapshot,

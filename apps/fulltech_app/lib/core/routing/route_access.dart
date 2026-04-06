@@ -27,6 +27,8 @@ class RouteAccess {
       case Routes.serviceOrders:
       case Routes.serviceOrderCreate:
         return AppPermission.viewOperations;
+      case Routes.documentFlows:
+        return AppPermission.viewDocumentFlows;
       case Routes.cotizaciones:
       case Routes.cotizacionesHistorial:
         return AppPermission.viewQuotes;
@@ -63,6 +65,9 @@ class RouteAccess {
     }
     if (path.startsWith('${Routes.serviceOrders}/')) {
       return AppPermission.viewOperations;
+    }
+    if (path.startsWith('${Routes.documentFlows}/')) {
+      return AppPermission.viewDocumentFlows;
     }
     if (path.startsWith('/users/')) {
       return AppPermission.manageUsers;

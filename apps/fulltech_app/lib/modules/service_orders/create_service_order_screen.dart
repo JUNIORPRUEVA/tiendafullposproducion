@@ -385,6 +385,21 @@ class _CreateServiceOrderScreenState
                   ),
                 ),
               ] else ...[
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _InlineCreateAction(
+                    icon: Icons.add_circle_outline_rounded,
+                    label: 'Crear cotización',
+                    onTap: _inlineFlowBusy || state.loading
+                        ? null
+                        : () => _createQuotationInline(
+                            context,
+                            state,
+                            controller,
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 10),
                 InputSelector(
                   label: 'Cotización',
                   value: state.selectedQuotation == null

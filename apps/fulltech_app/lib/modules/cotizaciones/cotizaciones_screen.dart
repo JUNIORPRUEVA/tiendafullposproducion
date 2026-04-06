@@ -21,7 +21,7 @@ import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/product_network_image.dart';
 import '../clientes/cliente_model.dart';
-import '../clientes/data/clientes_repository.dart';
+import '../clientes/cliente_form_screen.dart';
 import '../ventas/data/ventas_repository.dart';
 import 'ai/application/quotation_ai_controller.dart';
 import 'ai/domain/models/ai_warning.dart';
@@ -535,6 +535,10 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   }
 
   double get _subtotal => _items.fold(0, (sum, item) => sum + item.total);
+    double get _subtotalBeforeDiscount =>
+      _items.fold(0, (sum, item) => sum + (item.effectiveOriginalUnitPrice * item.qty));
+    double get _discountAmount =>
+      _items.fold(0, (sum, item) => sum + item.discountAmount);
   double get _itbisAmount => _includeItbis ? (_subtotal * _itbisRate) : 0;
   double get _total => _subtotal + _itbisAmount;
   double get _totalCost =>
@@ -912,7 +916,10 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     final nextUnitPrice = item.qty <= 0 ? 0.0 : nextTotal / item.qty;
 
     _commitEditorChange(() {
-      _items[index] = item.copyWith(unitPrice: nextUnitPrice);
+      _items[index] = item.copyWith(
+        originalUnitPrice: _nextOriginalUnitPrice(item, nextUnitPrice),
+        unitPrice: nextUnitPrice,
+      );
     });
   }
 
@@ -932,7 +939,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     _commitEditorChange(() {
       for (var index = 0; index < _items.length; index++) {
         final item = _items[index];
-        _items[index] = item.copyWith(unitPrice: item.unitPrice * factor);
+        final nextUnitPrice = item.unitPrice * factor;
+        _items[index] = item.copyWith(
+          originalUnitPrice: _nextOriginalUnitPrice(item, nextUnitPrice),
+          unitPrice: nextUnitPrice,
+        );
       }
     });
   }
@@ -949,6 +960,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
             productId: product.id,
             nombre: product.nombre,
             imageUrl: product.displayFotoUrl,
+            originalUnitPrice: product.precio,
             unitPrice: product.precio,
             qty: 1,
             costUnit: product.costo,
@@ -1070,6 +1082,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         productId: '',
         nombre: name,
         imageUrl: null,
+        originalUnitPrice: editingItem?.originalUnitPrice ?? unitPrice,
         unitPrice: unitPrice,
         qty: qty,
         externalCostUnit: externalCost,
@@ -1093,8 +1106,21 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   void _setUnitPrice(int index, double price) {
     if (price < 0) return;
     _commitEditorChange(
-      () => _items[index] = _items[index].copyWith(unitPrice: price),
+      () {
+        final current = _items[index];
+        _items[index] = current.copyWith(
+          originalUnitPrice: _nextOriginalUnitPrice(current, price),
+          unitPrice: price,
+        );
+      },
     );
+  }
+
+  double? _nextOriginalUnitPrice(CotizacionItem item, double nextUnitPrice) {
+    final currentBase = item.originalUnitPrice;
+    if (currentBase != null) return currentBase;
+    if (nextUnitPrice < item.unitPrice) return item.unitPrice;
+    return null;
   }
 
   Future<void> _pickCategory() async {
@@ -1171,47 +1197,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
   Future<void> _openClientDialog() async {
     final repo = ref.read(ventasRepositoryProvider);
-    final clientesRepo = ref.read(clientesRepositoryProvider);
-    final ownerId = (ref.read(authStateProvider).user?.id ?? '').trim();
     final searchCtrl = TextEditingController();
-    final nameCtrl = TextEditingController();
-    final phoneCtrl = TextEditingController();
-    final addressCtrl = TextEditingController();
-    final emailCtrl = TextEditingController();
 
     List<ClienteModel> clients = const [];
     bool loading = true;
-    bool creating = false;
-    bool editingCurrent = false;
     String? error;
-    ClienteModel? currentClient;
-
-    Future<void> loadCurrentClient() async {
-      final currentId = (_selectedClientId ?? '').trim();
-      if (currentId.isEmpty || ownerId.isEmpty) return;
-      try {
-        currentClient = await clientesRepo.getClientById(
-          ownerId: ownerId,
-          id: currentId,
-        );
-        nameCtrl.text = currentClient?.nombre ?? _selectedClientName;
-        phoneCtrl.text =
-            currentClient?.telefono ?? (_selectedClientPhone ?? '');
-        addressCtrl.text = currentClient?.direccion ?? '';
-        emailCtrl.text = currentClient?.correo ?? '';
-      } catch (_) {
-        currentClient = null;
-      }
-    }
-
-    void fillCreateDefaults() {
-      nameCtrl.text = _selectedClientName == 'Sin cliente'
-          ? ''
-          : _selectedClientName;
-      phoneCtrl.text = _selectedClientPhone ?? '';
-      addressCtrl.clear();
-      emailCtrl.clear();
-    }
 
     await showDialog<void>(
       context: context,
@@ -1246,98 +1236,62 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (!creating && !editingCurrent) ...[
-                    TextField(
-                      controller: searchCtrl,
-                      decoration: InputDecoration(
-                        hintText: 'Buscar cliente',
-                        prefixIcon: const Icon(Icons.search),
-                        suffixIcon: IconButton(
-                          onPressed: loadClients,
-                          icon: const Icon(Icons.filter_alt_outlined),
-                        ),
-                        isDense: true,
+                  TextField(
+                    controller: searchCtrl,
+                    decoration: InputDecoration(
+                      hintText: 'Buscar cliente',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: IconButton(
+                        onPressed: loadClients,
+                        icon: const Icon(Icons.filter_alt_outlined),
                       ),
-                      onSubmitted: (_) => loadClients(),
+                      isDense: true,
                     ),
-                    const SizedBox(height: 10),
-                    if (loading)
-                      const LinearProgressIndicator()
-                    else if (error != null)
-                      Text(
-                        error!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      )
-                    else
-                      SizedBox(
-                        height: 280,
-                        child: clients.isEmpty
-                            ? const Center(
-                                child: Text('No hay clientes, crea uno nuevo'),
-                              )
-                            : ListView.separated(
-                                itemCount: clients.length,
-                                separatorBuilder: (context, index) =>
-                                    const Divider(height: 1),
-                                itemBuilder: (context, index) {
-                                  final client = clients[index];
-                                  return ListTile(
-                                    dense: true,
-                                    title: Text(client.nombre),
-                                    subtitle: Text(
-                                      client.telefono,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    onTap: () {
-                                      _commitEditorChange(() {
-                                        _selectedClientId = client.id;
-                                        _selectedClientName = client.nombre;
-                                        _selectedClientPhone = client.telefono;
-                                      });
-                                      Navigator.pop(context);
-                                    },
-                                  );
-                                },
-                              ),
+                    onSubmitted: (_) => loadClients(),
+                  ),
+                  const SizedBox(height: 10),
+                  if (loading)
+                    const LinearProgressIndicator()
+                  else if (error != null)
+                    Text(
+                      error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
                       ),
-                  ] else ...[
-                    TextField(
-                      controller: nameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Nombre',
-                        isDense: true,
-                      ),
+                    )
+                  else
+                    SizedBox(
+                      height: 280,
+                      child: clients.isEmpty
+                          ? const Center(
+                              child: Text('No hay clientes, crea uno nuevo'),
+                            )
+                          : ListView.separated(
+                              itemCount: clients.length,
+                              separatorBuilder: (context, index) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final client = clients[index];
+                                return ListTile(
+                                  dense: true,
+                                  title: Text(client.nombre),
+                                  subtitle: Text(
+                                    client.telefono,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  onTap: () {
+                                    _commitEditorChange(() {
+                                      _selectedClientId = client.id;
+                                      _selectedClientName = client.nombre;
+                                      _selectedClientPhone = client.telefono;
+                                    });
+                                    Navigator.pop(context);
+                                  },
+                                );
+                              },
+                            ),
                     ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: phoneCtrl,
-                      keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
-                        labelText: 'Teléfono',
-                        isDense: true,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: addressCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Dirección',
-                        isDense: true,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: emailCtrl,
-                      keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(
-                        labelText: 'Correo',
-                        isDense: true,
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -1346,94 +1300,59 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                 onPressed: () => Navigator.pop(context),
                 child: const Text('Cerrar'),
               ),
-              if (!creating && !editingCurrent)
-                OutlinedButton.icon(
-                  onPressed: () {
-                    fillCreateDefaults();
-                    setStateDialog(() => creating = true);
-                  },
-                  icon: const Icon(Icons.person_add_alt_1_outlined),
-                  label: const Text('Nuevo'),
-                )
-              else
-                OutlinedButton.icon(
-                  onPressed: () => setStateDialog(() {
-                    creating = false;
-                    editingCurrent = false;
-                  }),
-                  icon: const Icon(Icons.arrow_back),
-                  label: const Text('Lista'),
-                ),
-              if (!creating &&
-                  !editingCurrent &&
-                  (_selectedClientId ?? '').trim().isNotEmpty)
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final created = await Navigator.of(
+                    context,
+                    rootNavigator: true,
+                  ).push<ClienteModel>(
+                    MaterialPageRoute(
+                      fullscreenDialog: true,
+                      builder: (_) => const ClienteFormScreen(
+                        returnSavedClient: true,
+                      ),
+                    ),
+                  );
+                  if (!context.mounted || !mounted || created == null) return;
+                  _commitEditorChange(() {
+                    _selectedClientId = created.id;
+                    _selectedClientName = created.nombre;
+                    _selectedClientPhone = created.telefono;
+                  });
+                  Navigator.pop(context);
+                },
+                icon: const Icon(Icons.person_add_alt_1_outlined),
+                label: const Text('Nuevo'),
+              ),
+              if ((_selectedClientId ?? '').trim().isNotEmpty)
                 OutlinedButton.icon(
                   onPressed: () async {
-                    await loadCurrentClient();
-                    if (!context.mounted) return;
-                    setStateDialog(() => editingCurrent = true);
+                    final clientId = (_selectedClientId ?? '').trim();
+                    if (clientId.isEmpty) return;
+                    final updated = await Navigator.of(
+                      context,
+                      rootNavigator: true,
+                    ).push<ClienteModel>(
+                      MaterialPageRoute(
+                        fullscreenDialog: true,
+                        builder: (_) => ClienteFormScreen(
+                          clienteId: clientId,
+                          returnSavedClient: true,
+                        ),
+                      ),
+                    );
+                    if (!context.mounted || !mounted || updated == null) {
+                      return;
+                    }
+                    _commitEditorChange(() {
+                      _selectedClientId = updated.id;
+                      _selectedClientName = updated.nombre;
+                      _selectedClientPhone = updated.telefono;
+                    });
+                    Navigator.pop(context);
                   },
                   icon: const Icon(Icons.edit_outlined),
                   label: const Text('Editar actual'),
-                ),
-              if (creating || editingCurrent)
-                FilledButton(
-                  onPressed: () async {
-                    final name = nameCtrl.text.trim();
-                    final phone = phoneCtrl.text.trim();
-                    if (name.isEmpty || phone.isEmpty) {
-                      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                        const SnackBar(
-                          content: Text('Nombre y teléfono son obligatorios'),
-                        ),
-                      );
-                      return;
-                    }
-                    try {
-                      if (editingCurrent) {
-                        if (ownerId.isEmpty || currentClient == null) return;
-                        final updated = await clientesRepo.upsertClient(
-                          ownerId: ownerId,
-                          cliente: currentClient!.copyWith(
-                            nombre: name,
-                            telefono: phone,
-                            direccion: addressCtrl.text.trim(),
-                            correo: emailCtrl.text.trim(),
-                            clearDireccion: addressCtrl.text.trim().isEmpty,
-                            clearCorreo: emailCtrl.text.trim().isEmpty,
-                          ),
-                        );
-                        if (!context.mounted) return;
-                        _commitEditorChange(() {
-                          _selectedClientId = updated.id;
-                          _selectedClientName = updated.nombre;
-                          _selectedClientPhone = updated.telefono;
-                        });
-                        Navigator.pop(context);
-                        return;
-                      }
-
-                      final created = await repo.createQuickClient(
-                        nombre: name,
-                        telefono: phone,
-                      );
-                      if (!context.mounted) return;
-                      _commitEditorChange(() {
-                        _selectedClientId = created.id;
-                        _selectedClientName = created.nombre;
-                        _selectedClientPhone = created.telefono;
-                      });
-                      Navigator.pop(context);
-                    } catch (e) {
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                        SnackBar(content: Text('No se pudo crear: $e')),
-                      );
-                    }
-                  },
-                  child: Text(
-                    editingCurrent ? 'Guardar cambios' : 'Guardar cliente',
-                  ),
                 ),
             ],
           );
@@ -1442,10 +1361,6 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     );
 
     searchCtrl.dispose();
-    nameCtrl.dispose();
-    phoneCtrl.dispose();
-    addressCtrl.dispose();
-    emailCtrl.dispose();
   }
 
   CotizacionModel _buildDraftCotizacion() {
@@ -1561,10 +1476,16 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
             }
 
             return Dialog(
-              insetPadding: EdgeInsets.all(compact ? 8 : 16),
+              backgroundColor: Colors.white,
+              surfaceTintColor: Colors.white,
+              insetPadding: EdgeInsets.symmetric(
+                horizontal: compact ? 6 : 20,
+                vertical: compact ? 6 : 16,
+              ),
+              clipBehavior: Clip.antiAlias,
               child: SizedBox(
-                width: compact ? media.width - 16 : 900,
-                height: compact ? media.height * 0.92 : 760,
+                width: compact ? media.width - 12 : media.width * 0.94,
+                height: compact ? media.height * 0.96 : media.height * 0.92,
                 child: Column(
                   children: [
                     Padding(
@@ -1616,13 +1537,24 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                     ),
                     const Divider(height: 1),
                     Expanded(
-                      child: PdfPreview(
-                        canChangePageFormat: false,
-                        canChangeOrientation: false,
-                        canDebug: false,
-                        allowPrinting: true,
-                        allowSharing: true,
-                        build: (_) async => bytes,
+                      child: ColoredBox(
+                        color: Colors.white,
+                        child: PdfPreview(
+                          canChangePageFormat: false,
+                          canChangeOrientation: false,
+                          canDebug: false,
+                          allowPrinting: true,
+                          allowSharing: true,
+                          maxPageWidth: compact ? 700 : 980,
+                          scrollViewDecoration: const BoxDecoration(
+                            color: Colors.white,
+                          ),
+                          pdfPreviewPageDecoration: const BoxDecoration(
+                            color: Colors.white,
+                            boxShadow: <BoxShadow>[],
+                          ),
+                          build: (_) async => bytes,
+                        ),
                       ),
                     ),
                   ],
@@ -2033,9 +1965,24 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                 Row(
                   children: [
                     const Expanded(child: Text('Subtotal')),
-                    Text(_money(_subtotal)),
+                    Text(_money(_subtotalBeforeDiscount)),
                   ],
                 ),
+                if (_discountAmount > 0) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Expanded(child: Text('Descuento aplicado')),
+                      Text(
+                        '-${_money(_discountAmount)}',
+                        style: TextStyle(
+                          color: Colors.red.shade700,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 4),
                 Row(
                   children: [
@@ -2053,7 +2000,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                         ],
                       ),
                     ),
-                    Text(_money(_itbisAmount)),
+                    if (_includeItbis) Text(_money(_itbisAmount)),
                   ],
                 ),
                 const SizedBox(height: 2),
@@ -2202,6 +2149,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                     selectedClientName: _selectedClientName,
                     note: _note,
                     includeItbis: _includeItbis,
+                    subtotalBeforeDiscount: _subtotalBeforeDiscount,
+                    discountAmount: _discountAmount,
                     subtotal: _subtotal,
                     itbisAmount: _itbisAmount,
                     total: _total,
@@ -2569,6 +2518,8 @@ class _DesktopQuotePanel extends StatelessWidget {
     required this.selectedClientName,
     required this.note,
     required this.includeItbis,
+    required this.subtotalBeforeDiscount,
+    required this.discountAmount,
     required this.subtotal,
     required this.itbisAmount,
     required this.total,
@@ -2599,6 +2550,8 @@ class _DesktopQuotePanel extends StatelessWidget {
   final String selectedClientName;
   final String note;
   final bool includeItbis;
+  final double subtotalBeforeDiscount;
+  final double discountAmount;
   final double subtotal;
   final double itbisAmount;
   final double total;
@@ -2804,7 +2757,18 @@ class _DesktopQuotePanel extends StatelessWidget {
               ),
               child: Column(
                 children: [
-                  _DesktopTotalRow(label: 'Subtotal', value: money(subtotal)),
+                  _DesktopTotalRow(
+                    label: 'Subtotal',
+                    value: money(subtotalBeforeDiscount),
+                  ),
+                  if (discountAmount > 0) ...[
+                    const SizedBox(height: 10),
+                    _DesktopTotalRow(
+                      label: 'Descuento aplicado',
+                      value: '-${money(discountAmount)}',
+                      valueColor: Colors.red.shade700,
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   Row(
                     children: [
@@ -2830,7 +2794,8 @@ class _DesktopQuotePanel extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  _DesktopTotalRow(label: 'ITBIS', value: money(itbisAmount)),
+                  if (includeItbis)
+                    _DesktopTotalRow(label: 'ITBIS', value: money(itbisAmount)),
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 12),
                     child: Divider(height: 1),
@@ -3036,6 +3001,7 @@ class _DesktopTotalRow extends StatelessWidget {
     this.emphasize = false,
     this.hint,
     this.onDoubleTap,
+    this.valueColor,
   });
 
   final String label;
@@ -3043,6 +3009,7 @@ class _DesktopTotalRow extends StatelessWidget {
   final bool emphasize;
   final String? hint;
   final VoidCallback? onDoubleTap;
+  final Color? valueColor;
 
   @override
   Widget build(BuildContext context) {
@@ -3074,7 +3041,7 @@ class _DesktopTotalRow extends StatelessWidget {
               ],
             ),
           ),
-          Text(value, style: style),
+          Text(value, style: style?.copyWith(color: valueColor)),
         ],
       ),
     );
@@ -3135,6 +3102,8 @@ class _DesktopTicketItemState extends State<_DesktopTicketItem> {
   Widget build(BuildContext context) {
     final item = widget.item;
     final theme = Theme.of(context);
+    final hasDiscount = item.hasDiscount;
+    final discountText = widget.money(item.discountAmount);
     final qtyText = item.qty % 1 == 0
         ? item.qty.toStringAsFixed(0)
         : item.qty.toStringAsFixed(2);
@@ -3214,6 +3183,17 @@ class _DesktopTicketItemState extends State<_DesktopTicketItem> {
                         fontSize: 12,
                       ),
                     ),
+                    if (hasDiscount)
+                      Text(
+                        'Descuento aplicado: -$discountText',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: Colors.red.shade700,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 10,
+                        ),
+                      ),
                     if (item.isExternal)
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -3263,6 +3243,18 @@ class _DesktopTicketItemState extends State<_DesktopTicketItem> {
                   },
                 ),
               ),
+              if (hasDiscount)
+                Padding(
+                  padding: const EdgeInsets.only(left: 6),
+                  child: Text(
+                    widget.money(item.effectiveOriginalUnitPrice),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      decoration: TextDecoration.lineThrough,
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontSize: 10,
+                    ),
+                  ),
+                ),
               const SizedBox(width: 6),
               IconButton(
                 tooltip: 'Restar unidad',
@@ -3479,6 +3471,7 @@ class _TicketCompactItemState extends State<_TicketCompactItem> {
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
+    final hasDiscount = item.hasDiscount;
     final qtyText = item.qty % 1 == 0
         ? item.qty.toStringAsFixed(0)
         : item.qty.toStringAsFixed(2);
@@ -3514,6 +3507,17 @@ class _TicketCompactItemState extends State<_TicketCompactItem> {
                     fontSize: 11,
                   ),
                 ),
+                if (hasDiscount)
+                  Text(
+                    'Descuento: -${widget.money(item.discountAmount)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.red.shade700,
+                    ),
+                  ),
                 if (item.isExternal)
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -3562,6 +3566,18 @@ class _TicketCompactItemState extends State<_TicketCompactItem> {
               },
             ),
           ),
+          if (hasDiscount)
+            Padding(
+              padding: const EdgeInsets.only(left: 6),
+              child: Text(
+                widget.money(item.effectiveOriginalUnitPrice),
+                style: TextStyle(
+                  fontSize: 9,
+                  decoration: TextDecoration.lineThrough,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
           const SizedBox(width: 6),
           IconButton(
             visualDensity: VisualDensity.compact,

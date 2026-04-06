@@ -12,7 +12,7 @@ final cotizacionesLocalRepositoryProvider =
 
 class CotizacionesLocalRepository {
   static const _dbName = 'cotizaciones_local.db';
-  static const _dbVersion = 1;
+  static const _dbVersion = 2;
   static const _tableCotizaciones = 'cotizaciones';
   static const _tableItems = 'cotizacion_items';
 
@@ -48,6 +48,7 @@ class CotizacionesLocalRepository {
             product_id TEXT NOT NULL,
             nombre TEXT NOT NULL,
             image_url TEXT,
+            original_unit_price REAL,
             unit_price REAL NOT NULL,
             qty REAL NOT NULL
           )
@@ -56,6 +57,13 @@ class CotizacionesLocalRepository {
         await db.execute(
           'CREATE INDEX idx_cotizacion_items_quote ON $_tableItems(cotizacion_id)',
         );
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'ALTER TABLE $_tableItems ADD COLUMN original_unit_price REAL',
+          );
+        }
       },
     );
     return _database!;
@@ -229,6 +237,7 @@ class CotizacionesLocalRepository {
           'product_id': item.productId,
           'nombre': item.nombre,
           'image_url': item.imageUrl,
+          'original_unit_price': item.originalUnitPrice,
           'unit_price': item.unitPrice,
           'qty': item.qty,
         });
@@ -273,6 +282,8 @@ class CotizacionesLocalRepository {
               productId: (itemRow['product_id'] ?? '').toString(),
               nombre: (itemRow['nombre'] ?? '').toString(),
               imageUrl: itemRow['image_url']?.toString(),
+              originalUnitPrice:
+                  (itemRow['original_unit_price'] as num?)?.toDouble(),
               unitPrice: (itemRow['unit_price'] as num?)?.toDouble() ?? 0,
               qty: (itemRow['qty'] as num?)?.toDouble() ?? 0,
             ),
