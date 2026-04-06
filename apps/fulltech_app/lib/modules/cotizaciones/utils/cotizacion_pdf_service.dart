@@ -293,7 +293,7 @@ pw.Widget _detailCard(
             color: index.isEven ? PdfColors.white : _tableAlt,
           ),
           children: [
-            _itemDescriptionCell(item, money),
+            _bodyCell(item.nombre.trim()),
             _bodyCell(qtyFmt.format(item.qty), align: pw.TextAlign.center),
             _bodyCell(money.format(item.unitPrice), align: pw.TextAlign.right),
             _bodyCell(
@@ -543,32 +543,6 @@ pw.Widget _headerCell(String text, {pw.TextAlign align = pw.TextAlign.left}) {
         color: _brandDark,
         fontWeight: pw.FontWeight.bold,
       ),
-    ),
-  );
-}
-
-pw.Widget _itemDescriptionCell(CotizacionItem item, NumberFormat money) {
-  return pw.Padding(
-    padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-    child: pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Text(
-          item.nombre.trim(),
-          style: pw.TextStyle(fontSize: 9.2, color: _textPrimary),
-        ),
-        if (item.hasDiscount)
-          pw.Padding(
-            padding: const pw.EdgeInsets.only(top: 2),
-            child: pw.Text(
-              'Descuento aplicado: -${money.format(item.discountAmount)}  |  Precio base: ${money.format(item.effectiveOriginalUnitPrice)}',
-              style: pw.TextStyle(
-                fontSize: 8,
-                color: PdfColor.fromHex('#B42318'),
-              ),
-            ),
-          ),
-      ],
     ),
   );
 }

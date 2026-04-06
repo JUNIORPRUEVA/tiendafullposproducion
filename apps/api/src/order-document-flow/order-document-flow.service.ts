@@ -82,6 +82,13 @@ type WarrantyDraft = {
   terms: string[];
 };
 
+type CompanyDocumentContext = {
+  companyName: string;
+  rnc: string;
+  phone: string;
+  address: string;
+};
+
 @Injectable()
 export class OrderDocumentFlowService {
   private readonly logger = new Logger(OrderDocumentFlowService.name);
@@ -413,8 +420,8 @@ export class OrderDocumentFlowService {
       clientName: order.client.nombre,
       serviceType,
       category,
-      title: `Garantía servicio ${order.id.slice(0, 8).toUpperCase()}`,
-      summary: `Cobertura inicial para ${serviceType} en categoría ${category}.`,
+      title: 'CARTA DE GARANTIA',
+      summary: `Garantia correspondiente al servicio de ${serviceType} en la categoria ${category}.`,
       terms: [
         'Cobertura sujeta a inspección técnica final.',
         'No cubre daños por manipulación externa o uso indebido.',
@@ -526,6 +533,21 @@ export class OrderDocumentFlowService {
     const fileName = 'warranty-final.pdf';
     const relativePath = join('document-flows', flow.id, fileName).replace(/\\/g, '/');
     const absolutePath = this.buildAbsoluteUploadPath(relativePath);
+    const company = await this.getCompanyDocumentContext();
+    const title = this.toText(draft.title, 'CARTA DE GARANTIA');
+    const summary = this.toText(draft.summary);
+    const issueDate = flow.order.finalizedAt ?? flow.order.updatedAt ?? flow.order.createdAt ?? new Date();
+    const terms = draft.terms
+      .map((item) => this.toText(item))
+      .filter((item) => item.length > 0);
+    const detailLines = [
+      ['Fecha', issueDate.toLocaleDateString('es-DO')],
+      ['Orden', draft.orderId],
+      ['Cliente', draft.clientName],
+      ['Telefono', flow.order.client.telefono],
+      ['Servicio', draft.serviceType],
+      ['Categoria', draft.category],
+    ].filter((entry): entry is [string, string] => entry[1].trim().length > 0);
 
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     const chunks: Buffer[] = [];
@@ -534,24 +556,97 @@ export class OrderDocumentFlowService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
     });
-    doc.fontSize(18).text('Garantía de servicio');
-    doc.moveDown(0.5);
-    doc.fontSize(11).text(`Orden: ${draft.orderId}`);
-    doc.text(`Cliente: ${draft.clientName}`);
-    doc.text(`Servicio: ${draft.serviceType}`);
-    doc.text(`Categoría: ${draft.category}`);
-    doc.moveDown(0.8);
-    doc.fontSize(12).text(draft.title);
-    doc.moveDown(0.4);
-    doc.fontSize(10).text(draft.summary);
-    doc.moveDown(0.8);
-    doc.fontSize(11).text('Términos');
-    for (const term of draft.terms) {
-      doc.fontSize(10).text(`- ${term}`);
+
+    doc.font('Helvetica-Bold').fontSize(18).text(company.companyName, { align: 'center' });
+    doc.font('Helvetica').fontSize(10);
+    if (company.rnc.length > 0) {
+      doc.text(`RNC: ${company.rnc}`, { align: 'center' });
     }
+    if (company.phone.length > 0) {
+      doc.text(`Tel: ${company.phone}`, { align: 'center' });
+    }
+    if (company.address.length > 0) {
+      doc.text(company.address, { align: 'center' });
+    }
+
+    doc.moveDown(1);
+    doc.font('Helvetica-Bold').fontSize(16).text(title, { align: 'center' });
+    doc.moveDown(0.8);
+
+    doc.font('Helvetica').fontSize(11);
+    for (const [label, value] of detailLines) {
+      doc.text(`${label}: ${value}`);
+    }
+
+    doc.moveDown(0.8);
+    doc.text(
+      [
+        `Por medio de la presente, ${company.companyName} deja constancia de la garantia correspondiente al servicio realizado`,
+        draft.clientName.trim().length > 0 ? ` para ${draft.clientName.trim()}` : '',
+        draft.serviceType.trim().length > 0 ? `, relacionado con ${draft.serviceType.trim()}` : '',
+        draft.category.trim().length > 0 ? ` en la categoria ${draft.category.trim()}` : '',
+        '.',
+      ].join(''),
+      { align: 'justify' },
+    );
+
+    if (summary.length > 0) {
+      doc.moveDown(0.8);
+      doc.font('Helvetica-Bold').text('Cobertura');
+      doc.font('Helvetica').text(summary, { align: 'justify' });
+    }
+
+    if (terms.length > 0) {
+      doc.moveDown(0.8);
+      doc.font('Helvetica-Bold').text('Condiciones de garantia');
+      doc.font('Helvetica');
+      for (const term of terms) {
+        doc.text(`- ${term}`);
+      }
+    }
+
+    doc.moveDown(0.8);
+    doc.text(
+      'Para cualquier reclamacion, conserve la factura y esta carta de garantia para futuras validaciones.',
+      { align: 'justify' },
+    );
+
+    doc.moveDown(1.6);
+    const signatureTop = doc.y;
+    const contentWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const gap = 24;
+    const columnWidth = (contentWidth - gap) / 2;
+    const leftX = doc.page.margins.left;
+    const rightX = leftX + columnWidth + gap;
+
+    doc.font('Helvetica-Bold').text('Cliente', leftX, signatureTop, { width: columnWidth, align: 'center' });
+    doc.text('Empresa', rightX, signatureTop, { width: columnWidth, align: 'center' });
+    doc.moveDown(0.5);
+    doc.font('Helvetica').text(this.toText(draft.clientName, 'Cliente'), leftX, doc.y, { width: columnWidth, align: 'center' });
+    doc.text(company.companyName, rightX, doc.y, { width: columnWidth, align: 'center' });
+
     doc.end();
     writeFileSync(absolutePath, await pdfBuffer);
     return `/${join('uploads', relativePath).replace(/\\/g, '/')}`;
+  }
+
+  private async getCompanyDocumentContext(): Promise<CompanyDocumentContext> {
+    const appConfig = await this.prisma.appConfig.findUnique({
+      where: { id: 'global' },
+      select: {
+        companyName: true,
+        rnc: true,
+        phone: true,
+        address: true,
+      },
+    });
+
+    return {
+      companyName: this.toText(appConfig?.companyName, 'FULLTECH'),
+      rnc: this.toText(appConfig?.rnc),
+      phone: this.toText(appConfig?.phone),
+      address: this.toText(appConfig?.address),
+    };
   }
 
   private buildAbsoluteUploadPath(relativePath: string) {

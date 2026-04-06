@@ -1,6 +1,10 @@
+import 'dart:typed_data';
+
+import 'package:printing/printing.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/utils/safe_url_launcher.dart';
 import '../../core/errors/api_exception.dart';
 import 'data/document_flows_repository.dart';
 import 'document_flow_models.dart';
@@ -11,10 +15,12 @@ class DocumentFlowDetailScreen extends ConsumerStatefulWidget {
   final String orderId;
 
   @override
-  ConsumerState<DocumentFlowDetailScreen> createState() => _DocumentFlowDetailScreenState();
+  ConsumerState<DocumentFlowDetailScreen> createState() =>
+      _DocumentFlowDetailScreenState();
 }
 
-class _DocumentFlowDetailScreenState extends ConsumerState<DocumentFlowDetailScreen> {
+class _DocumentFlowDetailScreenState
+    extends ConsumerState<DocumentFlowDetailScreen> {
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -112,35 +118,42 @@ class _DocumentFlowDetailScreenState extends ConsumerState<DocumentFlowDetailScr
           .map((editor) => editor.toItem())
           .where((item) => item.description.trim().isNotEmpty)
           .toList(growable: false);
-      final subtotal = invoiceItems.fold<double>(0, (sum, item) => sum + item.lineTotal);
-      final tax = double.tryParse(_taxController.text.trim()) ?? 0;
-      final updated = await ref.read(documentFlowsRepositoryProvider).editDraft(
-        id: flow.id,
-        invoiceDraftJson: {
-          'currency': _currencyController.text.trim().isEmpty
-              ? flow.invoiceDraft.currency
-              : _currencyController.text.trim(),
-          'clientName': flow.order.client.nombre,
-          'clientPhone': flow.order.client.telefono,
-          'items': invoiceItems.map((item) => item.toJson()).toList(growable: false),
-          'subtotal': subtotal,
-          'tax': tax,
-          'total': subtotal + tax,
-          'notes': _notesController.text.trim(),
-        },
-        warrantyDraftJson: {
-          'title': _warrantyTitleController.text.trim(),
-          'summary': _warrantySummaryController.text.trim(),
-          'serviceType': flow.order.serviceType,
-          'category': flow.order.category,
-          'clientName': flow.order.client.nombre,
-          'terms': _warrantyTermsController.text
-              .split('\n')
-              .map((item) => item.trim())
-              .where((item) => item.isNotEmpty)
-              .toList(growable: false),
-        },
+      final subtotal = invoiceItems.fold<double>(
+        0,
+        (sum, item) => sum + item.lineTotal,
       );
+      final tax = double.tryParse(_taxController.text.trim()) ?? 0;
+      final updated = await ref
+          .read(documentFlowsRepositoryProvider)
+          .editDraft(
+            id: flow.id,
+            invoiceDraftJson: {
+              'currency': _currencyController.text.trim().isEmpty
+                  ? flow.invoiceDraft.currency
+                  : _currencyController.text.trim(),
+              'clientName': flow.order.client.nombre,
+              'clientPhone': flow.order.client.telefono,
+              'items': invoiceItems
+                  .map((item) => item.toJson())
+                  .toList(growable: false),
+              'subtotal': subtotal,
+              'tax': tax,
+              'total': subtotal + tax,
+              'notes': _notesController.text.trim(),
+            },
+            warrantyDraftJson: {
+              'title': _warrantyTitleController.text.trim(),
+              'summary': _warrantySummaryController.text.trim(),
+              'serviceType': flow.order.serviceType,
+              'category': flow.order.category,
+              'clientName': flow.order.client.nombre,
+              'terms': _warrantyTermsController.text
+                  .split('\n')
+                  .map((item) => item.trim())
+                  .where((item) => item.isNotEmpty)
+                  .toList(growable: false),
+            },
+          );
       if (!mounted) return;
       setState(() {
         _applyFlow(updated);
@@ -150,9 +163,9 @@ class _DocumentFlowDetailScreenState extends ConsumerState<DocumentFlowDetailScr
       );
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(e.message)),
-      );
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
       if (mounted) {
         setState(() {
@@ -169,7 +182,9 @@ class _DocumentFlowDetailScreenState extends ConsumerState<DocumentFlowDetailScr
       _saving = true;
     });
     try {
-      final updated = await ref.read(documentFlowsRepositoryProvider).generate(flow.id);
+      final updated = await ref
+          .read(documentFlowsRepositoryProvider)
+          .generate(flow.id);
       if (!mounted) return;
       setState(() {
         _applyFlow(updated);
@@ -179,9 +194,9 @@ class _DocumentFlowDetailScreenState extends ConsumerState<DocumentFlowDetailScr
       );
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(e.message)),
-      );
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
       if (mounted) {
         setState(() {
@@ -198,20 +213,24 @@ class _DocumentFlowDetailScreenState extends ConsumerState<DocumentFlowDetailScr
       _saving = true;
     });
     try {
-      final result = await ref.read(documentFlowsRepositoryProvider).send(flow.id);
+      final result = await ref
+          .read(documentFlowsRepositoryProvider)
+          .send(flow.id);
       if (!mounted) return;
       setState(() {
         _applyFlow(result.flow);
         _lastSendPreview = result.messageText;
       });
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text('Payload listo para WhatsApp: ${result.toNumber}')),
+        SnackBar(
+          content: Text('Payload listo para WhatsApp: ${result.toNumber}'),
+        ),
       );
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(e.message)),
-      );
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
       if (mounted) {
         setState(() {
@@ -219,6 +238,104 @@ class _DocumentFlowDetailScreenState extends ConsumerState<DocumentFlowDetailScr
         });
       }
     }
+  }
+
+  Future<void> _openPdfPreview(String title, String rawUrl) async {
+    setState(() {
+      _saving = true;
+    });
+
+    try {
+      final bytes = await ref
+          .read(documentFlowsRepositoryProvider)
+          .downloadPdfBytes(rawUrl);
+      if (!mounted) return;
+      await _showPdfDialog(title, bytes);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _showPdfDialog(String title, Uint8List bytes) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final media = MediaQuery.sizeOf(dialogContext);
+        final isCompact = media.width < 520;
+        return Dialog(
+          insetPadding: EdgeInsets.all(isCompact ? 8 : 16),
+          child: SizedBox(
+            width: isCompact ? media.width - 16 : 920,
+            height: isCompact ? media.height * 0.92 : 760,
+            child: Column(
+              children: [
+                Padding(
+                  padding: EdgeInsets.fromLTRB(isCompact ? 10 : 14, 10, 8, 6),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.picture_as_pdf_outlined),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: isCompact ? 14 : 16,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Cerrar',
+                        onPressed: () => Navigator.pop(dialogContext),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: PdfPreview(
+                    canChangePageFormat: false,
+                    canChangeOrientation: false,
+                    canDebug: false,
+                    allowPrinting: true,
+                    allowSharing: true,
+                    build: (_) async => bytes,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _openPdfExternally(String rawUrl) async {
+    final resolvedUrl = ref
+        .read(documentFlowsRepositoryProvider)
+        .resolveDocumentUrl(rawUrl);
+    final uri = Uri.tryParse(resolvedUrl);
+    if (uri == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('No se pudo resolver la URL del PDF')),
+      );
+      return;
+    }
+    await safeOpenUrl(
+      context,
+      uri,
+      copiedMessage: 'No se pudo abrir el PDF. Link copiado',
+    );
   }
 
   @override
@@ -237,70 +354,71 @@ class _DocumentFlowDetailScreenState extends ConsumerState<DocumentFlowDetailScr
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(_error!, textAlign: TextAlign.center),
-                  ),
-                )
-              : flow == null
-                  ? const Center(child: Text('No hay datos del flujo documental'))
-                  : SingleChildScrollView(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _SummaryCard(flow: flow),
-                          const SizedBox(height: 16),
-                          _buildInvoiceCard(flow),
-                          const SizedBox(height: 16),
-                          _buildWarrantyCard(flow),
-                          const SizedBox(height: 16),
-                          _buildGeneratedFilesCard(flow),
-                          if (_lastSendPreview != null && _lastSendPreview!.trim().isNotEmpty) ...[
-                            const SizedBox(height: 16),
-                            Card(
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Payload WhatsApp',
-                                      style: Theme.of(context).textTheme.titleMedium,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    SelectableText(_lastSendPreview!),
-                                  ],
-                                ),
-                              ),
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(_error!, textAlign: TextAlign.center),
+              ),
+            )
+          : flow == null
+          ? const Center(child: Text('No hay datos del flujo documental'))
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _SummaryCard(flow: flow),
+                  const SizedBox(height: 16),
+                  _buildInvoiceCard(flow),
+                  const SizedBox(height: 16),
+                  _buildWarrantyCard(flow),
+                  const SizedBox(height: 16),
+                  _buildGeneratedFilesCard(flow),
+                  if (_lastSendPreview != null &&
+                      _lastSendPreview!.trim().isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Payload WhatsApp',
+                              style: Theme.of(context).textTheme.titleMedium,
                             ),
+                            const SizedBox(height: 12),
+                            SelectableText(_lastSendPreview!),
                           ],
-                          const SizedBox(height: 20),
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            children: [
-                              FilledButton.icon(
-                                onPressed: _saving ? null : _saveDraft,
-                                icon: const Icon(Icons.save_outlined),
-                                label: const Text('Guardar borrador'),
-                              ),
-                              OutlinedButton.icon(
-                                onPressed: _saving ? null : _generateDocuments,
-                                icon: const Icon(Icons.picture_as_pdf_outlined),
-                                label: const Text('Generar documentos'),
-                              ),
-                              OutlinedButton.icon(
-                                onPressed: _saving ? null : _generateAndSend,
-                                icon: const Icon(Icons.send_outlined),
-                                label: const Text('Generar y preparar envío'),
-                              ),
-                            ],
-                          ),
-                        ],
+                        ),
                       ),
                     ),
+                  ],
+                  const SizedBox(height: 20),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: _saving ? null : _saveDraft,
+                        icon: const Icon(Icons.save_outlined),
+                        label: const Text('Guardar borrador'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _saving ? null : _generateDocuments,
+                        icon: const Icon(Icons.picture_as_pdf_outlined),
+                        label: const Text('Generar documentos'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _saving ? null : _generateAndSend,
+                        icon: const Icon(Icons.send_outlined),
+                        label: const Text('Generar y preparar envío'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
     );
   }
 
@@ -309,7 +427,8 @@ class _DocumentFlowDetailScreenState extends ConsumerState<DocumentFlowDetailScr
         .map((editor) => editor.toItem())
         .where((item) => item.description.trim().isNotEmpty)
         .fold<double>(0, (sum, item) => sum + item.lineTotal);
-    final tax = double.tryParse(_taxController.text.trim()) ?? flow.invoiceDraft.tax;
+    final tax =
+        double.tryParse(_taxController.text.trim()) ?? flow.invoiceDraft.tax;
     final total = subtotal + tax;
 
     return Card(
@@ -336,14 +455,18 @@ class _DocumentFlowDetailScreenState extends ConsumerState<DocumentFlowDetailScr
                       flex: 3,
                       child: TextField(
                         controller: editor.descriptionController,
-                        decoration: const InputDecoration(labelText: 'Descripción'),
+                        decoration: const InputDecoration(
+                          labelText: 'Descripción',
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: TextField(
                         controller: editor.qtyController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         decoration: const InputDecoration(labelText: 'Cant.'),
                       ),
                     ),
@@ -351,7 +474,9 @@ class _DocumentFlowDetailScreenState extends ConsumerState<DocumentFlowDetailScr
                     Expanded(
                       child: TextField(
                         controller: editor.unitPriceController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         decoration: const InputDecoration(labelText: 'Precio'),
                       ),
                     ),
@@ -386,7 +511,9 @@ class _DocumentFlowDetailScreenState extends ConsumerState<DocumentFlowDetailScr
             ),
             TextField(
               controller: _taxController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: const InputDecoration(labelText: 'Impuesto'),
             ),
             const SizedBox(height: 12),
@@ -427,7 +554,9 @@ class _DocumentFlowDetailScreenState extends ConsumerState<DocumentFlowDetailScr
             TextField(
               controller: _warrantySummaryController,
               maxLines: 3,
-              decoration: const InputDecoration(labelText: 'Resumen de cobertura'),
+              decoration: const InputDecoration(
+                labelText: 'Resumen de cobertura',
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -454,20 +583,74 @@ class _DocumentFlowDetailScreenState extends ConsumerState<DocumentFlowDetailScr
   }
 
   Widget _buildGeneratedFilesCard(OrderDocumentFlowModel flow) {
+    final invoiceUrl = flow.invoiceFinalUrl?.trim() ?? '';
+    final warrantyUrl = flow.warrantyFinalUrl?.trim() ?? '';
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Archivos finales', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Archivos finales',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 12),
-            SelectableText('Factura: ${flow.invoiceFinalUrl ?? 'Pendiente'}'),
-            const SizedBox(height: 8),
-            SelectableText('Garantía: ${flow.warrantyFinalUrl ?? 'Pendiente'}'),
+            _buildGeneratedFileRow(
+              label: 'Factura',
+              rawUrl: invoiceUrl,
+              previewTitle: 'Factura final',
+            ),
+            const SizedBox(height: 12),
+            _buildGeneratedFileRow(
+              label: 'Garantía',
+              rawUrl: warrantyUrl,
+              previewTitle: 'Carta de garantía',
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildGeneratedFileRow({
+    required String label,
+    required String rawUrl,
+    required String previewTitle,
+  }) {
+    final hasUrl = rawUrl.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 6),
+        if (!hasUrl)
+          const Text('Pendiente')
+        else ...[
+          SelectableText(rawUrl),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.tonalIcon(
+                onPressed: _saving
+                    ? null
+                    : () => _openPdfPreview(previewTitle, rawUrl),
+                icon: const Icon(Icons.visibility_outlined),
+                label: const Text('Ver PDF'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _saving ? null : () => _openPdfExternally(rawUrl),
+                icon: const Icon(Icons.open_in_new_outlined),
+                label: const Text('Abrir fuera'),
+              ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 }
@@ -522,7 +705,9 @@ class _InvoiceItemEditor {
     return _InvoiceItemEditor(
       descriptionController: TextEditingController(text: item.description),
       qtyController: TextEditingController(text: item.qty.toStringAsFixed(2)),
-      unitPriceController: TextEditingController(text: item.unitPrice.toStringAsFixed(2)),
+      unitPriceController: TextEditingController(
+        text: item.unitPrice.toStringAsFixed(2),
+      ),
     );
   }
 

@@ -910,30 +910,6 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     return result;
   }
 
-  Future<void> _applyItemDiscount(int index) async {
-    if (index < 0 || index >= _items.length) return;
-    final item = _items[index];
-    final input = await _openDiscountDialog(
-      title: 'Descuento en ${item.nombre}',
-      subtitle: 'Se ajustará el precio unitario de esta línea.',
-    );
-    if (input == null || !mounted) return;
-
-    final currentTotal = item.total;
-    final discountedTotal = input.type == _DiscountType.percent
-        ? currentTotal * (1 - (input.amount / 100))
-        : currentTotal - input.amount;
-    final nextTotal = discountedTotal.clamp(0, currentTotal).toDouble();
-    final nextUnitPrice = item.qty <= 0 ? 0.0 : nextTotal / item.qty;
-
-    _commitEditorChange(() {
-      _items[index] = item.copyWith(
-        originalUnitPrice: _nextOriginalUnitPrice(item, nextUnitPrice),
-        unitPrice: nextUnitPrice,
-      );
-    });
-  }
-
   Future<void> _applyGeneralDiscount() async {
     if (_items.isEmpty || _grossTotalBeforeGeneralDiscount <= 0) return;
     final input = await _openDiscountDialog(
@@ -2181,7 +2157,6 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                         _setQty(index, _items[index].qty - 1),
                     onPlusQty: (index) => _setQty(index, _items[index].qty + 1),
                     onChangePrice: _setUnitPrice,
-                    onDiscountItem: _applyItemDiscount,
                     onGeneralDiscount: _applyGeneralDiscount,
                     onEditExternalItem: (index) =>
                         _openExternalItemDialog(editIndex: index),
@@ -2544,7 +2519,6 @@ class _DesktopQuotePanel extends StatelessWidget {
     required this.onMinusQty,
     required this.onPlusQty,
     required this.onChangePrice,
-    required this.onDiscountItem,
     required this.onGeneralDiscount,
     required this.onEditExternalItem,
     required this.onRemoveItem,
@@ -2576,7 +2550,6 @@ class _DesktopQuotePanel extends StatelessWidget {
   final ValueChanged<int> onMinusQty;
   final ValueChanged<int> onPlusQty;
   final void Function(int index, double value) onChangePrice;
-  final ValueChanged<int> onDiscountItem;
   final VoidCallback onGeneralDiscount;
   final ValueChanged<int> onEditExternalItem;
   final ValueChanged<int> onRemoveItem;
@@ -2738,7 +2711,6 @@ class _DesktopQuotePanel extends StatelessWidget {
                         return _DesktopTicketItem(
                           item: item,
                           money: money,
-                          onTap: () => onDiscountItem(index),
                           onMinus: () => onMinusQty(index),
                           onPlus: () => onPlusQty(index),
                           onChangePrice: (value) => onChangePrice(index, value),
@@ -3059,7 +3031,6 @@ class _DesktopTicketItem extends StatefulWidget {
   const _DesktopTicketItem({
     required this.item,
     required this.money,
-    required this.onTap,
     required this.onMinus,
     required this.onPlus,
     required this.onChangePrice,
@@ -3069,7 +3040,6 @@ class _DesktopTicketItem extends StatefulWidget {
 
   final CotizacionItem item;
   final String Function(double) money;
-  final VoidCallback onTap;
   final VoidCallback onMinus;
   final VoidCallback onPlus;
   final ValueChanged<double> onChangePrice;
@@ -3119,7 +3089,7 @@ class _DesktopTicketItemState extends State<_DesktopTicketItem> {
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        onTap: widget.onTap,
+        onTap: null,
         child: Ink(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           decoration: BoxDecoration(
@@ -3489,23 +3459,28 @@ class _TicketCompactItemState extends State<_TicketCompactItem> {
         ? item.qty.toStringAsFixed(0)
         : item.qty.toStringAsFixed(2);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: item.isExternal
-            ? Theme.of(
-                context,
-              ).colorScheme.primaryContainer.withValues(alpha: 0.30)
-            : Theme.of(context).colorScheme.surface,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: item.isExternal
-              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.45)
-              : Theme.of(context).colorScheme.outlineVariant,
-        ),
-      ),
-      child: Row(
-        children: [
+        onTap: null,
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: item.isExternal
+                ? Theme.of(
+                    context,
+                  ).colorScheme.primaryContainer.withValues(alpha: 0.30)
+                : Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: item.isExternal
+                  ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.45)
+                  : Theme.of(context).colorScheme.outlineVariant,
+            ),
+          ),
+          child: Row(
+            children: [
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -3629,15 +3604,17 @@ class _TicketCompactItemState extends State<_TicketCompactItem> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minHeight: 28, minWidth: 28),
-            splashRadius: 14,
-            onPressed: widget.onRemove,
-            icon: const Icon(Icons.close, size: 16),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minHeight: 28, minWidth: 28),
+                splashRadius: 14,
+                onPressed: widget.onRemove,
+                icon: const Icon(Icons.close, size: 16),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
