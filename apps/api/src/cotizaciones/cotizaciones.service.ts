@@ -300,7 +300,7 @@ export class CotizacionesService {
           note: note.length ? note : null,
           includeItbis,
           itbisRate,
-          globalDiscountAmount,
+          globalDiscountAmount: generalDiscountAmount,
           subtotal,
           subtotalCost: totalCost,
           itbisAmount,
