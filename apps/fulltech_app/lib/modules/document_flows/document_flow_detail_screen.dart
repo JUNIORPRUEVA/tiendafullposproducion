@@ -99,14 +99,10 @@ class _DocumentFlowDetailScreenState
       .where((item) => item.description.trim().isNotEmpty)
       .toList(growable: false);
 
-  double get _draftSubtotal => _draftItems.fold<double>(
-    0,
-    (sum, item) => sum + item.lineTotal,
-  );
+  double get _draftSubtotal =>
+      _draftItems.fold<double>(0, (sum, item) => sum + item.lineTotal);
 
   double get _draftTax => double.tryParse(_taxController.text.trim()) ?? 0;
-
-  double get _draftTotal => _draftSubtotal + _draftTax;
 
   void _applyFlow(OrderDocumentFlowModel flow) {
     _disposeEditors();
@@ -547,14 +543,18 @@ class _DocumentFlowDetailScreenState
   @override
   Widget build(BuildContext context) {
     final flow = _flow;
+    double baseTax = 0;
+    var baseCurrency = 'RD\$';
+    if (flow != null) {
+      baseTax = flow.invoiceDraft.tax;
+      baseCurrency = flow.invoiceDraft.currency;
+    }
     final subtotal = _draftSubtotal;
-    final tax = _taxController.text.trim().isEmpty
-        ? flow?.invoiceDraft.tax ?? 0
-        : _draftTax;
+    final tax = _taxController.text.trim().isEmpty ? baseTax : _draftTax;
     final total = subtotal + tax;
     final currency = _currencyController.text.trim().isEmpty
-      ? flow?.invoiceDraft.currency ?? 'RD$'
-      : _currencyController.text.trim();
+        ? baseCurrency
+        : _currencyController.text.trim();
     final hasGeneratedDocuments =
         (flow?.invoiceFinalUrl?.trim().isNotEmpty ?? false) ||
         (flow?.warrantyFinalUrl?.trim().isNotEmpty ?? false);
@@ -1429,15 +1429,9 @@ class _SectionOptionCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
+                  Text(title, style: Theme.of(context).textTheme.titleSmall),
                   const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
+                  Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
             ),
@@ -1518,10 +1512,7 @@ class _InfoChip extends StatelessWidget {
         children: [
           Icon(icon, size: 16),
           const SizedBox(width: 6),
-          Text(
-            '$label: $value',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          Text('$label: $value', style: Theme.of(context).textTheme.bodySmall),
         ],
       ),
     );
@@ -1567,7 +1558,8 @@ class _BottomActionBar extends StatelessWidget {
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final showTotals = selectedSection == _DocumentEditorSection.invoice;
+            final showTotals =
+                selectedSection == _DocumentEditorSection.invoice;
             final compact = constraints.maxWidth < 980;
             final actions = Wrap(
               spacing: 8,
@@ -1962,10 +1954,7 @@ class _SummaryInfoTag extends StatelessWidget {
         children: [
           Icon(icon, size: 16),
           const SizedBox(width: 6),
-          Text(
-            '$label: $value',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          Text('$label: $value', style: Theme.of(context).textTheme.bodySmall),
         ],
       ),
     );

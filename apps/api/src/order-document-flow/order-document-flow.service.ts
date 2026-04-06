@@ -525,16 +525,25 @@ export class OrderDocumentFlowService {
     const company = await this.getCompanyDocumentContext();
     const issueDate = flow.order.finalizedAt ?? flow.order.updatedAt ?? flow.order.createdAt ?? new Date();
     const invoiceNumber = `FACT-${flow.order.id.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
-    const pageWidth = 515;
-    const leftColumnWidth = 300;
-    const rightColumnWidth = 185;
-    const tableWidth = pageWidth;
-    const descriptionWidth = 245;
-    const qtyWidth = 70;
-    const priceWidth = 90;
-    const amountWidth = tableWidth - descriptionWidth - qtyWidth - priceWidth;
-    const money = (value: number) => `RD$ ${value.toFixed(2)}`;
+    const currencyLabel = this.toText(draft.currency, 'RD$');
+    const quotationLabel = this.toText(flow.order.quotationId).slice(0, 8).toUpperCase();
+    const customerAddress = this.toText(flow.order.client.direccion);
+    const items = draft.items.length > 0
+      ? draft.items
+      : [{
+          description: this.toText(flow.order.serviceType, 'Servicio tecnico finalizado'),
+          qty: 1,
+          unitPrice: draft.total,
+          lineTotal: draft.total,
+        }];
+    const money = (value: number) => `${currencyLabel} ${value.toFixed(2)}`;
     const quantity = (value: number) => value % 1 === 0 ? value.toFixed(0) : value.toFixed(2);
+    const formatDate = (value: Date) => {
+      const day = `${value.getDate()}`.padStart(2, '0');
+      const month = `${value.getMonth() + 1}`.padStart(2, '0');
+      const year = value.getFullYear();
+      return `${day}/${month}/${year}`;
+    };
 
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     const chunks: Buffer[] = [];
@@ -545,234 +554,283 @@ export class OrderDocumentFlowService {
     });
 
     const logoBuffer = this.decodeLogoBase64(company.logoBase64);
-    const drawTableHeader = (top: number) => {
+    const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const tableWidth = pageWidth;
+    const left = doc.page.margins.left;
+    const contentBottom = () => doc.page.height - doc.page.margins.bottom - 48;
+    const columnIndexWidth = 34;
+    const columnQtyWidth = 56;
+    const columnPriceWidth = 96;
+    const columnAmountWidth = 104;
+    const descriptionWidth = tableWidth - columnIndexWidth - columnQtyWidth - columnPriceWidth - columnAmountWidth;
+    let currentPage = 1;
+
+    const drawFooter = () => {
+      const footerY = doc.page.height - doc.page.margins.bottom + 8;
       doc.save();
-      doc.roundedRect(doc.page.margins.left, top, tableWidth, 24, 6).fill('#EAF1FF');
+      doc.moveTo(left, footerY - 10).lineTo(left + pageWidth, footerY - 10).stroke('#D9E1EA');
       doc.restore();
-      doc.fillColor('#1F2430').font('Helvetica-Bold').fontSize(10);
-      doc.text('Descripción', doc.page.margins.left + 10, top + 7, {
-        width: descriptionWidth - 20,
-        align: 'left',
-      });
-      doc.text('Cant.', doc.page.margins.left + descriptionWidth, top + 7, {
-        width: qtyWidth,
-        align: 'center',
-      });
-      doc.text('Precio', doc.page.margins.left + descriptionWidth + qtyWidth, top + 7, {
-        width: priceWidth - 10,
-        align: 'right',
-      });
-      doc.text('Importe', doc.page.margins.left + descriptionWidth + qtyWidth + priceWidth, top + 7, {
-        width: amountWidth - 10,
+      doc.fillColor('#687385').font('Helvetica').fontSize(8);
+      doc.text(
+        'Factura comercial generada por FULLTECH. Verifique datos del cliente, cantidades y montos antes de compartirla.',
+        left,
+        footerY,
+        { width: pageWidth - 80, align: 'left' },
+      );
+      doc.text(`Pagina ${currentPage}`, left + pageWidth - 60, footerY, {
+        width: 60,
         align: 'right',
       });
     };
 
-    const drawHeader = () => {
-      const top = doc.y;
+    const drawHeader = (continuation = false) => {
+      const top = doc.page.margins.top;
+      const companyBlockWidth = 315;
+      const invoiceBlockWidth = pageWidth - companyBlockWidth - 14;
+
       doc.save();
-      doc.roundedRect(doc.page.margins.left, top, pageWidth, 94, 14).fill('#F8FAFC');
+      doc.roundedRect(left, top, pageWidth, 108, 18).fill('#243145');
+      doc.restore();
+
+      doc.save();
+      doc.roundedRect(left + companyBlockWidth + 14, top + 14, invoiceBlockWidth - 14, 80, 14).fill('#FFFFFF');
       doc.restore();
 
       if (logoBuffer) {
         try {
-          doc.image(logoBuffer, doc.page.margins.left + 14, top + 16, {
-            fit: [60, 60],
+          doc.image(logoBuffer, left + 16, top + 20, {
+            fit: [64, 64],
             align: 'left',
-            valign: 'top',
+            valign: 'center',
           });
         } catch (error) {
           this.logger.warn(`No se pudo insertar logo en factura PDF: ${error}`);
         }
       }
 
-      const companyInfoX = doc.page.margins.left + 88;
-      doc.fillColor('#243145').font('Helvetica-Bold').fontSize(17).text(company.companyName, companyInfoX, top + 14, {
-        width: leftColumnWidth - 74,
+      const textStartX = left + (logoBuffer ? 92 : 18);
+      doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(19).text(company.companyName, textStartX, top + 18, {
+        width: companyBlockWidth - (textStartX - left) - 12,
         align: 'left',
       });
-
-      doc.font('Helvetica').fontSize(9).fillColor('#687385');
       const companyLines = [
         company.rnc.length > 0 ? `RNC: ${company.rnc}` : '',
         company.phone.length > 0 ? `Tel: ${company.phone}` : '',
         company.address,
       ].filter((value) => value.trim().length > 0);
-      let companyLineY = top + 36;
+      let companyLineY = top + 44;
+      doc.font('Helvetica').fontSize(9.2).fillColor('#D8E1F0');
       for (const line of companyLines) {
-        doc.text(line, companyInfoX, companyLineY, {
-          width: leftColumnWidth - 74,
+        doc.text(line, textStartX, companyLineY, {
+          width: companyBlockWidth - (textStartX - left) - 12,
           align: 'left',
         });
-        companyLineY += 11;
+        companyLineY += 12;
       }
 
-      const metaX = doc.page.margins.left + leftColumnWidth + 20;
-      doc.save();
-      doc.roundedRect(metaX, top + 12, rightColumnWidth, 68, 12).fill('#243145');
-      doc.restore();
-      doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(14).text('FACTURA', metaX + 12, top + 20, {
-        width: rightColumnWidth - 24,
+      doc.fillColor('#243145').font('Helvetica-Bold').fontSize(16).text('FACTURA', left + companyBlockWidth + 28, top + 24, {
+        width: invoiceBlockWidth - 42,
         align: 'left',
       });
-      doc.font('Helvetica').fontSize(9.5);
       const metaLines = [
         `Factura No.: ${invoiceNumber}`,
-        `Fecha: ${issueDate.toLocaleDateString('es-DO')}`,
+        `Fecha de emision: ${formatDate(issueDate)}`,
         `Moneda: ${draft.currency}`,
+        continuation ? 'Documento continuado' : 'Factura comercial',
       ];
-      let metaLineY = top + 40;
+      let metaLineY = top + 48;
+      doc.font('Helvetica').fontSize(9.5).fillColor('#243145');
       for (const line of metaLines) {
-        doc.text(line, metaX + 12, metaLineY, {
-          width: rightColumnWidth - 24,
+        doc.text(line, left + companyBlockWidth + 28, metaLineY, {
+          width: invoiceBlockWidth - 42,
           align: 'left',
         });
-        metaLineY += 11;
+        metaLineY += 12;
       }
 
-      doc.y = top + 108;
-    };
+      const infoTop = top + 126;
+      const panelGap = 12;
+      const panelWidth = (pageWidth - panelGap) / 2;
 
-    const drawCustomerBlock = () => {
-      const top = doc.y;
       doc.save();
-      doc.roundedRect(doc.page.margins.left, top, pageWidth, 72, 12).fill('#FFFFFF');
-      doc.roundedRect(doc.page.margins.left, top, pageWidth, 72, 12).stroke('#E7ECF2');
+      doc.roundedRect(left, infoTop, panelWidth, 92, 14).fill('#F8FAFC');
+      doc.roundedRect(left + panelWidth + panelGap, infoTop, panelWidth, 92, 14).fill('#F8FAFC');
       doc.restore();
+      doc.roundedRect(left, infoTop, panelWidth, 92, 14).stroke('#E1E8F0');
+      doc.roundedRect(left + panelWidth + panelGap, infoTop, panelWidth, 92, 14).stroke('#E1E8F0');
 
-      doc.fillColor('#243145').font('Helvetica-Bold').fontSize(11).text('Facturar a', doc.page.margins.left + 14, top + 12, {
-        width: 220,
-        align: 'left',
+      doc.fillColor('#243145').font('Helvetica-Bold').fontSize(11).text('Facturar a', left + 14, infoTop + 14, {
+        width: panelWidth - 28,
       });
-      doc.font('Helvetica').fontSize(10).fillColor('#1F2430');
       const clientLines = [
         draft.clientName,
-        `Tel: ${draft.clientPhone}`,
-        flow.order.client.direccion?.trim() ?? '',
+        draft.clientPhone.length > 0 ? `Tel: ${draft.clientPhone}` : '',
+        customerAddress,
       ].filter((value) => value.trim().length > 0);
-      let clientY = top + 28;
+      let clientY = infoTop + 34;
+      doc.font('Helvetica').fontSize(10).fillColor('#1F2430');
       for (const line of clientLines) {
-        doc.text(line, doc.page.margins.left + 14, clientY, {
-          width: 250,
-          align: 'left',
-        });
-        clientY += 12;
+        doc.text(line, left + 14, clientY, { width: panelWidth - 28, align: 'left' });
+        clientY += 13;
       }
 
-      doc.fillColor('#243145').font('Helvetica-Bold').fontSize(11).text('Referencia', doc.page.margins.left + 320, top + 12, {
-        width: 180,
-        align: 'left',
+      const referenceX = left + panelWidth + panelGap + 14;
+      doc.fillColor('#243145').font('Helvetica-Bold').fontSize(11).text('Datos de la orden', referenceX, infoTop + 14, {
+        width: panelWidth - 28,
       });
+      const referenceLines = [
+        `Orden: ${draft.orderId}`,
+        quotationLabel.length > 0 ? `Cotizacion: ${quotationLabel}` : 'Cotizacion: no vinculada',
+        `Estado: ${this.toText(flow.order.status, 'SIN ESTADO')}`,
+        this.toText(flow.order.serviceType).length > 0 ? `Servicio: ${this.toText(flow.order.serviceType)}` : '',
+      ].filter((value) => value.trim().length > 0);
+      let referenceY = infoTop + 34;
       doc.font('Helvetica').fontSize(10).fillColor('#1F2430');
-      doc.text(`Orden: ${draft.orderId}`, doc.page.margins.left + 320, top + 28, {
-        width: 170,
-        align: 'left',
-      });
-      doc.text(`Comprobante: ${invoiceNumber}`, doc.page.margins.left + 320, top + 40, {
-        width: 170,
-        align: 'left',
-      });
+      for (const line of referenceLines) {
+        doc.text(line, referenceX, referenceY, { width: panelWidth - 28, align: 'left' });
+        referenceY += 13;
+      }
 
-      doc.y = top + 88;
+      doc.y = infoTop + 112;
+    };
+
+    const drawTableHeader = () => {
+      const top = doc.y;
+      doc.save();
+      doc.roundedRect(left, top, tableWidth, 26, 8).fill('#EAF1FF');
+      doc.restore();
+      doc.fillColor('#243145').font('Helvetica-Bold').fontSize(10);
+      doc.text('#', left + 8, top + 8, { width: columnIndexWidth - 10, align: 'center' });
+      doc.text('Detalle', left + columnIndexWidth + 8, top + 8, {
+        width: descriptionWidth - 16,
+        align: 'left',
+      });
+      doc.text('Cant.', left + columnIndexWidth + descriptionWidth, top + 8, {
+        width: columnQtyWidth,
+        align: 'center',
+      });
+      doc.text('Precio unitario', left + columnIndexWidth + descriptionWidth + columnQtyWidth, top + 8, {
+        width: columnPriceWidth - 10,
+        align: 'right',
+      });
+      doc.text('Importe', left + columnIndexWidth + descriptionWidth + columnQtyWidth + columnPriceWidth, top + 8, {
+        width: columnAmountWidth - 12,
+        align: 'right',
+      });
+      doc.y = top + 34;
+    };
+
+    const ensureSpace = (height: number, redrawTable = false) => {
+      if (doc.y + height <= contentBottom()) return;
+      drawFooter();
+      doc.addPage();
+      currentPage += 1;
+      drawHeader(true);
+      if (redrawTable) {
+        drawTableHeader();
+      }
     };
 
     drawHeader();
-    drawCustomerBlock();
-    drawTableHeader(doc.y);
+    drawTableHeader();
 
-    let rowY = doc.y + 32;
-    let rowIndex = 0;
-    for (const item of draft.items) {
-      const rowHeight = Math.max(24, doc.heightOfString(item.description, { width: descriptionWidth - 20 }) + 10);
-      const nextBottom = rowY + rowHeight + 6;
-      if (nextBottom > doc.page.height - doc.page.margins.bottom - 130) {
-        doc.addPage();
-        drawHeader();
-        drawCustomerBlock();
-        drawTableHeader(doc.y);
-        rowY = doc.y + 32;
-      }
+    items.forEach((item, index) => {
+      const descriptionHeight = doc.heightOfString(item.description, {
+        width: descriptionWidth - 18,
+        align: 'left',
+      });
+      const rowHeight = Math.max(30, descriptionHeight + 14);
+      ensureSpace(rowHeight + 8, true);
+      const rowTop = doc.y;
 
       doc.save();
-      doc.roundedRect(doc.page.margins.left, rowY - 4, tableWidth, rowHeight, 6)
-        .fill(rowIndex.isEven ? '#FFFFFF' : '#FAFBFD');
-      doc.roundedRect(doc.page.margins.left, rowY - 4, tableWidth, rowHeight, 6)
-        .stroke('#E7ECF2');
+      doc.roundedRect(left, rowTop, tableWidth, rowHeight, 8).fill(index % 2 === 0 ? '#FFFFFF' : '#F8FAFC');
       doc.restore();
+      doc.roundedRect(left, rowTop, tableWidth, rowHeight, 8).stroke('#E3EAF2');
 
       doc.fillColor('#1F2430').font('Helvetica').fontSize(10);
-      doc.text(item.description, doc.page.margins.left + 10, rowY + 3, {
-        width: descriptionWidth - 20,
-        align: 'left',
-      });
-      doc.text(quantity(item.qty), doc.page.margins.left + descriptionWidth, rowY + 3, {
-        width: qtyWidth,
+      doc.text(`${index + 1}`, left + 8, rowTop + 9, {
+        width: columnIndexWidth - 10,
         align: 'center',
       });
-      doc.text(money(item.unitPrice), doc.page.margins.left + descriptionWidth + qtyWidth, rowY + 3, {
-        width: priceWidth - 10,
-        align: 'right',
-      });
-      doc.font('Helvetica-Bold').text(money(item.lineTotal), doc.page.margins.left + descriptionWidth + qtyWidth + priceWidth, rowY + 3, {
-        width: amountWidth - 10,
-        align: 'right',
-      });
-      rowY += rowHeight + 6;
-      rowIndex += 1;
-    }
-
-    const notesText = draft.notes.trim();
-    const notesHeight = notesText.length > 0
-      ? Math.max(54, doc.heightOfString(notesText, { width: 240 }) + 28)
-      : 0;
-    const totalsHeight = 88;
-    if (rowY + Math.max(notesHeight, totalsHeight) > doc.page.height - doc.page.margins.bottom - 20) {
-      doc.addPage();
-      drawHeader();
-      drawCustomerBlock();
-      rowY = doc.y;
-    }
-
-    if (notesText.length > 0) {
-      doc.save();
-      doc.roundedRect(doc.page.margins.left, rowY + 6, 255, notesHeight, 12).fill('#FFFFFF');
-      doc.roundedRect(doc.page.margins.left, rowY + 6, 255, notesHeight, 12).stroke('#E7ECF2');
-      doc.restore();
-      doc.fillColor('#243145').font('Helvetica-Bold').fontSize(11).text('Notas', doc.page.margins.left + 14, rowY + 18, {
-        width: 220,
+      doc.text(item.description, left + columnIndexWidth + 8, rowTop + 8, {
+        width: descriptionWidth - 16,
         align: 'left',
       });
-      doc.fillColor('#1F2430').font('Helvetica').fontSize(10).text(notesText, doc.page.margins.left + 14, rowY + 34, {
-        width: 227,
-        align: 'left',
+      doc.text(quantity(item.qty), left + columnIndexWidth + descriptionWidth, rowTop + 9, {
+        width: columnQtyWidth,
+        align: 'center',
       });
-    }
+      doc.text(money(item.unitPrice), left + columnIndexWidth + descriptionWidth + columnQtyWidth, rowTop + 9, {
+        width: columnPriceWidth - 10,
+        align: 'right',
+      });
+      doc.font('Helvetica-Bold').text(
+        money(item.lineTotal),
+        left + columnIndexWidth + descriptionWidth + columnQtyWidth + columnPriceWidth,
+        rowTop + 9,
+        {
+          width: columnAmountWidth - 12,
+          align: 'right',
+        },
+      );
+      doc.y = rowTop + rowHeight + 8;
+    });
 
-    const totalsX = doc.page.margins.left + 275;
+    const notesText = this.toText(draft.notes, 'Sin observaciones adicionales.');
+    const notesWidth = 278;
+    const totalsGap = 14;
+    const totalsWidth = pageWidth - notesWidth - totalsGap;
+    const notesHeight = Math.max(88, doc.heightOfString(notesText, { width: notesWidth - 24 }) + 38);
+    const totalsHeight = 126;
+    ensureSpace(Math.max(notesHeight, totalsHeight) + 18, false);
+
+    const sectionTop = doc.y + 2;
     doc.save();
-    doc.roundedRect(totalsX, rowY + 6, 240, totalsHeight, 12).fill('#F8FAFC');
-    doc.roundedRect(totalsX, rowY + 6, 240, totalsHeight, 12).stroke('#D9E6FF');
+    doc.roundedRect(left, sectionTop, notesWidth, notesHeight, 14).fill('#FFFFFF');
+    doc.roundedRect(left + notesWidth + totalsGap, sectionTop, totalsWidth, totalsHeight, 14).fill('#F8FAFC');
     doc.restore();
-    doc.fillColor('#243145').font('Helvetica-Bold').fontSize(11).text('Totales', totalsX + 14, rowY + 18, {
-      width: 210,
+    doc.roundedRect(left, sectionTop, notesWidth, notesHeight, 14).stroke('#E3EAF2');
+    doc.roundedRect(left + notesWidth + totalsGap, sectionTop, totalsWidth, totalsHeight, 14).stroke('#D7E4FF');
+
+    doc.fillColor('#243145').font('Helvetica-Bold').fontSize(11).text('Observaciones', left + 14, sectionTop + 16, {
+      width: notesWidth - 28,
       align: 'left',
     });
-    doc.font('Helvetica').fontSize(10).fillColor('#1F2430');
-    doc.text('Subtotal', totalsX + 14, rowY + 38, { width: 100, align: 'left' });
-    doc.text(money(draft.subtotal), totalsX + 120, rowY + 38, { width: 100, align: 'right' });
-    doc.text('Impuesto', totalsX + 14, rowY + 53, { width: 100, align: 'left' });
-    doc.text(money(draft.tax), totalsX + 120, rowY + 53, { width: 100, align: 'right' });
-    doc.moveTo(totalsX + 14, rowY + 70).lineTo(totalsX + 226, rowY + 70).stroke('#D9DEE7');
-    doc.font('Helvetica-Bold').fontSize(12).fillColor('#243145');
-    doc.text('Total', totalsX + 14, rowY + 76, { width: 100, align: 'left' });
-    doc.text(money(draft.total), totalsX + 120, rowY + 76, { width: 100, align: 'right' });
+    doc.fillColor('#1F2430').font('Helvetica').fontSize(10).text(notesText, left + 14, sectionTop + 34, {
+      width: notesWidth - 28,
+      align: 'left',
+    });
 
-    doc.fillColor('#687385').font('Helvetica').fontSize(8.5).text(
-      'Documento generado por FULLTECH. Verifique cantidades, precios y datos del cliente antes de compartirlo.',
-      doc.page.margins.left,
-      doc.page.height - doc.page.margins.bottom - 10,
+    const totalsX = left + notesWidth + totalsGap + 14;
+    const valueX = left + notesWidth + totalsGap + totalsWidth - 14;
+    doc.fillColor('#243145').font('Helvetica-Bold').fontSize(11).text('Totales de factura', totalsX, sectionTop + 16, {
+      width: totalsWidth - 28,
+      align: 'left',
+    });
+    doc.fillColor('#1F2430').font('Helvetica').fontSize(10);
+    doc.text('Subtotal', totalsX, sectionTop + 44, { width: 90, align: 'left' });
+    doc.text(money(draft.subtotal), valueX - 110, sectionTop + 44, { width: 110, align: 'right' });
+    doc.text('Impuesto', totalsX, sectionTop + 62, { width: 90, align: 'left' });
+    doc.text(money(draft.tax), valueX - 110, sectionTop + 62, { width: 110, align: 'right' });
+    doc.moveTo(totalsX, sectionTop + 84).lineTo(valueX, sectionTop + 84).stroke('#CAD8F5');
+    doc.save();
+    doc.roundedRect(totalsX, sectionTop + 92, totalsWidth - 28, 22, 8).fill('#EAF1FF');
+    doc.restore();
+    doc.fillColor('#243145').font('Helvetica-Bold').fontSize(11).text('TOTAL', totalsX + 10, sectionTop + 99, {
+      width: 80,
+      align: 'left',
+    });
+    doc.text(money(draft.total), valueX - 120, sectionTop + 99, { width: 120, align: 'right' });
+
+    doc.fillColor('#687385').font('Helvetica').fontSize(8.4).text(
+      'Gracias por confiar en FULLTECH. Este documento respalda los trabajos y conceptos incluidos en la orden de servicio.',
+      left,
+      sectionTop + Math.max(notesHeight, totalsHeight) + 14,
       { width: pageWidth, align: 'center' },
     );
+
+    drawFooter();
     doc.end();
     writeFileSync(absolutePath, await pdfBuffer);
     return `/${join('uploads', relativePath).replace(/\\/g, '/')}`;
