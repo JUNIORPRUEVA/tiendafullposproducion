@@ -600,7 +600,6 @@ export class OrderDocumentFlowService {
         try {
           doc.image(logoBuffer, left + 16, top + 20, {
             fit: [64, 64],
-            align: 'left',
             valign: 'center',
           });
         } catch (error) {
