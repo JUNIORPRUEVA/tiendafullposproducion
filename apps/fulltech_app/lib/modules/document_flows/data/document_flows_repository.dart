@@ -128,9 +128,27 @@ class DocumentFlowsRepository {
     }
   }
 
-  Future<DocumentFlowSendResult> send(String id) async {
+  Future<DocumentFlowSendResult> send(
+    String id, {
+    String? invoicePdfBase64,
+    String? warrantyPdfBase64,
+    String? invoiceFileName,
+    String? warrantyFileName,
+  }) async {
     try {
-      final response = await _dio.post(ApiRoutes.documentFlowSend(id));
+      final response = await _dio.post(
+        ApiRoutes.documentFlowSend(id),
+        data: {
+          if ((invoicePdfBase64 ?? '').trim().isNotEmpty)
+            'invoicePdfBase64': invoicePdfBase64!.trim(),
+          if ((warrantyPdfBase64 ?? '').trim().isNotEmpty)
+            'warrantyPdfBase64': warrantyPdfBase64!.trim(),
+          if ((invoiceFileName ?? '').trim().isNotEmpty)
+            'invoiceFileName': invoiceFileName!.trim(),
+          if ((warrantyFileName ?? '').trim().isNotEmpty)
+            'warrantyFileName': warrantyFileName!.trim(),
+        },
+      );
       return DocumentFlowSendResult.fromJson(
         (response.data as Map).cast<String, dynamic>(),
       );

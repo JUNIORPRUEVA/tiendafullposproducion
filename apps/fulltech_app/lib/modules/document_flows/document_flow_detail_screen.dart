@@ -322,9 +322,19 @@ class _DocumentFlowDetailScreenState
       _saving = true;
     });
     try {
+      final companySettings = ref.read(companySettingsProvider).valueOrNull;
+      final invoiceBytes = await _buildInvoicePdfBytes(flow, companySettings);
+      final warrantyBytes = await _buildWarrantyPdfBytes(flow, companySettings);
+      final orderId = flow.order.id.substring(0, 8);
       final result = await ref
           .read(documentFlowsRepositoryProvider)
-          .send(flow.id);
+          .send(
+            flow.id,
+            invoicePdfBase64: base64Encode(invoiceBytes),
+            warrantyPdfBase64: base64Encode(warrantyBytes),
+            invoiceFileName: 'factura-final-$orderId.pdf',
+            warrantyFileName: 'warranty-final-$orderId.pdf',
+          );
       if (!mounted) return;
       setState(() {
         _applyFlow(result.flow);

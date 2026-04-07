@@ -17,6 +17,7 @@ import {
   SERVICE_ORDER_TYPE_FROM_DB,
 } from '../service-orders/service-orders.constants';
 import { EditOrderDocumentFlowDraftDto } from './dto/edit-order-document-flow-draft.dto';
+import { SendOrderDocumentFlowDto } from './dto/send-order-document-flow.dto';
 
 type AuthUser = { id: string; role: Role };
 
@@ -201,7 +202,7 @@ export class OrderDocumentFlowService {
     return this.mapFlow(updated);
   }
 
-  async send(user: AuthUser, id: string) {
+  async send(user: AuthUser, id: string, dto: SendOrderDocumentFlowDto = {}) {
     this.assertAssistantOrAdmin(user);
     let flow = await this.findFlowById(id);
     const customerPhone = this.toText(flow.order.client.telefono);
@@ -211,9 +212,22 @@ export class OrderDocumentFlowService {
       throw new BadRequestException('La orden no tiene un teléfono de cliente válido para WhatsApp.');
     }
 
-    if (!flow.invoiceFinalUrl || !flow.warrantyFinalUrl) {
+    const providedInvoiceBytes = this.parsePdfBase64(dto.invoicePdfBase64, 'la factura');
+    const providedWarrantyBytes = this.parsePdfBase64(dto.warrantyPdfBase64, 'la carta de garantia');
+    const hasProvidedPdfs = !!providedInvoiceBytes && !!providedWarrantyBytes;
+
+    if (!hasProvidedPdfs && (!flow.invoiceFinalUrl || !flow.warrantyFinalUrl)) {
       await this.generate(user, id);
       flow = await this.findFlowById(id);
+    }
+
+    if (hasProvidedPdfs) {
+      flow = await this.persistProvidedFinalPdfs(flow, {
+        invoiceBytes: providedInvoiceBytes,
+        warrantyBytes: providedWarrantyBytes,
+        invoiceFileName: this.toText(dto.invoiceFileName, 'factura-final.pdf'),
+        warrantyFileName: this.toText(dto.warrantyFileName, 'warranty-final.pdf'),
+      });
     }
 
     const invoiceFinalUrl = this.toText(flow.invoiceFinalUrl);
@@ -1018,6 +1032,66 @@ export class OrderDocumentFlowService {
       : (volumeExists ? volumeDir : join(process.cwd(), 'uploads'));
     mkdirSync(dirname(join(uploadDir, relativePath)), { recursive: true });
     return join(uploadDir, relativePath);
+  }
+
+  private parsePdfBase64(value: string | undefined, label: string) {
+    const trimmed = (value ?? '').trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    const base64 = trimmed.startsWith('data:')
+      ? trimmed.slice(trimmed.indexOf(',') + 1)
+      : trimmed;
+
+    let bytes: Buffer;
+    try {
+      bytes = Buffer.from(base64, 'base64');
+    } catch {
+      throw new BadRequestException(`El PDF de ${label} no es válido.`);
+    }
+
+    if (!bytes.length) {
+      throw new BadRequestException(`El PDF de ${label} llegó vacío.`);
+    }
+
+    return bytes;
+  }
+
+  private async persistProvidedFinalPdfs(
+    flow: DocumentFlowRow,
+    params: {
+      invoiceBytes: Buffer;
+      warrantyBytes: Buffer;
+      invoiceFileName: string;
+      warrantyFileName: string;
+    },
+  ) {
+    const invoiceRelativePath = join(
+      'document-flows',
+      flow.id,
+      this.toText(params.invoiceFileName, 'factura-final.pdf'),
+    ).replace(/\\/g, '/');
+    const warrantyRelativePath = join(
+      'document-flows',
+      flow.id,
+      this.toText(params.warrantyFileName, 'warranty-final.pdf'),
+    ).replace(/\\/g, '/');
+
+    writeFileSync(this.buildAbsoluteUploadPath(invoiceRelativePath), params.invoiceBytes);
+    writeFileSync(this.buildAbsoluteUploadPath(warrantyRelativePath), params.warrantyBytes);
+
+    const updated = await this.prisma.orderDocumentFlow.update({
+      where: { id: flow.id },
+      include: this.include,
+      data: {
+        invoiceFinalUrl: `/${join('uploads', invoiceRelativePath).replace(/\\/g, '/')}`,
+        warrantyFinalUrl: `/${join('uploads', warrantyRelativePath).replace(/\\/g, '/')}`,
+        status: OrderDocumentFlowStatus.APPROVED,
+      },
+    });
+
+    return updated;
   }
 
   private resolveUploadAbsolutePath(documentUrl: string) {

@@ -6,6 +6,7 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { EditOrderDocumentFlowDraftDto } from './dto/edit-order-document-flow-draft.dto';
 import { ListOrderDocumentFlowsQueryDto } from './dto/list-order-document-flows-query.dto';
+import { SendOrderDocumentFlowDto } from './dto/send-order-document-flow.dto';
 import { OrderDocumentFlowService } from './order-document-flow.service';
 
 type JwtUser = { id: string; role: Role };
@@ -45,7 +46,11 @@ export class OrderDocumentFlowController {
 
   @Post(':id/send')
   @Roles(Role.ADMIN, Role.ASISTENTE)
-  send(@Req() req: Request, @Param('id') id: string) {
-    return this.documentFlows.send(req.user as JwtUser, id);
+  send(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: SendOrderDocumentFlowDto,
+  ) {
+    return this.documentFlows.send(req.user as JwtUser, id, dto);
   }
 }
