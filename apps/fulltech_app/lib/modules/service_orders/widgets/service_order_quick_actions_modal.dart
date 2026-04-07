@@ -271,7 +271,16 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
   }
 
   Future<void> _changeStatus(BuildContext sheetContext, WidgetRef ref) async {
-    final statuses = [order.status, ...order.status.allowedNextStatuses]
+    final currentUser = ref.read(authStateProvider).user;
+    final canPromoteStatus =
+        currentUser?.appRole.isAdmin == true ||
+        currentUser?.appRole.isTechnician == true;
+    final nextStatuses = canPromoteStatus
+        ? order.status.allowedNextStatuses
+        : order.status.allowedNextStatuses
+              .where((status) => status == ServiceOrderStatus.cancelado)
+              .toList(growable: false);
+    final statuses = [order.status, ...nextStatuses]
         .fold<List<ServiceOrderStatus>>([], (acc, item) {
           if (!acc.contains(item)) acc.add(item);
           return acc;

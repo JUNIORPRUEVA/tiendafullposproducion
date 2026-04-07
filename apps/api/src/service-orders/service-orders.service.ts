@@ -290,6 +290,7 @@ export class ServiceOrdersService {
 
     const previousStatus = this.toApiStatus(item.status);
     const nextStatus = dto.status as ApiServiceOrderStatus;
+    this.assertCanChangeOrderStatus(user, nextStatus);
     this.assertValidStatusTransition(previousStatus, nextStatus);
     const resolvedAssignedToId =
       nextStatus === 'finalizado' && user.role === Role.TECNICO
@@ -828,6 +829,21 @@ export class ServiceOrdersService {
       return;
     }
     throw new ForbiddenException('Not authorized to modify this order');
+  }
+
+  private assertCanChangeOrderStatus(
+    user: AuthUser,
+    nextStatus: ApiServiceOrderStatus,
+  ) {
+    if (user.role === Role.ADMIN || user.role === Role.TECNICO) {
+      return;
+    }
+    if (nextStatus === 'cancelado') {
+      return;
+    }
+    throw new ForbiddenException(
+      'Solo administradores y técnicos pueden marcar una orden en proceso o finalizada. Para otros roles solo se permite cancelarla.',
+    );
   }
 
   private assertTechnicalOutputAccess(user: AuthUser) {

@@ -425,6 +425,7 @@ class _ServiceOrdersListScreenState
                           statusBusy: _busyOrderIds.contains(order.id),
                           isTechnician:
                               currentUser?.appRole.isTechnician ?? false,
+                            canPromoteStatus: canManageStatusAsRole,
                           onChangeStatus: canChangeOrderStatus
                               ? (status) => _changeOrderStatus(order, status)
                               : null,
@@ -2450,6 +2451,7 @@ class _ServiceOrderListCard extends StatelessWidget {
     required this.statusBusy,
     required this.creatingNewOrder,
     required this.isTechnician,
+    required this.canPromoteStatus,
     this.onCreateNewOrder,
     this.onChangeStatus,
     this.trailing,
@@ -2464,6 +2466,7 @@ class _ServiceOrderListCard extends StatelessWidget {
   final bool statusBusy;
   final bool creatingNewOrder;
   final bool isTechnician;
+  final bool canPromoteStatus;
   final VoidCallback? onCreateNewOrder;
   final ValueChanged<ServiceOrderStatus>? onChangeStatus;
   final Widget? trailing;
@@ -2677,6 +2680,7 @@ class _ServiceOrderListCard extends StatelessWidget {
                             child: _InlineStatusButton(
                               order: order,
                               busy: statusBusy,
+                              canPromoteStatus: canPromoteStatus,
                               onSelected: onChangeStatus!,
                             ),
                           ),
@@ -3005,6 +3009,7 @@ class _ServiceOrderListCard extends StatelessWidget {
                             _InlineStatusButton(
                               order: order,
                               busy: statusBusy,
+                              canPromoteStatus: canPromoteStatus,
                               onSelected: onChangeStatus!,
                             ),
                           ],
@@ -3363,16 +3368,23 @@ class _InlineStatusButton extends StatelessWidget {
   const _InlineStatusButton({
     required this.order,
     required this.busy,
+    required this.canPromoteStatus,
     required this.onSelected,
   });
 
   final ServiceOrderModel order;
   final bool busy;
+  final bool canPromoteStatus;
   final ValueChanged<ServiceOrderStatus> onSelected;
 
   @override
   Widget build(BuildContext context) {
-    final statuses = [order.status, ...order.status.allowedNextStatuses]
+    final nextStatuses = canPromoteStatus
+        ? order.status.allowedNextStatuses
+        : order.status.allowedNextStatuses
+              .where((status) => status == ServiceOrderStatus.cancelado)
+              .toList(growable: false);
+    final statuses = [order.status, ...nextStatuses]
         .fold<List<ServiceOrderStatus>>(<ServiceOrderStatus>[], (acc, item) {
           if (!acc.contains(item)) acc.add(item);
           return acc;
