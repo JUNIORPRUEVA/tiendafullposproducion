@@ -17,6 +17,7 @@ import '../cotizaciones/data/cotizaciones_repository.dart';
 import 'data/document_flows_repository.dart';
 import 'document_flow_models.dart';
 import 'utils/document_flow_invoice_pdf_service.dart';
+import 'utils/document_flow_warranty_pdf_service.dart';
 
 class DocumentFlowDetailScreen extends ConsumerStatefulWidget {
   const DocumentFlowDetailScreen({super.key, required this.orderId});
@@ -45,6 +46,7 @@ class _DocumentFlowDetailScreenState
   final _conditionsController = TextEditingController();
   final _exclusionsController = TextEditingController();
   List<_InvoiceItemEditor> _itemEditors = const [];
+  List<_WarrantyItemEditor> _warrantyItemEditors = const [];
   String _warrantyTitle = 'CARTA DE GARANTIA';
   _DocumentEditorSection _selectedSection = _DocumentEditorSection.warranty;
   bool? _approvalDecision;
@@ -68,12 +70,20 @@ class _DocumentFlowDetailScreenState
     _conditionsController.dispose();
     _exclusionsController.dispose();
     _disposeEditors();
+    _disposeWarrantyEditors();
     super.dispose();
   }
 
   void _disposeEditors() {
     _detachEditorListeners(_itemEditors);
     for (final editor in _itemEditors) {
+      editor.dispose();
+    }
+  }
+
+  void _disposeWarrantyEditors() {
+    _detachWarrantyEditorListeners(_warrantyItemEditors);
+    for (final editor in _warrantyItemEditors) {
       editor.dispose();
     }
   }
@@ -95,6 +105,18 @@ class _DocumentFlowDetailScreenState
     }
   }
 
+  void _attachWarrantyEditorListeners(Iterable<_WarrantyItemEditor> editors) {
+    for (final editor in editors) {
+      editor.addListener(_handleDraftValueChanged);
+    }
+  }
+
+  void _detachWarrantyEditorListeners(Iterable<_WarrantyItemEditor> editors) {
+    for (final editor in editors) {
+      editor.removeListener(_handleDraftValueChanged);
+    }
+  }
+
   List<DocumentFlowInvoiceItem> get _draftItems => _itemEditors
       .map((editor) => editor.toItem())
       .where((item) => item.description.trim().isNotEmpty)
@@ -105,8 +127,15 @@ class _DocumentFlowDetailScreenState
 
   double get _draftTax => double.tryParse(_taxController.text.trim()) ?? 0;
 
+  List<DocumentFlowWarrantyPdfItem> get _draftWarrantyItems =>
+      _warrantyItemEditors
+          .map((editor) => editor.toPdfItem())
+          .where((item) => item.product.trim().isNotEmpty)
+          .toList(growable: false);
+
   void _applyFlow(OrderDocumentFlowModel flow) {
     _disposeEditors();
+    _disposeWarrantyEditors();
     _flow = flow;
     _currencyController.text = flow.invoiceDraft.currency;
     _taxController.text = flow.invoiceDraft.tax.toStringAsFixed(2);
@@ -127,7 +156,20 @@ class _DocumentFlowDetailScreenState
     if (_itemEditors.isEmpty) {
       _itemEditors = <_InvoiceItemEditor>[_InvoiceItemEditor.empty()];
     }
+    _warrantyItemEditors = warrantyForm.warrantyItems
+        .map((item) => _WarrantyItemEditor.fromValue(item))
+        .toList(growable: true);
+    if (_warrantyItemEditors.isEmpty) {
+      _warrantyItemEditors = _buildDefaultWarrantyEditors(
+        flow.invoiceDraft.items,
+        warrantyForm.productWarrantyDuration,
+      );
+    }
+    if (_warrantyItemEditors.isEmpty) {
+      _warrantyItemEditors = <_WarrantyItemEditor>[_WarrantyItemEditor.empty()];
+    }
     _attachEditorListeners(_itemEditors);
+    _attachWarrantyEditorListeners(_warrantyItemEditors);
     _approvalDecision = switch (flow.status) {
       DocumentFlowStatus.approved || DocumentFlowStatus.sent => true,
       DocumentFlowStatus.rejected => false,
@@ -187,6 +229,10 @@ class _DocumentFlowDetailScreenState
         coverage: _coverageController.text.trim(),
         conditions: _conditionsController.text.trim(),
         exclusions: _exclusionsController.text.trim(),
+        warrantyItems: _warrantyItemEditors
+            .map((item) => item.toValue())
+            .where((item) => item.product.trim().isNotEmpty)
+            .toList(growable: false),
       );
       final updated = await ref
           .read(documentFlowsRepositoryProvider)
@@ -286,7 +332,9 @@ class _DocumentFlowDetailScreenState
       });
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
-          content: Text('Payload listo para WhatsApp: ${result.toNumber}'),
+          content: Text(
+            'Factura y carta de garantía enviadas por WhatsApp a ${result.toNumber}',
+          ),
         ),
       );
     } on ApiException catch (e) {
@@ -598,6 +646,19 @@ class _DocumentFlowDetailScreenState
     _attachEditorListeners(_itemEditors);
     _taxController.text = quotation.itbisAmount.toStringAsFixed(2);
     _notesController.text = quotation.note;
+    final productDuration =
+        _productWarrantyDurationController.text.trim().isEmpty
+        ? '6 meses'
+        : _productWarrantyDurationController.text.trim();
+    _disposeWarrantyEditors();
+    _warrantyItemEditors = _buildDefaultWarrantyEditors(
+      _draftItems,
+      productDuration,
+    );
+    if (_warrantyItemEditors.isEmpty) {
+      _warrantyItemEditors = <_WarrantyItemEditor>[_WarrantyItemEditor.empty()];
+    }
+    _attachWarrantyEditorListeners(_warrantyItemEditors);
   }
 
   String _slugify(String value) {
@@ -606,16 +667,97 @@ class _DocumentFlowDetailScreenState
     return collapsed.replaceAll(RegExp(r'^_+|_+$'), '');
   }
 
-  String get _warrantyPreviewText {
-    final serviceDuration =
-        _serviceWarrantyDurationController.text.trim().isEmpty
-        ? '3 meses'
-        : _serviceWarrantyDurationController.text.trim();
-    final productDuration =
-        _productWarrantyDurationController.text.trim().isEmpty
-        ? '6 meses'
-        : _productWarrantyDurationController.text.trim();
-    return 'El servicio tiene una garantía de $serviceDuration y los productos instalados tienen una garantía de $productDuration.';
+  Future<Uint8List> _buildWarrantyPdfBytes(
+    OrderDocumentFlowModel flow,
+    CompanySettings? companySettings,
+  ) {
+    final warrantyForm = _WarrantyFormData(
+      title: _warrantyTitle.trim().isEmpty
+          ? 'CARTA DE GARANTIA'
+          : _warrantyTitle.trim(),
+      serviceType: _warrantyServiceTypeController.text.trim().isEmpty
+          ? flow.order.serviceType
+          : _warrantyServiceTypeController.text.trim(),
+      serviceWarrantyDuration:
+          _serviceWarrantyDurationController.text.trim().isEmpty
+          ? '3 meses'
+          : _serviceWarrantyDurationController.text.trim(),
+      productWarrantyDuration:
+          _productWarrantyDurationController.text.trim().isEmpty
+          ? '6 meses'
+          : _productWarrantyDurationController.text.trim(),
+      coverage: _coverageController.text.trim(),
+      conditions: _conditionsController.text.trim(),
+      exclusions: _exclusionsController.text.trim(),
+      warrantyItems: _warrantyItemEditors
+          .map((item) => item.toValue())
+          .where((item) => item.product.trim().isNotEmpty)
+          .toList(growable: false),
+    );
+
+    return buildDocumentFlowWarrantyPdf(
+      flow: flow,
+      company: companySettings,
+      title: warrantyForm.title,
+      serviceType: warrantyForm.serviceType,
+      serviceWarrantyDuration: warrantyForm.serviceWarrantyDuration,
+      productWarrantyDuration: warrantyForm.productWarrantyDuration,
+      coverage: warrantyForm.coverage,
+      policyLines: warrantyForm.policyLines,
+      items: _draftWarrantyItems,
+    );
+  }
+
+  Future<void> _openGeneratedWarrantyPreview(
+    OrderDocumentFlowModel flow,
+    CompanySettings? companySettings,
+  ) async {
+    setState(() {
+      _saving = true;
+    });
+
+    try {
+      final bytes = await _buildWarrantyPdfBytes(flow, companySettings);
+      if (!mounted) return;
+      await _showPdfDialog('Carta de garantía', bytes);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _downloadGeneratedWarrantyPdf(
+    OrderDocumentFlowModel flow,
+    CompanySettings? companySettings,
+  ) async {
+    setState(() {
+      _saving = true;
+    });
+
+    try {
+      final bytes = await _buildWarrantyPdfBytes(flow, companySettings);
+      if (!mounted) return;
+      final orderId = _flow?.order.id.substring(0, 8) ?? 'garantia';
+      final saved = await savePdfBytes(
+        bytes: bytes,
+        fileName: 'carta_garantia_$orderId.pdf',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(saved ? 'PDF descargado' : 'Descarga cancelada'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
+    }
   }
 
   @override
@@ -659,46 +801,52 @@ class _DocumentFlowDetailScreenState
             )
           : flow == null
           ? const Center(child: Text('No hay datos del flujo documental'))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 136),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _SummaryCard(flow: flow),
-                  const SizedBox(height: 16),
-                  _buildApprovalCard(flow),
-                  const SizedBox(height: 16),
-                  _buildSectionSelector(),
-                  const SizedBox(height: 16),
-                  if (_selectedSection == _DocumentEditorSection.warranty)
-                    _buildWarrantyCard(flow)
-                  else
-                    _buildInvoiceCard(flow, companySettings),
-                  if (hasGeneratedDocuments) ...[
-                    const SizedBox(height: 16),
-                    _buildGeneratedFilesCard(flow, companySettings),
-                  ],
-                  if (_lastSendPreview != null &&
-                      _lastSendPreview!.trim().isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Payload WhatsApp',
-                              style: Theme.of(context).textTheme.titleMedium,
+          : Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1080),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 124),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _SummaryCard(flow: flow),
+                      const SizedBox(height: 12),
+                      _buildApprovalCard(flow),
+                      const SizedBox(height: 12),
+                      _buildSectionSelector(),
+                      const SizedBox(height: 12),
+                      if (_selectedSection == _DocumentEditorSection.warranty)
+                        _buildWarrantyCard(flow)
+                      else
+                        _buildInvoiceCard(flow, companySettings),
+                      if (hasGeneratedDocuments) ...[
+                        const SizedBox(height: 12),
+                        _buildGeneratedFilesCard(flow, companySettings),
+                      ],
+                      if (_lastSendPreview != null &&
+                          _lastSendPreview!.trim().isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Payload WhatsApp',
+                                  style: Theme.of(context).textTheme.titleSmall,
+                                ),
+                                const SizedBox(height: 8),
+                                SelectableText(_lastSendPreview!),
+                              ],
                             ),
-                            const SizedBox(height: 12),
-                            SelectableText(_lastSendPreview!),
-                          ],
+                          ),
                         ),
-                      ),
-                    ),
-                  ],
-                ],
+                      ],
+                    ],
+                  ),
+                ),
               ),
             ),
       bottomNavigationBar: flow == null || _loading || _error != null
@@ -721,20 +869,17 @@ class _DocumentFlowDetailScreenState
     return Card(
       clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '¿Aprobar o no?',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
+            Text('Aprobación', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 4),
             Text(
               'Estado actual: ${flow.status.label}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -769,21 +914,21 @@ class _DocumentFlowDetailScreenState
     return Card(
       clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Selecciona qué quieres editar',
-              style: Theme.of(context).textTheme.titleMedium,
+              'Documento activo',
+              style: Theme.of(context).textTheme.titleSmall,
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
                   child: _SectionOptionCard(
                     title: 'Carta',
-                    subtitle: 'Garantía final',
+                    subtitle: 'Garantía',
                     icon: Icons.verified_user_outlined,
                     selected:
                         _selectedSection == _DocumentEditorSection.warranty,
@@ -798,7 +943,7 @@ class _DocumentFlowDetailScreenState
                 Expanded(
                   child: _SectionOptionCard(
                     title: 'Factura',
-                    subtitle: 'Detalle comercial',
+                    subtitle: 'Comercial',
                     icon: Icons.receipt_long_outlined,
                     selected:
                         _selectedSection == _DocumentEditorSection.invoice,
@@ -831,17 +976,17 @@ class _DocumentFlowDetailScreenState
     return Card(
       clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Factura', style: Theme.of(context).textTheme.titleMedium),
+            Text('Factura', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 4),
             Text(
               'Diseño compacto para editar más líneas sin perder visibilidad.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             _InvoicePreviewHeader(
               companySettings: companySettings,
               flow: flow,
@@ -849,7 +994,7 @@ class _DocumentFlowDetailScreenState
                   ? flow.invoiceDraft.currency
                   : _currencyController.text.trim(),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             LayoutBuilder(
               builder: (context, constraints) {
                 final compact = constraints.maxWidth < 760;
@@ -860,7 +1005,7 @@ class _DocumentFlowDetailScreenState
                         controller: _currencyController,
                         decoration: _compactFieldDecoration(label: 'Moneda'),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
                       TextField(
                         controller: _taxController,
                         keyboardType: const TextInputType.numberWithOptions(
@@ -868,7 +1013,7 @@ class _DocumentFlowDetailScreenState
                         ),
                         decoration: _compactFieldDecoration(label: 'Impuesto'),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton.icon(
@@ -888,7 +1033,7 @@ class _DocumentFlowDetailScreenState
                         decoration: _compactFieldDecoration(label: 'Moneda'),
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: TextField(
                         controller: _taxController,
@@ -898,7 +1043,7 @@ class _DocumentFlowDetailScreenState
                         decoration: _compactFieldDecoration(label: 'Impuesto'),
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 8),
                     OutlinedButton.icon(
                       onPressed: _saving ? null : _editLinkedQuotation,
                       icon: const Icon(Icons.edit_note_outlined),
@@ -908,9 +1053,9 @@ class _DocumentFlowDetailScreenState
                 );
               },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
               decoration: BoxDecoration(
                 color: scheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(12),
@@ -934,7 +1079,7 @@ class _DocumentFlowDetailScreenState
                 ],
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             ..._itemEditors.asMap().entries.map((entry) {
               final index = entry.key;
               final editor = entry.value;
@@ -968,7 +1113,7 @@ class _DocumentFlowDetailScreenState
                 label: const Text('Agregar línea'),
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             TextField(
               controller: _notesController,
               maxLines: 3,
@@ -977,10 +1122,10 @@ class _DocumentFlowDetailScreenState
                 hintText: 'Observaciones internas o detalles para la factura',
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
                 color: scheme.surfaceContainerLow,
@@ -997,64 +1142,118 @@ class _DocumentFlowDetailScreenState
   }
 
   Widget _buildWarrantyCard(OrderDocumentFlowModel flow) {
+    final policyLines = _buildWarrantyPolicyLines(
+      _conditionsController.text,
+      _exclusionsController.text,
+    );
     return Card(
       clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Carta', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 10),
+            Text(
+              'Carta de garantía',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Define servicio y tiempos. La tabla inferior indica qué productos o servicios quedan cubiertos y por cuánto tiempo.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
                   child: TextField(
                     controller: _warrantyServiceTypeController,
-                    decoration: _compactFieldDecoration(
-                      label: 'Tipo de servicio',
-                    ),
+                    decoration: _compactFieldDecoration(label: 'Servicio'),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 Expanded(
                   child: TextField(
                     controller: _serviceWarrantyDurationController,
                     decoration: _compactFieldDecoration(
-                      label: 'Garantía del servicio',
+                      label: 'Tiempo servicio',
                       hintText: '3 meses',
                     ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
                   child: TextField(
                     controller: _productWarrantyDurationController,
                     decoration: _compactFieldDecoration(
-                      label: 'Garantía de productos',
+                      label: 'Tiempo productos',
                       hintText: '6 meses',
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 Expanded(
                   child: InputDecorator(
-                    decoration: _compactFieldDecoration(
-                      label: 'Categoría de orden',
-                    ),
+                    decoration: _compactFieldDecoration(label: 'Categoría'),
                     child: Text(flow.order.category),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            Text(
+              'Productos y tiempo de garantía',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 6),
+            ..._warrantyItemEditors.asMap().entries.map((entry) {
+              final index = entry.key;
+              final editor = entry.value;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _WarrantyItemEditorCard(
+                  editor: editor,
+                  canRemove: _warrantyItemEditors.length > 1,
+                  onRemove: () {
+                    setState(() {
+                      final removed = _warrantyItemEditors.removeAt(index);
+                      removed.removeListener(_handleDraftValueChanged);
+                      removed.dispose();
+                    });
+                  },
+                ),
+              );
+            }),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () {
+                  setState(() {
+                    final duration =
+                        _productWarrantyDurationController.text.trim().isEmpty
+                        ? '6 meses'
+                        : _productWarrantyDurationController.text.trim();
+                    final newEditor = _WarrantyItemEditor.empty(
+                      duration: duration,
+                    );
+                    newEditor.addListener(_handleDraftValueChanged);
+                    _warrantyItemEditors = List<_WarrantyItemEditor>.from(
+                      _warrantyItemEditors,
+                    )..add(newEditor);
+                  });
+                },
+                icon: const Icon(Icons.add),
+                label: const Text('Agregar producto en garantía'),
+              ),
+            ),
+            const SizedBox(height: 12),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.primaryContainer,
                 borderRadius: BorderRadius.circular(14),
@@ -1063,39 +1262,25 @@ class _DocumentFlowDetailScreenState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Texto automático',
+                    'Resumen de cobertura',
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                   const SizedBox(height: 8),
-                  Text(_warrantyPreviewText),
+                  Text(_coverageController.text.trim()),
+                  const SizedBox(height: 8),
+                  ...policyLines.map(
+                    (line) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('• '),
+                          Expanded(child: Text(line)),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _coverageController,
-              maxLines: 4,
-              decoration: _compactFieldDecoration(
-                label: 'Cobertura',
-                hintText: 'Describe el alcance general de la garantía',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _conditionsController,
-              maxLines: 4,
-              decoration: _compactFieldDecoration(
-                label: 'Condiciones',
-                hintText: 'Condiciones para aplicar la garantía',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _exclusionsController,
-              maxLines: 4,
-              decoration: _compactFieldDecoration(
-                label: 'Exclusiones',
-                hintText: 'Casos no cubiertos por la garantía',
               ),
             ),
           ],
@@ -1135,10 +1320,10 @@ class _DocumentFlowDetailScreenState
             previewTitle: selectedPreviewTitle,
             onPreview: isInvoiceSelected
                 ? () => _openGeneratedInvoicePreview(flow, companySettings)
-                : null,
+                : () => _openGeneratedWarrantyPreview(flow, companySettings),
             onDownload: isInvoiceSelected
                 ? () => _downloadGeneratedInvoicePdf(flow, companySettings)
-                : null,
+                : () => _downloadGeneratedWarrantyPdf(flow, companySettings),
           ),
         ],
       ),
@@ -1208,25 +1393,28 @@ class _SummaryCard extends StatelessWidget {
     return Card(
       clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Expanded(
-                  child: Text(
-                    flow.order.client.nombre,
-                    style: Theme.of(context).textTheme.titleLarge,
+                Text(
+                  flow.order.client.nombre,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
                 _StatusChip(status: flow.status),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: 6,
+              runSpacing: 6,
               children: [
                 _SummaryInfoTag(
                   icon: Icons.tag_outlined,
@@ -1255,7 +1443,7 @@ class _SummaryCard extends StatelessWidget {
               ],
             ),
             if ((flow.order.client.direccion ?? '').trim().isNotEmpty) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Text(
                 'Dirección: ${flow.order.client.direccion}',
                 style: Theme.of(context).textTheme.bodySmall,
@@ -1291,10 +1479,10 @@ class _InvoicePreviewHeader extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         border: Border.all(color: scheme.outlineVariant),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         color: scheme.surface,
       ),
       child: Column(
@@ -1303,7 +1491,7 @@ class _InvoicePreviewHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _CompanyLogo(companySettings: company),
-              const SizedBox(width: 14),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1323,7 +1511,7 @@ class _InvoicePreviewHeader extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1341,9 +1529,9 @@ class _InvoicePreviewHeader extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          Divider(color: scheme.outlineVariant),
           const SizedBox(height: 10),
+          Divider(color: scheme.outlineVariant),
+          const SizedBox(height: 8),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1363,7 +1551,7 @@ class _InvoicePreviewHeader extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1408,11 +1596,11 @@ class _CompanyLogo extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
 
     return Container(
-      width: 68,
-      height: 68,
+      width: 56,
+      height: 56,
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
       ),
       clipBehavior: Clip.antiAlias,
       child: bytes != null
@@ -1466,10 +1654,10 @@ class _SectionCard extends StatelessWidget {
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
           initiallyExpanded: initiallyExpanded,
-          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
           leading: Icon(icon),
-          title: Text(title, style: Theme.of(context).textTheme.titleMedium),
+          title: Text(title, style: Theme.of(context).textTheme.titleSmall),
           subtitle: Text(subtitle),
           children: [child],
         ),
@@ -1502,10 +1690,10 @@ class _SectionOptionCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
           color: selected ? scheme.primaryContainer : scheme.surface,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: selected ? scheme.primary : scheme.outlineVariant,
             width: selected ? 1.4 : 1,
@@ -1514,8 +1702,8 @@ class _SectionOptionCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon),
-            const SizedBox(width: 10),
+            Icon(icon, size: 18),
+            const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1566,14 +1754,18 @@ class _StatusChip extends StatelessWidget {
     };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         status.label,
-        style: TextStyle(color: foreground, fontWeight: FontWeight.w600),
+        style: TextStyle(
+          color: foreground,
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
+        ),
       ),
     );
   }
@@ -1638,7 +1830,7 @@ class _BottomActionBar extends StatelessWidget {
     return SafeArea(
       top: false,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
         decoration: BoxDecoration(
           color: Theme.of(context).scaffoldBackgroundColor,
           border: Border(
@@ -1653,8 +1845,8 @@ class _BottomActionBar extends StatelessWidget {
                 selectedSection == _DocumentEditorSection.invoice;
             final compact = constraints.maxWidth < 980;
             final actions = Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: 6,
+              runSpacing: 6,
               alignment: WrapAlignment.end,
               children: [
                 FilledButton.icon(
@@ -1690,7 +1882,7 @@ class _BottomActionBar extends StatelessWidget {
                 children: [
                   if (totalsPanel != null) ...[
                     totalsPanel,
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                   ],
                   Align(alignment: Alignment.centerRight, child: actions),
                 ],
@@ -1701,7 +1893,7 @@ class _BottomActionBar extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Expanded(child: totalsPanel),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 actions,
               ],
             );
@@ -1737,10 +1929,10 @@ class _InvoiceItemEditorCard extends StatelessWidget {
         final compact = constraints.maxWidth < 720;
         if (compact) {
           return Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               border: Border.all(color: outline),
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: Column(
               children: [
@@ -1748,7 +1940,7 @@ class _InvoiceItemEditorCard extends StatelessWidget {
                   controller: editor.descriptionController,
                   decoration: descriptionDecoration,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Row(
                   children: [
                     Expanded(
@@ -1761,7 +1953,7 @@ class _InvoiceItemEditorCard extends StatelessWidget {
                         decoration: qtyDecoration,
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: TextField(
                         controller: editor.unitPriceController,
@@ -1774,7 +1966,7 @@ class _InvoiceItemEditorCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Row(
                   children: [
                     Expanded(
@@ -1786,7 +1978,7 @@ class _InvoiceItemEditorCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     IconButton(
                       onPressed: canRemove ? onRemove : null,
                       icon: const Icon(Icons.delete_outline),
@@ -1799,10 +1991,10 @@ class _InvoiceItemEditorCard extends StatelessWidget {
         }
 
         return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
           decoration: BoxDecoration(
             border: Border.all(color: outline),
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
             children: [
@@ -1813,9 +2005,9 @@ class _InvoiceItemEditorCard extends StatelessWidget {
                   decoration: descriptionDecoration,
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               SizedBox(
-                width: 72,
+                width: 68,
                 child: TextField(
                   controller: editor.qtyController,
                   keyboardType: const TextInputType.numberWithOptions(
@@ -1825,9 +2017,9 @@ class _InvoiceItemEditorCard extends StatelessWidget {
                   decoration: qtyDecoration,
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               SizedBox(
-                width: 92,
+                width: 88,
                 child: TextField(
                   controller: editor.unitPriceController,
                   keyboardType: const TextInputType.numberWithOptions(
@@ -1837,9 +2029,9 @@ class _InvoiceItemEditorCard extends StatelessWidget {
                   decoration: priceDecoration,
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               SizedBox(
-                width: 108,
+                width: 98,
                 child: InputDecorator(
                   decoration: amountDecoration,
                   child: Text(
@@ -1848,7 +2040,7 @@ class _InvoiceItemEditorCard extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 4),
               IconButton(
                 onPressed: canRemove ? onRemove : null,
                 icon: const Icon(Icons.delete_outline),
@@ -1870,6 +2062,7 @@ class _WarrantyFormData {
     required this.coverage,
     required this.conditions,
     required this.exclusions,
+    required this.warrantyItems,
   });
 
   final String title;
@@ -1879,14 +2072,18 @@ class _WarrantyFormData {
   final String coverage;
   final String conditions;
   final String exclusions;
+  final List<_WarrantyItemValue> warrantyItems;
 
   factory _WarrantyFormData.fromFlow(OrderDocumentFlowModel flow) {
     final draft = flow.warrantyDraft;
     String serviceWarrantyDuration = '3 meses';
     String productWarrantyDuration = '6 meses';
-    String conditions = '';
-    String exclusions = '';
+    String coverage = draft.summary.trim().isEmpty
+        ? _defaultWarrantyCoverage(flow.order.serviceType, flow.order.category)
+        : draft.summary.trim();
+    final warrantyItems = <_WarrantyItemValue>[];
     final extraConditions = <String>[];
+    final extraExclusions = <String>[];
 
     for (final term in draft.terms) {
       final value = term.trim();
@@ -1906,20 +2103,27 @@ class _WarrantyFormData {
         continue;
       }
       if (value.toLowerCase().startsWith('condiciones:')) {
-        conditions = value.split(':').skip(1).join(':').trim();
+        extraConditions.add(value.split(':').skip(1).join(':').trim());
         continue;
       }
       if (value.toLowerCase().startsWith('exclusiones:')) {
-        exclusions = value.split(':').skip(1).join(':').trim();
+        extraExclusions.add(value.split(':').skip(1).join(':').trim());
+        continue;
+      }
+      final parsedItem = _WarrantyItemValue.tryParse(value);
+      if (parsedItem != null) {
+        warrantyItems.add(parsedItem);
         continue;
       }
       extraConditions.add(value);
     }
 
-    final mergedConditions = [
-      if (conditions.isNotEmpty) conditions,
-      ...extraConditions,
-    ].join('\n');
+    final mergedConditions = extraConditions
+        .where((item) => item.isNotEmpty)
+        .join('\n');
+    final mergedExclusions = extraExclusions
+        .where((item) => item.isNotEmpty)
+        .join('\n');
 
     return _WarrantyFormData(
       title: draft.title.trim().isEmpty
@@ -1934,9 +2138,26 @@ class _WarrantyFormData {
       productWarrantyDuration: productWarrantyDuration.isEmpty
           ? '6 meses'
           : productWarrantyDuration,
-      coverage: draft.summary,
-      conditions: mergedConditions,
-      exclusions: exclusions,
+      coverage: coverage,
+      conditions: mergedConditions.isEmpty
+          ? _defaultWarrantyConditionsText()
+          : mergedConditions,
+      exclusions: mergedExclusions.isEmpty
+          ? _defaultWarrantyExclusionsText()
+          : mergedExclusions,
+      warrantyItems: warrantyItems.isNotEmpty
+          ? warrantyItems
+          : flow.invoiceDraft.items
+                .where((item) => item.description.trim().isNotEmpty)
+                .map(
+                  (item) => _WarrantyItemValue(
+                    product: item.description.trim(),
+                    duration: productWarrantyDuration.isEmpty
+                        ? '6 meses'
+                        : productWarrantyDuration,
+                  ),
+                )
+                .toList(growable: false),
     );
   }
 
@@ -1956,7 +2177,254 @@ class _WarrantyFormData {
           .map((item) => item.trim())
           .where((item) => item.isNotEmpty)
           .map((item) => 'Exclusiones: $item'),
+      ...warrantyItems
+          .where((item) => item.product.trim().isNotEmpty)
+          .map((item) => item.toTerm()),
     ];
+  }
+
+  List<String> get policyLines =>
+      _buildWarrantyPolicyLines(conditions, exclusions);
+}
+
+List<String> _buildWarrantyPolicyLines(String conditions, String exclusions) {
+  return [
+    ...conditions
+        .split('\n')
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty),
+    ...exclusions
+        .split('\n')
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .map((item) => 'No cubre: $item'),
+  ];
+}
+
+String _defaultWarrantyCoverage(String serviceType, String category) {
+  final cleanService = serviceType.trim().isEmpty
+      ? 'servicio realizado'
+      : serviceType.trim();
+  final cleanCategory = category.trim().isEmpty
+      ? 'categoría correspondiente'
+      : category.trim();
+  return 'Garantia correspondiente al servicio de $cleanService en la categoria $cleanCategory. El alcance exacto se detalla en la tabla inferior, donde se especifica cada producto o servicio cubierto y el tiempo de garantia aplicable.';
+}
+
+String _defaultWarrantyConditionsText() {
+  return [
+    'La garantia aplica exclusivamente a fallas atribuibles al servicio realizado por FULLTECH o a defectos de instalacion verificados por nuestro personal tecnico autorizado.',
+    'Los siguientes productos tienen la garantia indicada en esta carta y solo dichos elementos quedan cubiertos dentro del plazo expresamente establecido.',
+    'Para validar la garantia el cliente debe presentar esta carta junto con la factura, cotizacion aprobada u otro comprobante comercial vinculado a la orden intervenida.',
+    'La empresa debe poder inspeccionar el equipo, instalacion o area de trabajo antes de autorizar reparacion, sustitucion o ajuste bajo garantia.',
+    'La cobertura solo procede despues de una evaluacion tecnica que determine que la incidencia reportada corresponde a una falla cubierta y no a una causal de exclusion.',
+    'Cuando la garantia sea procedente, la empresa podra corregir la falla mediante reparacion, ajuste, reemplazo parcial o solucion tecnica equivalente segun el caso.',
+  ].join('\n');
+}
+
+String _defaultWarrantyExclusionsText() {
+  return [
+    'Danos por alto voltaje, bajo voltaje, picos electricos, descargas atmosfericas, cortocircuitos, apagones o inestabilidad del suministro electrico.',
+    'Danos por golpes, maltrato, caidas, arrastre, vibraciones excesivas, humedad, inundacion, incendio, corrosion, salitre, suciedad extrema o exposicion ambiental inadecuada.',
+    'Averias provocadas por uso indebido, uso distinto al recomendado, negligencia, descuido, sobrecarga, falta de mantenimiento o manipulacion incorrecta.',
+    'Intervenciones, aperturas, reparaciones, modificaciones, instalaciones adicionales o diagnosticos realizados por terceros no autorizados por FULLTECH.',
+    'Danos ocasionados por conexiones defectuosas del cliente, instalaciones electricas deficientes, ausencia de proteccion electrica o condiciones estructurales fuera del alcance contratado.',
+    'Consumibles, accesorios, configuraciones adicionales, actualizaciones, ampliaciones o trabajos no incluidos de manera expresa en la orden original.',
+    'Desgaste normal por uso, deterioro estetico, perdida de rendimiento por antiguedad del equipo o fallas preexistentes no detectables al momento del servicio.',
+    'Danos derivados de accidente, robo, vandalismo, transporte inadecuado, animales, plagas, caso fortuito, fuerza mayor o hechos imputables al cliente o a terceros.',
+  ].join('\n');
+}
+
+List<_WarrantyItemEditor> _buildDefaultWarrantyEditors(
+  List<DocumentFlowInvoiceItem> items,
+  String defaultDuration,
+) {
+  final duration = defaultDuration.trim().isEmpty
+      ? '6 meses'
+      : defaultDuration.trim();
+  return items
+      .where((item) => item.description.trim().isNotEmpty)
+      .map(
+        (item) => _WarrantyItemEditor(
+          productController: TextEditingController(
+            text: item.description.trim(),
+          ),
+          durationController: TextEditingController(text: duration),
+        ),
+      )
+      .toList(growable: true);
+}
+
+class _WarrantyItemValue {
+  final String product;
+  final String duration;
+
+  const _WarrantyItemValue({required this.product, required this.duration});
+
+  String toTerm() =>
+      'Producto: ${product.trim()} || Garantia: ${duration.trim()}';
+
+  static _WarrantyItemValue? tryParse(String raw) {
+    final normalized = raw.trim();
+    if (!normalized.toLowerCase().startsWith('producto:')) {
+      return null;
+    }
+    final parts = normalized.split('||');
+    if (parts.isEmpty) return null;
+    final product = parts.first.split(':').skip(1).join(':').trim();
+    var duration = '';
+    if (parts.length > 1) {
+      duration = parts[1].split(':').skip(1).join(':').trim();
+    }
+    return _WarrantyItemValue(product: product, duration: duration);
+  }
+}
+
+class _WarrantyItemEditor {
+  _WarrantyItemEditor({
+    required this.productController,
+    required this.durationController,
+  });
+
+  factory _WarrantyItemEditor.fromValue(_WarrantyItemValue value) {
+    return _WarrantyItemEditor(
+      productController: TextEditingController(text: value.product),
+      durationController: TextEditingController(text: value.duration),
+    );
+  }
+
+  factory _WarrantyItemEditor.empty({String duration = '6 meses'}) {
+    return _WarrantyItemEditor(
+      productController: TextEditingController(),
+      durationController: TextEditingController(text: duration),
+    );
+  }
+
+  final TextEditingController productController;
+  final TextEditingController durationController;
+
+  _WarrantyItemValue toValue() {
+    return _WarrantyItemValue(
+      product: productController.text.trim(),
+      duration: durationController.text.trim(),
+    );
+  }
+
+  DocumentFlowWarrantyPdfItem toPdfItem() {
+    return DocumentFlowWarrantyPdfItem(
+      product: productController.text.trim(),
+      duration: durationController.text.trim(),
+    );
+  }
+
+  void dispose() {
+    productController.dispose();
+    durationController.dispose();
+  }
+
+  void addListener(VoidCallback listener) {
+    productController.addListener(listener);
+    durationController.addListener(listener);
+  }
+
+  void removeListener(VoidCallback listener) {
+    productController.removeListener(listener);
+    durationController.removeListener(listener);
+  }
+}
+
+class _WarrantyItemEditorCard extends StatelessWidget {
+  const _WarrantyItemEditorCard({
+    required this.editor,
+    required this.canRemove,
+    required this.onRemove,
+  });
+
+  final _WarrantyItemEditor editor;
+  final bool canRemove;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final outline = Theme.of(context).colorScheme.outlineVariant;
+    final productDecoration = _compactFieldDecoration(
+      label: 'Producto o elemento garantizado',
+    );
+    final durationDecoration = _compactFieldDecoration(
+      label: 'Tiempo de garantía',
+      hintText: '6 meses',
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 720;
+        if (compact) {
+          return Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              border: Border.all(color: outline),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              children: [
+                TextField(
+                  controller: editor.productController,
+                  decoration: productDecoration,
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: editor.durationController,
+                        decoration: durationDecoration,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      onPressed: canRemove ? onRemove : null,
+                      icon: const Icon(Icons.delete_outline),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          decoration: BoxDecoration(
+            border: Border.all(color: outline),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                flex: 5,
+                child: TextField(
+                  controller: editor.productController,
+                  decoration: productDecoration,
+                ),
+              ),
+              const SizedBox(width: 6),
+              SizedBox(
+                width: 132,
+                child: TextField(
+                  controller: editor.durationController,
+                  decoration: durationDecoration,
+                ),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                onPressed: canRemove ? onRemove : null,
+                icon: const Icon(Icons.delete_outline),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -2035,7 +2503,7 @@ class _SummaryInfoTag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: color,
         borderRadius: BorderRadius.circular(999),
@@ -2043,8 +2511,8 @@ class _SummaryInfoTag extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16),
-          const SizedBox(width: 6),
+          Icon(icon, size: 14),
+          const SizedBox(width: 5),
           Text('$label: $value', style: Theme.of(context).textTheme.bodySmall),
         ],
       ),
@@ -2069,15 +2537,15 @@ class _FooterTotalsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: scheme.outlineVariant),
       ),
       child: Wrap(
-        spacing: 12,
-        runSpacing: 8,
+        spacing: 8,
+        runSpacing: 6,
         children: [
           _InfoChip(
             icon: Icons.summarize_outlined,
@@ -2108,7 +2576,7 @@ InputDecoration _compactFieldDecoration({
     labelText: label,
     hintText: hintText,
     isDense: true,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
   );
 }

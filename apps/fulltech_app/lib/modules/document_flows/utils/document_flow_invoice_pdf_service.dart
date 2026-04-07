@@ -10,13 +10,11 @@ import '../document_flow_models.dart';
 
 final PdfColor _pageBackground = PdfColor.fromHex('#FFFFFF');
 final PdfColor _cardBackground = PdfColor.fromHex('#FFFFFF');
-final PdfColor _lineColor = PdfColor.fromHex('#E7ECF2');
+final PdfColor _lineColor = PdfColor.fromHex('#E5EAF1');
 final PdfColor _brandDark = PdfColor.fromHex('#243145');
 final PdfColor _brandGold = PdfColor.fromHex('#B78A3D');
-final PdfColor _brandNeutralSurface = PdfColor.fromHex('#F3F5F8');
-final PdfColor _brandNeutralSoft = PdfColor.fromHex('#FAFBFE');
 final PdfColor _textPrimary = PdfColor.fromHex('#1F2430');
-final PdfColor _textMuted = PdfColor.fromHex('#687385');
+final PdfColor _textMuted = PdfColor.fromHex('#6B7484');
 final PdfColor _tableAlt = PdfColor.fromHex('#FAFBFD');
 
 Future<Uint8List> buildDocumentFlowInvoicePdf({
@@ -29,13 +27,16 @@ Future<Uint8List> buildDocumentFlowInvoicePdf({
   required String notes,
   CompanySettings? company,
 }) async {
-  final symbol = _currencySymbol(currency);
-  final money = NumberFormat.currency(locale: 'es_DO', symbol: symbol);
+  final money = NumberFormat.currency(
+    locale: 'es_DO',
+    symbol: _currencySymbol(currency),
+  );
   final qtyFmt = NumberFormat('#,##0.##', 'es_DO');
   final dateFmt = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
   final invoiceNumber = _buildInvoiceNumber(flow.order.id);
-  final logoImage = _decodeLogo(company?.logoBase64);
   final companyName = _fallback(company?.companyName, fallback: 'FULLTECH');
+  final logoImage = _decodeLogo(company?.logoBase64);
+  final issueDate = _resolveIssueDate(flow, dateFmt);
   final clientName = _fallback(
     flow.invoiceDraft.clientName,
     fallback: flow.order.client.nombre,
@@ -44,251 +45,242 @@ Future<Uint8List> buildDocumentFlowInvoicePdf({
     flow.invoiceDraft.clientPhone,
     fallback: flow.order.client.telefono,
   );
-  final clientAddress = _firstNonEmpty([flow.order.client.direccion]);
+  final clientAddress = _clean(flow.order.client.direccion);
+  final orderCode = _shortCode(flow.order.id);
+  final quotationCode = _shortCodeOrEmpty(flow.order.quotationId ?? '');
+  final serviceType = _clean(flow.order.serviceType);
+  final category = _clean(flow.order.category);
+  final orderStatus = _clean(flow.order.status);
 
-  final doc = pw.Document(title: 'Factura de servicio', author: companyName);
+  final doc = pw.Document(title: 'Factura', author: companyName);
 
   doc.addPage(
-    pw.MultiPage(
+    pw.Page(
       pageTheme: pw.PageTheme(
         pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.fromLTRB(26, 26, 26, 22),
+        margin: const pw.EdgeInsets.fromLTRB(18, 18, 18, 16),
         buildBackground: (context) => pw.FullPage(
           ignoreMargins: true,
           child: pw.Container(color: _pageBackground),
         ),
       ),
-      footer: (context) => pw.Row(
-        children: [
-          pw.Text(
-            'Factura de servicio',
-            style: pw.TextStyle(fontSize: 8, color: _textMuted),
+      build: (context) => pw.FittedBox(
+        fit: pw.BoxFit.scaleDown,
+        alignment: pw.Alignment.topCenter,
+        child: pw.SizedBox(
+          width: 555,
+          child: pw.Container(
+            padding: const pw.EdgeInsets.all(12),
+            decoration: pw.BoxDecoration(
+              color: _cardBackground,
+              border: pw.Border.all(color: _lineColor),
+              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                _headerRow(
+                  companyName: companyName,
+                  logoImage: logoImage,
+                  rnc: _clean(company?.rnc),
+                  phone: _clean(company?.phone),
+                  address: _clean(company?.address),
+                  invoiceNumber: invoiceNumber,
+                  issueDate: issueDate,
+                  currency: currency,
+                  orderStatus: orderStatus,
+                ),
+                pw.SizedBox(height: 10),
+                pw.Container(height: 1, color: _lineColor),
+                pw.SizedBox(height: 10),
+                pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Expanded(
+                      child: _factsBlock(
+                        rows: [
+                          _FactRow('Cliente', clientName),
+                          _FactRow('Telefono', clientPhone),
+                          _FactRow('Direccion', clientAddress),
+                        ],
+                      ),
+                    ),
+                    pw.SizedBox(width: 10),
+                    pw.Expanded(
+                      child: _factsBlock(
+                        rows: [
+                          _FactRow('Orden', orderCode),
+                          _FactRow('Cotizacion', quotationCode),
+                          _FactRow('Servicio', serviceType),
+                          _FactRow('Categoria', category),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: 10),
+                _itemsTable(items, money, qtyFmt),
+                pw.SizedBox(height: 10),
+                _footerSection(
+                  notes: notes,
+                  money: money,
+                  subtotal: subtotal,
+                  tax: tax,
+                  total: total,
+                ),
+              ],
+            ),
           ),
-          pw.Spacer(),
-          pw.Text(
-            'Pagina ${context.pageNumber} de ${context.pagesCount}',
-            style: pw.TextStyle(fontSize: 8, color: _textMuted),
-          ),
-        ],
+        ),
       ),
-      build: (context) => [
-        _header(
-          flow: flow,
-          company: company,
-          companyName: companyName,
-          logoImage: logoImage,
-          invoiceNumber: invoiceNumber,
-          clientName: clientName,
-          clientPhone: clientPhone,
-          clientAddress: clientAddress,
-          currency: currency,
-          dateFmt: dateFmt,
-        ),
-        pw.SizedBox(height: 12),
-        _itemsCard(items, money, qtyFmt),
-        pw.SizedBox(height: 12),
-        _bottomSection(
-          notes: notes,
-          money: money,
-          subtotal: subtotal,
-          tax: tax,
-          total: total,
-        ),
-      ],
     ),
   );
 
   return doc.save();
 }
 
-pw.Widget _header({
-  required OrderDocumentFlowModel flow,
-  required CompanySettings? company,
+pw.Widget _headerRow({
   required String companyName,
   required pw.MemoryImage? logoImage,
+  required String rnc,
+  required String phone,
+  required String address,
   required String invoiceNumber,
-  required String clientName,
-  required String clientPhone,
-  required String clientAddress,
+  required String issueDate,
   required String currency,
-  required DateFormat dateFmt,
+  required String orderStatus,
 }) {
-  final rnc = _clean(company?.rnc);
-  final phone = _clean(company?.phone);
-  final address = _clean(company?.address);
-  final orderDate =
-      flow.order.finalizedAt ?? flow.order.updatedAt ?? flow.order.createdAt;
-  final orderCode = flow.order.id;
-  final quotationCode = (flow.order.quotationId ?? '').trim();
-  final category = _clean(flow.order.category);
-  final serviceType = _clean(flow.order.serviceType);
-  final orderStatus = _clean(flow.order.status);
-  final issueDate = orderDate != null
-      ? dateFmt.format(orderDate.toLocal())
-      : '';
+  return pw.Row(
+    crossAxisAlignment: pw.CrossAxisAlignment.center,
+    children: [
+      pw.Expanded(
+        flex: 6,
+        child: pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.center,
+          children: [
+            pw.Container(
+              width: 44,
+              height: 44,
+              padding: const pw.EdgeInsets.all(5),
+              decoration: pw.BoxDecoration(
+                color: _cardBackground,
+                border: pw.Border.all(color: _lineColor),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+              ),
+              child: logoImage != null
+                  ? pw.Image(logoImage, fit: pw.BoxFit.contain)
+                  : pw.Center(
+                      child: pw.Text(
+                        companyName.substring(0, 1).toUpperCase(),
+                        style: pw.TextStyle(
+                          fontSize: 16,
+                          fontWeight: pw.FontWeight.bold,
+                          color: _brandDark,
+                        ),
+                      ),
+                    ),
+            ),
+            pw.SizedBox(width: 10),
+            pw.Expanded(
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    companyName,
+                    style: pw.TextStyle(
+                      fontSize: 16,
+                      fontWeight: pw.FontWeight.bold,
+                      color: _brandDark,
+                    ),
+                  ),
+                  if (rnc.isNotEmpty)
+                    pw.Text(
+                      'RNC: $rnc',
+                      style: pw.TextStyle(fontSize: 8, color: _textMuted),
+                    ),
+                  if (phone.isNotEmpty)
+                    pw.Text(
+                      'Tel: $phone',
+                      style: pw.TextStyle(fontSize: 8, color: _textMuted),
+                    ),
+                  if (address.isNotEmpty)
+                    pw.Text(
+                      address,
+                      style: pw.TextStyle(fontSize: 7.8, color: _textMuted),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      pw.SizedBox(width: 10),
+      pw.Expanded(
+        flex: 5,
+        child: pw.Container(
+          padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: pw.BoxDecoration(
+            color: _cardBackground,
+            border: pw.Border.all(color: _lineColor),
+            borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+          ),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'FACTURA',
+                style: pw.TextStyle(
+                  fontSize: 8,
+                  fontWeight: pw.FontWeight.bold,
+                  color: _brandGold,
+                  letterSpacing: 0.6,
+                ),
+              ),
+              pw.SizedBox(height: 4),
+              pw.Text(
+                invoiceNumber,
+                style: pw.TextStyle(
+                  fontSize: 13,
+                  fontWeight: pw.FontWeight.bold,
+                  color: _brandDark,
+                ),
+              ),
+              pw.SizedBox(height: 5),
+              _inlineFactRow('Fecha', issueDate),
+              _inlineFactRow('Moneda', currency),
+              _inlineFactRow('Estado', orderStatus),
+            ],
+          ),
+        ),
+      ),
+    ],
+  );
+}
 
+pw.Widget _factsBlock({required List<_FactRow> rows}) {
+  final visibleRows = rows
+      .where((row) => row.value.trim().isNotEmpty)
+      .toList(growable: false);
   return pw.Container(
-    padding: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+    padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
     decoration: pw.BoxDecoration(
       color: _cardBackground,
-      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(14)),
       border: pw.Border.all(color: _lineColor),
+      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
     ),
     child: pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Row(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Expanded(
-              child: pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Container(
-                    width: 64,
-                    height: 64,
-                    padding: const pw.EdgeInsets.all(8),
-                    decoration: pw.BoxDecoration(
-                      color: _brandNeutralSurface,
-                      borderRadius: const pw.BorderRadius.all(
-                        pw.Radius.circular(12),
-                      ),
-                      border: pw.Border.all(color: _lineColor),
-                    ),
-                    child: logoImage != null
-                        ? pw.Image(logoImage, fit: pw.BoxFit.contain)
-                        : pw.Center(
-                            child: pw.Text(
-                              companyName.substring(0, 1).toUpperCase(),
-                              style: pw.TextStyle(
-                                fontSize: 22,
-                                fontWeight: pw.FontWeight.bold,
-                                color: _brandDark,
-                              ),
-                            ),
-                          ),
-                  ),
-                  pw.SizedBox(width: 14),
-                  pw.Expanded(
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        pw.Text(
-                          'FACTURA DE SERVICIO',
-                          style: pw.TextStyle(
-                            fontSize: 8.4,
-                            fontWeight: pw.FontWeight.bold,
-                            color: _brandGold,
-                            letterSpacing: 1.1,
-                          ),
-                        ),
-                        pw.SizedBox(height: 6),
-                        pw.Text(
-                          companyName,
-                          style: pw.TextStyle(
-                            fontSize: 18.5,
-                            fontWeight: pw.FontWeight.bold,
-                            color: _brandDark,
-                          ),
-                        ),
-                        pw.SizedBox(height: 4),
-                        if (rnc.isNotEmpty)
-                          pw.Text(
-                            'RNC: $rnc',
-                            style: pw.TextStyle(
-                              fontSize: 8.8,
-                              color: _textMuted,
-                            ),
-                          ),
-                        if (phone.isNotEmpty)
-                          pw.Text(
-                            'Tel: $phone',
-                            style: pw.TextStyle(
-                              fontSize: 8.8,
-                              color: _textMuted,
-                            ),
-                          ),
-                        if (address.isNotEmpty)
-                          pw.Text(
-                            address,
-                            style: pw.TextStyle(
-                              fontSize: 8.6,
-                              color: _textMuted,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            pw.SizedBox(width: 12),
-            pw.SizedBox(
-              width: 220,
-              child: _heroMetaPanel(
-                eyebrow: 'Factura final',
-                title: invoiceNumber,
-                accent: 'Documento oficial',
-                rows: [
-                  _InfoRow('Fecha de emision', issueDate),
-                  _InfoRow('Moneda', currency),
-                  _InfoRow('Estado', orderStatus),
-                ],
-              ),
-            ),
-          ],
-        ),
-        pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(vertical: 14),
-          child: pw.Container(height: 1, color: _lineColor),
-        ),
-        _infoGrid(
-          panels: [
-            _metaPanel(
-              title: 'Cliente',
-              rows: [
-                _InfoRow('Nombre', clientName),
-                _InfoRow('Telefono', clientPhone),
-                _InfoRow('Direccion', clientAddress),
-              ],
-            ),
-            _metaPanel(
-              title: 'Referencia operativa',
-              rows: [
-                _InfoRow('Orden de servicio', _shortCode(orderCode)),
-                _InfoRow('Cotizacion', _shortCodeOrEmpty(quotationCode)),
-                _InfoRow('Categoria', category),
-                _InfoRow('Servicio', serviceType),
-              ],
-            ),
-          ],
-        ),
-        pw.SizedBox(height: 14),
-        _executiveStrip(
-          entries: [
-            _StripEntry(
-              'Documento',
-              invoiceNumber,
-              issueDate.isEmpty ? currency : issueDate,
-            ),
-            _StripEntry(
-              'Cliente',
-              clientName,
-              _firstNonEmpty([clientPhone, clientAddress]),
-            ),
-            _StripEntry(
-              'Orden',
-              _shortCode(orderCode),
-              _firstNonEmpty([serviceType, category]),
-            ),
-          ],
-        ),
+        for (var index = 0; index < visibleRows.length; index++) ...[
+          if (index > 0) pw.SizedBox(height: 4),
+          _inlineFactRow(visibleRows[index].label, visibleRows[index].value),
+        ],
       ],
     ),
   );
 }
 
-pw.Widget _itemsCard(
+pw.Widget _itemsTable(
   List<DocumentFlowInvoiceItem> items,
   NumberFormat money,
   NumberFormat qtyFmt,
@@ -339,37 +331,31 @@ pw.Widget _itemsCard(
     }
   }
 
-  return _card(
-    child: pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        _sectionTitle('Detalle facturado'),
-        pw.SizedBox(height: 4),
-        pw.Text(
-          'Detalle economico de los conceptos aprobados para facturacion.',
-          style: pw.TextStyle(fontSize: 8.8, color: _textMuted),
-        ),
-        pw.SizedBox(height: 10),
-        pw.Table(
-          border: pw.TableBorder(
-            horizontalInside: pw.BorderSide(color: _lineColor, width: 0.35),
-            top: pw.BorderSide(color: _lineColor, width: 0.35),
-            bottom: pw.BorderSide(color: _lineColor, width: 0.35),
-          ),
-          columnWidths: {
-            0: const pw.FlexColumnWidth(4.9),
-            1: const pw.FlexColumnWidth(1.0),
-            2: const pw.FlexColumnWidth(1.6),
-            3: const pw.FlexColumnWidth(1.7),
-          },
-          children: rows,
-        ),
-      ],
+  return pw.Container(
+    padding: const pw.EdgeInsets.all(8),
+    decoration: pw.BoxDecoration(
+      color: _cardBackground,
+      border: pw.Border.all(color: _lineColor),
+      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+    ),
+    child: pw.Table(
+      border: pw.TableBorder(
+        horizontalInside: pw.BorderSide(color: _lineColor, width: 0.3),
+        top: pw.BorderSide(color: _lineColor, width: 0.3),
+        bottom: pw.BorderSide(color: _lineColor, width: 0.3),
+      ),
+      columnWidths: {
+        0: const pw.FlexColumnWidth(5.3),
+        1: const pw.FlexColumnWidth(0.8),
+        2: const pw.FlexColumnWidth(1.55),
+        3: const pw.FlexColumnWidth(1.6),
+      },
+      children: rows,
     ),
   );
 }
 
-pw.Widget _bottomSection({
+pw.Widget _footerSection({
   required String notes,
   required NumberFormat money,
   required double subtotal,
@@ -385,58 +371,71 @@ pw.Widget _bottomSection({
       pw.Expanded(
         child: cleanNotes.isEmpty
             ? pw.SizedBox()
-            : _notesCard(
+            : pw.Container(
+                padding: const pw.EdgeInsets.all(10),
+                decoration: pw.BoxDecoration(
+                  color: _cardBackground,
+                  border: pw.Border.all(color: _lineColor),
+                  borderRadius: const pw.BorderRadius.all(
+                    pw.Radius.circular(6),
+                  ),
+                ),
                 child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    _sectionTitle('Observaciones'),
-                    pw.SizedBox(height: 6),
+                    pw.Text(
+                      'Observaciones',
+                      style: pw.TextStyle(
+                        fontSize: 8,
+                        fontWeight: pw.FontWeight.bold,
+                        color: _textMuted,
+                      ),
+                    ),
+                    pw.SizedBox(height: 4),
                     pw.Text(
                       cleanNotes,
                       style: pw.TextStyle(
-                        fontSize: 9.6,
+                        fontSize: 8.2,
                         color: _textPrimary,
-                        lineSpacing: 2,
+                        lineSpacing: 1.5,
                       ),
                     ),
                   ],
                 ),
               ),
       ),
-      if (cleanNotes.isNotEmpty) pw.SizedBox(width: 12),
+      if (cleanNotes.isNotEmpty) pw.SizedBox(width: 10),
       pw.SizedBox(
-        width: 220,
-        child: _card(
+        width: 210,
+        child: pw.Container(
+          padding: const pw.EdgeInsets.all(10),
+          decoration: pw.BoxDecoration(
+            color: _cardBackground,
+            border: pw.Border.all(color: _lineColor),
+            borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+          ),
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              _sectionTitle('Totales'),
-              pw.SizedBox(height: 4),
-              pw.Text(
-                'Cierre economico del documento.',
-                style: pw.TextStyle(fontSize: 8.8, color: _textMuted),
-              ),
-              pw.SizedBox(height: 10),
               _totalLine('Subtotal', money.format(subtotal)),
               if (hasTax) _totalLine('Impuesto', money.format(tax)),
               pw.Padding(
-                padding: const pw.EdgeInsets.symmetric(vertical: 8),
+                padding: const pw.EdgeInsets.symmetric(vertical: 5),
                 child: pw.Container(height: 1, color: _lineColor),
               ),
               pw.Container(
                 padding: const pw.EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 10,
+                  horizontal: 8,
+                  vertical: 7,
                 ),
                 decoration: pw.BoxDecoration(
                   color: _brandDark,
                   borderRadius: const pw.BorderRadius.all(
-                    pw.Radius.circular(12),
+                    pw.Radius.circular(6),
                   ),
-                  border: pw.Border.all(color: _brandDark),
                 ),
                 child: _totalLine(
-                  'Total general',
+                  'Total',
                   money.format(total),
                   highlight: true,
                 ),
@@ -449,291 +448,44 @@ pw.Widget _bottomSection({
   );
 }
 
-pw.Widget _card({required pw.Widget child}) {
-  return pw.Container(
-    padding: const pw.EdgeInsets.all(14),
-    decoration: pw.BoxDecoration(
-      color: _cardBackground,
-      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(14)),
-      border: pw.Border.all(color: _lineColor),
-    ),
-    child: child,
-  );
-}
-
-pw.Widget _notesCard({required pw.Widget child}) {
-  return pw.Container(
-    padding: const pw.EdgeInsets.all(14),
-    decoration: pw.BoxDecoration(
-      color: _brandNeutralSoft,
-      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(14)),
-      border: pw.Border.all(color: _lineColor),
-    ),
-    child: child,
-  );
-}
-
-pw.Widget _sectionTitle(String title) {
-  return pw.Text(
-    title,
-    style: pw.TextStyle(
-      fontSize: 11.5,
-      fontWeight: pw.FontWeight.bold,
-      color: _brandDark,
-    ),
-  );
-}
-
-pw.Widget _metaPanel({required String title, required List<_InfoRow> rows}) {
-  final visibleRows = rows
-      .where((row) => row.value.trim().isNotEmpty)
-      .toList(growable: false);
-
-  if (visibleRows.isEmpty) {
+pw.Widget _inlineFactRow(String label, String value) {
+  final cleanValue = value.trim();
+  if (cleanValue.isEmpty) {
     return pw.SizedBox();
-  }
-
-  return pw.Container(
-    padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-    decoration: pw.BoxDecoration(
-      color: _brandNeutralSoft,
-      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(12)),
-      border: pw.Border.all(color: _lineColor),
-    ),
-    child: pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Text(
-          title.toUpperCase(),
-          style: pw.TextStyle(
-            fontSize: 8,
-            fontWeight: pw.FontWeight.bold,
-            color: _textMuted,
-          ),
-        ),
-        for (final row in visibleRows)
-          pw.Padding(
-            padding: const pw.EdgeInsets.only(top: 7),
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text(
-                  row.label,
-                  style: pw.TextStyle(fontSize: 7.8, color: _textMuted),
-                ),
-                pw.SizedBox(height: 2),
-                pw.Text(
-                  row.value,
-                  style: pw.TextStyle(
-                    fontSize: 9.5,
-                    fontWeight: pw.FontWeight.normal,
-                    color: _textPrimary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    ),
-  );
-}
-
-pw.Widget _heroMetaPanel({
-  required String eyebrow,
-  required String title,
-  required String accent,
-  required List<_InfoRow> rows,
-}) {
-  final visibleRows = rows
-      .where((row) => row.value.trim().isNotEmpty)
-      .toList(growable: false);
-
-  return pw.Container(
-    padding: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-    decoration: pw.BoxDecoration(
-      color: _cardBackground,
-      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(14)),
-      border: pw.Border.all(color: _lineColor),
-    ),
-    child: pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Row(
-          children: [
-            pw.Expanded(
-              child: pw.Text(
-                eyebrow.toUpperCase(),
-                style: pw.TextStyle(
-                  fontSize: 8,
-                  fontWeight: pw.FontWeight.bold,
-                  color: _textMuted,
-                ),
-              ),
-            ),
-            pw.Container(
-              padding: const pw.EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 4,
-              ),
-              decoration: pw.BoxDecoration(
-                color: _brandNeutralSurface,
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(10)),
-                border: pw.Border.all(color: _lineColor),
-              ),
-              child: pw.Text(
-                accent,
-                style: pw.TextStyle(
-                  fontSize: 7.5,
-                  fontWeight: pw.FontWeight.bold,
-                  color: _brandGold,
-                ),
-              ),
-            ),
-          ],
-        ),
-        pw.SizedBox(height: 10),
-        pw.Text(
-          title,
-          style: pw.TextStyle(
-            fontSize: 14,
-            fontWeight: pw.FontWeight.bold,
-            color: _brandDark,
-          ),
-        ),
-        if (visibleRows.isNotEmpty) ...[
-          pw.SizedBox(height: 10),
-          for (final row in visibleRows)
-            pw.Padding(
-              padding: const pw.EdgeInsets.only(top: 4),
-              child: pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Expanded(
-                    child: pw.Text(
-                      row.label,
-                      style: pw.TextStyle(fontSize: 8, color: _textMuted),
-                    ),
-                  ),
-                  pw.SizedBox(width: 8),
-                  pw.Flexible(
-                    child: pw.Text(
-                      row.value,
-                      textAlign: pw.TextAlign.right,
-                      style: pw.TextStyle(
-                        fontSize: 8.6,
-                        fontWeight: pw.FontWeight.bold,
-                        color: _brandDark,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ],
-    ),
-  );
-}
-
-pw.Widget _infoGrid({required List<pw.Widget> panels}) {
-  final visiblePanels = panels
-      .where((panel) => panel is! pw.SizedBox)
-      .toList(growable: false);
-  if (visiblePanels.isEmpty) {
-    return pw.SizedBox();
-  }
-  if (visiblePanels.length == 1) {
-    return visiblePanels.first;
   }
 
   return pw.Row(
     crossAxisAlignment: pw.CrossAxisAlignment.start,
     children: [
-      pw.Expanded(child: visiblePanels[0]),
-      pw.SizedBox(width: 12),
-      pw.Expanded(child: visiblePanels[1]),
-    ],
-  );
-}
-
-pw.Widget _executiveStrip({required List<_StripEntry> entries}) {
-  final visibleEntries = entries
-      .where(
-        (entry) =>
-            entry.value.trim().isNotEmpty || entry.detail.trim().isNotEmpty,
-      )
-      .toList(growable: false);
-  if (visibleEntries.isEmpty) {
-    return pw.SizedBox();
-  }
-
-  return pw.Container(
-    padding: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-    decoration: pw.BoxDecoration(
-      color: _brandNeutralSoft,
-      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(12)),
-      border: pw.Border.all(color: _lineColor),
-    ),
-    child: pw.Row(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        for (var index = 0; index < visibleEntries.length; index++) ...[
-          if (index > 0)
-            pw.Container(
-              width: 1,
-              height: 34,
-              margin: const pw.EdgeInsets.symmetric(horizontal: 12),
-              color: _lineColor,
-            ),
-          pw.Expanded(child: _executiveStripItem(visibleEntries[index])),
-        ],
-      ],
-    ),
-  );
-}
-
-pw.Widget _executiveStripItem(_StripEntry entry) {
-  return pw.Column(
-    crossAxisAlignment: pw.CrossAxisAlignment.start,
-    children: [
-      pw.Text(
-        entry.label.toUpperCase(),
-        style: pw.TextStyle(
-          fontSize: 7.6,
-          fontWeight: pw.FontWeight.bold,
-          color: _textMuted,
-        ),
-      ),
-      if (entry.value.trim().isNotEmpty) ...[
-        pw.SizedBox(height: 4),
-        pw.Text(
-          entry.value,
+      pw.SizedBox(
+        width: 54,
+        child: pw.Text(
+          label,
           style: pw.TextStyle(
-            fontSize: 10.2,
+            fontSize: 7.6,
             fontWeight: pw.FontWeight.bold,
-            color: _brandDark,
+            color: _textMuted,
           ),
         ),
-      ],
-      if (entry.detail.trim().isNotEmpty) ...[
-        pw.SizedBox(height: 2),
-        pw.Text(
-          entry.detail,
-          style: pw.TextStyle(fontSize: 8.3, color: _textMuted),
+      ),
+      pw.Expanded(
+        child: pw.Text(
+          cleanValue,
+          style: pw.TextStyle(fontSize: 8, color: _textPrimary),
         ),
-      ],
+      ),
     ],
   );
 }
 
 pw.Widget _headerCell(String text, {pw.TextAlign align = pw.TextAlign.left}) {
   return pw.Padding(
-    padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+    padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 6),
     child: pw.Text(
       text,
       textAlign: align,
       style: pw.TextStyle(
-        fontSize: 9.2,
+        fontSize: 8,
         fontWeight: pw.FontWeight.bold,
         color: PdfColors.white,
       ),
@@ -747,12 +499,12 @@ pw.Widget _bodyCell(
   bool bold = false,
 }) {
   return pw.Padding(
-    padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+    padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 5),
     child: pw.Text(
       text,
       textAlign: align,
       style: pw.TextStyle(
-        fontSize: 9,
+        fontSize: 7.9,
         fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
         color: _textPrimary,
       ),
@@ -767,22 +519,31 @@ pw.Widget _totalLine(String label, String value, {bool highlight = false}) {
         child: pw.Text(
           label,
           style: pw.TextStyle(
-            fontSize: highlight ? 10.6 : 9.6,
+            fontSize: highlight ? 9.2 : 8.2,
             fontWeight: highlight ? pw.FontWeight.bold : pw.FontWeight.normal,
-            color: highlight ? _brandDark : _textPrimary,
+            color: highlight ? PdfColors.white : _textPrimary,
           ),
         ),
       ),
       pw.Text(
         value,
         style: pw.TextStyle(
-          fontSize: highlight ? 11 : 9.8,
+          fontSize: highlight ? 9.6 : 8.4,
           fontWeight: highlight ? pw.FontWeight.bold : pw.FontWeight.normal,
           color: highlight ? PdfColors.white : _textPrimary,
         ),
       ),
     ],
   );
+}
+
+String _resolveIssueDate(OrderDocumentFlowModel flow, DateFormat dateFmt) {
+  final orderDate =
+      flow.order.finalizedAt ?? flow.order.updatedAt ?? flow.order.createdAt;
+  if (orderDate == null) {
+    return '';
+  }
+  return dateFmt.format(orderDate.toLocal());
 }
 
 String _currencySymbol(String currency) {
@@ -800,11 +561,14 @@ String _currencySymbol(String currency) {
 }
 
 String _buildInvoiceNumber(String orderId) {
-  return 'FACT-${orderId.replaceAll('-', '').substring(0, 8).toUpperCase()}';
+  final token = orderId.replaceAll('-', '').trim();
+  final shortToken = token.length > 8 ? token.substring(0, 8) : token;
+  return 'FACT-${shortToken.toUpperCase()}';
 }
 
 String _shortCode(String raw) {
   final normalized = raw.trim().replaceAll('-', '');
+  if (normalized.isEmpty) return '';
   if (normalized.length <= 8) return normalized.toUpperCase();
   return normalized.substring(0, 8).toUpperCase();
 }
@@ -822,29 +586,11 @@ String _fallback(String? value, {required String fallback}) {
 
 String _clean(String? value) => (value ?? '').trim();
 
-String _firstNonEmpty(List<String?> values) {
-  for (final value in values) {
-    final clean = (value ?? '').trim();
-    if (clean.isNotEmpty) {
-      return clean;
-    }
-  }
-  return '';
-}
-
-class _InfoRow {
+class _FactRow {
   final String label;
   final String value;
 
-  const _InfoRow(this.label, this.value);
-}
-
-class _StripEntry {
-  final String label;
-  final String value;
-  final String detail;
-
-  const _StripEntry(this.label, this.value, this.detail);
+  const _FactRow(this.label, this.value);
 }
 
 pw.MemoryImage? _decodeLogo(String? raw) {

@@ -120,6 +120,14 @@ class Env {
       return kIsWeb ? Uri.base.origin : _defaultAppBaseUrl;
     }
 
+    final host = parsed.host.trim().toLowerCase();
+    if (!kIsWeb && (host == 'localhost' || host == '127.0.0.1')) {
+      debugPrint(
+        'APP_BASE_URL points to localhost on non-web platform: $raw. Using default public URL.',
+      );
+      return _defaultAppBaseUrl;
+    }
+
     return raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
   }
 

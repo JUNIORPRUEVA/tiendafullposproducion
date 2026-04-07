@@ -8,8 +8,9 @@ import {
   type ServiceOrderType,
 } from '@prisma/client';
 import PDFDocument from 'pdfkit';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { EvolutionWhatsAppService } from '../notifications/evolution-whatsapp.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   SERVICE_ORDER_CATEGORY_FROM_DB,
@@ -94,7 +95,10 @@ type CompanyDocumentContext = {
 export class OrderDocumentFlowService {
   private readonly logger = new Logger(OrderDocumentFlowService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly evolutionWhatsApp: EvolutionWhatsAppService,
+  ) {}
 
   private readonly include = {
     order: {
@@ -200,11 +204,48 @@ export class OrderDocumentFlowService {
   async send(user: AuthUser, id: string) {
     this.assertAssistantOrAdmin(user);
     let flow = await this.findFlowById(id);
+    const customerPhone = this.toText(flow.order.client.telefono);
+    const customerName = this.toText(flow.order.client.nombre, 'Cliente');
+
+    if (!customerPhone) {
+      throw new BadRequestException('La orden no tiene un teléfono de cliente válido para WhatsApp.');
+    }
 
     if (!flow.invoiceFinalUrl || !flow.warrantyFinalUrl) {
       await this.generate(user, id);
       flow = await this.findFlowById(id);
     }
+
+    const invoiceFinalUrl = this.toText(flow.invoiceFinalUrl);
+    const warrantyFinalUrl = this.toText(flow.warrantyFinalUrl);
+    if (!invoiceFinalUrl || !warrantyFinalUrl) {
+      throw new BadRequestException('No fue posible generar la factura y la carta de garantía para enviar.');
+    }
+
+    const invoiceBytes = readFileSync(this.resolveUploadAbsolutePath(invoiceFinalUrl));
+    const warrantyBytes = readFileSync(this.resolveUploadAbsolutePath(warrantyFinalUrl));
+    const messageText = [
+      `Hola ${customerName},`,
+      'Gracias por su preferencia. Aqui esta su factura.',
+      'Debajo tambien le compartimos la carta de garantia correspondiente a su servicio.',
+    ].join('\n');
+
+    await this.evolutionWhatsApp.sendTextMessage({
+      toNumber: customerPhone,
+      message: messageText,
+    });
+    await this.evolutionWhatsApp.sendPdfDocument({
+      toNumber: customerPhone,
+      bytes: invoiceBytes,
+      fileName: this.buildDocumentFileName('factura', flow.order.id),
+      caption: 'Factura correspondiente a su servicio.',
+    });
+    await this.evolutionWhatsApp.sendPdfDocument({
+      toNumber: customerPhone,
+      bytes: warrantyBytes,
+      fileName: this.buildDocumentFileName('carta_garantia', flow.order.id),
+      caption: 'Carta de garantia correspondiente a su servicio.',
+    });
 
     const updated = await this.prisma.orderDocumentFlow.update({
       where: { id },
@@ -216,17 +257,15 @@ export class OrderDocumentFlowService {
     });
 
     const mapped = this.mapFlow(updated);
+    const normalizedPhone = this.evolutionWhatsApp.normalizeWhatsAppNumber(customerPhone);
+    this.logger.log(
+      `Document flow WhatsApp sent by user=${user.id} role=${user.role} to=${normalizedPhone || customerPhone} flow=${id}`,
+    );
     return {
       flow: mapped,
       whatsappPayload: {
-        toNumber: updated.order.client.telefono,
-        messageText: [
-          `Hola ${updated.order.client.nombre},`,
-          'Adjuntamos la factura y la garantía de su servicio.',
-          `Orden: ${updated.order.id}`,
-          `Factura: ${mapped.invoiceFinalUrl ?? 'No disponible'}`,
-          `Garantía: ${mapped.warrantyFinalUrl ?? 'No disponible'}`,
-        ].join('\n'),
+        toNumber: normalizedPhone || customerPhone,
+        messageText,
         attachments: [mapped.invoiceFinalUrl, mapped.warrantyFinalUrl].filter(
           (value): value is string => typeof value === 'string' && value.length > 0,
         ),
@@ -979,6 +1018,22 @@ export class OrderDocumentFlowService {
       : (volumeExists ? volumeDir : join(process.cwd(), 'uploads'));
     mkdirSync(dirname(join(uploadDir, relativePath)), { recursive: true });
     return join(uploadDir, relativePath);
+  }
+
+  private resolveUploadAbsolutePath(documentUrl: string) {
+    const normalized = this.toText(documentUrl)
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '');
+    const relativePath = normalized.startsWith('uploads/')
+      ? normalized.slice('uploads/'.length)
+      : normalized;
+    return this.buildAbsoluteUploadPath(relativePath);
+  }
+
+  private buildDocumentFileName(prefix: string, orderId: string) {
+    const normalizedOrderId = this.toText(orderId).replace(/[^a-zA-Z0-9_-]/g, '');
+    const suffix = normalizedOrderId.slice(0, 8) || 'documento';
+    return `${prefix}_${suffix}.pdf`;
   }
 
   private asObject(value: unknown) {

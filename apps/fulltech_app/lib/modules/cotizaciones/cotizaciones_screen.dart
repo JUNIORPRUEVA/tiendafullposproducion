@@ -1484,21 +1484,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   }
 
   String _buildAdminApprovalMessage(CotizacionModel cotizacion) {
-    final total = NumberFormat.currency(
-      locale: 'es_DO',
-      symbol: 'RD\$',
-    ).format(cotizacion.total);
-    final link = _buildQuotationReviewLink(cotizacion.id);
-
-    return 'Por favor verificar este presupuesto del cliente ${cotizacion.customerName}.\n'
-        'Cotización: ${cotizacion.id}\n'
-        'Total: $total\n'
-        'Abrir en la app: $link';
-  }
-
-  String _buildQuotationReviewLink(String quotationId) {
-    final baseUrl = Env.appBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
-    return '$baseUrl${Routes.cotizaciones}?quotationId=${Uri.encodeComponent(quotationId)}';
+    final sellerName = (cotizacion.createdByUserName ?? '').trim();
+    final safeSellerName = sellerName.isEmpty ? 'El vendedor' : sellerName;
+    return '$safeSellerName quiere que confirme esta cotización y que esté en orden.';
   }
 
   Future<void> _openPdfPreview() async {
