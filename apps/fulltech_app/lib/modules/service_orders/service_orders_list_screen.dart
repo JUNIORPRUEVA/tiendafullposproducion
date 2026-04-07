@@ -136,7 +136,7 @@ class _ServiceOrdersListScreenState
       usersById: state.usersById,
       userIdSelector: (order) => order.assignedToId,
     );
-    final contentMaxWidth = isDesktop ? 1240.0 : double.infinity;
+    final contentMaxWidth = isDesktop ? 1120.0 : double.infinity;
     final gpsReadyCount = visibleOrders.where((order) {
       final client = order.client ?? state.clientsById[order.clientId];
       final preview = parseClientLocationPreview(client?.locationUrl);
@@ -2369,200 +2369,71 @@ class _DesktopOperationsOverviewPanel extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final now = DateTime.now();
-    final dateLabel = DateFormat('EEEE d MMMM · h:mm a', 'es_DO').format(now);
+    final dateLabel = DateFormat('EEE d MMM · h:mm a', 'es_DO').format(now);
 
-    return Container(
+    return DecoratedBox(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            colorScheme.primary.withValues(alpha: 0.10),
-            colorScheme.surface,
-            const Color(0xFFEEF6F3),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(28),
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.85),
+          color: colorScheme.outlineVariant.withValues(alpha: 0.8),
         ),
         boxShadow: [
           BoxShadow(
-            color: colorScheme.shadow.withValues(alpha: 0.05),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
+            color: colorScheme.shadow.withValues(alpha: 0.025),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
-            Expanded(
-              flex: 3,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Operaciones',
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Vista de escritorio optimizada para revisar carga operativa, filtros activos y contexto logístico en un solo panel.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      height: 1.35,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _PanelMetaPill(
-                        icon: Icons.tune_rounded,
-                        text: filter.summaryLabel,
-                        accent: colorScheme.primary,
-                      ),
-                      _PanelMetaPill(
-                        icon: Icons.calendar_month_rounded,
-                        text: _capitalize(dateLabel),
-                      ),
-                      if (refreshing)
-                        _PanelMetaPill(
-                          icon: Icons.sync_rounded,
-                          text: 'Sincronizando datos',
-                          accent: colorScheme.primary,
-                        ),
-                    ],
-                  ),
-                ],
-              ),
+            _PanelMetaPill(icon: Icons.dashboard_outlined, text: 'Resumen'),
+            _PanelMetaPill(
+              icon: Icons.tune_rounded,
+              text: filter.summaryLabel,
+              accent: colorScheme.primary,
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              flex: 4,
-              child: Wrap(
-                alignment: WrapAlignment.end,
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  _DesktopOperationsMetricCard(
-                    title: 'Órdenes visibles',
-                    value: '$activeCount',
-                    caption: 'Resultado actual del filtro',
-                    icon: Icons.layers_outlined,
-                    accent: colorScheme.primary,
-                  ),
-                  _DesktopOperationsMetricCard(
-                    title: 'Pendientes',
-                    value: '$pendingCount',
-                    caption: 'A la espera de ejecución',
-                    icon: Icons.pending_actions_rounded,
-                    accent: const Color(0xFFD97706),
-                  ),
-                  _DesktopOperationsMetricCard(
-                    title: 'En proceso',
-                    value: '$inProgressCount',
-                    caption: 'Trabajo en campo o curso',
-                    icon: Icons.construction_rounded,
-                    accent: const Color(0xFF0F6CBD),
-                  ),
-                  _DesktopOperationsMetricCard(
-                    title: 'GPS listo',
-                    value: '$gpsReadyCount',
-                    caption: 'Clientes con ubicación navegable',
-                    icon: Icons.location_on_outlined,
-                    accent: const Color(0xFF047857),
-                  ),
-                  _DesktopOperationsMetricCard(
-                    title: 'Agendadas',
-                    value: '$scheduledCount',
-                    caption: 'Con fecha programada',
-                    icon: Icons.event_available_rounded,
-                    accent: const Color(0xFF7C3AED),
-                  ),
-                ],
-              ),
+            _PanelMetaPill(
+              icon: Icons.calendar_month_rounded,
+              text: _capitalize(dateLabel),
             ),
+            _PanelMetaPill(
+              icon: Icons.layers_outlined,
+              text: '$activeCount activas',
+            ),
+            _PanelMetaPill(
+              icon: Icons.pending_actions_rounded,
+              text: '$pendingCount pendientes',
+              accent: const Color(0xFFD97706),
+            ),
+            _PanelMetaPill(
+              icon: Icons.construction_rounded,
+              text: '$inProgressCount en proceso',
+              accent: const Color(0xFF0F6CBD),
+            ),
+            _PanelMetaPill(
+              icon: Icons.location_on_outlined,
+              text: '$gpsReadyCount con GPS',
+              accent: const Color(0xFF047857),
+            ),
+            _PanelMetaPill(
+              icon: Icons.event_available_rounded,
+              text: '$scheduledCount agendadas',
+              accent: const Color(0xFF7C3AED),
+            ),
+            if (refreshing)
+              _PanelMetaPill(
+                icon: Icons.sync_rounded,
+                text: 'Sincronizando',
+                accent: colorScheme.primary,
+              ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _DesktopOperationsMetricCard extends StatelessWidget {
-  const _DesktopOperationsMetricCard({
-    required this.title,
-    required this.value,
-    required this.caption,
-    required this.icon,
-    required this.accent,
-  });
-
-  final String title;
-  final String value;
-  final String caption;
-  final IconData icon;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      width: 172,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: accent.withValues(alpha: 0.16)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: accent, size: 18),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            value,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w900,
-              color: accent,
-              height: 1,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            title,
-            style: theme.textTheme.labelLarge?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            caption,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              height: 1.25,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -2641,10 +2512,16 @@ class _ServiceOrderListCard extends StatelessWidget {
           ? '${locationPreview.latitude!.toStringAsFixed(5)}, ${locationPreview.longitude!.toStringAsFixed(5)}'
           : (locationUri != null ? 'Ubicación vinculada' : 'Sin GPS');
 
+      final filesLabel =
+          '${order.referenceItems.length} ref. · ${order.technicalEvidenceItems.length} evid.';
+      final creatorLabel = hasCreatorName
+          ? 'Creó $creatorDisplayName'
+          : 'Sin creador visible';
+
       return Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(18),
           onTap: onTap,
           child: Ink(
             decoration: BoxDecoration(
@@ -2653,169 +2530,147 @@ class _ServiceOrderListCard extends StatelessWidget {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              borderRadius: BorderRadius.circular(24),
+              borderRadius: BorderRadius.circular(18),
               border: Border.all(
                 color: theme.colorScheme.outlineVariant.withValues(alpha: 0.65),
               ),
               boxShadow: [
                 BoxShadow(
-                  color: theme.colorScheme.shadow.withValues(alpha: 0.045),
-                  blurRadius: 18,
-                  offset: const Offset(0, 8),
+                  color: theme.colorScheme.shadow.withValues(alpha: 0.03),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
                 ),
               ],
             ),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Container(
+                    width: 4,
+                    margin: const EdgeInsets.only(top: 1, right: 10),
+                    decoration: BoxDecoration(
+                      color: order.status.color.withValues(alpha: 0.9),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
                   Expanded(
-                    flex: 4,
+                    flex: 6,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
+                        Row(
                           children: [
-                            _PanelMetaPill(
-                              icon: Icons.tag_rounded,
-                              text: '#${_compactOrderId(order.id)}',
-                              accent: theme.colorScheme.primary,
+                            Expanded(
+                              child: Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: [
+                                  _PanelMetaPill(
+                                    icon: Icons.tag_rounded,
+                                    text: '#${_compactOrderId(order.id)}',
+                                    accent: theme.colorScheme.primary,
+                                  ),
+                                  _PanelMetaPill(
+                                    icon: Icons.calendar_today_outlined,
+                                    text: topLineText,
+                                  ),
+                                  if (isPriorityInstallation)
+                                    const _PriorityPill(),
+                                ],
+                              ),
                             ),
-                            _PanelMetaPill(
-                              icon: Icons.calendar_today_outlined,
-                              text: topLineText,
-                            ),
-                            if (isPriorityInstallation) const _PriorityPill(),
+                            const SizedBox(width: 8),
+                            _StatusBadge(status: order.status, compact: true),
                           ],
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 6),
                         Text(
                           clientDisplayName.isEmpty
                               ? 'Cliente sin nombre'
                               : clientDisplayName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleLarge?.copyWith(
+                          style: theme.textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.w900,
                             letterSpacing: -0.2,
                           ),
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          '${order.category.label} · ${order.serviceType.label}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                        const SizedBox(height: 3),
                         if (detailSummary != null) ...[
-                          const SizedBox(height: 12),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.surface.withValues(
-                                alpha: 0.92,
-                              ),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: theme.colorScheme.outlineVariant
-                                    .withValues(alpha: 0.7),
-                              ),
-                            ),
-                            child: Text(
-                              detailSummary,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                height: 1.35,
-                              ),
+                          Text(
+                            detailSummary,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                              height: 1.2,
                             ),
                           ),
+                          const SizedBox(height: 6),
                         ],
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
+                        Row(
                           children: [
-                            if (hasClientPhone)
-                              _DesktopInlineInfoChip(
-                                icon: Icons.phone_outlined,
-                                text: clientPhone,
+                            Expanded(
+                              child: _DesktopInfoBlock(
+                                icon: Icons.build_circle_outlined,
+                                label: 'Servicio',
+                                primary:
+                                    '${order.category.label} · ${order.serviceType.label}',
+                                secondary: scheduleLabel,
                               ),
-                            _DesktopInlineInfoChip(
-                              icon: Icons.person_outline_rounded,
-                              text: hasCreatorName
-                                  ? 'Creó $creatorDisplayName'
-                                  : 'Sin creador visible',
                             ),
-                            _DesktopInlineInfoChip(
-                              icon: Icons.engineering_outlined,
-                              text: assignedLabel,
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _DesktopInfoBlock(
+                                icon: Icons.location_on_outlined,
+                                label: 'Ubicación',
+                                primary: gpsLabel,
+                                secondary: filesLabel,
+                                accent: locationUri != null
+                                    ? const Color(0xFF047857)
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _DesktopInfoBlock(
+                                icon: Icons.engineering_outlined,
+                                label: 'Responsables',
+                                primary: assignedLabel,
+                                secondary: creatorLabel,
+                              ),
                             ),
                           ],
                         ),
+                        if (hasClientPhone) ...[
+                          const SizedBox(height: 6),
+                          _DesktopInlineInfoChip(
+                            icon: Icons.phone_outlined,
+                            text: clientPhone,
+                          ),
+                        ],
                       ],
                     ),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    flex: 3,
-                    child: Column(
-                      children: [
-                        _DesktopOrderInfoTile(
-                          icon: Icons.event_available_rounded,
-                          label: 'Agenda',
-                          value: scheduleLabel,
-                          accent: const Color(0xFF0F6CBD),
+                  const SizedBox(width: 10),
+                  Container(
+                    width: 124,
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface.withValues(alpha: 0.82),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: theme.colorScheme.outlineVariant.withValues(
+                          alpha: 0.65,
                         ),
-                        const SizedBox(height: 10),
-                        _DesktopOrderInfoTile(
-                          icon: Icons.location_on_outlined,
-                          label: 'GPS',
-                          value: gpsLabel,
-                          accent: locationUri != null
-                              ? const Color(0xFF047857)
-                              : theme.colorScheme.onSurfaceVariant,
-                          trailing: locationUri != null
-                              ? TextButton.icon(
-                                  onPressed: () =>
-                                      safeOpenUrl(context, locationUri),
-                                  icon: const Icon(
-                                    Icons.near_me_rounded,
-                                    size: 16,
-                                  ),
-                                  label: const Text('Abrir'),
-                                )
-                              : null,
-                        ),
-                        const SizedBox(height: 10),
-                        _DesktopOrderInfoTile(
-                          icon: Icons.collections_outlined,
-                          label: 'Archivos',
-                          value:
-                              '${order.referenceItems.length} referencias · ${order.technicalEvidenceItems.length} evidencias',
-                          accent: const Color(0xFF7C3AED),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  SizedBox(
-                    width: 220,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: _StatusBadge(status: order.status),
-                        ),
-                        const SizedBox(height: 10),
                         if (!isTechnician && onChangeStatus != null)
                           Align(
                             alignment: Alignment.centerLeft,
@@ -2826,18 +2681,31 @@ class _ServiceOrderListCard extends StatelessWidget {
                             ),
                           ),
                         if (trailing != null && !isTechnician) ...[
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 6),
                           Align(
                             alignment: Alignment.centerLeft,
-                            child: trailing!,
+                            child: IconTheme(
+                              data: IconThemeData(
+                                size: 18,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                              child: trailing!,
+                            ),
                           ),
                         ],
                         if (onCreateNewOrder != null) ...[
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 6),
                           FilledButton.tonalIcon(
                             onPressed: creatingNewOrder
                                 ? null
                                 : onCreateNewOrder,
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 7,
+                              ),
+                              minimumSize: const Size.fromHeight(32),
+                            ),
                             icon: creatingNewOrder
                                 ? const SizedBox(
                                     width: 14,
@@ -2847,39 +2715,39 @@ class _ServiceOrderListCard extends StatelessWidget {
                                     ),
                                   )
                                 : const Icon(Icons.add_rounded, size: 16),
-                            label: const Text('Nueva orden'),
+                            label: const Text('Nueva'),
                           ),
                         ],
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 6),
                         Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
+                          spacing: 6,
+                          runSpacing: 6,
                           children: [
                             if (callUri != null)
                               _ContactIconButton(
                                 icon: Icons.call_outlined,
                                 tooltip: 'Llamar cliente',
                                 onTap: () => safeOpenUrl(context, callUri),
-                                size: 42,
+                                size: 36,
                               ),
                             if (whatsappUri != null)
                               _ContactIconButton(
                                 icon: Icons.chat_bubble_outline_rounded,
                                 tooltip: 'Escribir por WhatsApp',
                                 onTap: () => safeOpenUrl(context, whatsappUri),
-                                size: 42,
+                                size: 36,
                               ),
                             if (locationUri != null)
                               _ContactIconButton(
                                 icon: Icons.location_searching_rounded,
                                 tooltip: 'Abrir GPS',
                                 onTap: () => safeOpenUrl(context, locationUri),
-                                size: 42,
+                                size: 36,
                               ),
                           ],
                         ),
                         if (isTechnician) ...[
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 8),
                           _TechnicianQuickActionButton(order: order),
                         ],
                       ],
@@ -3223,23 +3091,24 @@ class _DesktopInlineInfoChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface.withValues(alpha: 0.92),
+        color: theme.colorScheme.surfaceContainerLowest.withValues(alpha: 0.9),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.75),
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
         ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 15, color: theme.colorScheme.primary),
-          const SizedBox(width: 6),
+          Icon(icon, size: 13, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 5),
           Text(
             text,
-            style: theme.textTheme.labelMedium?.copyWith(
+            style: theme.textTheme.labelSmall?.copyWith(
               fontWeight: FontWeight.w700,
+              color: theme.colorScheme.onSurface,
             ),
           ),
         ],
@@ -3248,45 +3117,48 @@ class _DesktopInlineInfoChip extends StatelessWidget {
   }
 }
 
-class _DesktopOrderInfoTile extends StatelessWidget {
-  const _DesktopOrderInfoTile({
+class _DesktopInfoBlock extends StatelessWidget {
+  const _DesktopInfoBlock({
     required this.icon,
     required this.label,
-    required this.value,
-    required this.accent,
-    this.trailing,
+    required this.primary,
+    required this.secondary,
+    this.accent,
   });
 
   final IconData icon;
   final String label;
-  final String value;
-  final Color accent;
-  final Widget? trailing;
+  final String primary;
+  final String secondary;
+  final Color? accent;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final effectiveAccent = accent ?? theme.colorScheme.primary;
+
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface.withValues(alpha: 0.94),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: accent.withValues(alpha: 0.16)),
+        color: theme.colorScheme.surfaceContainerLowest.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.65),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 34,
-            height: 34,
+            width: 26,
+            height: 26,
             decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
+              color: effectiveAccent.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(9),
             ),
-            child: Icon(icon, size: 18, color: accent),
+            child: Icon(icon, size: 14, color: effectiveAccent),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -3294,25 +3166,37 @@ class _DesktopOrderInfoTile extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: theme.textTheme.labelMedium?.copyWith(
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelSmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 3),
                 Text(
-                  value,
-                  maxLines: 2,
+                  primary,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    height: 1.3,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  secondary,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontSize: 10.5,
+                    height: 1.1,
                   ),
                 ),
               ],
             ),
           ),
-          if (trailing != null) ...[const SizedBox(width: 8), trailing!],
         ],
       ),
     );
@@ -3325,7 +3209,7 @@ class _PriorityPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: const Color(0xFFD97706).withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
@@ -3337,7 +3221,7 @@ class _PriorityPill extends StatelessWidget {
         'Prioridad',
         style: TextStyle(
           color: Color(0xFFB45309),
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: FontWeight.w800,
           height: 1,
         ),
@@ -3372,17 +3256,20 @@ class _PanelMetaPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final effectiveAccent = accent ?? colorScheme.onSurfaceVariant;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
-        color: effectiveAccent.withValues(alpha: accent == null ? 0.06 : 0.1),
+        color: accent == null
+            ? colorScheme.surfaceContainerLowest
+            : effectiveAccent.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
           color: effectiveAccent.withValues(
-            alpha: accent == null ? 0.08 : 0.18,
+            alpha: accent == null ? 0.12 : 0.18,
           ),
         ),
       ),
@@ -3393,7 +3280,7 @@ class _PanelMetaPill extends StatelessWidget {
           const SizedBox(width: 5),
           Text(
             text,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            style: theme.textTheme.labelSmall?.copyWith(
               color: effectiveAccent,
               fontWeight: FontWeight.w700,
               height: 1,

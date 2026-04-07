@@ -477,6 +477,7 @@ export class CotizacionesService {
   ) {
     const customerPhone = dto.customerPhone.trim();
     const customerName = dto.customerName.trim();
+    const customMessage = (dto.messageText ?? '').trim();
     if (!customerPhone) {
       throw new BadRequestException('El teléfono del cliente es obligatorio.');
     }
@@ -487,7 +488,14 @@ export class CotizacionesService {
     const bytes = this.parsePdfBase64(dto.pdfBase64);
     const fileName = (dto.fileName ?? '').trim() || 'cotizacion.pdf';
     const normalizedPhone = this.evolutionWhatsApp.normalizeWhatsAppNumber(customerPhone);
-    const caption = await this.buildQuoteWhatsAppCaption(customerName);
+    const caption = customMessage ? '' : await this.buildQuoteWhatsAppCaption(customerName);
+
+    if (customMessage) {
+      await this.evolutionWhatsApp.sendTextMessage({
+        toNumber: customerPhone,
+        message: customMessage,
+      });
+    }
 
     await this.evolutionWhatsApp.sendPdfDocument({
       toNumber: customerPhone,

@@ -13,9 +13,9 @@ import '../cotizacion_models.dart';
 final PdfColor _pageBackground = PdfColor.fromHex('#FFFFFF');
 final PdfColor _cardBackground = PdfColor.fromHex('#FFFFFF');
 final PdfColor _lineColor = PdfColor.fromHex('#E7ECF2');
+final PdfColor _tableBorderColor = PdfColor.fromHex('#B9C2CF');
 final PdfColor _brandDark = PdfColor.fromHex('#243145');
 final PdfColor _brandBlue = PdfColor.fromHex('#2F67FF');
-final PdfColor _brandBlueSurface = PdfColor.fromHex('#EAF1FF');
 final PdfColor _brandBlueStrong = PdfColor.fromHex('#D9E6FF');
 final PdfColor _brandNeutralSoft = PdfColor.fromHex('#F8FAFC');
 final PdfColor _brandNeutralSurface = PdfColor.fromHex('#F3F5F8');
@@ -92,7 +92,7 @@ pw.Widget _pageHeader({
     cotizacion.customerPhone,
     fallback: 'No registrado',
   );
-    final taxLabel = cotizacion.includeItbis
+  final taxLabel = cotizacion.includeItbis
       ? '${(cotizacion.itbisRate * 100).toStringAsFixed(0)}% ITBIS'
       : '';
 
@@ -189,7 +189,11 @@ pw.Widget _pageHeader({
               width: 220,
               child: _metaPanel(
                 title: 'Cotizacion',
-                lines: [quoteCode, dateFmt.format(cotizacion.createdAt), taxLabel],
+                lines: [
+                  quoteCode,
+                  dateFmt.format(cotizacion.createdAt),
+                  taxLabel,
+                ],
               ),
             ),
           ],
@@ -262,7 +266,7 @@ pw.Widget _detailCard(
 ) {
   final rows = <pw.TableRow>[
     pw.TableRow(
-      decoration: pw.BoxDecoration(color: _brandBlueSurface),
+      decoration: const pw.BoxDecoration(color: PdfColors.black),
       children: [
         _headerCell('Descripcion'),
         _headerCell('Cant.', align: pw.TextAlign.center),
@@ -314,7 +318,7 @@ pw.Widget _detailCard(
         _sectionTitle('Detalle de ventas'),
         pw.SizedBox(height: 10),
         pw.Table(
-          border: pw.TableBorder.all(color: _lineColor, width: 0.35),
+          border: pw.TableBorder.all(color: _tableBorderColor, width: 0.45),
           columnWidths: {
             0: const pw.FlexColumnWidth(4.9),
             1: const pw.FlexColumnWidth(1.0),
@@ -376,7 +380,10 @@ pw.Widget _totalsCard(CotizacionModel cotizacion, NumberFormat money) {
             valueColor: PdfColor.fromHex('#B42318'),
           ),
         if (cotizacion.hasDiscount)
-          _totalLine('Subtotal con descuento', money.format(cotizacion.subtotal)),
+          _totalLine(
+            'Subtotal con descuento',
+            money.format(cotizacion.subtotal),
+          ),
         if (cotizacion.includeItbis)
           _totalLine('ITBIS', money.format(cotizacion.itbisAmount)),
         pw.Padding(
@@ -497,6 +504,10 @@ pw.Widget _metaPanel({
   required List<String> lines,
   bool alignRight = false,
 }) {
+  final visibleLines = lines
+      .where((line) => line.trim().isNotEmpty)
+      .toList(growable: false);
+
   return pw.Container(
     padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 10),
     decoration: pw.BoxDecoration(
@@ -505,8 +516,9 @@ pw.Widget _metaPanel({
       border: pw.Border.all(color: _lineColor, width: 0.4),
     ),
     child: pw.Column(
-      crossAxisAlignment:
-          alignRight ? pw.CrossAxisAlignment.end : pw.CrossAxisAlignment.start,
+      crossAxisAlignment: alignRight
+          ? pw.CrossAxisAlignment.end
+          : pw.CrossAxisAlignment.start,
       children: [
         pw.Text(
           title.toUpperCase(),
@@ -518,29 +530,47 @@ pw.Widget _metaPanel({
           ),
         ),
         pw.SizedBox(height: 5),
-        for (final line in lines.where((line) => line.trim().isNotEmpty))
+        for (var index = 0; index < visibleLines.length; index++)
           pw.Padding(
-            padding: const pw.EdgeInsets.only(bottom: 2),
-            child: pw.Text(
-              line,
-              textAlign: alignRight ? pw.TextAlign.right : pw.TextAlign.left,
-              style: pw.TextStyle(fontSize: 9.3, color: _textPrimary),
+            padding: pw.EdgeInsets.only(
+              bottom: index == visibleLines.length - 1 ? 0 : 6,
             ),
+            child: _paragraphLine(visibleLines[index], alignRight: alignRight),
           ),
       ],
     ),
   );
 }
 
+pw.Widget _paragraphLine(String text, {bool alignRight = false}) {
+  return pw.Container(
+    width: double.infinity,
+    padding: const pw.EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+    decoration: pw.BoxDecoration(
+      color: PdfColors.white,
+      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(7)),
+      border: pw.Border.all(color: _lineColor, width: 0.4),
+    ),
+    child: pw.Text(
+      text,
+      textAlign: alignRight ? pw.TextAlign.right : pw.TextAlign.left,
+      style: pw.TextStyle(fontSize: 9.3, color: _textPrimary),
+    ),
+  );
+}
+
 pw.Widget _headerCell(String text, {pw.TextAlign align = pw.TextAlign.left}) {
-  return pw.Padding(
+  return pw.Container(
     padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+    decoration: pw.BoxDecoration(
+      border: pw.Border.all(color: _tableBorderColor, width: 0.45),
+    ),
     child: pw.Text(
       text,
       textAlign: align,
       style: pw.TextStyle(
         fontSize: 8.8,
-        color: _brandDark,
+        color: PdfColors.white,
         fontWeight: pw.FontWeight.bold,
       ),
     ),
@@ -552,8 +582,11 @@ pw.Widget _bodyCell(
   pw.TextAlign align = pw.TextAlign.left,
   bool bold = false,
 }) {
-  return pw.Padding(
+  return pw.Container(
     padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+    decoration: pw.BoxDecoration(
+      border: pw.Border.all(color: _tableBorderColor, width: 0.35),
+    ),
     child: pw.Text(
       text,
       textAlign: align,
@@ -579,10 +612,7 @@ pw.Widget _totalLine(String label, String value, {PdfColor? valueColor}) {
         ),
         pw.Text(
           value,
-          style: pw.TextStyle(
-            fontSize: 9.2,
-            color: valueColor ?? _textPrimary,
-          ),
+          style: pw.TextStyle(fontSize: 9.2, color: valueColor ?? _textPrimary),
         ),
       ],
     ),

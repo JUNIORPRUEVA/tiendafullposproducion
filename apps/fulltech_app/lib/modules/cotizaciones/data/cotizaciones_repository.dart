@@ -352,6 +352,7 @@ class CotizacionesRepository {
     required String customerPhone,
     required List<int> pdfBytes,
     String? fileName,
+    String? messageText,
   }) async {
     try {
       await _dio.post(
@@ -362,6 +363,8 @@ class CotizacionesRepository {
           'pdfBase64': base64Encode(pdfBytes),
           if (fileName != null && fileName.trim().isNotEmpty)
             'fileName': fileName.trim(),
+          if (messageText != null && messageText.trim().isNotEmpty)
+            'messageText': messageText.trim(),
         },
       );
     } on DioException catch (e) {

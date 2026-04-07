@@ -16,4 +16,9 @@ export class SendCotizacionWhatsappDto {
   @IsString()
   @MaxLength(180)
   fileName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1500)
+  messageText?: string;
 }

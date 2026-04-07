@@ -996,7 +996,7 @@ class _FiscalInvoiceHistoryScreenState
 
     if (!mounted) return;
     ScaffoldMessenger.of(
-      this.context,
+      context,
     ).showSnackBar(SnackBar(content: Text(successMessage)));
   }
 

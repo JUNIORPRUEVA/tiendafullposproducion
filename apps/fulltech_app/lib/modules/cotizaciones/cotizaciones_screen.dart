@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 
+import '../../core/api/env.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/auth/app_role.dart';
 import '../../core/cache/fulltech_cache_manager.dart';
@@ -88,6 +89,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   bool _prefillFromRouteApplied = false;
   bool _routeObserverSubscribed = false;
   RouteObserver<ModalRoute<dynamic>>? _routeObserver;
+  String? _lastLoadedRouteQuotationId;
+  bool _loadingRouteQuotation = false;
   bool _remoteRefreshInFlight = false;
   DateTime? _lastSuccessfulRemoteSyncAt;
   DateTime? _lastAutoSyncAt;
@@ -137,6 +140,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _applyClientPrefillFromRoute();
+      unawaited(_applyQuotationPrefillFromRoute());
     });
   }
 
@@ -151,6 +155,10 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   void _applyInitialQuotation() {
     final quotation = widget.initialQuotation;
     if (quotation == null) return;
+    _applyQuotationToEditor(quotation);
+  }
+
+  void _applyQuotationToEditor(CotizacionModel quotation) {
     _items
       ..clear()
       ..addAll(quotation.items.map((item) => item.copyWith()));
@@ -273,6 +281,36 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
     if ((_selectedClientId ?? '').trim().isEmpty && phone.isNotEmpty) {
       _resolveClientIdByPhone(phone);
+    }
+  }
+
+  Future<void> _applyQuotationPrefillFromRoute() async {
+    if (_loadingRouteQuotation) return;
+
+    final qp = GoRouterState.of(context).uri.queryParameters;
+    final quotationId = (qp['quotationId'] ?? '').trim();
+    if (quotationId.isEmpty) return;
+    if ((_editingId ?? '').trim() == quotationId) return;
+    if (_lastLoadedRouteQuotationId == quotationId) return;
+
+    _loadingRouteQuotation = true;
+    try {
+      final repository = ref.read(cotizacionesRepositoryProvider);
+      final cached = await repository.getCachedById(quotationId);
+      final quotation = cached ?? await repository.getByIdAndCache(quotationId);
+      if (!mounted) return;
+
+      setState(() {
+        _applyQuotationToEditor(quotation);
+        _writeActiveDesktopDraft();
+      });
+      _schedulePersistEditorDraft();
+      _lastLoadedRouteQuotationId = quotationId;
+      unawaited(_syncQuotationAi(triggerAi: false));
+    } catch (_) {
+      _lastLoadedRouteQuotationId = quotationId;
+    } finally {
+      _loadingRouteQuotation = false;
     }
   }
 
@@ -1412,6 +1450,57 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         );
   }
 
+  Future<void> _sendCotizacionForAdminApproval({
+    required CotizacionModel cotizacion,
+    Uint8List? pdfBytes,
+  }) async {
+    final adminPhone = Env.quotationApprovalAdminPhone;
+    if (adminPhone.isEmpty) {
+      throw ApiException(
+        'Falta QUOTATION_APPROVAL_ADMIN_PHONE en la configuración de la app.',
+        null,
+      );
+    }
+
+    final company = await ref
+        .read(companySettingsRepositoryProvider)
+        .getSettings();
+    final bytes =
+        pdfBytes ??
+        await buildCotizacionPdf(cotizacion: cotizacion, company: company);
+    final dateFmt = DateFormat('yyyyMMdd_HHmm');
+    final fileName =
+        'cotizacion_${dateFmt.format(cotizacion.createdAt)}_${cotizacion.id.substring(0, 6)}.pdf';
+
+    await ref
+        .read(cotizacionesRepositoryProvider)
+        .sendWhatsAppQuotation(
+          customerName: cotizacion.customerName,
+          customerPhone: adminPhone,
+          pdfBytes: bytes,
+          fileName: fileName,
+          messageText: _buildAdminApprovalMessage(cotizacion),
+        );
+  }
+
+  String _buildAdminApprovalMessage(CotizacionModel cotizacion) {
+    final total = NumberFormat.currency(
+      locale: 'es_DO',
+      symbol: 'RD\$',
+    ).format(cotizacion.total);
+    final link = _buildQuotationReviewLink(cotizacion.id);
+
+    return 'Por favor verificar este presupuesto del cliente ${cotizacion.customerName}.\n'
+        'Cotización: ${cotizacion.id}\n'
+        'Total: $total\n'
+        'Abrir en la app: $link';
+  }
+
+  String _buildQuotationReviewLink(String quotationId) {
+    final baseUrl = Env.appBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    return '$baseUrl${Routes.cotizaciones}?quotationId=${Uri.encodeComponent(quotationId)}';
+  }
+
   Future<void> _openPdfPreview() async {
     if (_items.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1437,12 +1526,16 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       context: context,
       builder: (context) {
         var sendingWhatsApp = false;
+        var sendingAdminApproval = false;
         final media = MediaQuery.sizeOf(context);
         final compact = media.width < 560;
         return StatefulBuilder(
           builder: (context, setDialogState) {
             final phone = (cotizacion.customerPhone ?? '').trim();
             final canSend = phone.isNotEmpty && !sendingWhatsApp;
+            final adminPhone = Env.quotationApprovalAdminPhone.trim();
+            final canSendAdmin =
+                adminPhone.isNotEmpty && !sendingAdminApproval;
 
             Future<void> sendWhatsApp() async {
               setDialogState(() => sendingWhatsApp = true);
@@ -1479,6 +1572,45 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
               } finally {
                 if (context.mounted) {
                   setDialogState(() => sendingWhatsApp = false);
+                }
+              }
+            }
+
+            Future<void> sendAdminApproval() async {
+              setDialogState(() => sendingAdminApproval = true);
+              try {
+                await _sendCotizacionForAdminApproval(
+                  cotizacion: cotizacion,
+                  pdfBytes: bytes,
+                ).timeout(const Duration(seconds: 25));
+                if (!scaffoldContext.mounted) return;
+                ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
+                  const SnackBar(
+                    content: Text('Cotización enviada al administrador.'),
+                  ),
+                );
+              } on TimeoutException {
+                if (!scaffoldContext.mounted) return;
+                ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Tiempo de espera agotado enviando al administrador.',
+                    ),
+                  ),
+                );
+              } on ApiException catch (e) {
+                if (!scaffoldContext.mounted) return;
+                ScaffoldMessenger.maybeOf(
+                  scaffoldContext,
+                )?.showSnackBar(SnackBar(content: Text(e.message)));
+              } catch (e) {
+                if (!scaffoldContext.mounted) return;
+                ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
+                  SnackBar(content: Text('No se pudo enviar al admin: $e')),
+                );
+              } finally {
+                if (context.mounted) {
+                  setDialogState(() => sendingAdminApproval = false);
                 }
               }
             }
@@ -1525,6 +1657,24 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                               compact
                                   ? 'WhatsApp'
                                   : 'Enviar cotización vía WhatsApp',
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          TextButton.icon(
+                            onPressed: canSendAdmin ? sendAdminApproval : null,
+                            icon: sendingAdminApproval
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.verified_user_outlined),
+                            label: Text(
+                              compact
+                                  ? 'A admin'
+                                  : 'Enviar a admin',
                             ),
                           ),
                           const SizedBox(width: 6),

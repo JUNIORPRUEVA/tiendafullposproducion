@@ -16,6 +16,7 @@ import '../cotizaciones/cotizaciones_screen.dart';
 import '../cotizaciones/data/cotizaciones_repository.dart';
 import 'data/document_flows_repository.dart';
 import 'document_flow_models.dart';
+import 'utils/document_flow_invoice_pdf_service.dart';
 
 class DocumentFlowDetailScreen extends ConsumerStatefulWidget {
   const DocumentFlowDetailScreen({super.key, required this.orderId});
@@ -327,6 +328,52 @@ class _DocumentFlowDetailScreenState
     }
   }
 
+  Future<Uint8List> _buildInvoicePdfBytes(
+    OrderDocumentFlowModel flow,
+    CompanySettings? companySettings,
+  ) {
+    final subtotal = _draftSubtotal;
+    final tax = _taxController.text.trim().isEmpty
+        ? flow.invoiceDraft.tax
+        : _draftTax;
+    final total = subtotal + tax;
+    final currency = _currencyController.text.trim().isEmpty
+        ? flow.invoiceDraft.currency
+        : _currencyController.text.trim();
+
+    return buildDocumentFlowInvoicePdf(
+      flow: flow,
+      company: companySettings,
+      currency: currency,
+      items: _draftItems,
+      tax: tax,
+      subtotal: subtotal,
+      total: total,
+      notes: _notesController.text.trim(),
+    );
+  }
+
+  Future<void> _openGeneratedInvoicePreview(
+    OrderDocumentFlowModel flow,
+    CompanySettings? companySettings,
+  ) async {
+    setState(() {
+      _saving = true;
+    });
+
+    try {
+      final bytes = await _buildInvoicePdfBytes(flow, companySettings);
+      if (!mounted) return;
+      await _showPdfDialog('Factura final', bytes);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
+    }
+  }
+
   Future<void> _showPdfDialog(String title, Uint8List bytes) async {
     await showDialog<void>(
       context: context,
@@ -426,6 +473,37 @@ class _DocumentFlowDetailScreenState
       ScaffoldMessenger.maybeOf(
         context,
       )?.showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _downloadGeneratedInvoicePdf(
+    OrderDocumentFlowModel flow,
+    CompanySettings? companySettings,
+  ) async {
+    setState(() {
+      _saving = true;
+    });
+
+    try {
+      final bytes = await _buildInvoicePdfBytes(flow, companySettings);
+      if (!mounted) return;
+      final orderId = _flow?.order.id.substring(0, 8) ?? 'factura';
+      final saved = await savePdfBytes(
+        bytes: bytes,
+        fileName: 'factura_final_$orderId.pdf',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(saved ? 'PDF descargado' : 'Descarga cancelada'),
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -598,7 +676,7 @@ class _DocumentFlowDetailScreenState
                     _buildInvoiceCard(flow, companySettings),
                   if (hasGeneratedDocuments) ...[
                     const SizedBox(height: 16),
-                    _buildGeneratedFilesCard(flow),
+                    _buildGeneratedFilesCard(flow, companySettings),
                   ],
                   if (_lastSendPreview != null &&
                       _lastSendPreview!.trim().isNotEmpty) ...[
@@ -1026,7 +1104,10 @@ class _DocumentFlowDetailScreenState
     );
   }
 
-  Widget _buildGeneratedFilesCard(OrderDocumentFlowModel flow) {
+  Widget _buildGeneratedFilesCard(
+    OrderDocumentFlowModel flow,
+    CompanySettings? companySettings,
+  ) {
     final invoiceUrl = flow.invoiceFinalUrl?.trim() ?? '';
     final warrantyUrl = flow.warrantyFinalUrl?.trim() ?? '';
     final isInvoiceSelected =
@@ -1052,6 +1133,12 @@ class _DocumentFlowDetailScreenState
             label: selectedLabel,
             rawUrl: selectedUrl,
             previewTitle: selectedPreviewTitle,
+            onPreview: isInvoiceSelected
+                ? () => _openGeneratedInvoicePreview(flow, companySettings)
+                : null,
+            onDownload: isInvoiceSelected
+                ? () => _downloadGeneratedInvoicePdf(flow, companySettings)
+                : null,
           ),
         ],
       ),
@@ -1062,19 +1149,21 @@ class _DocumentFlowDetailScreenState
     required String label,
     required String rawUrl,
     required String previewTitle,
+    VoidCallback? onPreview,
+    VoidCallback? onDownload,
   }) {
     final hasUrl = rawUrl.isNotEmpty;
+    final canUseLocalPdf = onPreview != null && onDownload != null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(height: 6),
-        if (!hasUrl)
+        if (!hasUrl && !canUseLocalPdf)
           const Text('Pendiente')
         else ...[
-          SelectableText(rawUrl),
-          const SizedBox(height: 8),
+          if (hasUrl) ...[SelectableText(rawUrl), const SizedBox(height: 8)],
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -1082,19 +1171,21 @@ class _DocumentFlowDetailScreenState
               FilledButton.tonalIcon(
                 onPressed: _saving
                     ? null
-                    : () => _openPdfPreview(previewTitle, rawUrl),
+                    : (onPreview ??
+                          () => _openPdfPreview(previewTitle, rawUrl)),
                 icon: const Icon(Icons.visibility_outlined),
                 label: const Text('Ver PDF'),
               ),
-              OutlinedButton.icon(
-                onPressed: _saving ? null : () => _openPdfExternally(rawUrl),
-                icon: const Icon(Icons.open_in_new_outlined),
-                label: const Text('Abrir'),
-              ),
+              if (hasUrl)
+                OutlinedButton.icon(
+                  onPressed: _saving ? null : () => _openPdfExternally(rawUrl),
+                  icon: const Icon(Icons.open_in_new_outlined),
+                  label: const Text('Abrir'),
+                ),
               OutlinedButton.icon(
                 onPressed: _saving
                     ? null
-                    : () => _downloadPdf(previewTitle, rawUrl),
+                    : (onDownload ?? () => _downloadPdf(previewTitle, rawUrl)),
                 icon: const Icon(Icons.download_outlined),
                 label: const Text('Descargar'),
               ),

@@ -6,6 +6,9 @@ import 'runtime_env.dart';
 class Env {
   static const String _defaultApiBaseUrl =
       'https://fulltech-tienda-fulltechapppwa.gcdndd.easypanel.host';
+  static const String _defaultAppBaseUrl =
+      'https://fulltech-tienda-fulltechapppwa.gcdndd.easypanel.host';
+  static const String _defaultQuotationApprovalAdminPhone = '8295344286';
   static const int _defaultApiTimeoutMs = 15000;
   static const int _minApiTimeoutMs = 1000;
 
@@ -90,6 +93,39 @@ class Env {
         ? value.substring(0, value.length - 1)
         : value;
     return normalized;
+  }
+
+  static String get appBaseUrl {
+    final raw = (_readEnv('APP_BASE_URL') ?? '').trim();
+
+    if (raw.isEmpty) {
+      if (kIsWeb) {
+        return Uri.base.origin;
+      }
+      return _defaultAppBaseUrl;
+    }
+
+    if (raw.startsWith('/')) {
+      if (kIsWeb) {
+        final value = '${Uri.base.origin}$raw';
+        return value.endsWith('/')
+            ? value.substring(0, value.length - 1)
+            : value;
+      }
+      return _defaultAppBaseUrl;
+    }
+
+    final parsed = Uri.tryParse(raw);
+    if (parsed == null || parsed.scheme.isEmpty || parsed.host.trim().isEmpty) {
+      return kIsWeb ? Uri.base.origin : _defaultAppBaseUrl;
+    }
+
+    return raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
+  }
+
+  static String get quotationApprovalAdminPhone {
+    final raw = (_readEnv('QUOTATION_APPROVAL_ADMIN_PHONE') ?? '').trim();
+    return raw.isEmpty ? _defaultQuotationApprovalAdminPhone : raw;
   }
 
   static int get apiTimeoutMs {
