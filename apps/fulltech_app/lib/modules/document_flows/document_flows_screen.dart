@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 
 import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_provider.dart';
+import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/routing/route_access.dart';
 import '../../core/routing/routes.dart';
@@ -153,7 +155,12 @@ class _DocumentFlowsScreenState extends ConsumerState<DocumentFlowsScreen> {
 
     if (!canView) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Flujo documental')),
+        drawer: buildAdaptiveDrawer(context, currentUser: auth.user),
+        appBar: const CustomAppBar(
+          title: 'Flujo documental',
+          showLogo: false,
+          showDepartmentLabel: false,
+        ),
         body: _AccessDeniedState(
           onGoHome: () => context.go(RouteAccess.defaultHomeForRole(role)),
         ),
@@ -171,8 +178,11 @@ class _DocumentFlowsScreenState extends ConsumerState<DocumentFlowsScreen> {
     final pendingSendCount = filtered.length - sentCount;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Flujo documental'),
+      drawer: buildAdaptiveDrawer(context, currentUser: auth.user),
+      appBar: CustomAppBar(
+        title: 'Flujo documental',
+        showLogo: false,
+        showDepartmentLabel: false,
         actions: [
           IconButton(
             onPressed: _loading ? null : _load,

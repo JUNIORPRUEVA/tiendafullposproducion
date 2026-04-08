@@ -222,10 +222,10 @@ class _ResilientLocalDatabase {
   }
 
   Future<void> _applySafePragmas(Database db) async {
-    await db.execute('PRAGMA foreign_keys = ON');
+    await db.rawQuery('PRAGMA foreign_keys = ON');
     await db.rawQuery('PRAGMA journal_mode = WAL');
-    await db.execute('PRAGMA synchronous = FULL');
-    await db.execute('PRAGMA busy_timeout = 5000');
+    await db.rawQuery('PRAGMA synchronous = FULL');
+    await db.rawQuery('PRAGMA busy_timeout = 5000');
   }
 
   Future<void> _ensureIntegrity(Database db, {required String fileName}) async {
@@ -260,6 +260,11 @@ class _ResilientLocalDatabase {
       'database is locked',
       'database or disk is full',
       'readonly database',
+      'no such column',
+      'no such table',
+      'has no column named',
+      'duplicate column name',
+      'table already exists',
     ];
     for (final hint in hints) {
       if (message.contains(hint)) {

@@ -9,6 +9,7 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../core/auth/auth_repository.dart';
 import '../../../core/utils/media_file_actions.dart';
 import '../../../core/widgets/app_drawer.dart';
+import '../../../core/widgets/custom_app_bar.dart';
 import '../application/media_gallery_controller.dart';
 import '../media_gallery_models.dart';
 import '../widgets/media_gallery_card.dart';
@@ -245,7 +246,11 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
     if (!canView) {
       return Scaffold(
         drawer: buildAdaptiveDrawer(context, currentUser: auth.user),
-        appBar: AppBar(title: const Text('Galería media')),
+        appBar: const CustomAppBar(
+          title: 'Galería media',
+          showLogo: false,
+          showDepartmentLabel: false,
+        ),
         body: const Center(
           child: Padding(
             padding: EdgeInsets.all(24),
@@ -271,8 +276,10 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: auth.user),
-      appBar: AppBar(
-        title: const Text('Galería media'),
+      appBar: CustomAppBar(
+        title: 'Galería media',
+        showLogo: false,
+        showDepartmentLabel: false,
         actions: [
           IconButton(
             tooltip: 'Buscar',

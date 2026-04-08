@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -67,7 +66,10 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
   Future<void> _showDetails(BuildContext context, AppErrorDetails error) async {
     final full = error.toClipboardString();
     final technicalSections = <Widget>[
-      _Section(label: 'Resumen tecnico', value: error.message),
+      _Section(label: 'Error real', value: error.primaryTechnicalMessage),
+      if (error.message.trim().isNotEmpty &&
+          error.message.trim() != error.primaryTechnicalMessage)
+        _Section(label: 'Resumen tecnico', value: error.message),
       if ((error.endpointUrl ?? '').trim().isNotEmpty)
         _Section(label: 'Endpoint', value: error.endpointUrl!),
       if ((error.method ?? '').trim().isNotEmpty)
@@ -81,7 +83,6 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
     ];
     final severityColor = _severityColor(context, error.severity);
     final severityIcon = _severityIcon(error.severity);
-    var showTechnical = false;
     final canRetry = error.onRetry != null;
 
     await showDialog<void>(
@@ -195,6 +196,12 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                                 ),
                               ),
                               const SizedBox(height: 16),
+                              _Section(
+                                label: 'Error real para copiar',
+                                value: error.primaryTechnicalMessage,
+                                dense: true,
+                              ),
+                              const SizedBox(height: 8),
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                                 decoration: BoxDecoration(
@@ -209,7 +216,7 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                                       child: Text(
                                         canRetry
                                             ? 'Puedes intentar nuevamente sin salir de la pantalla.'
-                                            : 'Tu informacion sigue protegida y la aplicacion puede continuar.' ,
+                                            : 'Tu informacion sigue protegida y ya puedes copiar el error completo para revisarlo.' ,
                                         style: theme.textTheme.bodyMedium?.copyWith(
                                           color: scheme.onSurfaceVariant,
                                           fontWeight: FontWeight.w600,
@@ -219,37 +226,16 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                                   ],
                                 ),
                               ),
-                              if (kDebugMode) ...[
-                                const SizedBox(height: 10),
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: TextButton.icon(
-                                    onPressed: () {
-                                      setDialogState(() => showTechnical = !showTechnical);
-                                    },
-                                    icon: Icon(
-                                      showTechnical
-                                          ? Icons.unfold_less_rounded
-                                          : Icons.code_rounded,
-                                    ),
-                                    label: Text(
-                                      showTechnical
-                                          ? 'Ocultar detalle tecnico'
-                                          : 'Ver detalle tecnico',
-                                    ),
+                              const SizedBox(height: 10),
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxHeight: 260),
+                                child: SingleChildScrollView(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: technicalSections,
                                   ),
                                 ),
-                              ],
-                              if (kDebugMode && showTechnical)
-                                ConstrainedBox(
-                                  constraints: const BoxConstraints(maxHeight: 260),
-                                  child: SingleChildScrollView(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: technicalSections,
-                                    ),
-                                  ),
-                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -260,14 +246,19 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                             spacing: 10,
                             runSpacing: 10,
                             children: [
-                              if (kDebugMode)
-                                TextButton(
-                                  onPressed: () async {
-                                    await Clipboard.setData(ClipboardData(text: full));
-                                    if (!dialogContext.mounted) return;
-                                  },
-                                  child: const Text('Copiar reporte'),
-                                ),
+                              TextButton.icon(
+                                onPressed: () async {
+                                  await Clipboard.setData(ClipboardData(text: full));
+                                  if (!dialogContext.mounted) return;
+                                  ScaffoldMessenger.maybeOf(dialogContext)?.showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Reporte copiado al portapapeles'),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.copy_all_rounded),
+                                label: const Text('Copiar reporte'),
+                              ),
                               if (canRetry)
                                 OutlinedButton.icon(
                                   onPressed: _retrying
@@ -379,8 +370,13 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
 class _Section extends StatelessWidget {
   final String label;
   final String value;
+  final bool dense;
 
-  const _Section({required this.label, required this.value});
+  const _Section({
+    required this.label,
+    required this.value,
+    this.dense = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -399,7 +395,7 @@ class _Section extends StatelessWidget {
           const SizedBox(height: 6),
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(12),
+            padding: EdgeInsets.all(dense ? 10 : 12),
             decoration: BoxDecoration(
               color: theme.colorScheme.surfaceContainerHighest.withValues(
                 alpha: 0.45,

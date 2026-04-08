@@ -13,7 +13,7 @@ final companyManualLocalRepositoryProvider =
 
 class CompanyManualLocalRepository {
   static const _dbName = 'company_manual_local.db';
-  static const _dbVersion = 1;
+  static const _dbVersion = 2;
   static const _entriesTable = 'company_manual_entries';
   static const _metaTable = 'company_manual_meta';
   static const _lastSyncedAtKey = 'last_synced_at';
@@ -27,45 +27,83 @@ class CompanyManualLocalRepository {
     _database = await openResilientLocalDatabase(
       fileName: _dbName,
       version: _dbVersion,
-      onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE $_entriesTable (
-            viewer_user_id TEXT NOT NULL,
-            id TEXT NOT NULL,
-            owner_id TEXT NOT NULL,
-            title TEXT NOT NULL,
-            summary TEXT,
-            content TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            audience TEXT NOT NULL,
-            target_roles TEXT NOT NULL,
-            module_key TEXT,
-            published INTEGER NOT NULL DEFAULT 1,
-            sort_order INTEGER NOT NULL DEFAULT 0,
-            created_by_user_id TEXT NOT NULL,
-            updated_by_user_id TEXT,
-            created_at TEXT,
-            updated_at TEXT,
-            PRIMARY KEY (viewer_user_id, id)
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE $_metaTable (
-            viewer_user_id TEXT NOT NULL,
-            key TEXT NOT NULL,
-            value TEXT,
-            PRIMARY KEY (viewer_user_id, key)
-          )
-        ''');
-        await db.execute(
-          'CREATE INDEX idx_company_manual_entries_user ON $_entriesTable(viewer_user_id)',
-        );
-        await db.execute(
-          'CREATE INDEX idx_company_manual_entries_updated ON $_entriesTable(viewer_user_id, updated_at)',
-        );
+      onCreate: (db, version) async => _createSchema(db),
+      onUpgrade: (db, oldVersion, newVersion) async {
+        await _createSchema(db);
+        if (oldVersion < 2) {
+          await _addColumnIfMissing(
+            db,
+            tableName: _entriesTable,
+            columnName: 'target_roles',
+            definition: "TEXT NOT NULL DEFAULT ''",
+          );
+          await _addColumnIfMissing(
+            db,
+            tableName: _entriesTable,
+            columnName: 'module_key',
+            definition: 'TEXT',
+          );
+        }
       },
     );
     return _database!;
+  }
+
+  Future<void> _createSchema(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_entriesTable (
+        viewer_user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        owner_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT,
+        content TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        audience TEXT NOT NULL,
+        target_roles TEXT NOT NULL,
+        module_key TEXT,
+        published INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_by_user_id TEXT NOT NULL,
+        updated_by_user_id TEXT,
+        created_at TEXT,
+        updated_at TEXT,
+        PRIMARY KEY (viewer_user_id, id)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_metaTable (
+        viewer_user_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT,
+        PRIMARY KEY (viewer_user_id, key)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_company_manual_entries_user ON $_entriesTable(viewer_user_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_company_manual_entries_updated ON $_entriesTable(viewer_user_id, updated_at)',
+    );
+  }
+
+  Future<void> _addColumnIfMissing(
+    DatabaseExecutor db, {
+    required String tableName,
+    required String columnName,
+    required String definition,
+  }) async {
+    final columns = await db.rawQuery('PRAGMA table_info($tableName)');
+    final alreadyExists = columns.any(
+      (row) => (row['name'] ?? '').toString().trim() == columnName,
+    );
+    if (alreadyExists) {
+      return;
+    }
+
+    await db.execute(
+      'ALTER TABLE $tableName ADD COLUMN $columnName $definition',
+    );
   }
 
   Future<List<CompanyManualEntry>> listEntries({

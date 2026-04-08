@@ -25,7 +25,7 @@ final catalogLocalRepositoryProvider = Provider<CatalogLocalRepository>((ref) {
 
 class CatalogLocalRepository {
   static const _dbName = 'fulltech_catalog_local.db';
-  static const _dbVersion = 1;
+  static const _dbVersion = 2;
   static const _tableProducts = 'catalog_products';
   static const _tableMeta = 'catalog_meta';
   static const _metaLastSyncedAt = 'last_synced_at';
@@ -39,26 +39,63 @@ class CatalogLocalRepository {
     _database = await openResilientLocalDatabase(
       fileName: _dbName,
       version: _dbVersion,
-      onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE $_tableProducts (
-            id TEXT PRIMARY KEY,
-            position INTEGER NOT NULL,
-            payload TEXT NOT NULL,
-            updated_at TEXT,
-            sync_version TEXT,
-            is_active INTEGER NOT NULL DEFAULT 1
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE $_tableMeta (
-            key TEXT PRIMARY KEY,
-            value TEXT
-          )
-        ''');
+      onCreate: (db, version) async => _createSchema(db),
+      onUpgrade: (db, oldVersion, newVersion) async {
+        await _createSchema(db);
+        if (oldVersion < 2) {
+          await _addColumnIfMissing(
+            db,
+            tableName: _tableProducts,
+            columnName: 'sync_version',
+            definition: 'TEXT',
+          );
+          await _addColumnIfMissing(
+            db,
+            tableName: _tableProducts,
+            columnName: 'is_active',
+            definition: 'INTEGER NOT NULL DEFAULT 1',
+          );
+        }
       },
     );
     return _database!;
+  }
+
+  Future<void> _createSchema(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_tableProducts (
+        id TEXT PRIMARY KEY,
+        position INTEGER NOT NULL,
+        payload TEXT NOT NULL,
+        updated_at TEXT,
+        sync_version TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_tableMeta (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    ''');
+  }
+
+  Future<void> _addColumnIfMissing(
+    DatabaseExecutor db, {
+    required String tableName,
+    required String columnName,
+    required String definition,
+  }) async {
+    final columns = await db.rawQuery('PRAGMA table_info($tableName)');
+    final alreadyExists = columns.any(
+      (row) => (row['name'] ?? '').toString().trim() == columnName,
+    );
+    if (alreadyExists) {
+      return;
+    }
+    await db.execute(
+      'ALTER TABLE $tableName ADD COLUMN $columnName $definition',
+    );
   }
 
   Future<CatalogLocalSnapshot> readSnapshot() async {

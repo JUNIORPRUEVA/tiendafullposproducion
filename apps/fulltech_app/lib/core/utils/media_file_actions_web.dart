@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
@@ -12,7 +11,6 @@ Future<bool> saveMediaBytes({
   final dataUrl = Uri.dataFromBytes(
     bytes,
     mimeType: mimeType ?? 'application/octet-stream',
-    encoding: utf8,
   ).toString();
 
   final anchor = web.HTMLAnchorElement()

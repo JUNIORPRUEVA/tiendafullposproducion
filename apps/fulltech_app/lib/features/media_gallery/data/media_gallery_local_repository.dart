@@ -26,7 +26,7 @@ final mediaGalleryLocalRepositoryProvider =
 
 class MediaGalleryLocalRepository {
   static const _dbName = 'fulltech_media_gallery_local.db';
-  static const _dbVersion = 1;
+  static const _dbVersion = 2;
   static const _itemsTable = 'media_gallery_items';
   static const _metaTable = 'media_gallery_meta';
   static const _metaLastSyncedAt = 'last_synced_at';
@@ -40,28 +40,33 @@ class MediaGalleryLocalRepository {
     _database = await openResilientLocalDatabase(
       fileName: _dbName,
       version: _dbVersion,
-      onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE $_itemsTable (
-            viewer_user_id TEXT NOT NULL,
-            id TEXT NOT NULL,
-            position INTEGER NOT NULL,
-            payload TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            PRIMARY KEY (viewer_user_id, id)
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE $_metaTable (
-            viewer_user_id TEXT NOT NULL,
-            key TEXT NOT NULL,
-            value TEXT,
-            PRIMARY KEY (viewer_user_id, key)
-          )
-        ''');
+      onCreate: (db, version) async => _createSchema(db),
+      onUpgrade: (db, oldVersion, newVersion) async {
+        await _createSchema(db);
       },
     );
     return _database!;
+  }
+
+  Future<void> _createSchema(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_itemsTable (
+        viewer_user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (viewer_user_id, id)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_metaTable (
+        viewer_user_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT,
+        PRIMARY KEY (viewer_user_id, key)
+      )
+    ''');
   }
 
   Future<MediaGalleryLocalSnapshot> readSnapshot({

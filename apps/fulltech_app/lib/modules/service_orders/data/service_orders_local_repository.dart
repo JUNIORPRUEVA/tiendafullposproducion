@@ -30,7 +30,7 @@ class ServiceOrdersLocalSnapshot {
 
 class ServiceOrdersLocalRepository {
   static const _dbName = 'operations_local.db';
-  static const _dbVersion = 1;
+  static const _dbVersion = 2;
   static const _ordersTable = 'operations_orders';
   static const _clientsTable = 'operations_clients';
   static const _usersTable = 'operations_users';
@@ -45,36 +45,41 @@ class ServiceOrdersLocalRepository {
     _database = await openResilientLocalDatabase(
       fileName: _dbName,
       version: _dbVersion,
-      onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE $_ordersTable (
-            id TEXT PRIMARY KEY,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            payload TEXT NOT NULL
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE $_clientsTable (
-            id TEXT PRIMARY KEY,
-            payload TEXT NOT NULL
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE $_usersTable (
-            id TEXT PRIMARY KEY,
-            payload TEXT NOT NULL
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE $_metaTable (
-            key TEXT PRIMARY KEY,
-            value TEXT
-          )
-        ''');
+      onCreate: (db, version) async => _createSchema(db),
+      onUpgrade: (db, oldVersion, newVersion) async {
+        await _createSchema(db);
       },
     );
     return _database!;
+  }
+
+  Future<void> _createSchema(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_ordersTable (
+        id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        payload TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_clientsTable (
+        id TEXT PRIMARY KEY,
+        payload TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_usersTable (
+        id TEXT PRIMARY KEY,
+        payload TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_metaTable (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    ''');
   }
 
   Future<ServiceOrdersLocalSnapshot> readSnapshot() async {

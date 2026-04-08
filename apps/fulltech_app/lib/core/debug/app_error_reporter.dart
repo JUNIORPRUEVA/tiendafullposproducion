@@ -62,6 +62,8 @@ class AppErrorDetails {
 
   String toClipboardString() {
     final lines = <String>[
+      'Evento: $eventId',
+      'Capturado: ${capturedAt.toIso8601String()}',
       'Titulo: $title',
       'Mensaje para usuario: $userMessage',
       'Mensaje: $message',
@@ -78,6 +80,14 @@ class AppErrorDetails {
       if (stackTrace.trim().isNotEmpty) 'Stack trace:\n$stackTrace',
     ];
     return lines.join('\n\n');
+  }
+
+  String get primaryTechnicalMessage {
+    final details = technicalDetails?.trim();
+    if (details != null && details.isNotEmpty) {
+      return details;
+    }
+    return message.trim();
   }
 }
 

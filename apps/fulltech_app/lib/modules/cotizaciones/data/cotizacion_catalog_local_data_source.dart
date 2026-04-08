@@ -37,7 +37,7 @@ final cotizacionCatalogLocalDataSourceProvider =
 
 class CotizacionCatalogLocalDataSource {
   static const _dbName = 'cotizacion_catalog_cache.db';
-  static const _dbVersion = 1;
+  static const _dbVersion = 2;
   static const _tableMeta = 'cotizacion_catalog_meta';
   static const _metaSelectedCategory = 'selected_category';
   static const _metaSearchQuery = 'search_query';
@@ -55,16 +55,21 @@ class CotizacionCatalogLocalDataSource {
     _database = await openResilientLocalDatabase(
       fileName: _dbName,
       version: _dbVersion,
-      onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE $_tableMeta (
-            key TEXT PRIMARY KEY,
-            value TEXT
-          )
-        ''');
+      onCreate: (db, version) async => _createSchema(db),
+      onUpgrade: (db, oldVersion, newVersion) async {
+        await _createSchema(db);
       },
     );
     return _database!;
+  }
+
+  Future<void> _createSchema(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_tableMeta (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    ''');
   }
 
   Future<CotizacionCatalogCacheSnapshot> readSnapshot() async {

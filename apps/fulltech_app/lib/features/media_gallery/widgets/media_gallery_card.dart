@@ -40,7 +40,8 @@ class _FullscreenMediaGallery extends StatefulWidget {
   final Future<void> Function(MediaGalleryItem item)? onDownload;
 
   @override
-  State<_FullscreenMediaGallery> createState() => _FullscreenMediaGalleryState();
+  State<_FullscreenMediaGallery> createState() =>
+      _FullscreenMediaGalleryState();
 }
 
 class _FullscreenMediaGalleryState extends State<_FullscreenMediaGallery> {
@@ -120,7 +121,10 @@ class _FullscreenMediaGalleryState extends State<_FullscreenMediaGallery> {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
                   child: Text(
                     '${_currentIndex + 1} / ${widget.items.length}',
                     style: const TextStyle(
@@ -156,7 +160,10 @@ class MediaGalleryCard extends StatelessWidget {
     final statusColor = item.isInstallationCompleted
         ? const Color(0xFF0F766E)
         : const Color(0xFFB45309);
-    final dateLabel = DateFormat('dd MMM', 'es_DO').format(item.createdAt.toLocal());
+    final dateLabel = DateFormat(
+      'dd MMM',
+      'es_DO',
+    ).format(item.createdAt.toLocal());
 
     return Material(
       color: Colors.transparent,
@@ -224,7 +231,9 @@ class MediaGalleryCard extends StatelessWidget {
                           child: IconButton.filledTonal(
                             tooltip: 'Descargar archivo',
                             style: IconButton.styleFrom(
-                              backgroundColor: Colors.black.withValues(alpha: 0.38),
+                              backgroundColor: Colors.black.withValues(
+                                alpha: 0.38,
+                              ),
                               foregroundColor: Colors.white,
                             ),
                             onPressed: onDownload,
@@ -305,9 +314,8 @@ class MediaGalleryCard extends StatelessWidget {
                         _MiniInfoPill(
                           text: item.uploadedByLabel,
                           accent: theme.colorScheme.onPrimaryContainer,
-                          background: theme.colorScheme.primaryContainer.withValues(
-                            alpha: 0.48,
-                          ),
+                          background: theme.colorScheme.primaryContainer
+                              .withValues(alpha: 0.48),
                         ),
                         _MiniInfoPill(
                           text: item.orderStatusLabel,
@@ -338,12 +346,10 @@ class _ImageThumbnail extends StatelessWidget {
       imageUrl: url,
       cacheManager: FulltechImageCacheManager.instance,
       fit: BoxFit.cover,
-      placeholder: (context, _) => const _ThumbnailPlaceholder(
-        icon: Icons.image_outlined,
-      ),
-      errorWidget: (context, _, __) => const _ThumbnailPlaceholder(
-        icon: Icons.broken_image_outlined,
-      ),
+      placeholder: (context, _) =>
+          const _ThumbnailPlaceholder(icon: Icons.image_outlined),
+      errorWidget: (context, _, __) =>
+          const _ThumbnailPlaceholder(icon: Icons.broken_image_outlined),
     );
   }
 }
@@ -440,51 +446,7 @@ class _ThumbnailPlaceholder extends StatelessWidget {
           colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
         ),
       ),
-      child: Center(
-        child: Icon(icon, size: 34, color: Colors.white70),
-      ),
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  const _Pill({
-    required this.label,
-    required this.backgroundColor,
-    required this.foregroundColor,
-    required this.icon,
-  });
-
-  final String label;
-  final Color backgroundColor;
-  final Color foregroundColor;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: foregroundColor),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                color: foregroundColor,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      ),
+      child: Center(child: Icon(icon, size: 34, color: Colors.white70)),
     );
   }
 }
