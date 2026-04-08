@@ -62,6 +62,27 @@ class MediaGalleryItem {
       ? 'Creador'
       : 'Técnico';
 
+  String get searchableText {
+    return [
+      displayComment,
+      uploadedByLabel,
+      orderStatusLabel,
+      installationLabel,
+      orderId,
+      isImage ? 'imagen' : 'video',
+    ].join(' ').toLowerCase();
+  }
+
+  String get suggestedFileName {
+    final cleanOrderId = orderId.replaceAll('-', '').trim().toUpperCase();
+    final orderToken = cleanOrderId.isEmpty
+        ? 'MEDIA'
+        : (cleanOrderId.length > 8 ? cleanOrderId.substring(0, 8) : cleanOrderId);
+    final extension = _inferFileExtension(url, fallback: isVideo ? 'mp4' : 'jpg');
+    final prefix = isVideo ? 'video' : 'imagen';
+    return 'fulltech_${prefix}_$orderToken.$extension';
+  }
+
   factory MediaGalleryItem.fromJson(Map<String, dynamic> json) {
     return MediaGalleryItem(
       id: (json['id'] ?? '').toString(),
@@ -127,4 +148,20 @@ class MediaGalleryPage {
       limit: (json['limit'] as num?)?.toInt() ?? 48,
     );
   }
+}
+
+String _inferFileExtension(String rawUrl, {required String fallback}) {
+  final uri = Uri.tryParse(rawUrl.trim());
+  final lastSegment = uri?.pathSegments.isNotEmpty == true
+      ? uri!.pathSegments.last
+      : rawUrl.trim().split('/').last;
+  final dotIndex = lastSegment.lastIndexOf('.');
+  if (dotIndex <= -1 || dotIndex >= lastSegment.length - 1) {
+    return fallback;
+  }
+  final extension = lastSegment.substring(dotIndex + 1).toLowerCase();
+  if (extension.isEmpty || extension.length > 5) {
+    return fallback;
+  }
+  return extension;
 }

@@ -10,6 +10,7 @@ import '../media_gallery_models.dart';
 Future<void> showMediaGalleryViewer(
   BuildContext context,
   MediaGalleryItem item,
+  Future<void> Function()? onDownload,
 ) {
   return showDialog<void>(
     context: context,
@@ -26,12 +27,29 @@ Future<void> showMediaGalleryViewer(
             Positioned(
               top: 18,
               right: 18,
-              child: IconButton.filled(
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.black.withValues(alpha: 0.55),
-                ),
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                icon: const Icon(Icons.close),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (onDownload != null)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 10),
+                      child: IconButton.filled(
+                        tooltip: 'Descargar',
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.black.withValues(alpha: 0.55),
+                        ),
+                        onPressed: onDownload,
+                        icon: const Icon(Icons.download_outlined),
+                      ),
+                    ),
+                  IconButton.filled(
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.black.withValues(alpha: 0.55),
+                    ),
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
               ),
             ),
           ],
@@ -42,10 +60,16 @@ Future<void> showMediaGalleryViewer(
 }
 
 class MediaGalleryCard extends StatelessWidget {
-  const MediaGalleryCard({super.key, required this.item, required this.onTap});
+  const MediaGalleryCard({
+    super.key,
+    required this.item,
+    required this.onTap,
+    this.onDownload,
+  });
 
   final MediaGalleryItem item;
   final VoidCallback onTap;
+  final Future<void> Function()? onDownload;
 
   @override
   Widget build(BuildContext context) {
@@ -100,6 +124,20 @@ class MediaGalleryCard extends StatelessWidget {
                               : Icons.image_outlined,
                         ),
                       ),
+                      if (onDownload != null)
+                        Positioned(
+                          top: 12,
+                          right: 12,
+                          child: IconButton.filledTonal(
+                            tooltip: 'Descargar archivo',
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black.withValues(alpha: 0.38),
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: onDownload,
+                            icon: const Icon(Icons.download_outlined, size: 18),
+                          ),
+                        ),
                       if (item.isVideo)
                         Positioned.fill(
                           child: IgnorePointer(
@@ -126,13 +164,13 @@ class MediaGalleryCard extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       item.displayComment,
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w700,
@@ -168,7 +206,7 @@ class MediaGalleryCard extends StatelessWidget {
                     const SizedBox(height: 10),
                     Text(
                       '${item.orderStatusLabel} · ${DateFormat('dd MMM yyyy, h:mm a', 'es_DO').format(item.createdAt.toLocal())}',
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,

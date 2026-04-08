@@ -26,7 +26,7 @@ type MediaGalleryItem = {
   orderId: string;
   createdAt: Date;
   uploadedByRole: 'creator' | 'technician';
-  orderStatus: string;
+  orderStatus: 'pendiente' | 'en_proceso' | 'finalizado' | 'cancelado';
   isInstallationCompleted: boolean;
 };
 
@@ -180,7 +180,7 @@ export class MediaGalleryService {
     const isVideo =
       row.type === ServiceEvidenceType.REFERENCIA_VIDEO ||
       row.type === ServiceEvidenceType.EVIDENCIA_VIDEO;
-    const statusKey = String(row.serviceOrder.status ?? '').trim().toUpperCase();
+    const orderStatus = SERVICE_ORDER_STATUS_FROM_DB[row.serviceOrder.status];
 
     return {
       id: row.id,
@@ -190,7 +190,7 @@ export class MediaGalleryService {
       orderId: row.serviceOrderId,
       createdAt: row.createdAt,
       uploadedByRole: isReference ? 'creator' : 'technician',
-      orderStatus: SERVICE_ORDER_STATUS_FROM_DB[statusKey] ?? 'pendiente',
+      orderStatus: orderStatus ?? 'pendiente',
       isInstallationCompleted:
         row.serviceOrder.serviceType === ServiceOrderType.INSTALACION &&
         row.serviceOrder.status === ServiceOrderStatus.FINALIZADO,
@@ -199,7 +199,7 @@ export class MediaGalleryService {
 
   private parseCursor(raw?: string): MediaCursor | null {
     const value = raw?.trim() ?? '';
-    if (value.isEmpty) return null;
+    if (value.length === 0) return null;
 
     const separatorIndex = value.indexOf('__');
     if (separatorIndex <= 0 || separatorIndex >= value.length - 2) {

@@ -1,8 +1,13 @@
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/app_permissions.dart';
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/auth/auth_repository.dart';
+import '../../../core/utils/media_file_actions.dart';
 import '../application/media_gallery_controller.dart';
 import '../media_gallery_models.dart';
 import '../widgets/media_gallery_card.dart';
@@ -11,11 +16,13 @@ class MediaGalleryScreen extends ConsumerStatefulWidget {
   const MediaGalleryScreen({super.key});
 
   @override
-  ConsumerState<MediaGalleryScreen> createState() => _MediaGalleryScreenState();
+  ConsumerState<MediaGalleryScreen> createState() =>
+      _MediaGalleryScreenState();
 }
 
 class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
   late final ScrollController _scrollController;
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -35,6 +42,194 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
     if (!_scrollController.hasClients) return;
     if (_scrollController.position.extentAfter > 720) return;
     ref.read(mediaGalleryControllerProvider.notifier).loadMore();
+  }
+
+  List<MediaGalleryItem> _applySearch(List<MediaGalleryItem> items) {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return items;
+    return items
+        .where((item) => item.searchableText.contains(query))
+        .toList(growable: false);
+  }
+
+  Future<void> _openSearch(List<MediaGalleryItem> items) async {
+    final result = await showSearch<String?>(
+      context: context,
+      delegate: _MediaGallerySearchDelegate(
+        items: items,
+        initialQuery: _searchQuery,
+      ),
+    );
+    if (!mounted || result == null) return;
+    setState(() {
+      _searchQuery = result.trim();
+    });
+  }
+
+  Future<void> _openFilters(MediaGalleryState state) async {
+    var tempType = state.typeFilter;
+    var tempInstallation = state.installationFilter;
+    final controller = ref.read(mediaGalleryControllerProvider.notifier);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (bottomSheetContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Filtrar galería',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Tipo de archivo'),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: MediaGalleryTypeFilter.values.map((filter) {
+                        return ChoiceChip(
+                          label: Text(_typeFilterLabel(filter)),
+                          selected: tempType == filter,
+                          onSelected: (_) {
+                            setModalState(() {
+                              tempType = filter;
+                            });
+                          },
+                        );
+                      }).toList(growable: false),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Estado de instalación'),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: MediaGalleryInstallationFilter.values.map((filter) {
+                        return ChoiceChip(
+                          label: Text(_installationFilterLabel(filter)),
+                          selected: tempInstallation == filter,
+                          onSelected: (_) {
+                            setModalState(() {
+                              tempInstallation = filter;
+                            });
+                          },
+                        );
+                      }).toList(growable: false),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () {
+                              controller.setTypeFilter(MediaGalleryTypeFilter.all);
+                              controller.setInstallationFilter(
+                                MediaGalleryInstallationFilter.all,
+                              );
+                              Navigator.of(bottomSheetContext).pop();
+                            },
+                            child: const Text('Limpiar'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () {
+                              controller.setTypeFilter(tempType);
+                              controller.setInstallationFilter(tempInstallation);
+                              Navigator.of(bottomSheetContext).pop();
+                            },
+                            child: const Text('Aplicar'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _downloadItem(MediaGalleryItem item) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      final dio = ref.read(dioProvider);
+      final bytes = await _downloadMediaBytes(dio, item.url);
+      final extension = item.suggestedFileName.split('.').last.toLowerCase();
+      final saved = await saveMediaBytes(
+        bytes: bytes,
+        fileName: item.suggestedFileName,
+        allowedExtensions: [extension],
+        mimeType: item.isVideo ? 'video/mp4' : 'image/jpeg',
+      );
+      if (!mounted || !saved) return;
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(
+            '${item.isVideo ? 'Video' : 'Imagen'} descargado correctamente.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      messenger?.showSnackBar(
+        SnackBar(content: Text('No se pudo descargar el archivo: $error')),
+      );
+    }
+  }
+
+  Future<Uint8List> _downloadMediaBytes(Dio dio, String url) async {
+    try {
+      final response = await dio.get<List<int>>(
+        url,
+        options: Options(
+          responseType: ResponseType.bytes,
+          extra: const {'skipLoader': true, 'silent': true},
+        ),
+      );
+      final data = response.data;
+      if (data != null && data.isNotEmpty) {
+        return Uint8List.fromList(data);
+      }
+    } on DioException {
+      // Retry below with a stream fallback for desktop/network variance.
+    }
+
+    final response = await dio.get<ResponseBody>(
+      url,
+      options: Options(
+        responseType: ResponseType.stream,
+        extra: const {'skipLoader': true, 'silent': true},
+      ),
+    );
+    final body = response.data;
+    if (body == null) {
+      throw Exception('El servidor no devolvió contenido');
+    }
+
+    final builder = BytesBuilder(copy: false);
+    await for (final chunk in body.stream) {
+      builder.add(chunk);
+    }
+    final bytes = builder.takeBytes();
+    if (bytes.isEmpty) {
+      throw Exception('El archivo llegó vacío');
+    }
+    return bytes;
   }
 
   @override
@@ -61,17 +256,58 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
       );
     }
 
-    final visibleItems = state.visibleItems;
+    final visibleItems = _applySearch(state.visibleItems);
     final totalItems = state.items.length;
-    final completedCount = state.items
-        .where((item) => item.isInstallationCompleted)
-        .length;
+    final completedCount =
+        state.items.where((item) => item.isInstallationCompleted).length;
     final pendingCount = totalItems - completedCount;
+    final activeFilterCount = [
+      state.typeFilter != MediaGalleryTypeFilter.all,
+      state.installationFilter != MediaGalleryInstallationFilter.all,
+      _searchQuery.trim().isNotEmpty,
+    ].where((item) => item).length;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Galería media'),
         actions: [
+          IconButton(
+            tooltip: 'Buscar',
+            onPressed: state.items.isEmpty ? null : () => _openSearch(state.items),
+            icon: const Icon(Icons.search_rounded),
+          ),
+          Stack(
+            alignment: Alignment.topRight,
+            children: [
+              IconButton(
+                tooltip: 'Filtrar',
+                onPressed: () => _openFilters(state),
+                icon: const Icon(Icons.tune_rounded),
+              ),
+              if (activeFilterCount > 0)
+                Positioned(
+                  right: 10,
+                  top: 10,
+                  child: Container(
+                    width: 18,
+                    height: 18,
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFACC15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      '$activeFilterCount',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF1F2937),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
           IconButton(
             tooltip: 'Actualizar',
             onPressed: state.refreshing ? null : () => controller.refresh(),
@@ -87,15 +323,22 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
           slivers: [
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 14),
-                child: _GalleryHero(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 10),
+                child: _GalleryTopBar(
                   totalItems: totalItems,
                   visibleItems: visibleItems.length,
                   completedCount: completedCount,
                   pendingCount: pendingCount,
-                  state: state,
-                  onTypeChanged: controller.setTypeFilter,
-                  onInstallationChanged: controller.setInstallationFilter,
+                  searchQuery: _searchQuery,
+                  typeFilter: state.typeFilter,
+                  installationFilter: state.installationFilter,
+                  onClearSearch: _searchQuery.trim().isEmpty
+                      ? null
+                      : () {
+                          setState(() {
+                            _searchQuery = '';
+                          });
+                        },
                 ),
               ),
             ),
@@ -104,8 +347,7 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
                 hasScrollBody: false,
                 child: Center(child: CircularProgressIndicator()),
               )
-            else if ((state.error ?? '').trim().isNotEmpty &&
-                state.items.isEmpty)
+            else if ((state.error ?? '').trim().isNotEmpty && state.items.isEmpty)
               SliverFillRemaining(
                 hasScrollBody: false,
                 child: _GalleryMessageState(
@@ -121,11 +363,15 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
                 hasScrollBody: false,
                 child: _GalleryMessageState(
                   icon: Icons.photo_library_outlined,
-                  title: 'No hay medios para este filtro',
-                  message:
-                      'Prueba otra combinación entre tipo de archivo y estado de instalación.',
+                  title: 'No hay medios para mostrar',
+                  message: _searchQuery.trim().isNotEmpty
+                      ? 'Intenta con otra búsqueda o limpia los filtros activos.'
+                      : 'Prueba otra combinación entre tipo de archivo y estado de instalación.',
                   actionLabel: 'Mostrar todo',
                   onAction: () {
+                    setState(() {
+                      _searchQuery = '';
+                    });
                     controller.setTypeFilter(MediaGalleryTypeFilter.all);
                     controller.setInstallationFilter(
                       MediaGalleryInstallationFilter.all,
@@ -135,39 +381,47 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
               )
             else
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
                 sliver: SliverLayoutBuilder(
                   builder: (context, constraints) {
                     final width = constraints.crossAxisExtent;
                     final crossAxisCount = width >= 1500
                         ? 5
                         : width >= 1200
-                        ? 4
-                        : width >= 860
-                        ? 3
-                        : width >= 560
-                        ? 2
-                        : 1;
+                            ? 4
+                            : width >= 860
+                                ? 3
+                                : width >= 560
+                                    ? 2
+                                    : 1;
                     final childAspectRatio = width >= 1200
-                        ? 0.78
+                        ? 0.92
                         : width >= 860
-                        ? 0.8
-                        : width >= 560
-                        ? 0.82
-                        : 0.92;
+                            ? 0.9
+                            : width >= 560
+                                ? 0.96
+                                : 1.04;
 
                     return SliverGrid(
-                      delegate: SliverChildBuilderDelegate((context, index) {
-                        final item = visibleItems[index];
-                        return MediaGalleryCard(
-                          item: item,
-                          onTap: () => showMediaGalleryViewer(context, item),
-                        );
-                      }, childCount: visibleItems.length),
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          final item = visibleItems[index];
+                          return MediaGalleryCard(
+                            item: item,
+                            onTap: () => showMediaGalleryViewer(
+                              context,
+                              item,
+                              () => _downloadItem(item),
+                            ),
+                            onDownload: () => _downloadItem(item),
+                          );
+                        },
+                        childCount: visibleItems.length,
+                      ),
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: crossAxisCount,
-                        mainAxisSpacing: 18,
-                        crossAxisSpacing: 18,
+                        mainAxisSpacing: 16,
+                        crossAxisSpacing: 16,
                         childAspectRatio: childAspectRatio,
                       ),
                     );
@@ -181,8 +435,7 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
                   child: Center(child: CircularProgressIndicator()),
                 ),
               )
-            else if ((state.nextCursor ?? '').trim().isEmpty &&
-                visibleItems.isNotEmpty)
+            else if ((state.nextCursor ?? '').trim().isEmpty && visibleItems.isNotEmpty)
               const SliverToBoxAdapter(
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(20, 0, 20, 32),
@@ -201,185 +454,61 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
   }
 }
 
-class _GalleryHero extends StatelessWidget {
-  const _GalleryHero({
+class _GalleryTopBar extends StatelessWidget {
+  const _GalleryTopBar({
     required this.totalItems,
     required this.visibleItems,
     required this.completedCount,
     required this.pendingCount,
-    required this.state,
-    required this.onTypeChanged,
-    required this.onInstallationChanged,
+    required this.searchQuery,
+    required this.typeFilter,
+    required this.installationFilter,
+    this.onClearSearch,
   });
 
   final int totalItems;
   final int visibleItems;
   final int completedCount;
   final int pendingCount;
-  final MediaGalleryState state;
-  final ValueChanged<MediaGalleryTypeFilter> onTypeChanged;
-  final ValueChanged<MediaGalleryInstallationFilter> onInstallationChanged;
+  final String searchQuery;
+  final MediaGalleryTypeFilter typeFilter;
+  final MediaGalleryInstallationFilter installationFilter;
+  final VoidCallback? onClearSearch;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isCompact = MediaQuery.sizeOf(context).width < 760;
+    final chips = <Widget>[
+      _TopMetricChip(label: 'Mostrando', value: '$visibleItems'),
+      _TopMetricChip(label: 'Total', value: '$totalItems'),
+      _TopMetricChip(label: 'Instalados', value: '$completedCount'),
+      _TopMetricChip(label: 'Pendientes', value: '$pendingCount'),
+    ];
 
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(30),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF0F172A), Color(0xFF14532D), Color(0xFF164E63)],
+    if (typeFilter != MediaGalleryTypeFilter.all) {
+      chips.add(_ActiveFilterChip(label: _typeFilterLabel(typeFilter)));
+    }
+    if (installationFilter != MediaGalleryInstallationFilter.all) {
+      chips.add(
+        _ActiveFilterChip(
+          label: _installationFilterLabel(installationFilter),
         ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Catálogo de trabajos reales',
-              style: theme.textTheme.headlineSmall?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Carga desde caché local al instante y sincronización silenciosa en segundo plano para que marketing siempre tenga material listo.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: Colors.white.withValues(alpha: 0.86),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _HeroStat(label: 'Catálogo local', value: '$totalItems'),
-                _HeroStat(label: 'Vista actual', value: '$visibleItems'),
-                _HeroStat(label: 'Instalados', value: '$completedCount'),
-                _HeroStat(label: 'Pendientes', value: '$pendingCount'),
-              ],
-            ),
-            const SizedBox(height: 22),
-            if (isCompact) ...[
-              _FilterScroller(
-                child: SegmentedButton<MediaGalleryTypeFilter>(
-                  showSelectedIcon: false,
-                  segments: const [
-                    ButtonSegment(
-                      value: MediaGalleryTypeFilter.all,
-                      label: Text('Todos'),
-                      icon: Icon(Icons.apps_outlined),
-                    ),
-                    ButtonSegment(
-                      value: MediaGalleryTypeFilter.image,
-                      label: Text('Imágenes'),
-                      icon: Icon(Icons.image_outlined),
-                    ),
-                    ButtonSegment(
-                      value: MediaGalleryTypeFilter.video,
-                      label: Text('Videos'),
-                      icon: Icon(Icons.play_circle_outline),
-                    ),
-                  ],
-                  selected: {state.typeFilter},
-                  onSelectionChanged: (value) => onTypeChanged(value.first),
-                ),
-              ),
-              const SizedBox(height: 12),
-              _FilterScroller(
-                child: SegmentedButton<MediaGalleryInstallationFilter>(
-                  showSelectedIcon: false,
-                  segments: const [
-                    ButtonSegment(
-                      value: MediaGalleryInstallationFilter.all,
-                      label: Text('Todos'),
-                    ),
-                    ButtonSegment(
-                      value: MediaGalleryInstallationFilter.completed,
-                      label: Text('Instalados'),
-                    ),
-                    ButtonSegment(
-                      value: MediaGalleryInstallationFilter.pending,
-                      label: Text('Pendientes'),
-                    ),
-                  ],
-                  selected: {state.installationFilter},
-                  onSelectionChanged: (value) =>
-                      onInstallationChanged(value.first),
-                ),
-              ),
-            ] else ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: _FilterScroller(
-                      child: SegmentedButton<MediaGalleryTypeFilter>(
-                        showSelectedIcon: false,
-                        segments: const [
-                          ButtonSegment(
-                            value: MediaGalleryTypeFilter.all,
-                            label: Text('Todos'),
-                            icon: Icon(Icons.apps_outlined),
-                          ),
-                          ButtonSegment(
-                            value: MediaGalleryTypeFilter.image,
-                            label: Text('Imágenes'),
-                            icon: Icon(Icons.image_outlined),
-                          ),
-                          ButtonSegment(
-                            value: MediaGalleryTypeFilter.video,
-                            label: Text('Videos'),
-                            icon: Icon(Icons.play_circle_outline),
-                          ),
-                        ],
-                        selected: {state.typeFilter},
-                        onSelectionChanged: (value) =>
-                            onTypeChanged(value.first),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _FilterScroller(
-                      child: SegmentedButton<MediaGalleryInstallationFilter>(
-                        showSelectedIcon: false,
-                        segments: const [
-                          ButtonSegment(
-                            value: MediaGalleryInstallationFilter.all,
-                            label: Text('Todos'),
-                          ),
-                          ButtonSegment(
-                            value: MediaGalleryInstallationFilter.completed,
-                            label: Text('Instalados'),
-                          ),
-                          ButtonSegment(
-                            value: MediaGalleryInstallationFilter.pending,
-                            label: Text('Pendientes'),
-                          ),
-                        ],
-                        selected: {state.installationFilter},
-                        onSelectionChanged: (value) =>
-                            onInstallationChanged(value.first),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
+      );
+    }
+    if (searchQuery.trim().isNotEmpty) {
+      chips.add(
+        _ActiveFilterChip(
+          label: 'Búsqueda: "$searchQuery"',
+          onClear: onClearSearch,
         ),
-      ),
-    );
+      );
+    }
+
+    return Wrap(spacing: 8, runSpacing: 8, children: chips);
   }
 }
 
-class _HeroStat extends StatelessWidget {
-  const _HeroStat({required this.label, required this.value});
+class _TopMetricChip extends StatelessWidget {
+  const _TopMetricChip({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -387,31 +516,37 @@ class _HeroStat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(minWidth: 128),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.11),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFDCE5EE)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0D0F172A),
+            blurRadius: 10,
+            offset: Offset(0, 4),
           ),
-          const SizedBox(height: 6),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
           Text(
             value,
             style: const TextStyle(
-              color: Colors.white,
-              fontSize: 24,
+              fontSize: 16,
               fontWeight: FontWeight.w800,
+              color: Color(0xFF0F172A),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12.4,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF64748B),
             ),
           ),
         ],
@@ -420,36 +555,50 @@ class _HeroStat extends StatelessWidget {
   }
 }
 
-class _FilterScroller extends StatelessWidget {
-  const _FilterScroller({required this.child});
+class _ActiveFilterChip extends StatelessWidget {
+  const _ActiveFilterChip({required this.label, this.onClear});
 
-  final Widget child;
+  final String label;
+  final VoidCallback? onClear;
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Theme(
-        data: Theme.of(context).copyWith(
-          segmentedButtonTheme: SegmentedButtonThemeData(
-            style: ButtonStyle(
-              foregroundColor: WidgetStateProperty.resolveWith((states) {
-                return states.contains(WidgetState.selected)
-                    ? const Color(0xFF052E16)
-                    : Colors.white;
-              }),
-              backgroundColor: WidgetStateProperty.resolveWith((states) {
-                return states.contains(WidgetState.selected)
-                    ? const Color(0xFFFACC15)
-                    : Colors.white.withValues(alpha: 0.1);
-              }),
-              side: WidgetStateProperty.all(
-                BorderSide(color: Colors.white.withValues(alpha: 0.12)),
-              ),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE6F4F7),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFC7E4EA)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.tune_rounded, size: 14, color: Color(0xFF0F5D73)),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF0F5D73),
+              fontSize: 12.2,
+              fontWeight: FontWeight.w700,
             ),
           ),
-        ),
-        child: child,
+          if (onClear != null) ...[
+            const SizedBox(width: 4),
+            InkWell(
+              onTap: onClear,
+              borderRadius: BorderRadius.circular(999),
+              child: const Padding(
+                padding: EdgeInsets.all(2),
+                child: Icon(
+                  Icons.close_rounded,
+                  size: 16,
+                  color: Color(0xFF0F5D73),
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -508,6 +657,144 @@ class _GalleryMessageState extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+String _typeFilterLabel(MediaGalleryTypeFilter filter) {
+  switch (filter) {
+    case MediaGalleryTypeFilter.all:
+      return 'Todos';
+    case MediaGalleryTypeFilter.image:
+      return 'Imágenes';
+    case MediaGalleryTypeFilter.video:
+      return 'Videos';
+  }
+}
+
+String _installationFilterLabel(MediaGalleryInstallationFilter filter) {
+  switch (filter) {
+    case MediaGalleryInstallationFilter.all:
+      return 'Todos';
+    case MediaGalleryInstallationFilter.completed:
+      return 'Instalados';
+    case MediaGalleryInstallationFilter.pending:
+      return 'Pendientes';
+  }
+}
+
+class _MediaGallerySearchDelegate extends SearchDelegate<String?> {
+  _MediaGallerySearchDelegate({
+    required this.items,
+    required String initialQuery,
+  }) : super(searchFieldLabel: 'Buscar imagen, video u orden') {
+    query = initialQuery;
+  }
+
+  final List<MediaGalleryItem> items;
+
+  List<MediaGalleryItem> get _filteredItems {
+    final normalizedQuery = query.trim().toLowerCase();
+    final filtered = items.where((item) {
+      if (normalizedQuery.isEmpty) return true;
+      return item.searchableText.contains(normalizedQuery);
+    }).toList(growable: false);
+    filtered.sort((left, right) => right.createdAt.compareTo(left.createdAt));
+    return filtered;
+  }
+
+  @override
+  ThemeData appBarTheme(BuildContext context) {
+    final theme = Theme.of(context);
+    return theme.copyWith(
+      appBarTheme: theme.appBarTheme.copyWith(toolbarHeight: 64),
+      inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+        filled: false,
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+      ),
+    );
+  }
+
+  @override
+  List<Widget>? buildActions(BuildContext context) {
+    return [
+      if (query.trim().isNotEmpty)
+        IconButton(
+          tooltip: 'Limpiar búsqueda',
+          onPressed: () {
+            query = '';
+            showSuggestions(context);
+          },
+          icon: const Icon(Icons.close_rounded),
+        ),
+      IconButton(
+        tooltip: 'Aplicar búsqueda',
+        onPressed: () => close(context, query.trim()),
+        icon: const Icon(Icons.check_rounded),
+      ),
+    ];
+  }
+
+  @override
+  Widget? buildLeading(BuildContext context) {
+    return IconButton(
+      tooltip: 'Cerrar',
+      onPressed: () => close(context, null),
+      icon: const Icon(Icons.arrow_back_rounded),
+    );
+  }
+
+  @override
+  Widget buildResults(BuildContext context) => _buildList(context);
+
+  @override
+  Widget buildSuggestions(BuildContext context) => _buildList(context);
+
+  Widget _buildList(BuildContext context) {
+    final filtered = _filteredItems;
+    if (items.isEmpty) {
+      return const Center(child: Text('No hay archivos disponibles'));
+    }
+    if (filtered.isEmpty) {
+      return const Center(child: Text('No se encontraron coincidencias'));
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+      itemCount: filtered.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final item = filtered[index];
+        final orderPreview = item.orderId.length > 8
+            ? item.orderId.substring(0, 8).toUpperCase()
+            : item.orderId.toUpperCase();
+
+        return ListTile(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          tileColor: Theme.of(context).colorScheme.surfaceContainerLowest,
+          leading: CircleAvatar(
+            backgroundColor: const Color(0xFFE6F4F7),
+            child: Icon(
+              item.isVideo ? Icons.play_circle_outline : Icons.image_outlined,
+              color: const Color(0xFF0F5D73),
+            ),
+          ),
+          title: Text(
+            item.displayComment,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: Text(
+            '${item.orderStatusLabel} · ${item.isVideo ? 'Video' : 'Imagen'} · $orderPreview',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: const Icon(Icons.arrow_forward_rounded),
+          onTap: () => close(context, query.trim()),
+        );
+      },
     );
   }
 }
