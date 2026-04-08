@@ -10,6 +10,7 @@ import '../../features/ponche/ponche_screen.dart';
 import '../../features/splash/splash_screen.dart';
 import '../../features/contabilidad/contabilidad_screen.dart';
 import '../../features/contabilidad/cierres_diarios_screen.dart';
+import '../../features/contabilidad/depositos_bancarios_screen.dart';
 import '../../features/contabilidad/factura_fiscal_screen.dart';
 import '../../features/contabilidad/pagos_pendientes_screen.dart';
 import '../../features/administracion/admin_punch_registry_screen.dart';
@@ -133,6 +134,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.contabilidadCierresDiarios,
             builder: (context, state) => const CierresDiariosScreen(),
+          ),
+          GoRoute(
+            path: Routes.contabilidadDepositos,
+            builder: (context, state) => const DepositosBancariosScreen(),
           ),
           GoRoute(
             path: Routes.contabilidadFacturaFiscal,

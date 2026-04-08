@@ -7,6 +7,7 @@ import '../../../core/api/api_routes.dart';
 import '../../../core/auth/auth_repository.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/models/close_model.dart';
+import '../models/deposit_order_model.dart';
 import '../models/fiscal_invoice_model.dart';
 import '../models/payable_models.dart';
 
@@ -148,10 +149,13 @@ class ContabilidadRepository {
     }
   }
 
-  Future<void> createDepositOrder({
+  Future<DepositOrderModel> createDepositOrder({
     required DateTime windowFrom,
     required DateTime windowTo,
     required String bankName,
+    String? bankAccount,
+    String? collaboratorName,
+    String? note,
     required double reserveAmount,
     required double totalAvailableCash,
     required double depositTotal,
@@ -160,12 +164,17 @@ class ContabilidadRepository {
     required Map<String, String> accountByType,
   }) async {
     try {
-      await _dio.post(
+      final res = await _dio.post(
         ApiRoutes.contabilidadDepositOrders,
         data: {
           'windowFrom': windowFrom.toIso8601String(),
           'windowTo': windowTo.toIso8601String(),
           'bankName': bankName,
+          if (bankAccount != null && bankAccount.trim().isNotEmpty)
+            'bankAccount': bankAccount.trim(),
+          if (collaboratorName != null && collaboratorName.trim().isNotEmpty)
+            'collaboratorName': collaboratorName.trim(),
+          if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
           'reserveAmount': reserveAmount,
           'totalAvailableCash': totalAvailableCash,
           'depositTotal': depositTotal,
@@ -174,12 +183,160 @@ class ContabilidadRepository {
           'accountByType': accountByType,
         },
       );
+      return DepositOrderModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(
           e.response?.data,
           'No se pudo registrar la orden de depósito en nube',
         ),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<List<DepositOrderModel>> listDepositOrders({
+    DateTime? from,
+    DateTime? to,
+    DepositOrderStatus? status,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.contabilidadDepositOrders,
+        queryParameters: {
+          if (from != null) 'from': _dateOnly(from),
+          if (to != null) 'to': _dateOnly(to),
+          if (status != null) 'status': status.apiValue,
+        },
+      );
+
+      final rows = res.data is List ? (res.data as List) : const [];
+      return rows
+          .whereType<Map>()
+          .map((row) => DepositOrderModel.fromJson(row.cast<String, dynamic>()))
+          .toList();
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudieron cargar los depósitos'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<DepositOrderModel> getDepositOrder(String id) async {
+    try {
+      final res = await _dio.get(ApiRoutes.contabilidadDepositOrderDetail(id));
+      return DepositOrderModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo cargar el depósito'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<DepositOrderModel> updateDepositOrder({
+    required String id,
+    DateTime? windowFrom,
+    DateTime? windowTo,
+    String? bankName,
+    String? bankAccount,
+    String? collaboratorName,
+    String? note,
+    double? reserveAmount,
+    double? totalAvailableCash,
+    double? depositTotal,
+    Map<String, int>? closesCountByType,
+    Map<String, double>? depositByType,
+    Map<String, String>? accountByType,
+    DepositOrderStatus? status,
+  }) async {
+    try {
+      final payload = <String, dynamic>{
+        if (windowFrom != null) 'windowFrom': windowFrom.toIso8601String(),
+        if (windowTo != null) 'windowTo': windowTo.toIso8601String(),
+        if (bankName != null) 'bankName': bankName.trim(),
+        if (bankAccount != null) 'bankAccount': bankAccount.trim(),
+        if (collaboratorName != null)
+          'collaboratorName': collaboratorName.trim(),
+        if (note != null) 'note': note.trim(),
+        if (reserveAmount != null) 'reserveAmount': reserveAmount,
+        if (totalAvailableCash != null)
+          'totalAvailableCash': totalAvailableCash,
+        if (depositTotal != null) 'depositTotal': depositTotal,
+        if (closesCountByType != null) 'closesCountByType': closesCountByType,
+        if (depositByType != null) 'depositByType': depositByType,
+        if (accountByType != null) 'accountByType': accountByType,
+        if (status != null) 'status': status.apiValue,
+      };
+      final res = await _dio.put(
+        ApiRoutes.contabilidadDepositOrderDetail(id),
+        data: payload,
+      );
+
+      return DepositOrderModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo actualizar el depósito'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<void> deleteDepositOrder(String id) async {
+    try {
+      await _dio.delete(ApiRoutes.contabilidadDepositOrderDetail(id));
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo eliminar el depósito'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<DepositOrderModel> uploadDepositVoucher({
+    required String id,
+    required PlatformFile file,
+  }) async {
+    try {
+      if (file.bytes == null || file.bytes!.isEmpty) {
+        throw ApiException('No se pudo leer el voucher seleccionado');
+      }
+
+      final ext = (file.extension ?? '').toLowerCase();
+      final mediaType = ext == 'pdf'
+          ? MediaType('application', 'pdf')
+          : ext == 'png'
+              ? MediaType('image', 'png')
+              : ext == 'webp'
+                  ? MediaType('image', 'webp')
+                  : MediaType('image', 'jpeg');
+
+      final form = FormData.fromMap({
+        'file': MultipartFile.fromBytes(
+          file.bytes!,
+          filename: file.name,
+          contentType: mediaType,
+        ),
+      });
+
+      final res = await _dio.post(
+        '${ApiRoutes.contabilidadDepositOrderDetail(id)}/voucher',
+        data: form,
+      );
+
+      return DepositOrderModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo subir el voucher'),
         e.response?.statusCode,
       );
     }

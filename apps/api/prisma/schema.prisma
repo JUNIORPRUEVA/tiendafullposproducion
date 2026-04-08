@@ -808,6 +808,9 @@ model DepositOrder {
   windowFrom        DateTime
   windowTo          DateTime
   bankName          String
+  bankAccount       String?
+  collaboratorName  String?
+  note              String?
   reserveAmount     Decimal            @db.Decimal(12, 2)
   totalAvailableCash Decimal           @db.Decimal(12, 2)
   depositTotal      Decimal            @db.Decimal(12, 2)
@@ -815,6 +818,9 @@ model DepositOrder {
   depositByType     Json
   accountByType     Json
   status            DepositOrderStatus @default(PENDING)
+  voucherUrl        String?
+  voucherFileName   String?
+  voucherMimeType   String?
   createdById       String?            @db.Uuid
   createdByName     String?
   executedById      String?            @db.Uuid

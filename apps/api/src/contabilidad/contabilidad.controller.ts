@@ -29,6 +29,7 @@ import { CreateCloseDto, UpdateCloseDto } from './close.dto';
 import {
   CreateDepositOrderDto,
   DepositOrdersQueryDto,
+  UpdateDepositOrderDto,
 } from './deposit-order.dto';
 import {
   CreateFiscalInvoiceDto,
@@ -104,6 +105,135 @@ export class ContabilidadController {
   @Roles('ADMIN', 'ASISTENTE')
   async getDepositOrders(@Query() query: DepositOrdersQueryDto) {
     return this.contabilidadService.getDepositOrders(query);
+  }
+
+  @Get('deposit-orders/:id')
+  @Roles('ADMIN', 'ASISTENTE')
+  async getDepositOrderById(@Param('id') id: string) {
+    return this.contabilidadService.getDepositOrderById(id);
+  }
+
+  @Put('deposit-orders/:id')
+  @Roles('ADMIN')
+  async updateDepositOrder(
+    @Param('id') id: string,
+    @Body() dto: UpdateDepositOrderDto,
+    @Req() req: Request,
+  ) {
+    return this.contabilidadService.updateDepositOrder(
+      id,
+      dto,
+      (req.user ?? {}) as RequestActor,
+    );
+  }
+
+  @Delete('deposit-orders/:id')
+  @Roles('ADMIN')
+  async deleteDepositOrder(@Param('id') id: string, @Req() req: Request) {
+    return this.contabilidadService.deleteDepositOrder(
+      id,
+      (req.user ?? {}) as RequestActor,
+    );
+  }
+
+  @Post('deposit-orders/:id/voucher')
+  @Roles('ADMIN')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      fileFilter: (_req, file, cb) => {
+        const isAllowed =
+          /^image\/(png|jpe?g|webp)$/.test(file.mimetype) ||
+          file.mimetype === 'application/pdf';
+        if (!isAllowed) {
+          return cb(
+            new BadRequestException('Solo se permiten voucher en PNG/JPG/WEBP/PDF'),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async uploadDepositVoucher(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('No se subió ningún voucher');
+    if (!file.buffer?.length) {
+      throw new BadRequestException('No se pudo leer el voucher subido');
+    }
+
+    const original = sanitizeFileName(file.originalname ?? 'voucher-deposito');
+    const ext = extname(original).toLowerCase();
+    const safeExt = ext && /\.(png|jpe?g|webp|pdf)$/.test(ext)
+      ? ext
+      : file.mimetype === 'application/pdf'
+        ? '.pdf'
+        : '.jpg';
+    const contentType =
+      /^image\/(png|jpe?g|webp)$/.test(file.mimetype) || file.mimetype === 'application/pdf'
+        ? file.mimetype
+        : safeExt === '.png'
+          ? 'image/png'
+          : safeExt === '.webp'
+            ? 'image/webp'
+            : safeExt === '.pdf'
+              ? 'application/pdf'
+              : 'image/jpeg';
+
+    const actor = (req.user ?? {}) as RequestActor;
+    const ownerSegment = (actor.id ?? 'anon').trim() || 'anon';
+    const now = new Date();
+    const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const baseName = original.replace(/\.[^/.]+$/, '') || 'voucher';
+    const objectKey = `contabilidad/deposit-orders/${now.getUTCFullYear()}/${month}/${ownerSegment}/${randomUUID()}-${baseName}${safeExt}`
+      .replace(/\s+/g, '_')
+      .replace(/[^a-zA-Z0-9/_\-.]/g, '');
+
+    const uploadDirEnv = (process.env['UPLOAD_DIR'] ?? '').trim();
+    const volumeDir = '/uploads';
+    const volumeExists = fs.existsSync(volumeDir);
+    const uploadDir = uploadDirEnv.length > 0
+      ? ((uploadDirEnv === './uploads' || uploadDirEnv === 'uploads') && volumeExists
+          ? volumeDir
+          : uploadDirEnv)
+      : (volumeExists ? volumeDir : join(process.cwd(), 'uploads'));
+
+    const relativePath = `/${posix.join('uploads', objectKey)}`;
+    const segments = objectKey.split('/');
+    const absoluteFilePath = join(uploadDir, ...segments);
+    const absoluteDir = join(uploadDir, ...segments.slice(0, -1));
+
+    fs.mkdirSync(absoluteDir, { recursive: true });
+    fs.writeFileSync(absoluteFilePath, file.buffer);
+
+    const host = (req.get('host') ?? '').trim();
+    const protocol = (req.protocol ?? 'https').trim();
+    const url = host ? `${protocol}://${host}${relativePath}` : relativePath;
+
+    try {
+      await this.r2.putObject({
+        objectKey: `uploads/${objectKey}`,
+        body: file.buffer,
+        contentType,
+      });
+    } catch (r2Err) {
+      // eslint-disable-next-line no-console
+      console.warn('[deposit-orders/voucher] R2 mirror failed, local file is used:', r2Err);
+    }
+
+    return this.contabilidadService.attachDepositOrderVoucher(
+      id,
+      {
+        voucherUrl: url,
+        voucherFileName: original,
+        voucherMimeType: contentType,
+      },
+      actor,
+    );
   }
 
   @Post('fiscal-invoices/upload')

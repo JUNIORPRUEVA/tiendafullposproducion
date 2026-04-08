@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:web/web.dart' as web;
 
 import 'package:intl/intl.dart';
@@ -89,7 +87,6 @@ Future<void> printSalesSummary({
   final dataUrl = Uri.dataFromString(
     htmlContent,
     mimeType: 'text/html',
-    encoding: utf8,
   ).toString();
 
   final win = web.window.open('', '_blank');

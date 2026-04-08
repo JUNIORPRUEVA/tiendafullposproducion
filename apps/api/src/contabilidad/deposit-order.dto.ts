@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   Min,
+  ValidateIf,
 } from 'class-validator';
 
 export enum DepositOrderStatusDto {
@@ -23,6 +24,18 @@ export class CreateDepositOrderDto {
 
   @IsString()
   bankName!: string;
+
+  @IsOptional()
+  @IsString()
+  bankAccount?: string;
+
+  @IsOptional()
+  @IsString()
+  collaboratorName?: string;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
 
   @IsNumber()
   @Min(0)
@@ -44,6 +57,75 @@ export class CreateDepositOrderDto {
 
   @IsObject()
   accountByType!: Record<string, string>;
+}
+
+export class UpdateDepositOrderDto {
+  @IsOptional()
+  @IsDateString()
+  windowFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  windowTo?: string;
+
+  @IsOptional()
+  @IsString()
+  bankName?: string;
+
+  @IsOptional()
+  @IsString()
+  bankAccount?: string;
+
+  @IsOptional()
+  @IsString()
+  collaboratorName?: string;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  reserveAmount?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  totalAvailableCash?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  depositTotal?: number;
+
+  @IsOptional()
+  @IsObject()
+  closesCountByType?: Record<string, number>;
+
+  @IsOptional()
+  @IsObject()
+  depositByType?: Record<string, number>;
+
+  @IsOptional()
+  @IsObject()
+  accountByType?: Record<string, string>;
+
+  @IsOptional()
+  @IsEnum(DepositOrderStatusDto)
+  status?: DepositOrderStatusDto;
+
+  @ValidateIf((_, value) => value != null)
+  @IsString()
+  voucherUrl?: string;
+
+  @ValidateIf((_, value) => value != null)
+  @IsString()
+  voucherFileName?: string;
+
+  @ValidateIf((_, value) => value != null)
+  @IsString()
+  voucherMimeType?: string;
 }
 
 export class DepositOrdersQueryDto {

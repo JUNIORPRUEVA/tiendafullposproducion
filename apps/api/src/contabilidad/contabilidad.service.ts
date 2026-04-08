@@ -15,6 +15,8 @@ import { CreateCloseDto, UpdateCloseDto } from './close.dto';
 import {
   CreateDepositOrderDto,
   DepositOrdersQueryDto,
+  DepositOrderStatusDto,
+  UpdateDepositOrderDto,
 } from './deposit-order.dto';
 import {
   CreateFiscalInvoiceDto,
@@ -93,6 +95,13 @@ export class ContabilidadService {
   private normalizeRoleGuard(actor: Actor) {
     if (!actor.id) {
       throw new ForbiddenException('No autorizado para operar cierres');
+    }
+  }
+
+  private ensureAdmin(actor: Actor) {
+    this.normalizeRoleGuard(actor);
+    if ((actor.role ?? '').toUpperCase() !== 'ADMIN') {
+      throw new ForbiddenException('Solo administración puede editar o eliminar depósitos');
     }
   }
 
@@ -247,6 +256,9 @@ export class ContabilidadService {
         windowFrom: new Date(dto.windowFrom),
         windowTo: new Date(dto.windowTo),
         bankName: dto.bankName.trim(),
+        bankAccount: this.toNullableTrimmed(dto.bankAccount),
+        collaboratorName: this.toNullableTrimmed(dto.collaboratorName),
+        note: this.toNullableTrimmed(dto.note),
         reserveAmount: dto.reserveAmount,
         totalAvailableCash: dto.totalAvailableCash,
         depositTotal: dto.depositTotal,
@@ -280,6 +292,112 @@ export class ContabilidadService {
       where,
       orderBy: [{ createdAt: 'desc' }],
     });
+  }
+
+  async getDepositOrderById(id: string) {
+    const row = await this.prisma.depositOrder.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('Depósito bancario no encontrado');
+    return row;
+  }
+
+  async updateDepositOrder(id: string, dto: UpdateDepositOrderDto, actor: Actor) {
+    this.ensureAdmin(actor);
+
+    const existing = await this.prisma.depositOrder.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Depósito bancario no encontrado');
+
+    const status = dto.status != null
+      ? (dto.status as unknown as DepositOrderStatus)
+      : undefined;
+    const markingExecuted = status === DepositOrderStatusDto.EXECUTED || dto.voucherUrl != null;
+
+    const executor = markingExecuted
+      ? await this.prisma.user.findUnique({
+          where: { id: actor.id! },
+          select: { nombreCompleto: true },
+        })
+      : null;
+
+    return this.prisma.depositOrder.update({
+      where: { id },
+      data: {
+        ...(dto.windowFrom != null ? { windowFrom: new Date(dto.windowFrom) } : {}),
+        ...(dto.windowTo != null ? { windowTo: new Date(dto.windowTo) } : {}),
+        ...(dto.bankName != null ? { bankName: dto.bankName.trim() } : {}),
+        ...(dto.bankAccount != null ? { bankAccount: this.toNullableTrimmed(dto.bankAccount) } : {}),
+        ...(dto.collaboratorName != null
+          ? { collaboratorName: this.toNullableTrimmed(dto.collaboratorName) }
+          : {}),
+        ...(dto.note != null ? { note: this.toNullableTrimmed(dto.note) } : {}),
+        ...(dto.reserveAmount != null ? { reserveAmount: dto.reserveAmount } : {}),
+        ...(dto.totalAvailableCash != null ? { totalAvailableCash: dto.totalAvailableCash } : {}),
+        ...(dto.depositTotal != null ? { depositTotal: dto.depositTotal } : {}),
+        ...(dto.closesCountByType != null ? { closesCountByType: dto.closesCountByType } : {}),
+        ...(dto.depositByType != null ? { depositByType: dto.depositByType } : {}),
+        ...(dto.accountByType != null ? { accountByType: dto.accountByType } : {}),
+        ...(status != null ? { status } : {}),
+        ...(dto.voucherUrl != null ? { voucherUrl: this.toNullableTrimmed(dto.voucherUrl) } : {}),
+        ...(dto.voucherFileName != null
+          ? { voucherFileName: this.toNullableTrimmed(dto.voucherFileName) }
+          : {}),
+        ...(dto.voucherMimeType != null
+          ? { voucherMimeType: this.toNullableTrimmed(dto.voucherMimeType) }
+          : {}),
+        ...(markingExecuted
+          ? {
+              status: DepositOrderStatus.EXECUTED,
+              executedAt: new Date(),
+              executedById: actor.id!,
+              executedByName: executor?.nombreCompleto ?? null,
+            }
+          : {}),
+      },
+    });
+  }
+
+  async attachDepositOrderVoucher(
+    id: string,
+    params: {
+      voucherUrl: string;
+      voucherFileName: string;
+      voucherMimeType: string;
+    },
+    actor: Actor,
+  ) {
+    this.ensureAdmin(actor);
+
+    const existing = await this.prisma.depositOrder.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Depósito bancario no encontrado');
+    if (existing.status === DepositOrderStatus.CANCELLED) {
+      throw new BadRequestException('No se puede adjuntar voucher a un depósito cancelado');
+    }
+
+    const executor = await this.prisma.user.findUnique({
+      where: { id: actor.id! },
+      select: { nombreCompleto: true },
+    });
+
+    return this.prisma.depositOrder.update({
+      where: { id },
+      data: {
+        voucherUrl: params.voucherUrl.trim(),
+        voucherFileName: params.voucherFileName.trim(),
+        voucherMimeType: params.voucherMimeType.trim(),
+        status: DepositOrderStatus.EXECUTED,
+        executedAt: new Date(),
+        executedById: actor.id!,
+        executedByName: executor?.nombreCompleto ?? null,
+      },
+    });
+  }
+
+  async deleteDepositOrder(id: string, actor: Actor) {
+    this.ensureAdmin(actor);
+
+    const existing = await this.prisma.depositOrder.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Depósito bancario no encontrado');
+
+    return this.prisma.depositOrder.delete({ where: { id } });
   }
 
   async createFiscalInvoice(dto: CreateFiscalInvoiceDto, actor: Actor) {

@@ -43,6 +43,7 @@ class RouteAccess {
         return AppPermission.viewCompanyManual;
       case Routes.contabilidad:
       case Routes.contabilidadCierresDiarios:
+      case Routes.contabilidadDepositos:
       case Routes.contabilidadFacturaFiscal:
       case Routes.contabilidadPagosPendientes:
         return AppPermission.viewAccounting;

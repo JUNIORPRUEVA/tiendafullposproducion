@@ -4,23 +4,27 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
-import '../../../core/models/close_model.dart';
-
 class DepositOrderPdfData {
   final DateTime generatedAt;
   final DateTime windowFrom;
   final DateTime windowTo;
+  final String bankName;
+  final String? collaboratorName;
+  final String? note;
   final double reserveInCash;
   final double totalAvailableCash;
   final double depositTotal;
-  final Map<CloseType, int> closesCountByType;
-  final Map<CloseType, double> depositByType;
-  final Map<CloseType, String> accountByType;
+  final Map<String, int> closesCountByType;
+  final Map<String, double> depositByType;
+  final Map<String, String> accountByType;
 
   const DepositOrderPdfData({
     required this.generatedAt,
     required this.windowFrom,
     required this.windowTo,
+    required this.bankName,
+    this.collaboratorName,
+    this.note,
     required this.reserveInCash,
     required this.totalAvailableCash,
     required this.depositTotal,
@@ -57,7 +61,7 @@ Future<Uint8List> buildDepositOrderPdf({
         ),
         pw.SizedBox(height: 2),
         pw.Text('RNC: 133080209'),
-        pw.Text('Carta de Depósito Bancario · Banco Popular'),
+        pw.Text('Carta de Depósito Bancario · ${data.bankName}'),
         pw.Text('Fecha emisión: ${dateTimeFmt.format(data.generatedAt)}'),
         pw.SizedBox(height: 12),
         pw.Container(
@@ -83,6 +87,14 @@ Future<Uint8List> buildDepositOrderPdf({
               pw.Text(
                 'Período evaluado: ${dateFmt.format(data.windowFrom)} - ${dateFmt.format(data.windowTo)}',
               ),
+              if ((data.collaboratorName ?? '').trim().isNotEmpty) ...[
+                pw.SizedBox(height: 4),
+                pw.Text('Colaborador asignado: ${data.collaboratorName}'),
+              ],
+              if ((data.note ?? '').trim().isNotEmpty) ...[
+                pw.SizedBox(height: 4),
+                pw.Text('Nota: ${data.note}'),
+              ],
             ],
           ),
         ),
@@ -175,13 +187,17 @@ pw.Widget _totalLine(String label, String value, {bool highlight = false}) {
   );
 }
 
-String _typeLabel(CloseType type) {
-  switch (type) {
-    case CloseType.capsulas:
+String _typeLabel(String raw) {
+  switch (raw.trim().toUpperCase()) {
+    case 'CAPSULAS':
       return 'Pastilla';
-    case CloseType.pos:
+    case 'POS':
       return 'Software';
-    case CloseType.tienda:
+    case 'TIENDA':
       return 'Tienda';
+    case 'GENERAL':
+      return 'General';
+    default:
+      return raw;
   }
 }

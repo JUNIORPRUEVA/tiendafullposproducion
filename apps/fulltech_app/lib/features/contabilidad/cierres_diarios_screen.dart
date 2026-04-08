@@ -325,20 +325,24 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                               generatedAt: DateTime.now(),
                               windowFrom: eval.windowFrom,
                               windowTo: eval.windowTo,
+                              bankName: 'BANCO POPULAR',
                               reserveInCash: _cashReserve,
                               totalAvailableCash: eval.totalAvailableCash,
                               depositTotal: eval.depositableAmount,
                               closesCountByType: {
                                 for (final type in _activeCloseTypes)
-                                  type: eval.countByType[type] ?? 0,
+                                  _depositKeyForType(type):
+                                      eval.countByType[type] ?? 0,
                               },
                               depositByType: {
                                 for (final type in _activeCloseTypes)
-                                  type: eval.depositByType[type] ?? 0,
+                                  _depositKeyForType(type):
+                                      eval.depositByType[type] ?? 0,
                               },
                               accountByType: {
                                 for (final type in _activeCloseTypes)
-                                  type: _categoryAccount[type] ?? '',
+                                  _depositKeyForType(type):
+                                      _categoryAccount[type] ?? '',
                               },
                             ),
                           );
@@ -1116,6 +1120,17 @@ String _typeLabel(CloseType type) {
       return 'Tienda';
     case CloseType.pos:
       return 'Software';
+  }
+}
+
+String _depositKeyForType(CloseType type) {
+  switch (type) {
+    case CloseType.capsulas:
+      return 'CAPSULAS';
+    case CloseType.tienda:
+      return 'TIENDA';
+    case CloseType.pos:
+      return 'POS';
   }
 }
 
