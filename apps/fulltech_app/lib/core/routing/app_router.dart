@@ -17,6 +17,7 @@ import '../../features/administracion/admin_sales_registry_screen.dart';
 import '../../features/administracion/admin_quotes_registry_screen.dart';
 import '../../features/administracion/administracion_screen.dart';
 import '../../features/catalogo/catalogo_screen.dart';
+import '../../features/media_gallery/presentation/media_gallery_screen.dart';
 import '../../modules/clientes/cliente_detail_screen.dart';
 import '../../modules/clientes/clientes_screen.dart';
 import '../../modules/clientes/cliente_form_screen.dart';
@@ -172,6 +173,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.serviceOrders,
             builder: (context, state) => const ServiceOrdersListScreen(),
+          ),
+          GoRoute(
+            path: Routes.mediaGallery,
+            builder: (context, state) => const MediaGalleryScreen(),
           ),
           GoRoute(
             path: Routes.documentFlows,

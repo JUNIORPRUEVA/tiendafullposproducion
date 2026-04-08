@@ -20,6 +20,7 @@ import { WorkSchedulingModule } from './work-scheduling/work-scheduling.module';
 import { CompanyManualModule } from './company-manual/company-manual.module';
 import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { MediaGalleryModule } from './media-gallery/media-gallery.module';
 import { ServiceOrdersModule } from './service-orders/service-orders.module';
 import { StorageModule } from './storage/storage.module';
 import { WarrantyConfigsModule } from './warranty-configs/warranty-configs.module';
@@ -53,6 +54,7 @@ import { WarrantyConfigsModule } from './warranty-configs/warranty-configs.modul
     CompanyManualModule,
     AiAssistantModule,
     NotificationsModule,
+    MediaGalleryModule,
     ServiceOrdersModule,
     StorageModule,
     WarrantyConfigsModule,

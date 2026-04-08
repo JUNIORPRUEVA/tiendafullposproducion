@@ -425,7 +425,7 @@ class _ServiceOrdersListScreenState
                           statusBusy: _busyOrderIds.contains(order.id),
                           isTechnician:
                               currentUser?.appRole.isTechnician ?? false,
-                            canPromoteStatus: canManageStatusAsRole,
+                          canPromoteStatus: canManageStatusAsRole,
                           onChangeStatus: canChangeOrderStatus
                               ? (status) => _changeOrderStatus(order, status)
                               : null,
@@ -667,7 +667,6 @@ class ServiceOrdersFilter {
       statuses = const <ServiceOrderStatus>{
         ServiceOrderStatus.pendiente,
         ServiceOrderStatus.enProceso,
-        ServiceOrderStatus.cancelado,
       },
       serviceTypes = const <ServiceOrderType>{},
       creatorIds = const <String>{},
@@ -688,10 +687,9 @@ class ServiceOrdersFilter {
         serviceTypes.isEmpty &&
         creatorIds.isEmpty &&
         technicianIds.isEmpty &&
-        statuses.length == 3 &&
+      statuses.length == 2 &&
         statuses.contains(ServiceOrderStatus.pendiente) &&
-        statuses.contains(ServiceOrderStatus.enProceso) &&
-        statuses.contains(ServiceOrderStatus.cancelado);
+      statuses.contains(ServiceOrderStatus.enProceso);
   }
 
   ServiceOrdersFilter copyWith({
@@ -2487,6 +2485,7 @@ class _ServiceOrderListCard extends StatelessWidget {
     final isPriorityInstallation =
         order.serviceType == ServiceOrderType.instalacion;
     final creatorDisplayName = creatorName.trim();
+    final creatorFirstName = _extractFirstName(creatorDisplayName);
     final hasCreatorName = creatorDisplayName.isNotEmpty;
     final clientDisplayName = clientName.trim();
     final hasClientName = clientDisplayName.isNotEmpty;
@@ -2518,7 +2517,7 @@ class _ServiceOrderListCard extends StatelessWidget {
       final filesLabel =
           '${order.referenceItems.length} ref. · ${order.technicalEvidenceItems.length} evid.';
       final creatorLabel = hasCreatorName
-          ? 'Creó $creatorDisplayName'
+          ? 'Creó $creatorFirstName'
           : 'Sin creador visible';
 
       return Material(
@@ -2579,6 +2578,12 @@ class _ServiceOrderListCard extends StatelessWidget {
                                     icon: Icons.calendar_today_outlined,
                                     text: topLineText,
                                   ),
+                                  if (hasCreatorName)
+                                    _PanelMetaPill(
+                                      icon: Icons.person_outline_rounded,
+                                      text: 'Vendedor: $creatorFirstName',
+                                      accent: theme.colorScheme.tertiary,
+                                    ),
                                   if (isPriorityInstallation)
                                     const _PriorityPill(),
                                 ],
@@ -3239,6 +3244,12 @@ String _compactOrderId(String rawId) {
   final normalized = rawId.trim();
   if (normalized.length <= 8) return normalized;
   return normalized.substring(0, 8).toUpperCase();
+}
+
+String _extractFirstName(String rawName) {
+  final normalized = rawName.trim();
+  if (normalized.isEmpty) return '';
+  return normalized.split(RegExp(r'\s+')).first.trim();
 }
 
 String? _firstMeaningfulText(String? primary, String? secondary) {

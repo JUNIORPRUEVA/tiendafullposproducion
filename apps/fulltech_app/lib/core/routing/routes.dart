@@ -19,6 +19,7 @@ class Routes {
   static const cotizaciones = '/cotizaciones';
   static const cotizacionesHistorial = '/cotizaciones/historial';
   static const serviceOrders = '/service-orders';
+  static const mediaGallery = '/media-gallery';
   static const serviceOrderCreate = '/service-orders/nueva';
   static const serviceOrderDetail = '/service-orders/:id';
   static const documentFlows = '/document-flows';

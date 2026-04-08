@@ -19,6 +19,7 @@ import 'core/realtime/operations_realtime_service.dart';
 import 'core/startup/app_startup_controller.dart';
 import 'core/widgets/fulltech_global_background.dart';
 import 'features/catalogo/application/catalog_background_sync.dart';
+import 'features/media_gallery/application/media_gallery_background_sync.dart';
 import 'features/contabilidad/contabilidad_init.dart';
 
 class _GlobalErrorFallback extends StatefulWidget {
@@ -193,6 +194,7 @@ class _MyAppState extends ConsumerState<MyApp> {
   Widget build(BuildContext context) {
     if (widget.enableBackgroundStartup && _backgroundStartupStarted) {
       ref.watch(catalogBackgroundSyncBootstrapProvider);
+      ref.watch(mediaGalleryBackgroundSyncBootstrapProvider);
       ref.watch(syncQueueBootstrapProvider);
     }
     final router = ref.watch(routerProvider);

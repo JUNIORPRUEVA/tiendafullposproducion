@@ -12,6 +12,7 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/auth/app_role.dart';
 import '../../core/cache/fulltech_cache_manager.dart';
 import '../../core/cache/local_json_cache.dart';
+import '../../core/company/company_settings_model.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../../core/debug/debug_admin_action.dart';
 import '../../core/errors/api_exception.dart';
@@ -1426,16 +1427,19 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     );
   }
 
-  Future<void> _sendCotizacionViaWhatsApp({
+  Future<void> _sendCotizacionPdfToSelf({
     required CotizacionModel cotizacion,
-    Uint8List? pdfBytes,
+    required Uint8List pdfBytes,
   }) async {
-    final company = await ref
-        .read(companySettingsRepositoryProvider)
-        .getSettings();
-    final bytes =
-        pdfBytes ??
-        await buildCotizacionPdf(cotizacion: cotizacion, company: company);
+    final currentUser = ref.read(authStateProvider).user;
+    final selfPhone = _resolveCurrentUserDeliveryPhone(currentUser);
+    if (selfPhone == null) {
+      throw ApiException(
+        'Tu usuario no tiene número de flota ni teléfono configurado para recibir el PDF.',
+        null,
+      );
+    }
+
     final dateFmt = DateFormat('yyyyMMdd_HHmm');
     final fileName =
         'cotizacion_${dateFmt.format(cotizacion.createdAt)}_${cotizacion.id.substring(0, 6)}.pdf';
@@ -1443,11 +1447,65 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     await ref
         .read(cotizacionesRepositoryProvider)
         .sendWhatsAppQuotation(
-          customerName: cotizacion.customerName,
-          customerPhone: cotizacion.customerPhone ?? '',
-          pdfBytes: bytes,
+          customerName: (currentUser?.nombreCompleto ?? 'Usuario').trim(),
+          customerPhone: selfPhone,
+          pdfBytes: pdfBytes,
           fileName: fileName,
+          messageText: _buildSelfDeliveryMessage(
+            cotizacion: cotizacion,
+            currentUserName: currentUser?.nombreCompleto,
+          ),
         );
+  }
+
+  String? _resolveCurrentUserDeliveryPhone(dynamic currentUser) {
+    if (currentUser == null) return null;
+    final fleet = (currentUser.numeroFlota ?? '').trim();
+    if (fleet.isNotEmpty) {
+      return fleet;
+    }
+    final phone = currentUser.telefono.trim();
+    if (phone.isNotEmpty) {
+      return phone;
+    }
+    return null;
+  }
+
+  String _buildSelfDeliveryMessage({
+    required CotizacionModel cotizacion,
+    String? currentUserName,
+  }) {
+    final recipientName = (currentUserName ?? '').trim();
+    final safeRecipient = recipientName.isEmpty ? 'Hola' : 'Hola $recipientName';
+    final quoteCode = _buildQuotationCode(cotizacion.id);
+    final total = NumberFormat.currency(
+      locale: 'es_DO',
+      symbol: 'RD\$',
+      decimalDigits: 2,
+    ).format(cotizacion.total);
+
+    return [
+      '$safeRecipient, te envío tu PDF de cotización.',
+      'Cotización: $quoteCode',
+      'Cliente: ${cotizacion.customerName}',
+      'Total: $total',
+    ].join('\n');
+  }
+
+  String _selfDeliveryButtonLabel(bool compact) {
+    return compact ? 'PDF a mí' : 'Enviar PDF a mí';
+  }
+
+  String _selfDeliverySuccessMessage() {
+    return 'Cotización enviada a tu propio WhatsApp.';
+  }
+
+  String _selfDeliveryTimeoutMessage() {
+    return 'Tiempo de espera agotado enviando el PDF a tu propio WhatsApp.';
+  }
+
+  String _selfDeliveryErrorPrefix() {
+    return 'No se pudo enviar el PDF a tu número';
   }
 
   Future<void> _sendCotizacionForAdminApproval({
@@ -1462,9 +1520,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       );
     }
 
-    final company = await ref
-        .read(companySettingsRepositoryProvider)
-        .getSettings();
+    final company = await _getCompanySettingsForPdf();
     final bytes =
         pdfBytes ??
         await buildCotizacionPdf(cotizacion: cotizacion, company: company);
@@ -1489,6 +1545,28 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     return '$safeSellerName quiere que confirme esta cotización y que esté en orden.';
   }
 
+  Future<CompanySettings> _getCompanySettingsForPdf() async {
+    final repository = ref.read(companySettingsRepositoryProvider);
+    try {
+      return await repository.getSettings();
+    } catch (error, stackTrace) {
+      debugPrint(
+        'CotizacionesScreen: usando respaldo de configuración para PDF: $error\n$stackTrace',
+      );
+      final cached = await repository.getCachedSettings();
+      return cached ?? CompanySettings.empty();
+    }
+  }
+
+  String _buildQuotationCode(String id) {
+    final normalized = id.replaceAll('-', '').trim().toUpperCase();
+    if (normalized.isEmpty) {
+      return 'COT-MANUAL';
+    }
+    final token = normalized.length > 8 ? normalized.substring(0, 8) : normalized;
+    return 'COT-$token';
+  }
+
   Future<void> _openPdfPreview() async {
     if (_items.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1500,9 +1578,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     final scaffoldContext = context;
 
     final cotizacion = _buildDraftCotizacion();
-    final company = await ref
-        .read(companySettingsRepositoryProvider)
-        .getSettings();
+    final company = await _getCompanySettingsForPdf();
     final bytes = await buildCotizacionPdf(
       cotizacion: cotizacion,
       company: company,
@@ -1519,8 +1595,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         final compact = media.width < 560;
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final phone = (cotizacion.customerPhone ?? '').trim();
-            final canSend = phone.isNotEmpty && !sendingWhatsApp;
+            final currentUser = ref.read(authStateProvider).user;
+            final selfPhone = _resolveCurrentUserDeliveryPhone(currentUser);
+            final canSend = selfPhone != null && !sendingWhatsApp;
             final adminPhone = Env.quotationApprovalAdminPhone.trim();
             final canSendAdmin =
                 adminPhone.isNotEmpty && !sendingAdminApproval;
@@ -1528,23 +1605,21 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
             Future<void> sendWhatsApp() async {
               setDialogState(() => sendingWhatsApp = true);
               try {
-                await _sendCotizacionViaWhatsApp(
+                await _sendCotizacionPdfToSelf(
                   cotizacion: cotizacion,
                   pdfBytes: bytes,
                 ).timeout(const Duration(seconds: 25));
                 if (!scaffoldContext.mounted) return;
                 ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
-                  const SnackBar(
-                    content: Text('Cotización enviada vía WhatsApp.'),
+                  SnackBar(
+                    content: Text(_selfDeliverySuccessMessage()),
                   ),
                 );
               } on TimeoutException {
                 if (!scaffoldContext.mounted) return;
                 ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Tiempo de espera agotado enviando por WhatsApp (Evolution).',
-                    ),
+                  SnackBar(
+                    content: Text(_selfDeliveryTimeoutMessage()),
                   ),
                 );
               } on ApiException catch (e) {
@@ -1555,7 +1630,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
               } catch (e) {
                 if (!scaffoldContext.mounted) return;
                 ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
-                  SnackBar(content: Text('No se pudo enviar: $e')),
+                  SnackBar(content: Text('${_selfDeliveryErrorPrefix()}: $e')),
                 );
               } finally {
                 if (context.mounted) {
@@ -1629,9 +1704,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                             ),
                           ),
                           TextButton.icon(
-                            onPressed: phone.isEmpty
-                                ? null
-                                : (canSend ? sendWhatsApp : null),
+                            onPressed: canSend ? sendWhatsApp : null,
                             icon: sendingWhatsApp
                                 ? const SizedBox(
                                     width: 18,
@@ -1641,11 +1714,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                                     ),
                                   )
                                 : const Icon(Icons.chat_outlined),
-                            label: Text(
-                              compact
-                                  ? 'WhatsApp'
-                                  : 'Enviar cotización vía WhatsApp',
-                            ),
+                            label: Text(_selfDeliveryButtonLabel(compact)),
                           ),
                           const SizedBox(width: 6),
                           TextButton.icon(

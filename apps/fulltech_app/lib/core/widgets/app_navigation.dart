@@ -61,6 +61,12 @@ List<AppNavigationSection> buildAppNavigationSections(
             title: 'Operaciones',
             route: Routes.serviceOrders,
           ),
+        if (can(AppPermission.viewMediaGallery))
+          const AppNavigationItem(
+            icon: Icons.perm_media_outlined,
+            title: 'Galería media',
+            route: Routes.mediaGallery,
+          ),
         if (can(AppPermission.viewDocumentFlows))
           const AppNavigationItem(
             icon: Icons.verified_outlined,
@@ -204,6 +210,7 @@ String resolveNavigationTitle(
 
   if (path == Routes.registrarVenta) return 'Nueva venta';
   if (path == Routes.serviceOrders) return 'Operaciones';
+  if (path == Routes.mediaGallery) return 'Galería media';
   if (path == Routes.serviceOrderCreate) return 'Crear orden';
   if (path == Routes.documentFlows) return 'Flujo documental';
   if (path == Routes.cotizacionesHistorial) return 'Historial de cotizaciones';
@@ -235,6 +242,7 @@ bool desktopShellShouldShowOwnAppBar(String location) {
     Routes.clientes,
     Routes.ventas,
     Routes.serviceOrders,
+    Routes.mediaGallery,
     Routes.documentFlows,
     Routes.cotizaciones,
     Routes.nomina,

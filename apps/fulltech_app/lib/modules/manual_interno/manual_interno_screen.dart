@@ -19,7 +19,7 @@ class ManualInternoScreen extends ConsumerStatefulWidget {
 }
 
 class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
-  final TextEditingController _searchCtrl = TextEditingController();
+  String _searchQuery = '';
 
   bool _loading = true;
   bool _saving = false;
@@ -32,12 +32,6 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
   void initState() {
     super.initState();
     _loadEntries();
-  }
-
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    super.dispose();
   }
 
   Future<void> _loadEntries() async {
@@ -110,9 +104,10 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
         : _entries
               .where((item) => item.kind == _kindFilter)
               .toList(growable: false);
-    final query = _searchCtrl.text.trim().toLowerCase();
-    if (query.isEmpty) return filteredByKind;
-    return filteredByKind
+    final query = _searchQuery.trim().toLowerCase();
+    final filtered = query.isEmpty
+        ? filteredByKind
+        : filteredByKind
         .where((item) {
           return item.title.toLowerCase().contains(query) ||
               (item.summary ?? '').toLowerCase().contains(query) ||
@@ -120,6 +115,49 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
               (item.moduleKey ?? '').toLowerCase().contains(query);
         })
         .toList(growable: false);
+    filtered.sort((left, right) {
+      final byOrder = left.sortOrder.compareTo(right.sortOrder);
+      if (byOrder != 0) return byOrder;
+      return left.title.toLowerCase().compareTo(right.title.toLowerCase());
+    });
+    return filtered;
+  }
+
+  Future<void> _openSearch(bool canManage) async {
+    final result = await showSearch<_ManualSearchResult?>(
+      context: context,
+      delegate: _ManualSearchDelegate(
+        entries: _kindFilter == null
+            ? _entries
+            : _entries
+                  .where((entry) => entry.kind == _kindFilter)
+                  .toList(growable: false),
+        initialQuery: _searchQuery,
+      ),
+    );
+    if (!mounted || result == null) return;
+
+    setState(() {
+      _searchQuery = result.query.trim();
+    });
+
+    final selectedEntry = result.selectedEntry;
+    if (selectedEntry != null) {
+      _openEntryDetail(selectedEntry, canManage);
+    }
+  }
+
+  void _clearSearch() {
+    if (_searchQuery.isEmpty) return;
+    setState(() {
+      _searchQuery = '';
+    });
+  }
+
+  String _searchSummaryLabel() {
+    final query = _searchQuery.trim();
+    if (query.isEmpty) return '';
+    return 'Busqueda: "$query"';
   }
 
   Future<bool> _openEditor({CompanyManualEntry? entry}) async {
@@ -178,21 +216,6 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
     return entries.first;
   }
 
-  List<_ManualSectionData> _buildSections(List<CompanyManualEntry> entries) {
-    final sections = <_ManualSectionData>[];
-    for (final kind in CompanyManualEntryKind.values) {
-      final items = entries.where((entry) => entry.kind == kind).toList();
-      if (items.isEmpty) continue;
-      items.sort((a, b) {
-        final byOrder = a.sortOrder.compareTo(b.sortOrder);
-        if (byOrder != 0) return byOrder;
-        return a.title.toLowerCase().compareTo(b.title.toLowerCase());
-      });
-      sections.add(_ManualSectionData(kind: kind, entries: items));
-    }
-    return sections;
-  }
-
   void _openEntryDetail(CompanyManualEntry entry, bool canManage) {
     final width = MediaQuery.of(context).size.width;
     if (width >= 980) {
@@ -242,9 +265,7 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
     final canManage =
         user != null &&
         hasPermission(user.appRole, AppPermission.manageCompanyManual);
-    final isMobile = MediaQuery.sizeOf(context).width < 980;
     final entries = _visibleEntries;
-    final sections = _buildSections(entries);
     final selectedEntry = _resolveSelectedEntry(entries);
 
     return Scaffold(
@@ -254,16 +275,34 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
         darkerTone: true,
         actions: [
           IconButton(
-            tooltip: 'Recargar',
-            onPressed: _loading ? null : _loadEntries,
-            icon: const Icon(Icons.refresh_rounded),
+            tooltip: 'Buscar',
+            onPressed: _entries.isEmpty && _loading
+                ? null
+                : () => _openSearch(canManage),
+            icon: const Icon(Icons.search_rounded),
           ),
-          if (canManage)
-            IconButton(
-              tooltip: 'Nueva entrada',
-              onPressed: () => _openEditor(),
-              icon: const Icon(Icons.add_rounded),
-            ),
+          PopupMenuButton<CompanyManualEntryKind?>(
+            tooltip: 'Filtrar',
+            initialValue: _kindFilter,
+            onSelected: (kind) {
+              setState(() {
+                _kindFilter = kind;
+              });
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem<CompanyManualEntryKind?>(
+                value: null,
+                child: Text('Todo'),
+              ),
+              ...CompanyManualEntryKind.values.map(
+                (kind) => PopupMenuItem<CompanyManualEntryKind?>(
+                  value: kind,
+                  child: Text(kind.label),
+                ),
+              ),
+            ],
+            icon: const Icon(Icons.tune_rounded),
+          ),
         ],
       ),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
@@ -281,40 +320,36 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
         ),
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
-              child: _ManualTopPanel(
-                totalTopics: entries.length,
-                totalSections: sections.length,
-                selectedFilter: _kindFilter?.label ?? 'Todo',
-                searchController: _searchCtrl,
-                isMobile: isMobile,
-                onChangedSearch: () => setState(() {}),
-                onClearSearch: () {
-                  _searchCtrl.clear();
-                  setState(() {});
-                },
-                onPickFilter: (kind) {
-                  setState(() {
-                    _kindFilter = kind;
-                  });
-                },
+            if (_searchQuery.isNotEmpty || _kindFilter != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+                child: _ManualActiveFiltersBar(
+                  searchLabel: _searchSummaryLabel(),
+                  filterLabel: _kindFilter?.label,
+                  onClearSearch: _searchQuery.isEmpty ? null : _clearSearch,
+                  onClearFilter: _kindFilter == null
+                      ? null
+                      : () {
+                          setState(() {
+                            _kindFilter = null;
+                          });
+                        },
+                ),
               ),
-            ),
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
                   : _error != null
                   ? Center(child: Text(_error!))
                   : entries.isEmpty
-                  ? const Center(child: Text('No hay temas para mostrar'))
+                  ? const Center(child: Text('No hay reglas para mostrar'))
                   : RefreshIndicator(
                       onRefresh: _loadEntries,
                       child: LayoutBuilder(
                         builder: (context, constraints) {
                           final isWide = constraints.maxWidth >= 980;
-                          final listPane = _ManualSectionsList(
-                            sections: sections,
+                          final listPane = _ManualEntriesList(
+                            entries: entries,
                             selectedEntryId: selectedEntry?.id,
                             canManage: canManage,
                             onOpenEntry: (entry) =>
@@ -361,264 +396,98 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
   }
 }
 
-class _ManualTopPanel extends StatelessWidget {
-  const _ManualTopPanel({
-    required this.totalTopics,
-    required this.totalSections,
-    required this.selectedFilter,
-    required this.searchController,
-    required this.isMobile,
-    required this.onChangedSearch,
+class _ManualActiveFiltersBar extends StatelessWidget {
+  const _ManualActiveFiltersBar({
+    required this.searchLabel,
+    required this.filterLabel,
     required this.onClearSearch,
-    required this.onPickFilter,
+    required this.onClearFilter,
   });
 
-  final int totalTopics;
-  final int totalSections;
-  final String selectedFilter;
-  final TextEditingController searchController;
-  final bool isMobile;
-  final VoidCallback onChangedSearch;
-  final VoidCallback onClearSearch;
-  final ValueChanged<CompanyManualEntryKind?> onPickFilter;
+  final String searchLabel;
+  final String? filterLabel;
+  final VoidCallback? onClearSearch;
+  final VoidCallback? onClearFilter;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final compactStats = '$totalTopics temas en $totalSections secciones';
-
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.fromLTRB(16, isMobile ? 14 : 18, 16, 16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        gradient: LinearGradient(
-          colors: [
-            scheme.primary.withValues(alpha: 0.13),
-            scheme.surface,
-            const Color(0xFFF8FBFF),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.7)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Manual interno',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        color: scheme.onSurface,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    if (isMobile)
-                      Text(
-                        compactStats,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      )
-                    else
-                      Text(
-                        'Reglas, guías y políticas en una vista clara y rápida.',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          fontSize: 12.8,
-                          height: 1.35,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              if (!isMobile)
-                _ManualSummaryPill(
-                  icon: Icons.layers_outlined,
-                  label: '$totalSections secciones',
-                ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: _ManualSearchField(
-                  controller: searchController,
-                  compact: isMobile,
-                  onChanged: onChangedSearch,
-                  onClear: onClearSearch,
-                ),
-              ),
-              const SizedBox(width: 10),
-              _ManualFilterMenuButton(
-                selectedFilter: selectedFilter,
-                compact: isMobile,
-                onSelected: onPickFilter,
-              ),
-            ],
-          ),
-          if (!isMobile) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _ManualSummaryPill(
-                  icon: Icons.article_outlined,
-                  label: '$totalTopics temas',
-                ),
-                _ManualSummaryPill(
-                  icon: Icons.tune_rounded,
-                  label: selectedFilter,
-                ),
-              ],
+          if (searchLabel.isNotEmpty)
+            _ManualRemovableChip(
+              icon: Icons.search_rounded,
+              label: searchLabel,
+              onRemove: onClearSearch,
             ),
-          ],
+          if (filterLabel != null)
+            _ManualRemovableChip(
+              icon: Icons.tune_rounded,
+              label: filterLabel!,
+              onRemove: onClearFilter,
+            ),
         ],
       ),
     );
   }
 }
 
-class _ManualSearchField extends StatelessWidget {
-  const _ManualSearchField({
-    required this.controller,
-    required this.compact,
-    required this.onChanged,
-    required this.onClear,
+class _ManualRemovableChip extends StatelessWidget {
+  const _ManualRemovableChip({
+    required this.icon,
+    required this.label,
+    required this.onRemove,
   });
 
-  final TextEditingController controller;
-  final bool compact;
-  final VoidCallback onChanged;
-  final VoidCallback onClear;
+  final IconData icon;
+  final String label;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return TextField(
-      controller: controller,
-      onChanged: (_) => onChanged(),
-      style: theme.textTheme.bodyMedium?.copyWith(fontSize: compact ? 13 : 14),
-      decoration: InputDecoration(
-        hintText: 'Buscar en el manual',
-        isDense: true,
-        filled: true,
-        fillColor: scheme.surface.withValues(alpha: 0.9),
-        prefixIcon: Icon(Icons.search_rounded, size: compact ? 18 : 20),
-        suffixIcon: controller.text.isEmpty
-            ? null
-            : IconButton(
-                onPressed: onClear,
-                icon: const Icon(Icons.close_rounded),
-                visualDensity: VisualDensity.compact,
-              ),
-        contentPadding: EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: compact ? 12 : 14,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: BorderSide(color: scheme.outlineVariant),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: BorderSide(color: scheme.outlineVariant),
-        ),
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: scheme.outlineVariant),
       ),
-    );
-  }
-}
-
-class _ManualFilterMenuButton extends StatelessWidget {
-  const _ManualFilterMenuButton({
-    required this.selectedFilter,
-    required this.compact,
-    required this.onSelected,
-  });
-
-  final String selectedFilter;
-  final bool compact;
-  final ValueChanged<CompanyManualEntryKind?> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final displayLabel = selectedFilter == 'Todo' ? 'Filtro' : selectedFilter;
-    return PopupMenuButton<CompanyManualEntryKind?>(
-      tooltip: 'Filtrar',
-      onSelected: onSelected,
-      itemBuilder: (context) => [
-        const PopupMenuItem<CompanyManualEntryKind?>(
-          value: null,
-          child: Text('Todo'),
-        ),
-        ...CompanyManualEntryKind.values.map(
-          (kind) => PopupMenuItem<CompanyManualEntryKind?>(
-            value: kind,
-            child: Text(kind.label),
-          ),
-        ),
-      ],
-      child: Container(
-        constraints: BoxConstraints(minWidth: compact ? 112 : 136),
-        padding: EdgeInsets.symmetric(
-          horizontal: compact ? 12 : 14,
-          vertical: compact ? 12 : 13,
-        ),
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: scheme.outlineVariant),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.tune_rounded,
-              size: compact ? 18 : 19,
-              color: scheme.primary,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: scheme.primary),
+          const SizedBox(width: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 220),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                displayLabel,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  fontSize: compact ? 12.6 : 13.2,
+          ),
+          if (onRemove != null) ...[
+            const SizedBox(width: 4),
+            InkWell(
+              onTap: onRemove,
+              borderRadius: BorderRadius.circular(999),
+              child: Padding(
+                padding: const EdgeInsets.all(2),
+                child: Icon(
+                  Icons.close_rounded,
+                  size: 16,
+                  color: scheme.onSurfaceVariant,
                 ),
               ),
             ),
-            const SizedBox(width: 6),
-            Icon(
-              Icons.keyboard_arrow_down_rounded,
-              size: compact ? 18 : 20,
-              color: scheme.onSurfaceVariant,
-            ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -844,18 +713,17 @@ class _ManualDesktopEntryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final updatedAt = entry.updatedAt ?? entry.createdAt;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(18),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(18),
             color: selected
                 ? scheme.primary.withValues(alpha: 0.08)
                 : scheme.surfaceContainerLowest,
@@ -865,87 +733,46 @@ class _ManualDesktopEntryTile extends StatelessWidget {
                   : scheme.outlineVariant,
             ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          entry.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _ManualDesktopBadge(label: entry.kind.label),
-                            if (entry.moduleKey != null &&
-                                entry.moduleKey!.isNotEmpty)
-                              _ManualDesktopBadge(
-                                label: 'Modulo ${entry.moduleKey}',
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (canManage)
-                    PopupMenuButton<String>(
-                      onSelected: (value) async {
-                        if (value == 'edit') {
-                          await onEdit();
-                        } else if (value == 'delete') {
-                          await onDelete();
-                        }
-                      },
-                      itemBuilder: (context) => const [
-                        PopupMenuItem(value: 'edit', child: Text('Editar')),
-                        PopupMenuItem(value: 'delete', child: Text('Eliminar')),
-                      ],
-                    ),
-                ],
-              ),
-              if (entry.summary != null && entry.summary!.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Text(
-                  entry.summary!,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurface.withValues(alpha: 0.74),
-                  ),
+              Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  color: selected ? scheme.primary : scheme.outline,
+                  shape: BoxShape.circle,
                 ),
-              ],
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Actualizado ${formatDate(updatedAt)}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    selected
-                        ? Icons.visibility_outlined
-                        : Icons.arrow_forward_rounded,
-                    color: scheme.primary,
-                    size: 18,
-                  ),
-                ],
               ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _ManualCompactEntryBody(
+                  entry: entry,
+                  dense: true,
+                  emphasizeTitle: true,
+                ),
+              ),
+              const SizedBox(width: 10),
+              if (canManage)
+                PopupMenuButton<String>(
+                  onSelected: (value) async {
+                    if (value == 'edit') {
+                      await onEdit();
+                    } else if (value == 'delete') {
+                      await onDelete();
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 'edit', child: Text('Editar')),
+                    PopupMenuItem(value: 'delete', child: Text('Eliminar')),
+                  ],
+                )
+              else
+                Icon(
+                  selected ? Icons.visibility_outlined : Icons.arrow_forward_rounded,
+                  color: scheme.primary,
+                  size: 18,
+                ),
             ],
           ),
         ),
@@ -979,9 +806,9 @@ class _ManualDesktopBadge extends StatelessWidget {
   }
 }
 
-class _ManualSectionsList extends StatelessWidget {
-  const _ManualSectionsList({
-    required this.sections,
+class _ManualEntriesList extends StatelessWidget {
+  const _ManualEntriesList({
+    required this.entries,
     required this.selectedEntryId,
     required this.canManage,
     required this.onOpenEntry,
@@ -990,7 +817,7 @@ class _ManualSectionsList extends StatelessWidget {
     required this.formatDate,
   });
 
-  final List<_ManualSectionData> sections;
+  final List<CompanyManualEntry> entries;
   final String? selectedEntryId;
   final bool canManage;
   final ValueChanged<CompanyManualEntry> onOpenEntry;
@@ -1000,85 +827,23 @@ class _ManualSectionsList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView.builder(
+    return ListView.separated(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
-      itemCount: sections.length,
+      itemCount: entries.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
-        final section = sections[index];
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: index == sections.length - 1 ? 0 : 20,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _ManualSectionHeader(section: section),
-              const SizedBox(height: 12),
-              for (final entry in section.entries)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _ManualTopicCard(
-                    entry: entry,
-                    isSelected: entry.id == selectedEntryId,
-                    canManage: canManage,
-                    onTap: () => onOpenEntry(entry),
-                    onEdit: () => onEditEntry(entry),
-                    onDelete: () => onDeleteEntry(entry),
-                    formatDate: formatDate,
-                  ),
-                ),
-            ],
-          ),
+        final entry = entries[index];
+        return _ManualTopicCard(
+          entry: entry,
+          isSelected: entry.id == selectedEntryId,
+          canManage: canManage,
+          onTap: () => onOpenEntry(entry),
+          onEdit: () => onEditEntry(entry),
+          onDelete: () => onDeleteEntry(entry),
+          formatDate: formatDate,
         );
       },
-    );
-  }
-}
-
-class _ManualSectionHeader extends StatelessWidget {
-  const _ManualSectionHeader({required this.section});
-
-  final _ManualSectionData section;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = section.accentColor;
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(section.icon, color: color, size: 19),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                section.title,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                '${section.entries.length} temas. ${section.description}',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(height: 1.35),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }
@@ -1105,22 +870,20 @@ class _ManualTopicCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final roles = entry.targetRoles.map((role) => role.label).join(', ');
-    final updatedAt = entry.updatedAt ?? entry.createdAt;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(18),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
           decoration: BoxDecoration(
             color: isSelected
                 ? scheme.primary.withValues(alpha: 0.08)
                 : scheme.surface,
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(18),
             border: Border.all(
               color: isSelected
                   ? scheme.primary.withValues(alpha: 0.45)
@@ -1129,118 +892,241 @@ class _ManualTopicCard extends StatelessWidget {
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 14,
-                offset: const Offset(0, 8),
+                color: Colors.black.withValues(alpha: 0.035),
+                blurRadius: 10,
+                offset: const Offset(0, 5),
               ),
             ],
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          entry.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 6),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            _ManualTag(label: entry.kind.label),
-                            _ManualTag(label: entry.audience.label),
-                            if (entry.moduleKey != null &&
-                                entry.moduleKey!.isNotEmpty)
-                              _ManualTag(label: 'Módulo ${entry.moduleKey}'),
-                            if (!entry.published)
-                              const _ManualTag(label: 'Oculto'),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (canManage)
-                    PopupMenuButton<String>(
-                      tooltip: 'Opciones',
-                      onSelected: (value) async {
-                        if (value == 'edit') {
-                          await onEdit();
-                        } else if (value == 'delete') {
-                          await onDelete();
-                        }
-                      },
-                      itemBuilder: (context) => const [
-                        PopupMenuItem(value: 'edit', child: Text('Editar')),
-                        PopupMenuItem(value: 'delete', child: Text('Eliminar')),
-                      ],
-                    ),
-                ],
-              ),
-              if (entry.summary != null && entry.summary!.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  entry.summary!,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurface.withValues(alpha: 0.72),
-                    fontWeight: FontWeight.w600,
-                    height: 1.35,
-                  ),
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: isSelected ? scheme.primary : scheme.outline,
+                  shape: BoxShape.circle,
                 ),
-              ],
-              if (roles.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  'Aplica a: $roles',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Actualizado ${formatDate(updatedAt)}',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Ver detalle',
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: scheme.primary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Icon(
-                    Icons.arrow_forward_rounded,
-                    color: scheme.primary,
-                    size: 18,
-                  ),
-                ],
               ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _ManualCompactEntryBody(entry: entry, dense: false),
+              ),
+              const SizedBox(width: 8),
+              if (canManage)
+                PopupMenuButton<String>(
+                  tooltip: 'Opciones',
+                  onSelected: (value) async {
+                    if (value == 'edit') {
+                      await onEdit();
+                    } else if (value == 'delete') {
+                      await onDelete();
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 'edit', child: Text('Editar')),
+                    PopupMenuItem(value: 'delete', child: Text('Eliminar')),
+                  ],
+                )
+              else
+                Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  size: 15,
+                  color: scheme.primary,
+                ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ManualCompactEntryBody extends StatelessWidget {
+  const _ManualCompactEntryBody({
+    required this.entry,
+    required this.dense,
+    this.emphasizeTitle = false,
+  });
+
+  final CompanyManualEntry entry;
+  final bool dense;
+  final bool emphasizeTitle;
+
+  String _headline() {
+    final audienceLabel = _audienceLabel(entry);
+    return 'Tipo: ${entry.kind.label}  •  Dirigido a: $audienceLabel';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          entry.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: (dense ? theme.textTheme.titleSmall : theme.textTheme.bodyLarge)
+              ?.copyWith(
+                fontWeight: emphasizeTitle ? FontWeight.w800 : FontWeight.w700,
+                fontSize: dense ? 14 : 13.6,
+              ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          _headline(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
+            height: 1.15,
+            fontSize: dense ? 11.9 : 11.6,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String _audienceLabel(CompanyManualEntry entry) {
+  if (entry.targetRoles.isNotEmpty) {
+    return entry.targetRoles.map((role) => role.label).join(', ');
+  }
+
+  if (entry.audience == CompanyManualAudience.roleSpecific) {
+    return 'Roles definidos';
+  }
+
+  return 'Todo el equipo';
+}
+
+class _ManualSearchResult {
+  const _ManualSearchResult({required this.query, this.selectedEntry});
+
+  final String query;
+  final CompanyManualEntry? selectedEntry;
+}
+
+class _ManualSearchDelegate extends SearchDelegate<_ManualSearchResult?> {
+  _ManualSearchDelegate({required this.entries, required String initialQuery})
+    : super(searchFieldLabel: 'Buscar reglas y políticas') {
+    query = initialQuery;
+  }
+
+  final List<CompanyManualEntry> entries;
+
+  List<CompanyManualEntry> get _filteredEntries {
+    final normalizedQuery = query.trim().toLowerCase();
+    final filtered = entries.where((entry) {
+      if (normalizedQuery.isEmpty) return true;
+      return entry.title.toLowerCase().contains(normalizedQuery) ||
+          (entry.summary ?? '').toLowerCase().contains(normalizedQuery) ||
+          entry.content.toLowerCase().contains(normalizedQuery) ||
+          (entry.moduleKey ?? '').toLowerCase().contains(normalizedQuery) ||
+          _audienceLabel(entry).toLowerCase().contains(normalizedQuery);
+    }).toList(growable: false);
+
+    filtered.sort(
+      (left, right) => left.title.toLowerCase().compareTo(right.title.toLowerCase()),
+    );
+    return filtered;
+  }
+
+  @override
+  ThemeData appBarTheme(BuildContext context) {
+    final theme = Theme.of(context);
+    return theme.copyWith(
+      appBarTheme: theme.appBarTheme.copyWith(toolbarHeight: 64),
+      inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+        filled: false,
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+      ),
+    );
+  }
+
+  @override
+  List<Widget>? buildActions(BuildContext context) {
+    return [
+      if (query.trim().isNotEmpty)
+        IconButton(
+          tooltip: 'Limpiar búsqueda',
+          onPressed: () {
+            query = '';
+            showSuggestions(context);
+          },
+          icon: const Icon(Icons.close_rounded),
+        ),
+      IconButton(
+        tooltip: 'Aplicar búsqueda',
+        onPressed: () => close(context, _ManualSearchResult(query: query.trim())),
+        icon: const Icon(Icons.check_rounded),
+      ),
+    ];
+  }
+
+  @override
+  Widget? buildLeading(BuildContext context) {
+    return IconButton(
+      tooltip: 'Cerrar',
+      onPressed: () => close(context, null),
+      icon: const Icon(Icons.arrow_back_rounded),
+    );
+  }
+
+  @override
+  Widget buildResults(BuildContext context) => _buildList(context);
+
+  @override
+  Widget buildSuggestions(BuildContext context) => _buildList(context);
+
+  Widget _buildList(BuildContext context) {
+    final filtered = _filteredEntries;
+    if (entries.isEmpty) {
+      return const Center(child: Text('No hay reglas disponibles'));
+    }
+    if (filtered.isEmpty) {
+      return const Center(child: Text('No se encontraron coincidencias'));
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+      itemCount: filtered.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final entry = filtered[index];
+        return ListTile(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          tileColor: Theme.of(context).colorScheme.surfaceContainerLowest,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+          title: Text(
+            entry.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          subtitle: Text(
+            'Tipo: ${entry.kind.label} • ${_audienceLabel(entry)}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: const Icon(Icons.arrow_forward_rounded),
+          onTap: () => close(
+            context,
+            _ManualSearchResult(query: query.trim(), selectedEntry: entry),
+          ),
+        );
+      },
     );
   }
 }
@@ -1638,84 +1524,6 @@ class _FloatingDetailAction extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _ManualSectionData {
-  const _ManualSectionData({required this.kind, required this.entries});
-
-  final CompanyManualEntryKind kind;
-  final List<CompanyManualEntry> entries;
-
-  String get title => kind.label;
-
-  String get description {
-    switch (kind) {
-      case CompanyManualEntryKind.generalRule:
-        return 'Reglas base para la operación diaria.';
-      case CompanyManualEntryKind.roleRule:
-        return 'Lineamientos específicos según el rol.';
-      case CompanyManualEntryKind.policy:
-        return 'Políticas internas y criterios formales.';
-      case CompanyManualEntryKind.warrantyPolicy:
-        return 'Condiciones y manejo de garantías.';
-      case CompanyManualEntryKind.responsibility:
-        return 'Responsabilidades y compromisos del equipo.';
-      case CompanyManualEntryKind.productService:
-        return 'Información comercial de productos y servicios.';
-      case CompanyManualEntryKind.priceRule:
-        return 'Reglas para cotizar y fijar precios.';
-      case CompanyManualEntryKind.serviceRule:
-        return 'Estándares para la ejecución del servicio.';
-      case CompanyManualEntryKind.moduleGuide:
-        return 'Guías rápidas para usar módulos del sistema.';
-    }
-  }
-
-  IconData get icon {
-    switch (kind) {
-      case CompanyManualEntryKind.generalRule:
-        return Icons.rule_folder_outlined;
-      case CompanyManualEntryKind.roleRule:
-        return Icons.badge_outlined;
-      case CompanyManualEntryKind.policy:
-        return Icons.policy_outlined;
-      case CompanyManualEntryKind.warrantyPolicy:
-        return Icons.verified_user_outlined;
-      case CompanyManualEntryKind.responsibility:
-        return Icons.assignment_turned_in_outlined;
-      case CompanyManualEntryKind.productService:
-        return Icons.inventory_2_outlined;
-      case CompanyManualEntryKind.priceRule:
-        return Icons.sell_outlined;
-      case CompanyManualEntryKind.serviceRule:
-        return Icons.handyman_outlined;
-      case CompanyManualEntryKind.moduleGuide:
-        return Icons.menu_book_outlined;
-    }
-  }
-
-  Color get accentColor {
-    switch (kind) {
-      case CompanyManualEntryKind.generalRule:
-        return const Color(0xFF1D4ED8);
-      case CompanyManualEntryKind.roleRule:
-        return const Color(0xFF0F766E);
-      case CompanyManualEntryKind.policy:
-        return const Color(0xFF7C3AED);
-      case CompanyManualEntryKind.warrantyPolicy:
-        return const Color(0xFFEA580C);
-      case CompanyManualEntryKind.responsibility:
-        return const Color(0xFFBE123C);
-      case CompanyManualEntryKind.productService:
-        return const Color(0xFF0284C7);
-      case CompanyManualEntryKind.priceRule:
-        return const Color(0xFFCA8A04);
-      case CompanyManualEntryKind.serviceRule:
-        return const Color(0xFF15803D);
-      case CompanyManualEntryKind.moduleGuide:
-        return const Color(0xFF4338CA);
-    }
   }
 }
 

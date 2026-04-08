@@ -61,18 +61,43 @@ class CotizacionesLocalRepository {
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
-          await db.execute(
-            'ALTER TABLE $_tableItems ADD COLUMN original_unit_price REAL',
+          await _addColumnIfMissing(
+            db,
+            tableName: _tableItems,
+            columnName: 'original_unit_price',
+            definition: 'REAL',
           );
         }
         if (oldVersion < 3) {
-          await db.execute(
-            'ALTER TABLE $_tableCotizaciones ADD COLUMN global_discount_amount REAL NOT NULL DEFAULT 0',
+          await _addColumnIfMissing(
+            db,
+            tableName: _tableCotizaciones,
+            columnName: 'global_discount_amount',
+            definition: 'REAL NOT NULL DEFAULT 0',
           );
         }
       },
     );
     return _database!;
+  }
+
+  Future<void> _addColumnIfMissing(
+    DatabaseExecutor db, {
+    required String tableName,
+    required String columnName,
+    required String definition,
+  }) async {
+    final columns = await db.rawQuery('PRAGMA table_info($tableName)');
+    final alreadyExists = columns.any(
+      (row) => (row['name'] ?? '').toString().trim() == columnName,
+    );
+    if (alreadyExists) {
+      return;
+    }
+
+    await db.execute(
+      'ALTER TABLE $tableName ADD COLUMN $columnName $definition',
+    );
   }
 
   Future<List<CotizacionModel>> listAll() async {

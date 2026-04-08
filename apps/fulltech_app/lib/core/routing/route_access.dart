@@ -27,6 +27,8 @@ class RouteAccess {
       case Routes.serviceOrders:
       case Routes.serviceOrderCreate:
         return AppPermission.viewOperations;
+      case Routes.mediaGallery:
+        return AppPermission.viewMediaGallery;
       case Routes.documentFlows:
         return AppPermission.viewDocumentFlows;
       case Routes.cotizaciones:

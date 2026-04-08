@@ -21,6 +21,7 @@ enum AppPermission {
   viewSales,
   viewQuotes,
   viewClients,
+  viewMediaGallery,
 
   // Accounting
   viewAccounting,
@@ -51,6 +52,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.viewSales,
     AppPermission.viewQuotes,
     AppPermission.viewClients,
+    AppPermission.viewMediaGallery,
     AppPermission.viewAccounting,
     AppPermission.viewCompanyManual,
     AppPermission.viewAdminPanel,
@@ -92,6 +94,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.viewCatalog,
     AppPermission.viewQuotes,
     AppPermission.viewClients,
+    AppPermission.viewMediaGallery,
     AppPermission.viewCompanyManual,
   },
   AppRole.tecnico: {
