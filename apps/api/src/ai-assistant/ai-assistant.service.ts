@@ -2126,15 +2126,25 @@ export class AiAssistantService {
       return result;
     }
 
+    const orderFilters: Prisma.ServiceOrderWhereInput[] = [
+      ...searchTerms
+        .filter((term) => this.isUuidLike(term))
+        .map((term) => ({ id: term })),
+      ...searchTerms.map((term) => ({
+        technicalNote: { contains: term, mode: 'insensitive' as const },
+      })),
+      ...searchTerms.map((term) => ({
+        extraRequirements: { contains: term, mode: 'insensitive' as const },
+      })),
+      ...searchTerms.map((term) => ({
+        client: { nombre: { contains: term, mode: 'insensitive' as const } },
+      })),
+    ];
+
     const matchingOrders = await this.prisma.serviceOrder.findMany({
       where: {
         ...accessibleWhere,
-        OR: [
-          ...searchTerms.map((term) => ({ id: { contains: term } })),
-          ...searchTerms.map((term) => ({ technicalNote: { contains: term, mode: 'insensitive' as const } })),
-          ...searchTerms.map((term) => ({ extraRequirements: { contains: term, mode: 'insensitive' as const } })),
-          ...searchTerms.map((term) => ({ client: { nombre: { contains: term, mode: 'insensitive' as const } } })),
-        ],
+        OR: orderFilters,
       },
       include: {
         client: true,
@@ -2248,13 +2258,19 @@ export class AiAssistantService {
       return result;
     }
 
+    const documentFlowFilters: Prisma.OrderDocumentFlowWhereInput[] = [
+      ...searchTerms
+        .filter((term) => this.isUuidLike(term))
+        .map((term) => ({ orderId: term })),
+      ...searchTerms.map((term) => ({
+        order: { client: { nombre: { contains: term, mode: 'insensitive' as const } } },
+      })),
+    ];
+
     const matchingFlows = await this.prisma.orderDocumentFlow.findMany({
       where: {
         ...accessibleFlowWhere,
-        OR: [
-          ...searchTerms.map((term) => ({ orderId: { contains: term } })),
-          ...searchTerms.map((term) => ({ order: { client: { nombre: { contains: term, mode: 'insensitive' as const } } } })),
-        ],
+        OR: documentFlowFilters,
       },
       include: {
         order: {
@@ -2303,6 +2319,12 @@ export class AiAssistantService {
     return normalized.length > 8 ? normalized.slice(0, 8) : normalized;
   }
 
+  private isUuidLike(value: string) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      (value ?? '').trim(),
+    );
+  }
+
   private describeServiceOrder(order: {
     id: string;
     status: unknown;
@@ -2328,10 +2350,10 @@ export class AiAssistantService {
       assignedTo ? `Técnico asignado: ${assignedTo}.` : 'Técnico asignado: pendiente.',
       createdBy ? `Creada por: ${createdBy}.` : null,
       order.scheduledFor ? `Programada para: ${this.formatKnowledgeDate(order.scheduledFor)}.` : null,
-      (order.technicalNote ?? '').trim().isNotEmpty
+      (order.technicalNote ?? '').trim().length > 0
         ? `Nota técnica: ${this.buildExcerpt(order.technicalNote ?? '')}.`
         : null,
-      (order.extraRequirements ?? '').trim().isNotEmpty
+      (order.extraRequirements ?? '').trim().length > 0
         ? `Requerimientos: ${this.buildExcerpt(order.extraRequirements ?? '')}.`
         : null,
     ].filter((x): x is string => !!x);
@@ -2364,13 +2386,6 @@ export class AiAssistantService {
       flow.updatedAt ? `Última actualización: ${this.formatKnowledgeDate(flow.updatedAt)}.` : null,
     ].filter((x): x is string => !!x);
     return details.join(' ');
-  }
-
-  private formatKnowledgeDate(value?: Date | string | null) {
-    if (!value) return 'sin fecha';
-    const parsed = value instanceof Date ? value : new Date(value);
-    if (Number.isNaN(parsed.getTime())) return 'sin fecha';
-    return parsed.toISOString();
   }
 
   private humanizeEnum(value: unknown) {
@@ -3694,9 +3709,11 @@ export class AiAssistantService {
       .map((record) => this.toCitation(record));
   }
 
-  private formatKnowledgeDate(value: Date | null) {
+  private formatKnowledgeDate(value: Date | string | null) {
     if (!value) return 'sin fecha';
-    return value.toISOString().slice(0, 19).replace('T', ' ');
+    const parsed = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(parsed.getTime())) return 'sin fecha';
+    return parsed.toISOString().slice(0, 19).replace('T', ' ');
   }
 
   private normalizeOptionalString(value: unknown) {
