@@ -207,16 +207,34 @@ export class AiAssistantService {
       '4) si el usuario pregunta por su propia información y existe conocimiento del usuario actual, responde con esos datos y denied=false; ' +
       '5) si no hay información suficiente, denied=false y content debe pedir más contexto.';
 
-    const parsed = await this.requestStrictJsonFromOpenAi<{
+    let parsed: {
       content?: unknown;
       citations?: unknown;
       denied?: unknown;
-    }>({
-      runtime,
-      temperature: 0.2,
-      systemPrompt,
-      userPrompt,
-    });
+    };
+
+    try {
+      parsed = await this.requestStrictJsonFromOpenAi<{
+        content?: unknown;
+        citations?: unknown;
+        denied?: unknown;
+      }>({
+        runtime,
+        temperature: 0.2,
+        systemPrompt,
+        userPrompt,
+      });
+    } catch (error) {
+      this.logDebug('openai.fallback', {
+        message: error instanceof Error ? error.message : `${error}`,
+      });
+      return this.finalizeChatResponse(
+        user,
+        effectiveDto,
+        this.buildRuleOnlyFallback(message, knowledge, currentUserName),
+        knowledge,
+      );
+    }
 
     const content = this.normalizeOptionalString(parsed.content) ?? AiAssistantService.notEnoughDataMessage;
     const citations = this.normalizeCitations(parsed.citations, knowledge);
@@ -537,7 +555,24 @@ export class AiAssistantService {
     context: NormalizedAiContext,
     knowledge: KnowledgeRecord[],
   ) {
-    const tokens = new Set(this.tokenize(`${message} ${context.module} ${context.screenName ?? ''}`));
+    const tokens = new Set(this.tokenize(message));
+    const hasLookupIntent = this.hasAnyToken(tokens, [
+      'existe',
+      'buscar',
+      'busca',
+      'buscarme',
+      'encuentra',
+      'encontrar',
+      'muestrame',
+      'muéstrame',
+      'dame',
+      'detalle',
+      'detalles',
+      'informacion',
+      'información',
+      'estado',
+      'resumen',
+    ]);
     const hasMatchedClient = knowledge.some((item) => item.id.startsWith('app-data:client-match:'));
     const hasMatchedCatalog = knowledge.some(
       (item) => item.id === 'app-data:catalog-search' || item.id.startsWith('app-data:product-match:'),
@@ -548,9 +583,6 @@ export class AiAssistantService {
     const hasMatchedDocumentFlow = knowledge.some(
       (item) => item.id.startsWith('app-data:document-flow:') || item.id.startsWith('app-data:document-flow-match:'),
     );
-    const hasManualKnowledge = knowledge.some(
-      (item) => item.module === 'manual-interno' || item.category === 'politicas',
-    );
     const hasContractKnowledge = knowledge.some(
       (item) => item.id.startsWith('app-data:contract:') || item.id.startsWith('app-data:contract-match:'),
     );
@@ -559,32 +591,17 @@ export class AiAssistantService {
     );
     const explicitClientLookup =
       hasMatchedClient ||
-      this.hasAnyToken(tokens, ['cliente', 'clientes', 'nombre', 'telefono', 'teléfono', 'movimientos', 'ventas', 'servicios']);
+      (hasLookupIntent && this.hasAnyToken(tokens, ['cliente', 'clientes', 'nombre', 'telefono', 'teléfono', 'movimientos']));
     const explicitCatalogLookup =
       hasMatchedCatalog ||
-      this.hasAnyToken(tokens, ['producto', 'productos', 'catalogo', 'catálogo', 'precio', 'stock', 'inventario']);
+      (hasLookupIntent && this.hasAnyToken(tokens, ['producto', 'productos', 'catalogo', 'catálogo', 'precio', 'stock', 'inventario']));
     const explicitOperationsLookup =
       hasMatchedServiceOrder ||
       hasMatchedDocumentFlow ||
-      this.hasAnyToken(tokens, ['orden', 'ordenes', 'órdenes', 'servicio', 'servicios', 'operacion', 'operación', 'operaciones', 'flujo', 'documental']);
-    const explicitManualLookup =
-      hasManualKnowledge ||
-      this.hasAnyToken(tokens, [
-        'manual',
-        'norma',
-        'normas',
-        'regla',
-        'reglas',
-        'politica',
-        'política',
-        'politicas',
-        'políticas',
-        'protocolo',
-        'protocolos',
-      ]);
+      (hasLookupIntent && this.hasAnyToken(tokens, ['orden', 'ordenes', 'órdenes', 'servicio', 'servicios', 'operacion', 'operación', 'operaciones', 'flujo', 'documental']));
     const explicitContractLookup =
       hasContractKnowledge ||
-      this.hasAnyToken(tokens, [
+      (hasLookupIntent && this.hasAnyToken(tokens, [
         'contrato',
         'contratos',
         'laboral',
@@ -598,10 +615,10 @@ export class AiAssistantService {
         'firma',
         'nomina',
         'nómina',
-      ]);
+      ]));
     const explicitSelfLookup = hasSelfKnowledge || this.isSelfInfoRequest(message, context);
 
-    return explicitClientLookup || explicitCatalogLookup || explicitOperationsLookup || explicitManualLookup || explicitContractLookup || explicitSelfLookup;
+    return explicitClientLookup || explicitCatalogLookup || explicitOperationsLookup || explicitContractLookup || explicitSelfLookup;
   }
 
   private canAccessQuoteData(role: Role) {
@@ -3262,6 +3279,7 @@ export class AiAssistantService {
     const matched = hasMeaningfulQuestion ? this.rankRulesForPrompt(message, knowledge).slice(0, 2) : [];
     const visibleKnowledge = knowledge.filter((item) => this.isUserVisibleKnowledge(item));
     const visibleMatched = matched.filter((item) => this.isUserVisibleKnowledge(item));
+    const hasMeaningfulMatch = visibleMatched.length > 0;
     const top = visibleMatched[0] ?? visibleKnowledge[0] ?? matched[0] ?? knowledge[0];
 
     if (!top) {
@@ -3269,6 +3287,18 @@ export class AiAssistantService {
         source: 'rules-only',
         content: this.personalizeContent(AiAssistantService.notEnoughDataMessage, currentUserName),
         citations: [],
+      };
+    }
+
+    if (!hasMeaningfulMatch) {
+      return {
+        source: 'rules-only',
+        content: this.personalizeContent(
+          'No encontré una coincidencia suficientemente clara para responder esa pregunta con precisión. Intenta decirme el tema exacto, la regla, el cliente, la orden, el módulo o la pantalla que quieres revisar.',
+          currentUserName,
+        ),
+        citations: [],
+        denied: false,
       };
     }
 
