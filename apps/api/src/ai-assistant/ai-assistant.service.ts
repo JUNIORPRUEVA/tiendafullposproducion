@@ -176,13 +176,14 @@ export class AiAssistantService {
       `You are FULLTECH AI, an intelligent assistant integrated into the FULLTECH internal system for ${runtime.companyName}.\n` +
       'Your purpose is to help employees understand how to use the system, access authorized information, and guide them in their work.\n\n' +
       'Knowledge sources (provided by the system per request):\n' +
-      '1) Company products catalog\n' +
-      '2) Client database\n' +
-      '3) Service operations and orders\n' +
-      '4) Internal manual and company rules\n' +
-      '5) Application modules and their functions\n' +
+      '1) Internal manual and company rules (primary source of truth)\n' +
+      '2) Application modules and their functions\n' +
+      '3) Client database\n' +
+      '4) Service operations, document flows and operational records\n' +
+      '5) Company products catalog\n' +
       '6) Logged-in user information\n\n' +
       'Rules:\n' +
+      '- Prioritize the Internal Manual whenever the question touches rules, norms, policies, procedures or how a workflow should be handled.\n' +
       '- Use ONLY the provided internal knowledge.\n' +
       '- Never invent data. If something is not available, say so and ask for missing context.\n' +
       '- Do not use external knowledge.\n' +
@@ -328,6 +329,20 @@ export class AiAssistantService {
       case 'cotizacion':
       case 'cotizaciones':
         return 'cotizaciones';
+      case 'operaciones':
+      case 'operacion':
+      case 'service-orders':
+      case 'service-order':
+        return 'service-orders';
+      case 'document-flows':
+      case 'document-flow':
+      case 'flujo-documental':
+      case 'flujo-documentos':
+        return 'document-flows';
+      case 'media-gallery':
+      case 'galeria-media':
+      case 'galeria':
+        return 'media-gallery';
       case 'cliente':
       case 'clientes':
         return 'clientes';
@@ -379,6 +394,26 @@ export class AiAssistantService {
     if (path.startsWith('/catalogo')) return { module: 'catalogo', screenName: 'Catálogo' };
     if (path === '/ventas/nueva') return { module: 'ventas', screenName: 'Registrar venta' };
     if (path.startsWith('/ventas')) return { module: 'ventas', screenName: 'Ventas' };
+    if (path === '/service-orders') return { module: 'service-orders', screenName: 'Operaciones' };
+    if (path === '/service-orders/nueva') return { module: 'service-orders', screenName: 'Crear orden' };
+    if (path.startsWith('/service-orders/')) {
+      return {
+        module: 'service-orders',
+        screenName: 'Detalle de orden',
+        entityType: 'service-order',
+        entityId: segments[1],
+      };
+    }
+    if (path === '/document-flows') return { module: 'document-flows', screenName: 'Flujo documental' };
+    if (path.startsWith('/document-flows/')) {
+      return {
+        module: 'document-flows',
+        screenName: 'Detalle documental',
+        entityType: 'service-order',
+        entityId: segments[1],
+      };
+    }
+    if (path === '/media-gallery') return { module: 'media-gallery', screenName: 'Galería media' };
     if (path === '/contabilidad/cierres-diarios') return { module: 'contabilidad', screenName: 'Cierres diarios' };
     if (path === '/contabilidad/factura-fiscal') return { module: 'contabilidad', screenName: 'Facturas fiscales' };
     if (path === '/contabilidad/pagos-pendientes') return { module: 'contabilidad', screenName: 'Pagos pendientes' };
@@ -411,6 +446,7 @@ export class AiAssistantService {
     if (path === '/horarios') return { module: 'horarios', screenName: 'Horarios' };
     if (path === '/profile') return { module: 'profile', screenName: 'Perfil' };
     if (path === '/ponche') return { module: 'ponche', screenName: 'Ponche' };
+    if (path === '/ponche/historial') return { module: 'ponche', screenName: 'Historial de ponches' };
 
     return { module: 'general' };
   }
@@ -464,6 +500,10 @@ export class AiAssistantService {
         return true;
       case 'catalogo':
         return true;
+      case 'service-orders':
+      case 'document-flows':
+      case 'media-gallery':
+        return true;
       case 'ventas':
         return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR]);
       case 'cotizaciones':
@@ -502,6 +542,12 @@ export class AiAssistantService {
     const hasMatchedCatalog = knowledge.some(
       (item) => item.id === 'app-data:catalog-search' || item.id.startsWith('app-data:product-match:'),
     );
+    const hasMatchedServiceOrder = knowledge.some(
+      (item) => item.id.startsWith('app-data:service-order:') || item.id.startsWith('app-data:service-order-match:'),
+    );
+    const hasMatchedDocumentFlow = knowledge.some(
+      (item) => item.id.startsWith('app-data:document-flow:') || item.id.startsWith('app-data:document-flow-match:'),
+    );
     const hasManualKnowledge = knowledge.some(
       (item) => item.module === 'manual-interno' || item.category === 'politicas',
     );
@@ -517,6 +563,10 @@ export class AiAssistantService {
     const explicitCatalogLookup =
       hasMatchedCatalog ||
       this.hasAnyToken(tokens, ['producto', 'productos', 'catalogo', 'catálogo', 'precio', 'stock', 'inventario']);
+    const explicitOperationsLookup =
+      hasMatchedServiceOrder ||
+      hasMatchedDocumentFlow ||
+      this.hasAnyToken(tokens, ['orden', 'ordenes', 'órdenes', 'servicio', 'servicios', 'operacion', 'operación', 'operaciones', 'flujo', 'documental']);
     const explicitManualLookup =
       hasManualKnowledge ||
       this.hasAnyToken(tokens, [
@@ -551,7 +601,7 @@ export class AiAssistantService {
       ]);
     const explicitSelfLookup = hasSelfKnowledge || this.isSelfInfoRequest(message, context);
 
-    return explicitClientLookup || explicitCatalogLookup || explicitManualLookup || explicitContractLookup || explicitSelfLookup;
+    return explicitClientLookup || explicitCatalogLookup || explicitOperationsLookup || explicitManualLookup || explicitContractLookup || explicitSelfLookup;
   }
 
   private canAccessQuoteData(role: Role) {
@@ -564,6 +614,14 @@ export class AiAssistantService {
 
   private canAccessAccountingData(role: Role) {
     return this.hasRole(role, [Role.ADMIN, Role.ASISTENTE]);
+  }
+
+  private canAccessOperationsData(role: Role) {
+    return this.canAccessModule(role, 'service-orders');
+  }
+
+  private canAccessDocumentFlowData(role: Role) {
+    return this.canAccessModule(role, 'document-flows');
   }
 
   private canAccessContractData(role: Role, route?: string) {
@@ -690,7 +748,7 @@ export class AiAssistantService {
         'general',
         'guia-app',
         'Cómo pedir ayuda al asistente',
-        'Puedes preguntarme sobre cómo usar módulos, qué significa una opción, qué dice el Manual Interno y dónde encontrar información. Si estás en una pantalla específica, dime el módulo (clientes, catálogo, ventas, cotizaciones, nómina, manual interno, configuración) y qué estás intentando lograr.',
+        'Puedes preguntarme sobre cómo usar módulos, qué significa una opción, qué dice el Manual Interno y dónde encontrar información. Si estás en una pantalla específica, dime el módulo (clientes, catálogo, ventas, cotizaciones, operaciones, flujo documental, galería media, nómina, manual interno, configuración) y qué estás intentando lograr.',
       ),
       this.createAppKnowledgeRecord(
         'app-help:clientes',
@@ -705,6 +763,27 @@ export class AiAssistantService {
         'guia-app',
         'Uso del módulo de cotizaciones',
         'En Cotizaciones puedes preparar propuestas, revisar historial y validar reglas comerciales del Manual Interno. Si ya tienes una cotización abierta o un cliente seleccionado, el asistente prioriza ese contexto.',
+      ),
+      this.createAppKnowledgeRecord(
+        'app-help:service-orders',
+        'service-orders',
+        'guia-app',
+        'Uso del módulo de operaciones',
+        'En Operaciones puedes crear, revisar y dar seguimiento a órdenes de servicio. Si ya estás dentro de una orden, el asistente puede resumir el estado, el cliente relacionado y qué sigue en el flujo.',
+      ),
+      this.createAppKnowledgeRecord(
+        'app-help:document-flows',
+        'document-flows',
+        'guia-app',
+        'Uso del flujo documental',
+        'En Flujo documental puedes revisar el estado de factura, garantía, aprobación y envío asociado a una orden de servicio. Si abres un flujo concreto, el asistente prioriza ese contexto.',
+      ),
+      this.createAppKnowledgeRecord(
+        'app-help:media-gallery',
+        'media-gallery',
+        'guia-app',
+        'Uso de la galería media',
+        'En Galería media puedes revisar evidencias visuales y multimedia de trabajos realizados. Si me dices qué estás viendo, te explico la pantalla y sus filtros.',
       ),
       this.createAppKnowledgeRecord(
         'app-help:catalogo',
@@ -779,6 +858,8 @@ export class AiAssistantService {
     const wantsContracts = includeModuleContext || this.hasAnyToken(tokens, ['contrato', 'nomina', 'nómina', 'salario', 'clausula', 'cláusula']);
     const wantsQuotes = includeModuleContext || this.hasAnyToken(tokens, ['cotizacion', 'cotizaciones', 'ticket', 'propuesta']);
     const wantsSales = includeModuleContext || this.hasAnyToken(tokens, ['venta', 'ventas', 'comision', 'comisión']);
+    const wantsOperations = includeModuleContext || this.hasAnyToken(tokens, ['orden', 'ordenes', 'órdenes', 'servicio', 'servicios', 'operacion', 'operación', 'operaciones', 'tecnico', 'técnico']);
+    const wantsDocumentFlows = includeModuleContext || this.hasAnyToken(tokens, ['flujo', 'documental', 'documento', 'documentos', 'garantia', 'garantía']);
     const wantsAccounting = includeModuleContext || this.hasAnyToken(tokens, ['contabilidad', 'cierre', 'cierres', 'deposito', 'depósito', 'factura', 'pago']);
     const wantsSelf = includeModuleContext || this.isSelfInfoRequest(dto.message, dto.context);
     const wantsAdaptiveLearning = includeModuleContext || this.isAdaptiveLearningQuestion(dto.message, dto.context);
@@ -812,6 +893,16 @@ export class AiAssistantService {
       knowledge.push(...catalogKnowledge);
     }
 
+    if ((wantsOperations || dto.context.module === 'service-orders') && this.canAccessOperationsData(user.role)) {
+      const operationsKnowledge = await this.buildServiceOrderKnowledge(user, dto);
+      knowledge.push(...operationsKnowledge);
+    }
+
+    if ((wantsDocumentFlows || dto.context.module === 'document-flows') && this.canAccessDocumentFlowData(user.role)) {
+      const documentFlowKnowledge = await this.buildDocumentFlowKnowledge(user, dto);
+      knowledge.push(...documentFlowKnowledge);
+    }
+
     if ((wantsContracts || dto.context.module === 'nomina') && this.canAccessContractData(user.role, dto.context.route)) {
       const contractKnowledge = await this.buildContractKnowledge(user, dto);
       knowledge.push(...contractKnowledge);
@@ -841,6 +932,7 @@ export class AiAssistantService {
     if (this.isScreenExplanationRequest(message, context)) return 'explain-screen';
     if (this.isModuleExplanationRequest(message, context)) return 'explain-module';
     if (this.hasAnyToken(tokens, ['manual', 'interno', 'politica', 'política', 'regla', 'reglas', 'protocolo'])) return 'manual';
+    if (this.hasAnyToken(tokens, ['orden', 'ordenes', 'órdenes', 'servicio', 'servicios', 'operacion', 'operación', 'operaciones', 'flujo', 'documental'])) return 'operations';
     if (this.hasAnyToken(tokens, ['cliente', 'clientes', 'telefono', 'teléfono', 'direccion', 'dirección'])) return 'clients';
     if (this.hasAnyToken(tokens, ['producto', 'productos', 'catalogo', 'catálogo', 'precio', 'precios', 'stock', 'inventario'])) return 'catalog';
     return 'general';
@@ -958,6 +1050,12 @@ export class AiAssistantService {
         return 'Ventas';
       case 'cotizaciones':
         return 'Cotizaciones';
+      case 'service-orders':
+        return 'Operaciones';
+      case 'document-flows':
+        return 'Flujo documental';
+      case 'media-gallery':
+        return 'Galería media';
       case 'contabilidad':
         return 'Contabilidad';
       case 'nomina':
@@ -996,6 +1094,21 @@ export class AiAssistantService {
         return (
           'Este módulo se usa para crear y revisar cotizaciones.\n' +
           'Puedes preparar propuestas, ver historial por cliente y validar reglas comerciales del Manual Interno.'
+        );
+      case 'service-orders':
+        return (
+          'Este módulo gestiona operaciones y órdenes de servicio.\n' +
+          'Puedes revisar estado, cliente relacionado, técnico asignado y próximos pasos operativos.'
+        );
+      case 'document-flows':
+        return (
+          'Este módulo controla el flujo documental por orden.\n' +
+          'Puedes revisar preparación, aprobación y envío de factura o garantía según la orden seleccionada.'
+        );
+      case 'media-gallery':
+        return (
+          'Este módulo concentra evidencias visuales y multimedia de trabajos realizados.\n' +
+          'Puedo explicarte la pantalla y el propósito de sus filtros.'
         );
       case 'contabilidad':
         return (
@@ -1041,6 +1154,34 @@ export class AiAssistantService {
       if (screen.includes('cotizacion')) {
         return 'En Cotizaciones puedes crear o revisar propuestas. Si ya tienes un cliente, abre su historial para reutilizar información.';
       }
+    }
+
+    if (mod === 'service-orders') {
+      if (screen.includes('crear')) {
+        return 'En Crear orden registras una nueva operación vinculada a un cliente y una cotización. Completa tipo de servicio, categoría, fecha programada y responsable si aplica.';
+      }
+      if (screen.includes('detalle')) {
+        return 'En Detalle de orden puedes revisar estado, cliente, técnico asignado, notas técnicas, evidencias y reportes relacionados con la operación actual.';
+      }
+      return 'En Operaciones puedes revisar órdenes de servicio, su estado y el seguimiento operativo de cada caso.';
+    }
+
+    if (mod === 'document-flows') {
+      if (screen.includes('detalle')) {
+        return 'En Detalle documental puedes revisar el estado del flujo de factura y garantía para la orden actual, así como lo pendiente antes del envío.';
+      }
+      return 'En Flujo documental puedes ver el estado de cada expediente documental asociado a órdenes de servicio.';
+    }
+
+    if (mod === 'media-gallery') {
+      return 'En Galería media puedes revisar imágenes y videos asociados a evidencias del trabajo realizado y navegar por filtros de tipo o estado.';
+    }
+
+    if (mod === 'ponche') {
+      if (screen.includes('historial')) {
+        return 'En Historial de ponches puedes revisar registros previos de entrada, salida, almuerzo o permisos.';
+      }
+      return 'En Ponche puedes registrar entradas y salidas laborales o consultar tu historial.';
     }
 
     if (mod === 'contabilidad') {
@@ -1889,6 +2030,356 @@ export class AiAssistantService {
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score)
       .map((item) => item.k);
+  }
+
+  private buildServiceOrderWhereForUser(user: { id: string; role: Role }): Prisma.ServiceOrderWhereInput {
+    if (user.role === Role.ADMIN || user.role === Role.ASISTENTE) {
+      return {};
+    }
+    if (user.role === Role.TECNICO) {
+      return {
+        OR: [
+          { assignedToId: user.id },
+          { technicianConfirmedById: user.id },
+          { createdById: user.id },
+        ],
+      };
+    }
+
+    return { createdById: user.id };
+  }
+
+  private async buildServiceOrderKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
+    const accessibleWhere = this.buildServiceOrderWhereForUser(user);
+    const count = await this.prisma.serviceOrder.count({ where: accessibleWhere });
+
+    const result: KnowledgeRecord[] = [
+      this.createAppKnowledgeRecord(
+        'app-data:service-orders-scope',
+        'service-orders',
+        'dato-autorizado',
+        'Alcance autorizado de operaciones',
+        user.role === Role.ADMIN || user.role === Role.ASISTENTE
+          ? 'Puedes consultar operaciones visibles del sistema según el contexto y la pantalla actual.'
+          : 'Puedo consultar operaciones relacionadas contigo o creadas por ti dentro del alcance autorizado del sistema.',
+      ),
+      this.createAppKnowledgeRecord(
+        'app-data:service-orders-count',
+        'service-orders',
+        'dato-autorizado',
+        'Resumen autorizado de operaciones',
+        user.role === Role.ADMIN || user.role === Role.ASISTENTE
+          ? `Actualmente hay ${count} órdenes de servicio visibles para esta consulta.`
+          : `Actualmente tienes acceso a ${count} órdenes de servicio dentro de tu alcance operativo.`,
+      ),
+    ];
+
+    const entityId = (dto.context.entityType ?? '').toLowerCase() === 'service-order'
+      ? (dto.context.entityId ?? '').trim()
+      : '';
+    const searchTerms = this.extractMeaningfulQueryTerms(dto.message, {
+      limit: 6,
+      extraNoise: [
+        'orden',
+        'ordenes',
+        'órdenes',
+        'servicio',
+        'servicios',
+        'operacion',
+        'operación',
+        'operaciones',
+        'tecnico',
+        'técnico',
+        'cliente',
+        'detalle',
+        'resumen',
+        'busca',
+        'muestrame',
+        'muéstrame',
+      ],
+    });
+
+    if (!entityId && searchTerms.length === 0) {
+      return result;
+    }
+
+    if (entityId) {
+      const order = await this.prisma.serviceOrder.findFirst({
+        where: { ...accessibleWhere, id: entityId },
+        include: {
+          client: true,
+          createdBy: { select: { id: true, nombreCompleto: true } },
+          assignedTo: { select: { id: true, nombreCompleto: true } },
+        },
+      });
+      if (order) {
+        result.push(
+          this.createAppKnowledgeRecord(
+            `app-data:service-order:${order.id}`,
+            'service-orders',
+            'dato-autorizado',
+            `Orden ${this.compactEntityId(order.id)}`,
+            this.describeServiceOrder(order),
+          ),
+        );
+      }
+      return result;
+    }
+
+    const matchingOrders = await this.prisma.serviceOrder.findMany({
+      where: {
+        ...accessibleWhere,
+        OR: [
+          ...searchTerms.map((term) => ({ id: { contains: term } })),
+          ...searchTerms.map((term) => ({ technicalNote: { contains: term, mode: 'insensitive' as const } })),
+          ...searchTerms.map((term) => ({ extraRequirements: { contains: term, mode: 'insensitive' as const } })),
+          ...searchTerms.map((term) => ({ client: { nombre: { contains: term, mode: 'insensitive' as const } } })),
+        ],
+      },
+      include: {
+        client: true,
+        createdBy: { select: { id: true, nombreCompleto: true } },
+        assignedTo: { select: { id: true, nombreCompleto: true } },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 8,
+    });
+
+    if (matchingOrders.length === 0) {
+      result.push(
+        this.createAppKnowledgeRecord(
+          'app-data:service-order-search-none',
+          'service-orders',
+          'dato-autorizado',
+          'Operación no encontrada',
+          `No encontré órdenes de servicio autorizadas que coincidan con: ${searchTerms.join(', ')}.`,
+        ),
+      );
+      return result;
+    }
+
+    result.push(
+      ...matchingOrders.map((order) =>
+        this.createAppKnowledgeRecord(
+          `app-data:service-order-match:${order.id}`,
+          'service-orders',
+          'dato-autorizado',
+          `Orden ${this.compactEntityId(order.id)}`,
+          this.describeServiceOrder(order),
+        ),
+      ),
+    );
+
+    return result;
+  }
+
+  private async buildDocumentFlowKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
+    const accessibleOrderWhere = this.buildServiceOrderWhereForUser(user);
+    const accessibleFlowWhere: Prisma.OrderDocumentFlowWhereInput = {
+      order: accessibleOrderWhere,
+    };
+    const count = await this.prisma.orderDocumentFlow.count({ where: accessibleFlowWhere });
+
+    const result: KnowledgeRecord[] = [
+      this.createAppKnowledgeRecord(
+        'app-data:document-flows-scope',
+        'document-flows',
+        'dato-autorizado',
+        'Alcance autorizado de flujo documental',
+        'Puedo consultar flujos documentales asociados a órdenes visibles dentro de tu alcance operativo.',
+      ),
+      this.createAppKnowledgeRecord(
+        'app-data:document-flows-count',
+        'document-flows',
+        'dato-autorizado',
+        'Resumen autorizado de flujo documental',
+        `Actualmente hay ${count} flujos documentales visibles para esta consulta.`,
+      ),
+    ];
+
+    const entityId = (dto.context.entityType ?? '').toLowerCase() === 'service-order'
+      ? (dto.context.entityId ?? '').trim()
+      : '';
+    const searchTerms = this.extractMeaningfulQueryTerms(dto.message, {
+      limit: 6,
+      extraNoise: [
+        'flujo',
+        'documental',
+        'documento',
+        'documentos',
+        'factura',
+        'garantia',
+        'garantía',
+        'orden',
+        'servicio',
+        'detalle',
+        'resumen',
+      ],
+    });
+
+    if (!entityId && searchTerms.length === 0) {
+      return result;
+    }
+
+    if (entityId) {
+      const flow = await this.prisma.orderDocumentFlow.findFirst({
+        where: { ...accessibleFlowWhere, orderId: entityId },
+        include: {
+          order: {
+            include: {
+              client: true,
+            },
+          },
+          preparedBy: { select: { id: true, nombreCompleto: true } },
+          approvedBy: { select: { id: true, nombreCompleto: true } },
+        },
+      });
+      if (flow) {
+        result.push(
+          this.createAppKnowledgeRecord(
+            `app-data:document-flow:${flow.orderId}`,
+            'document-flows',
+            'dato-autorizado',
+            `Flujo documental ${this.compactEntityId(flow.orderId)}`,
+            this.describeDocumentFlow(flow),
+          ),
+        );
+      }
+      return result;
+    }
+
+    const matchingFlows = await this.prisma.orderDocumentFlow.findMany({
+      where: {
+        ...accessibleFlowWhere,
+        OR: [
+          ...searchTerms.map((term) => ({ orderId: { contains: term } })),
+          ...searchTerms.map((term) => ({ order: { client: { nombre: { contains: term, mode: 'insensitive' as const } } } })),
+        ],
+      },
+      include: {
+        order: {
+          include: {
+            client: true,
+          },
+        },
+        preparedBy: { select: { id: true, nombreCompleto: true } },
+        approvedBy: { select: { id: true, nombreCompleto: true } },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 8,
+    });
+
+    if (matchingFlows.length === 0) {
+      result.push(
+        this.createAppKnowledgeRecord(
+          'app-data:document-flow-search-none',
+          'document-flows',
+          'dato-autorizado',
+          'Flujo documental no encontrado',
+          `No encontré flujos documentales autorizados que coincidan con: ${searchTerms.join(', ')}.`,
+        ),
+      );
+      return result;
+    }
+
+    result.push(
+      ...matchingFlows.map((flow) =>
+        this.createAppKnowledgeRecord(
+          `app-data:document-flow-match:${flow.orderId}`,
+          'document-flows',
+          'dato-autorizado',
+          `Flujo documental ${this.compactEntityId(flow.orderId)}`,
+          this.describeDocumentFlow(flow),
+        ),
+      ),
+    );
+
+    return result;
+  }
+
+  private compactEntityId(value: string) {
+    const normalized = (value ?? '').replace(/-/g, '').trim().toUpperCase();
+    if (!normalized) return 'SIN-ID';
+    return normalized.length > 8 ? normalized.slice(0, 8) : normalized;
+  }
+
+  private describeServiceOrder(order: {
+    id: string;
+    status: unknown;
+    serviceType: unknown;
+    category: unknown;
+    scheduledFor?: Date | string | null;
+    technicalNote?: string | null;
+    extraRequirements?: string | null;
+    client?: { nombre?: string | null; telefono?: string | null } | null;
+    createdBy?: { nombreCompleto?: string | null } | null;
+    assignedTo?: { nombreCompleto?: string | null } | null;
+  }) {
+    const clientName = order.client?.nombre?.trim() || 'Cliente no disponible';
+    const phone = order.client?.telefono?.trim();
+    const assignedTo = order.assignedTo?.nombreCompleto?.trim();
+    const createdBy = order.createdBy?.nombreCompleto?.trim();
+    const details = [
+      `Orden ${this.compactEntityId(order.id)}.`,
+      `Cliente: ${clientName}${phone ? ` (${phone})` : ''}.`,
+      `Estado: ${this.humanizeEnum(order.status)}.`,
+      `Tipo de servicio: ${this.humanizeEnum(order.serviceType)}.`,
+      `Categoría: ${this.humanizeEnum(order.category)}.`,
+      assignedTo ? `Técnico asignado: ${assignedTo}.` : 'Técnico asignado: pendiente.',
+      createdBy ? `Creada por: ${createdBy}.` : null,
+      order.scheduledFor ? `Programada para: ${this.formatKnowledgeDate(order.scheduledFor)}.` : null,
+      (order.technicalNote ?? '').trim().isNotEmpty
+        ? `Nota técnica: ${this.buildExcerpt(order.technicalNote ?? '')}.`
+        : null,
+      (order.extraRequirements ?? '').trim().isNotEmpty
+        ? `Requerimientos: ${this.buildExcerpt(order.extraRequirements ?? '')}.`
+        : null,
+    ].filter((x): x is string => !!x);
+    return details.join(' ');
+  }
+
+  private describeDocumentFlow(flow: {
+    orderId: string;
+    status: unknown;
+    sentAt?: Date | string | null;
+    invoiceFinalUrl?: string | null;
+    warrantyFinalUrl?: string | null;
+    updatedAt?: Date | string | null;
+    order?: { client?: { nombre?: string | null } | null } | null;
+    preparedBy?: { nombreCompleto?: string | null } | null;
+    approvedBy?: { nombreCompleto?: string | null } | null;
+  }) {
+    const clientName = flow.order?.client?.nombre?.trim() || 'Cliente no disponible';
+    const preparedBy = flow.preparedBy?.nombreCompleto?.trim();
+    const approvedBy = flow.approvedBy?.nombreCompleto?.trim();
+    const details = [
+      `Flujo documental de la orden ${this.compactEntityId(flow.orderId)}.`,
+      `Cliente relacionado: ${clientName}.`,
+      `Estado actual: ${this.humanizeEnum(flow.status)}.`,
+      flow.invoiceFinalUrl ? 'Factura final: disponible.' : 'Factura final: pendiente.',
+      flow.warrantyFinalUrl ? 'Garantía final: disponible.' : 'Garantía final: pendiente.',
+      preparedBy ? `Preparado por: ${preparedBy}.` : null,
+      approvedBy ? `Aprobado por: ${approvedBy}.` : null,
+      flow.sentAt ? `Enviado al cliente: ${this.formatKnowledgeDate(flow.sentAt)}.` : 'Envío al cliente: pendiente.',
+      flow.updatedAt ? `Última actualización: ${this.formatKnowledgeDate(flow.updatedAt)}.` : null,
+    ].filter((x): x is string => !!x);
+    return details.join(' ');
+  }
+
+  private formatKnowledgeDate(value?: Date | string | null) {
+    if (!value) return 'sin fecha';
+    const parsed = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(parsed.getTime())) return 'sin fecha';
+    return parsed.toISOString();
+  }
+
+  private humanizeEnum(value: unknown) {
+    const normalized = String(value ?? '')
+      .trim()
+      .replace(/_/g, ' ')
+      .toLowerCase();
+    if (!normalized) return 'sin dato';
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
   }
 
   private async buildClientKnowledge(user: { id: string; role: Role }, dto: ChatAiAssistantDto): Promise<KnowledgeRecord[]> {
@@ -2801,6 +3292,46 @@ export class AiAssistantService {
         source: 'rules-only',
         content: this.personalizeContent(`${intro}\n\n${blocks}`, currentUserName),
         citations: this.toUserVisibleCitations(productMatches),
+        denied: false,
+      };
+    }
+
+    const serviceOrderMatches = selected.filter(
+      (k) => k.id.startsWith('app-data:service-order:') || k.id.startsWith('app-data:service-order-match:'),
+    );
+    if (serviceOrderMatches.length > 0) {
+      const intro = serviceOrderMatches.length === 1
+        ? 'Sí, encontré esta orden de servicio relacionada con tu consulta:'
+        : `Sí, encontré ${serviceOrderMatches.length} órdenes de servicio relacionadas con tu consulta:`;
+      const blocks = serviceOrderMatches
+        .map((k) => k.content.trim())
+        .filter((x) => x.length > 0)
+        .join('\n\n');
+
+      return {
+        source: 'rules-only',
+        content: this.personalizeContent(`${intro}\n\n${blocks}`, currentUserName),
+        citations: this.toUserVisibleCitations(serviceOrderMatches),
+        denied: false,
+      };
+    }
+
+    const documentFlowMatches = selected.filter(
+      (k) => k.id.startsWith('app-data:document-flow:') || k.id.startsWith('app-data:document-flow-match:'),
+    );
+    if (documentFlowMatches.length > 0) {
+      const intro = documentFlowMatches.length === 1
+        ? 'Sí, encontré este flujo documental relacionado con tu consulta:'
+        : `Sí, encontré ${documentFlowMatches.length} flujos documentales relacionados con tu consulta:`;
+      const blocks = documentFlowMatches
+        .map((k) => k.content.trim())
+        .filter((x) => x.length > 0)
+        .join('\n\n');
+
+      return {
+        source: 'rules-only',
+        content: this.personalizeContent(`${intro}\n\n${blocks}`, currentUserName),
+        citations: this.toUserVisibleCitations(documentFlowMatches),
         denied: false,
       };
     }

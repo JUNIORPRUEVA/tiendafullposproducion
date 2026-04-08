@@ -50,7 +50,51 @@ class AiAssistantController extends StateNotifier<AiAssistantState> {
   final AiAssistantService _service;
 
   void setContext(AiChatContext context) {
-    state = state.copyWith(context: context);
+    final sameContext =
+        state.context.module == context.module &&
+        state.context.screenName == context.screenName &&
+        state.context.route == context.route &&
+        state.context.entityType == context.entityType &&
+        state.context.entityId == context.entityId;
+    if (sameContext) return;
+
+    final nextMessages = state.messages.isEmpty
+        ? [_buildStarterMessage(context)]
+        : state.messages;
+    state = state.copyWith(context: context, messages: nextMessages);
+  }
+
+  AiAssistantMessage _buildStarterMessage(AiChatContext context) {
+    final area = _describeContext(context);
+    return AiAssistantMessage(
+      id: TraceId.next('ai-assistant-intro'),
+      role: AiAssistantMessageRole.assistant,
+      content:
+          'Estoy listo para orientarte en $area. Puedo explicarte la pantalla actual, resumirte normas del Manual Interno y ayudarte a validar datos reales como clientes, cotizaciones u operaciones cuando exista contexto autorizado.',
+      createdAt: DateTime.now(),
+    );
+  }
+
+  String _describeContext(AiChatContext context) {
+    final screen = (context.screenName ?? '').trim();
+    if (screen.isNotEmpty) return 'la pantalla "$screen"';
+
+    switch (context.module.trim().toLowerCase()) {
+      case 'clientes':
+        return 'Clientes';
+      case 'catalogo':
+        return 'Catálogo';
+      case 'cotizaciones':
+        return 'Cotizaciones';
+      case 'service-orders':
+        return 'Operaciones';
+      case 'document-flows':
+        return 'Flujo documental';
+      case 'manual-interno':
+        return 'Manual Interno';
+      default:
+        return 'FULLTECH';
+    }
   }
 
   List<Map<String, dynamic>> _buildHistoryPayload() {

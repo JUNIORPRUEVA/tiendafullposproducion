@@ -27,10 +27,10 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
   int _lastMessageCount = -1;
 
   static const _defaultQuickPrompts = <String>[
-    'Cual es mi informacion en la app',
-    'Que productos hay en catalogo',
-    'Explicame esta pantalla',
-    'Que puedo hacer en este modulo',
+    'Explícame esta pantalla',
+    'Qué norma del manual aplica aquí',
+    'Este cliente existe en la app',
+    'Qué puedo hacer en este módulo',
   ];
 
   @override
@@ -213,7 +213,7 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'FULLTECH AI Console',
+                                        'FULLTECH AI',
                                         style: theme.textTheme.titleMedium
                                             ?.copyWith(
                                               color: Colors.white,
@@ -253,8 +253,8 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
                                   ),
                                   child: Text(
                                       embeddedInScreen
-                                          ? 'Pantalla IA'
-                                          : 'Context Live',
+                                          ? 'Asistente IA'
+                                          : 'Contexto actual',
                                     style: theme.textTheme.labelSmall?.copyWith(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w800,
@@ -280,7 +280,7 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
                             padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
                             color: const Color(0xFFEDF4FF),
                             child: Text(
-                              'Consulta productos, clientes, reglas del manual y acciones disponibles en esta pantalla.',
+                              'Base principal: Manual Interno. También puedo explicarte la pantalla actual y responder con datos reales autorizados de la app.',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: const Color(0xFF26427D),
                                 fontWeight: FontWeight.w600,
@@ -381,7 +381,7 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
                                     },
                                     decoration: InputDecoration(
                                       hintText:
-                                          'Pregunta por productos, clientes o procesos...',
+                                          'Pregunta por normas, pantalla actual, clientes, operaciones o procesos...',
                                       isDense: true,
                                       contentPadding:
                                           const EdgeInsets.symmetric(
@@ -471,32 +471,53 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
       case 'catalogo':
       case 'catálogo':
         return const [
-          'Que productos hay en catalogo',
-          'Buscame taladros disponibles en catalogo',
-          'Que categorias de productos existen',
-          'Muestrame productos con precio',
+          'Qué productos hay en catálogo',
+          'Búscame taladros disponibles en catálogo',
+          'Qué categorías de productos existen',
+          'Muéstrame productos con precio',
         ];
       case 'clientes':
         return const [
-          'Explicame esta pantalla',
-          'Que informacion puedo ver del cliente',
-          'Que acciones puedo hacer aqui',
+          'Explícame esta pantalla',
+          'Este cliente existe en la app',
+          'Qué información puedo ver del cliente',
           'Resumen del cliente seleccionado',
         ];
       case 'cotizaciones':
         return const [
-          'Explicame esta pantalla',
-          'Resumen de la cotizacion actual',
-          'Que reglas aplican aqui',
-          'Que puedo hacer en este modulo',
+          'Explícame esta pantalla',
+          'Resumen de la cotización actual',
+          'Qué reglas del manual aplican aquí',
+          'Qué puedo hacer en este módulo',
+        ];
+      case 'service-orders':
+        return const [
+          'Explícame esta pantalla',
+          'Resumen de esta orden de servicio',
+          'Qué reglas del manual aplican aquí',
+          'Qué puedo hacer en este módulo',
+        ];
+      case 'document-flows':
+        return const [
+          'Explícame esta pantalla',
+          'Resumen del flujo documental actual',
+          'Qué sigue en este flujo',
+          'Qué puedo hacer en este módulo',
+        ];
+      case 'manual-interno':
+        return const [
+          'Explícame esta pantalla',
+          'Qué normas del manual están vigentes',
+          'Resúmeme las reglas más importantes',
+          'Qué tipo de regla debo buscar aquí',
         ];
       case 'profile':
       case 'nomina':
         return const [
-          'Cual es mi informacion en la app',
-          'Cual es mi rol',
-          'Que datos mios puedes ver',
-          'Explicame esta pantalla',
+          'Cuál es mi información en la app',
+          'Cuál es mi rol',
+          'Qué datos míos puedes ver',
+          'Explícame esta pantalla',
         ];
       default:
         return _defaultQuickPrompts;
@@ -543,6 +564,14 @@ class _GlobalAiChatSheetState extends ConsumerState<GlobalAiChatSheet> {
         return 'Ventas';
       case 'cotizaciones':
         return 'Cotizaciones';
+      case 'service-orders':
+        return 'Operaciones';
+      case 'document-flows':
+        return 'Flujo documental';
+      case 'media-gallery':
+        return 'Galería media';
+      case 'ponche':
+        return 'Ponche';
       case 'nomina':
       case 'nómina':
         return 'Nómina';
@@ -586,7 +615,7 @@ class _ChatMessagesList extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Listo para ayudarte con contexto real.',
+                    'Listo para orientarte con el manual y la app.',
                     style: theme.textTheme.titleSmall?.copyWith(
                       color: const Color(0xFF173D8E),
                       fontWeight: FontWeight.w900,
@@ -594,7 +623,7 @@ class _ChatMessagesList extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Puedes preguntarme por productos, clientes, reglas del manual o qué hacer dentro de este módulo. Mientras más específico seas con el nombre del producto o cliente, mejor responderé.',
+                    'Puedes preguntarme por normas del Manual Interno, cómo usar la pantalla actual o por datos reales autorizados como clientes, cotizaciones y operaciones. Si me das un nombre, teléfono o contexto concreto, responderé mejor.',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       height: 1.4,
                       color: const Color(0xFF31446E),

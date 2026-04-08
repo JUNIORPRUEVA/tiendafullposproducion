@@ -23,6 +23,20 @@ AiChatContext buildAiChatContextFromLocation(String location) {
       entityType = 'client';
       entityId = segments[1];
     }
+  } else if (path.startsWith('/service-orders')) {
+    module = 'service-orders';
+    if (segments.length >= 2 && segments[1] != 'nueva') {
+      entityType = 'service-order';
+      entityId = segments[1];
+    }
+  } else if (path.startsWith('/document-flows')) {
+    module = 'document-flows';
+    if (segments.length >= 2) {
+      entityType = 'service-order';
+      entityId = segments[1];
+    }
+  } else if (path.startsWith('/media-gallery')) {
+    module = 'media-gallery';
   } else if (path.startsWith('/catalogo')) {
     module = 'catalogo';
   } else if (path.startsWith('/ventas')) {
@@ -93,6 +107,14 @@ String? _screenNameFromPath(String path) {
       return 'Cotizaciones';
     case Routes.cotizacionesHistorial:
       return 'Historial de cotizaciones';
+    case Routes.serviceOrders:
+      return 'Operaciones';
+    case Routes.serviceOrderCreate:
+      return 'Crear orden';
+    case Routes.documentFlows:
+      return 'Flujo documental';
+    case Routes.mediaGallery:
+      return 'Galería media';
     case Routes.nomina:
       return 'Nómina';
     case Routes.misPagos:
@@ -115,6 +137,15 @@ String? _screenNameFromPath(String path) {
   }
   if (path.startsWith('/clientes/')) {
     return 'Detalle de cliente';
+  }
+  if (path == Routes.poncheHistorial) {
+    return 'Historial de ponches';
+  }
+  if (path.startsWith('/service-orders/')) {
+    return 'Detalle de orden';
+  }
+  if (path.startsWith('/document-flows/')) {
+    return 'Detalle documental';
   }
   if (path.startsWith('/users/')) {
     return 'Detalle de usuario';

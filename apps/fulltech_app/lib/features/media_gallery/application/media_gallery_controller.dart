@@ -35,7 +35,7 @@ class MediaGalleryState {
   final MediaGalleryInstallationFilter installationFilter;
 
   List<MediaGalleryItem> get visibleItems {
-    return items.where((item) {
+    return uniqueMediaGalleryItems(items).where((item) {
       final matchesType = switch (typeFilter) {
         MediaGalleryTypeFilter.all => true,
         MediaGalleryTypeFilter.image => item.isImage,
@@ -153,8 +153,9 @@ class MediaGalleryController extends StateNotifier<MediaGalleryState> {
     final snapshot = await _readLocalSnapshot();
     if (state.items.isEmpty && snapshot.items.isNotEmpty) {
       _lastSuccessfulRemoteSyncAt ??= snapshot.lastSyncedAt;
+      final uniqueSnapshotItems = uniqueMediaGalleryItems(snapshot.items);
       state = state.copyWith(
-        items: snapshot.items,
+        items: uniqueSnapshotItems,
         nextCursor: snapshot.nextCursor,
         lastSyncedAt: snapshot.lastSyncedAt,
         loading: false,
@@ -203,7 +204,9 @@ class MediaGalleryController extends StateNotifier<MediaGalleryState> {
         limit: _pageSize,
         forceRefresh: forceRemote || refresh,
       );
-      final previousItems = state.items.isEmpty ? snapshot.items : state.items;
+      final previousItems = state.items.isEmpty
+          ? uniqueMediaGalleryItems(snapshot.items)
+          : uniqueMediaGalleryItems(state.items);
       final merged = mergeMediaGalleryItems(
         previousItems: previousItems,
         freshItems: page.items,

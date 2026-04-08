@@ -8,6 +8,7 @@ import '../../../core/auth/app_permissions.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/auth/auth_repository.dart';
 import '../../../core/utils/media_file_actions.dart';
+import '../../../core/widgets/app_drawer.dart';
 import '../application/media_gallery_controller.dart';
 import '../media_gallery_models.dart';
 import '../widgets/media_gallery_card.dart';
@@ -243,6 +244,7 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
 
     if (!canView) {
       return Scaffold(
+        drawer: buildAdaptiveDrawer(context, currentUser: auth.user),
         appBar: AppBar(title: const Text('Galería media')),
         body: const Center(
           child: Padding(
@@ -268,6 +270,7 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
     ].where((item) => item).length;
 
     return Scaffold(
+      drawer: buildAdaptiveDrawer(context, currentUser: auth.user),
       appBar: AppBar(
         title: const Text('Galería media'),
         actions: [
@@ -391,16 +394,14 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
                             ? 4
                             : width >= 860
                                 ? 3
-                                : width >= 560
-                                    ? 2
-                                    : 1;
+                          : 2;
                     final childAspectRatio = width >= 1200
                         ? 0.92
                         : width >= 860
                             ? 0.9
-                            : width >= 560
-                                ? 0.96
-                                : 1.04;
+                        : width >= 420
+                          ? 0.72
+                          : 0.66;
 
                     return SliverGrid(
                       delegate: SliverChildBuilderDelegate(
@@ -410,8 +411,9 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
                             item: item,
                             onTap: () => showMediaGalleryViewer(
                               context,
-                              item,
-                              () => _downloadItem(item),
+                              visibleItems,
+                              index,
+                              _downloadItem,
                             ),
                             onDownload: () => _downloadItem(item),
                           );
@@ -503,7 +505,17 @@ class _GalleryTopBar extends StatelessWidget {
       );
     }
 
-    return Wrap(spacing: 8, runSpacing: 8, children: chips);
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (var index = 0; index < chips.length; index++) ...[
+            if (index > 0) const SizedBox(width: 6),
+            chips[index],
+          ],
+        ],
+      ),
+    );
   }
 }
 
@@ -516,10 +528,10 @@ class _TopMetricChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFDCE5EE)),
         boxShadow: const [
           BoxShadow(
@@ -535,16 +547,16 @@ class _TopMetricChip extends StatelessWidget {
           Text(
             value,
             style: const TextStyle(
-              fontSize: 16,
+              fontSize: 13,
               fontWeight: FontWeight.w800,
               color: Color(0xFF0F172A),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           Text(
             label,
             style: const TextStyle(
-              fontSize: 12.4,
+              fontSize: 10.4,
               fontWeight: FontWeight.w600,
               color: Color(0xFF64748B),
             ),
@@ -564,7 +576,7 @@ class _ActiveFilterChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
       decoration: BoxDecoration(
         color: const Color(0xFFE6F4F7),
         borderRadius: BorderRadius.circular(999),
@@ -579,7 +591,7 @@ class _ActiveFilterChip extends StatelessWidget {
             label,
             style: const TextStyle(
               color: Color(0xFF0F5D73),
-              fontSize: 12.2,
+              fontSize: 10.4,
               fontWeight: FontWeight.w700,
             ),
           ),

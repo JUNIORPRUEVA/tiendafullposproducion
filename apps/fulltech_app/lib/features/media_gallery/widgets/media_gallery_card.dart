@@ -9,54 +9,133 @@ import '../media_gallery_models.dart';
 
 Future<void> showMediaGalleryViewer(
   BuildContext context,
-  MediaGalleryItem item,
-  Future<void> Function()? onDownload,
+  List<MediaGalleryItem> items,
+  int initialIndex,
+  Future<void> Function(MediaGalleryItem item)? onDownload,
 ) {
   return showDialog<void>(
     context: context,
     builder: (dialogContext) {
       return Dialog.fullscreen(
         backgroundColor: const Color(0xFF020617),
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: item.isImage
-                  ? _FullScreenImageViewer(item: item)
-                  : _FullScreenVideoViewer(item: item),
-            ),
-            Positioned(
-              top: 18,
-              right: 18,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (onDownload != null)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 10),
-                      child: IconButton.filled(
-                        tooltip: 'Descargar',
-                        style: IconButton.styleFrom(
-                          backgroundColor: Colors.black.withValues(alpha: 0.55),
-                        ),
-                        onPressed: onDownload,
-                        icon: const Icon(Icons.download_outlined),
-                      ),
-                    ),
-                  IconButton.filled(
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.black.withValues(alpha: 0.55),
-                    ),
-                    onPressed: () => Navigator.of(dialogContext).pop(),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-            ),
-          ],
+        child: _FullscreenMediaGallery(
+          items: items,
+          initialIndex: initialIndex,
+          onDownload: onDownload,
         ),
       );
     },
   );
+}
+
+class _FullscreenMediaGallery extends StatefulWidget {
+  const _FullscreenMediaGallery({
+    required this.items,
+    required this.initialIndex,
+    this.onDownload,
+  });
+
+  final List<MediaGalleryItem> items;
+  final int initialIndex;
+  final Future<void> Function(MediaGalleryItem item)? onDownload;
+
+  @override
+  State<_FullscreenMediaGallery> createState() => _FullscreenMediaGalleryState();
+}
+
+class _FullscreenMediaGalleryState extends State<_FullscreenMediaGallery> {
+  late final PageController _pageController;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentItem = widget.items[_currentIndex];
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: PageView.builder(
+            controller: _pageController,
+            itemCount: widget.items.length,
+            onPageChanged: (index) {
+              setState(() {
+                _currentIndex = index;
+              });
+            },
+            itemBuilder: (context, index) {
+              final item = widget.items[index];
+              return item.isImage
+                  ? _FullScreenImageViewer(item: item)
+                  : _FullScreenVideoViewer(item: item);
+            },
+          ),
+        ),
+        Positioned(
+          top: 18,
+          left: 18,
+          child: IconButton.filled(
+            tooltip: 'Regresar',
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.black.withValues(alpha: 0.55),
+            ),
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.arrow_back_rounded),
+          ),
+        ),
+        if (widget.onDownload != null)
+          Positioned(
+            top: 18,
+            right: 18,
+            child: IconButton.filled(
+              tooltip: 'Descargar',
+              style: IconButton.styleFrom(
+                backgroundColor: Colors.black.withValues(alpha: 0.55),
+              ),
+              onPressed: () => widget.onDownload!(currentItem),
+              icon: const Icon(Icons.download_outlined),
+            ),
+          ),
+        Positioned(
+          top: 18,
+          left: 0,
+          right: 0,
+          child: IgnorePointer(
+            child: Center(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.42),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  child: Text(
+                    '${_currentIndex + 1} / ${widget.items.length}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class MediaGalleryCard extends StatelessWidget {
@@ -77,6 +156,7 @@ class MediaGalleryCard extends StatelessWidget {
     final statusColor = item.isInstallationCompleted
         ? const Color(0xFF0F766E)
         : const Color(0xFFB45309);
+    final dateLabel = DateFormat('dd MMM', 'es_DO').format(item.createdAt.toLocal());
 
     return Material(
       color: Colors.transparent,
@@ -112,15 +192,28 @@ class MediaGalleryCard extends StatelessWidget {
                       item.isImage
                           ? _ImageThumbnail(url: item.url)
                           : _VideoThumbnail(url: item.url),
+                      Positioned.fill(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.black.withValues(alpha: 0.05),
+                                Colors.transparent,
+                                Colors.black.withValues(alpha: 0.34),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                       Positioned(
-                        left: 14,
-                        top: 14,
-                        child: _Pill(
-                          label: item.isVideo ? 'Video' : 'Imagen',
-                          backgroundColor: Colors.black.withValues(alpha: 0.58),
-                          foregroundColor: Colors.white,
+                        left: 12,
+                        top: 12,
+                        child: _OverlayBadge(
+                          label: item.isVideo ? 'VIDEO' : 'IMAGEN',
                           icon: item.isVideo
-                              ? Icons.play_circle_outline
+                              ? Icons.play_circle_outline_rounded
                               : Icons.image_outlined,
                         ),
                       ),
@@ -138,6 +231,38 @@ class MediaGalleryCard extends StatelessWidget {
                             icon: const Icon(Icons.download_outlined, size: 18),
                           ),
                         ),
+                      Positioned(
+                        left: 12,
+                        right: 12,
+                        bottom: 12,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                item.displayComment,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                  shadows: const [
+                                    Shadow(
+                                      color: Color(0xB3000000),
+                                      blurRadius: 8,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            _MiniInfoPill(
+                              text: dateLabel,
+                              accent: Colors.white,
+                              background: Colors.black.withValues(alpha: 0.38),
+                            ),
+                          ],
+                        ),
+                      ),
                       if (item.isVideo)
                         Positioned.fill(
                           child: IgnorePointer(
@@ -164,53 +289,32 @@ class MediaGalleryCard extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      item.displayComment,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
                     Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                      spacing: 6,
+                      runSpacing: 6,
                       children: [
-                        _Pill(
-                          label: item.installationLabel,
-                          backgroundColor: statusColor.withValues(alpha: 0.12),
-                          foregroundColor: statusColor,
-                          icon: item.isInstallationCompleted
-                              ? Icons.verified_outlined
-                              : Icons.schedule_outlined,
+                        _MiniInfoPill(
+                          text: item.installationLabel,
+                          accent: statusColor,
+                          background: statusColor.withValues(alpha: 0.12),
                         ),
-                        _Pill(
-                          label: item.uploadedByLabel,
-                          backgroundColor:
-                              theme.colorScheme.primaryContainer.withValues(
-                                alpha: 0.48,
-                              ),
-                          foregroundColor: theme.colorScheme.onPrimaryContainer,
-                          icon: item.uploadedByRole ==
-                                  MediaGalleryUploadedByRole.creator
-                              ? Icons.person_outline
-                              : Icons.build_circle_outlined,
+                        _MiniInfoPill(
+                          text: item.uploadedByLabel,
+                          accent: theme.colorScheme.onPrimaryContainer,
+                          background: theme.colorScheme.primaryContainer.withValues(
+                            alpha: 0.48,
+                          ),
+                        ),
+                        _MiniInfoPill(
+                          text: item.orderStatusLabel,
+                          accent: theme.colorScheme.onSurfaceVariant,
+                          background: theme.colorScheme.surfaceContainerHighest,
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      '${item.orderStatusLabel} · ${DateFormat('dd MMM yyyy, h:mm a', 'es_DO').format(item.createdAt.toLocal())}',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
                     ),
                   ],
                 ),
@@ -453,6 +557,8 @@ class _FullScreenVideoViewerState extends State<_FullScreenVideoViewer> {
 
     try {
       await controller.initialize();
+      await controller.setLooping(true);
+      await controller.play();
       if (!mounted) {
         await controller.dispose();
         return;
@@ -636,6 +742,75 @@ class _ViewerErrorState extends StatelessWidget {
             style: TextStyle(color: Colors.white70),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _OverlayBadge extends StatelessWidget {
+  const _OverlayBadge({required this.label, required this.icon});
+
+  final String label;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: Colors.white),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniInfoPill extends StatelessWidget {
+  const _MiniInfoPill({
+    required this.text,
+    required this.accent,
+    required this.background,
+  });
+
+  final String text;
+  final Color accent;
+  final Color background;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: accent,
+            fontSize: 10.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ),
     );
   }
