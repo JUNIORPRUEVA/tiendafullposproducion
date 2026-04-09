@@ -136,6 +136,38 @@ class Env {
     return raw.isEmpty ? _defaultQuotationApprovalAdminPhone : raw;
   }
 
+  static String? get releasesApiBaseUrl {
+    final raw = (_readEnv('RELEASES_API_BASE_URL') ?? '').trim();
+    if (raw.isEmpty) return null;
+
+    if (raw.startsWith('/')) {
+      if (!kIsWeb) return null;
+      final value = '${Uri.base.origin}$raw';
+      return value.endsWith('/') ? value.substring(0, value.length - 1) : value;
+    }
+
+    final parsed = Uri.tryParse(raw);
+    if (parsed == null || parsed.scheme.isEmpty || parsed.host.trim().isEmpty) {
+      debugPrint('Invalid RELEASES_API_BASE_URL: "$raw".');
+      return null;
+    }
+
+    if (parsed.scheme != 'http' && parsed.scheme != 'https') {
+      debugPrint('Invalid RELEASES_API_BASE_URL scheme: "$raw".');
+      return null;
+    }
+
+    return raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
+  }
+
+  static String get releasesApiKey {
+    return (_readEnv('RELEASES_API_KEY') ?? '').trim();
+  }
+
+  static bool get releasesEnabled {
+    return releasesApiBaseUrl != null && releasesApiKey.isNotEmpty;
+  }
+
   static int get apiTimeoutMs {
     final raw = (_readEnv('API_TIMEOUT_MS') ?? '').trim();
     final parsed = int.tryParse(raw);

@@ -416,7 +416,7 @@ class CompanyManualRepository {
         return false;
       }
       return true;
-    }).toList(growable: false);
+    }).toList();
 
     filtered.sort((left, right) {
       final byOrder = left.sortOrder.compareTo(right.sortOrder);

@@ -6,6 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'core/app_update/app_update_controller.dart';
 import 'core/routing/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/loading/app_loading_overlay.dart';
@@ -17,6 +18,7 @@ import 'core/offline/sync_queue_service.dart';
 import 'core/realtime/catalog_realtime_service.dart';
 import 'core/realtime/operations_realtime_service.dart';
 import 'core/startup/app_startup_controller.dart';
+import 'core/app_update/update_guard_overlay.dart';
 import 'core/widgets/fulltech_global_background.dart';
 import 'features/catalogo/application/catalog_background_sync.dart';
 import 'features/media_gallery/application/media_gallery_background_sync.dart';
@@ -165,17 +167,19 @@ class MyApp extends ConsumerStatefulWidget {
   ConsumerState<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends ConsumerState<MyApp> {
+class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
   bool _backgroundStartupStarted = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     if (!widget.enableBackgroundStartup) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       setState(() => _backgroundStartupStarted = true);
       unawaited(prepareAppFirstFrame());
+      unawaited(ref.read(appUpdateProvider.notifier).checkNow(force: true));
 
       final authState = ref.read(authStateProvider);
       if (authState.isAuthenticated) {
@@ -191,12 +195,28 @@ class _MyAppState extends ConsumerState<MyApp> {
   }
 
   @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !widget.enableBackgroundStartup) {
+      return;
+    }
+
+    unawaited(ref.read(appUpdateProvider.notifier).checkNow());
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (widget.enableBackgroundStartup && _backgroundStartupStarted) {
       ref.watch(catalogBackgroundSyncBootstrapProvider);
       ref.watch(mediaGalleryBackgroundSyncBootstrapProvider);
       ref.watch(syncQueueBootstrapProvider);
     }
+    ref.watch(appUpdateProvider);
     final router = ref.watch(routerProvider);
     final authState = ref.watch(authStateProvider);
     final role = authState.user?.appRole ?? AppRole.unknown;
@@ -245,6 +265,7 @@ class _MyAppState extends ConsumerState<MyApp> {
             if (effectiveChild != null) effectiveChild,
             const AppLoadingOverlay(),
             const AppErrorOverlay(),
+            const UpdateGuardOverlay(),
           ],
         );
       },

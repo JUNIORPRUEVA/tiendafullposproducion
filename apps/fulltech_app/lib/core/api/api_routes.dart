@@ -1,5 +1,6 @@
 /// Centraliza rutas de API para fácil ajuste
 class ApiRoutes {
+  static const releaseCheckUpdate = '/api/v1/check-update';
   static const login = '/auth/login';
   static const refresh = '/auth/refresh';
   static const me = '/auth/me';
@@ -157,7 +158,7 @@ class ApiRoutes {
   static const serviceOrders = '/service-orders';
   static const serviceOrdersDebugPurge = '/service-orders/debug/purge';
   static const serviceOrderSalesSummary = '/service-orders/sales-summary';
-    static const mediaGallery = '/media-gallery';
+  static const mediaGallery = '/media-gallery';
   static String serviceOrderDetail(String id) => '/service-orders/$id';
   static String serviceOrderUpdate(String id) => '/service-orders/$id';
   static String serviceOrderDelete(String id) => '/service-orders/$id';
@@ -168,12 +169,15 @@ class ApiRoutes {
   static String serviceOrderReport(String id) => '/service-orders/$id/report';
   static String serviceOrderClone(String id) => '/service-orders/$id/clone';
 
-    // Document flows
-    static const documentFlows = '/document-flows';
-    static String documentFlowByOrder(String orderId) => '/document-flows/$orderId';
-    static String documentFlowEditDraft(String id) => '/document-flows/$id/edit-draft';
-    static String documentFlowGenerate(String id) => '/document-flows/$id/generate';
-    static String documentFlowSend(String id) => '/document-flows/$id/send';
+  // Document flows
+  static const documentFlows = '/document-flows';
+  static String documentFlowByOrder(String orderId) =>
+      '/document-flows/$orderId';
+  static String documentFlowEditDraft(String id) =>
+      '/document-flows/$id/edit-draft';
+  static String documentFlowGenerate(String id) =>
+      '/document-flows/$id/generate';
+  static String documentFlowSend(String id) => '/document-flows/$id/send';
 
   // Asistente IA (global)
   static const aiChat = '/ai/chat';

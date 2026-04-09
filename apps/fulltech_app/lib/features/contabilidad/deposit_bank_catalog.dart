@@ -28,12 +28,14 @@ const depositBankCatalog = <DepositBankOption>[
     label: 'Banco Popular',
     accounts: [
       DepositBankAccountOption(
-        id: 'popular_operativa',
-        label: 'Cuenta operativa principal',
+        id: 'popular_yunior_0820297174',
+        label: 'Yunior Lopez de la Rosa · 0820297174',
+        accountNumber: '0820297174',
       ),
       DepositBankAccountOption(
-        id: 'popular_recaudos',
-        label: 'Cuenta recaudos',
+        id: 'popular_fulltech_0841088008',
+        label: 'FULLTECH SRL · 0841088008',
+        accountNumber: '0841088008',
       ),
     ],
   ),
@@ -42,8 +44,9 @@ const depositBankCatalog = <DepositBankOption>[
     label: 'Banreservas',
     accounts: [
       DepositBankAccountOption(
-        id: 'banreservas_general',
-        label: 'Cuenta general',
+        id: 'banreservas_yunior_9600921403',
+        label: 'Yunior Lopez de la Rosa · 9600921403',
+        accountNumber: '9600921403',
       ),
     ],
   ),
@@ -52,8 +55,9 @@ const depositBankCatalog = <DepositBankOption>[
     label: 'BHD',
     accounts: [
       DepositBankAccountOption(
-        id: 'bhd_principal',
-        label: 'Cuenta principal',
+        id: 'bhd_yunior_28726660019',
+        label: 'Yunior Lopez de la Rosa · 28726660019',
+        accountNumber: '28726660019',
       ),
     ],
   ),
