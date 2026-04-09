@@ -135,6 +135,7 @@ class AppErrorReporter {
     String? dedupeKey,
     String? retryLabel,
     AppErrorRetryCallback? onRetry,
+    bool notifyUser = true,
   }) {
     if (_shouldSkipDedupe(dedupeKey)) return;
     final details = _buildDetails(
@@ -150,7 +151,9 @@ class AppErrorReporter {
     );
     _log(details);
     _remember(details);
-    _setLastError(details);
+    if (notifyUser) {
+      _setLastError(details);
+    }
   }
 
   bool _shouldSkipDedupe(String? dedupeKey) {
@@ -260,7 +263,39 @@ class AppErrorReporter {
   void recordFlutterError(FlutterErrorDetails details) {
     final exception = details.exception;
     final stack = details.stack ?? StackTrace.current;
-    record(exception, stack, context: 'FlutterError');
+    final exceptionMessage = details.exceptionAsString();
+    final isRenderFlexOverflow = _isRenderFlexOverflowMessage(exceptionMessage);
+
+    record(
+      exception,
+      stack,
+      context: 'FlutterError',
+      title: isRenderFlexOverflow ? 'Incidencia visual detectada' : null,
+      userMessage: isRenderFlexOverflow
+          ? 'Detectamos un ajuste visual temporal en pantalla. La aplicacion puede seguir funcionando mientras corregimos el acomodo.'
+          : null,
+      technicalDetails: isRenderFlexOverflow ? exceptionMessage : null,
+      severity: isRenderFlexOverflow
+          ? AppErrorSeverity.warning
+          : AppErrorSeverity.error,
+      dedupeKey: isRenderFlexOverflow
+          ? 'flutter-renderflex-overflow-${_normalizeOverflowMessage(exceptionMessage)}'
+          : null,
+      notifyUser: !isRenderFlexOverflow,
+    );
+  }
+
+  bool _isRenderFlexOverflowMessage(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized.startsWith('a renderflex overflowed by ');
+  }
+
+  String _normalizeOverflowMessage(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r'\d+'), '#')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
   }
 
   String _defaultTitleForSeverity(AppErrorSeverity severity) {

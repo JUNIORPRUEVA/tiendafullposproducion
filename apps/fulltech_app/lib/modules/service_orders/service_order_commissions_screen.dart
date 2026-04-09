@@ -115,146 +115,164 @@ class ServiceOrderCommissionsScreen extends ConsumerWidget {
               else
                 _MobilePeriodBanner(rangeLabel: state.range?.label),
               const SizedBox(height: 16),
-              if (isMobile)
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final spacing = 8.0;
-                    final cardWidth =
-                        (constraints.maxWidth - (spacing * 2)) / 3;
-                    return Row(
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  const spacing = 8.0;
+                  final useCompactCards = constraints.maxWidth < 700;
+                  final compactColumns = constraints.maxWidth >= 520
+                      ? 3
+                      : constraints.maxWidth >= 340
+                      ? 2
+                      : 1;
+                  final compactCardWidth =
+                      (constraints.maxWidth -
+                          (spacing * (compactColumns - 1))) /
+                      compactColumns;
+
+                  if (useCompactCards) {
+                    return Wrap(
+                      spacing: spacing,
+                      runSpacing: spacing,
                       children: [
-                        _SummaryCard(
-                          title: 'Servicios',
-                          value: '${state.summary.totalServices}',
-                          subtitle: 'Finalizados',
-                          icon: Icons.assignment_turned_in_outlined,
-                          width: cardWidth,
-                          compact: true,
-                          onTap: () => _showSummaryCardDialog(
-                            context,
-                            title: 'Servicios finalizados',
+                        SizedBox(
+                          width: compactCardWidth,
+                          child: _SummaryCard(
+                            title: 'Servicios',
                             value: '${state.summary.totalServices}',
-                            subtitle: 'Órdenes cerradas en el período activo.',
+                            subtitle: 'Finalizados',
                             icon: Icons.assignment_turned_in_outlined,
+                            compact: true,
+                            onTap: () => _showSummaryCardDialog(
+                              context,
+                              title: 'Servicios finalizados',
+                              value: '${state.summary.totalServices}',
+                              subtitle:
+                                  'Órdenes cerradas en el período activo.',
+                              icon: Icons.assignment_turned_in_outlined,
+                            ),
                           ),
                         ),
-                        SizedBox(width: spacing),
-                        _SummaryCard(
-                          title: 'Vendido',
-                          value: currency.format(state.summary.totalSold),
-                          subtitle: 'Periodo',
-                          icon: Icons.payments_outlined,
-                          width: cardWidth,
-                          compact: true,
-                          onTap: () => _showSummaryCardDialog(
-                            context,
-                            title: 'Monto total vendido',
+                        SizedBox(
+                          width: compactCardWidth,
+                          child: _SummaryCard(
+                            title: 'Vendido',
                             value: currency.format(state.summary.totalSold),
-                            subtitle:
-                                'Suma total vendida dentro de la quincena seleccionada.',
+                            subtitle: 'Periodo',
                             icon: Icons.payments_outlined,
+                            compact: true,
+                            onTap: () => _showSummaryCardDialog(
+                              context,
+                              title: 'Monto total vendido',
+                              value: currency.format(state.summary.totalSold),
+                              subtitle:
+                                  'Suma total vendida dentro de la quincena seleccionada.',
+                              icon: Icons.payments_outlined,
+                            ),
                           ),
                         ),
-                        SizedBox(width: spacing),
-                        _SummaryCard(
-                          title: 'Comisión',
-                          value: currency.format(
-                            state.summary.visibleCommissionTotal,
-                          ),
-                          subtitle: 'Visible',
-                          icon: Icons.account_balance_wallet_outlined,
-                          width: cardWidth,
-                          compact: true,
-                          onTap: () => _showSummaryCardDialog(
-                            context,
-                            title: 'Comisión estimada',
+                        SizedBox(
+                          width: compactCardWidth,
+                          child: _SummaryCard(
+                            title: 'Comisión',
                             value: currency.format(
                               state.summary.visibleCommissionTotal,
                             ),
-                            subtitle:
-                                'Total de comisión visible según el rol actual.',
+                            subtitle: 'Visible',
                             icon: Icons.account_balance_wallet_outlined,
+                            compact: true,
+                            onTap: () => _showSummaryCardDialog(
+                              context,
+                              title: 'Comisión estimada',
+                              value: currency.format(
+                                state.summary.visibleCommissionTotal,
+                              ),
+                              subtitle:
+                                  'Total de comisión visible según el rol actual.',
+                              icon: Icons.account_balance_wallet_outlined,
+                            ),
                           ),
                         ),
                       ],
                     );
-                  },
-                )
-              else
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    _SummaryCard(
-                      title: 'Total servicios',
-                      value: '${state.summary.totalServices}',
-                      subtitle: 'Órdenes finalizadas en el periodo',
-                      icon: Icons.assignment_turned_in_outlined,
-                      onTap: () => _showSummaryCardDialog(
-                        context,
-                        title: 'Servicios finalizados',
+                  }
+
+                  return Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      _SummaryCard(
+                        title: 'Total servicios',
                         value: '${state.summary.totalServices}',
-                        subtitle: 'Órdenes cerradas en el período activo.',
+                        subtitle: 'Órdenes finalizadas en el periodo',
                         icon: Icons.assignment_turned_in_outlined,
+                        onTap: () => _showSummaryCardDialog(
+                          context,
+                          title: 'Servicios finalizados',
+                          value: '${state.summary.totalServices}',
+                          subtitle: 'Órdenes cerradas en el período activo.',
+                          icon: Icons.assignment_turned_in_outlined,
+                        ),
                       ),
-                    ),
-                    _SummaryCard(
-                      title: 'Monto total vendido',
-                      value: currency.format(state.summary.totalSold),
-                      subtitle: 'Suma de cotizaciones asociadas',
-                      icon: Icons.payments_outlined,
-                      onTap: () => _showSummaryCardDialog(
-                        context,
+                      _SummaryCard(
                         title: 'Monto total vendido',
                         value: currency.format(state.summary.totalSold),
-                        subtitle:
-                            'Suma total vendida dentro de la quincena seleccionada.',
+                        subtitle: 'Suma de cotizaciones asociadas',
                         icon: Icons.payments_outlined,
+                        onTap: () => _showSummaryCardDialog(
+                          context,
+                          title: 'Monto total vendido',
+                          value: currency.format(state.summary.totalSold),
+                          subtitle:
+                              'Suma total vendida dentro de la quincena seleccionada.',
+                          icon: Icons.payments_outlined,
+                        ),
                       ),
-                    ),
-                    _SummaryCard(
-                      title: 'Comisión estimada',
-                      value: currency.format(
-                        state.summary.visibleCommissionTotal,
-                      ),
-                      subtitle: 'Según tu visibilidad actual',
-                      icon: Icons.account_balance_wallet_outlined,
-                      onTap: () => _showSummaryCardDialog(
-                        context,
+                      _SummaryCard(
                         title: 'Comisión estimada',
                         value: currency.format(
                           state.summary.visibleCommissionTotal,
                         ),
-                        subtitle:
-                            'Total de comisión visible según el rol actual.',
+                        subtitle: 'Según tu visibilidad actual',
                         icon: Icons.account_balance_wallet_outlined,
+                        onTap: () => _showSummaryCardDialog(
+                          context,
+                          title: 'Comisión estimada',
+                          value: currency.format(
+                            state.summary.visibleCommissionTotal,
+                          ),
+                          subtitle:
+                              'Total de comisión visible según el rol actual.',
+                          icon: Icons.account_balance_wallet_outlined,
+                        ),
                       ),
-                    ),
-                    _SummaryCard(
-                      title: 'Promedio por servicio',
-                      value: currency.format(state.summary.averageSold),
-                      subtitle: 'Promedio de venta por orden',
-                      icon: Icons.analytics_outlined,
-                      onTap: () => _showSummaryCardDialog(
-                        context,
+                      _SummaryCard(
                         title: 'Promedio por servicio',
                         value: currency.format(state.summary.averageSold),
-                        subtitle:
-                            'Promedio vendido por cada orden del período.',
+                        subtitle: 'Promedio de venta por orden',
                         icon: Icons.analytics_outlined,
+                        onTap: () => _showSummaryCardDialog(
+                          context,
+                          title: 'Promedio por servicio',
+                          value: currency.format(state.summary.averageSold),
+                          subtitle:
+                              'Promedio vendido por cada orden del período.',
+                          icon: Icons.analytics_outlined,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  );
+                },
+              ),
               const SizedBox(height: 20),
-              Row(
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Expanded(
-                    child: Text(
-                      'Órdenes filtradas',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                  Text(
+                    'Órdenes filtradas',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                   Text(
@@ -328,7 +346,6 @@ class _SummaryCard extends StatelessWidget {
     required this.subtitle,
     required this.icon,
     this.onTap,
-    this.width,
     this.compact = false,
   });
 
@@ -337,82 +354,70 @@ class _SummaryCard extends StatelessWidget {
   final String subtitle;
   final IconData icon;
   final VoidCallback? onTap;
-  final double? width;
   final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final width = MediaQuery.sizeOf(context).width;
-    final cardWidth =
-        this.width ??
-        (width >= 1200
-            ? (width - 72) / 4
-            : width >= 800
-            ? 260.0
-            : double.infinity);
 
-    return SizedBox(
-      width: cardWidth,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(compact ? 16 : 20),
-          child: Container(
-            padding: EdgeInsets.all(compact ? 10 : 16),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              borderRadius: BorderRadius.circular(compact ? 16 : 20),
-              border: Border.all(color: theme.colorScheme.outlineVariant),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  color: theme.colorScheme.primary,
-                  size: compact ? 16 : 24,
-                ),
-                SizedBox(height: compact ? 6 : 12),
-                Text(
-                  title,
-                  style:
-                      (compact
-                              ? theme.textTheme.labelSmall
-                              : theme.textTheme.labelLarge)
-                          ?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w700,
-                          ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                SizedBox(height: compact ? 4 : 8),
-                Text(
-                  value,
-                  style:
-                      (compact
-                              ? theme.textTheme.titleSmall
-                              : theme.textTheme.headlineSmall)
-                          ?.copyWith(fontWeight: FontWeight.w900),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                SizedBox(height: compact ? 2 : 6),
-                Text(
-                  subtitle,
-                  style:
-                      (compact
-                              ? theme.textTheme.labelSmall
-                              : theme.textTheme.bodySmall)
-                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                  maxLines: compact ? 1 : 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(compact ? 16 : 20),
+        child: Container(
+          padding: EdgeInsets.all(compact ? 10 : 16),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(compact ? 16 : 20),
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                color: theme.colorScheme.primary,
+                size: compact ? 16 : 24,
+              ),
+              SizedBox(height: compact ? 6 : 12),
+              Text(
+                title,
+                style:
+                    (compact
+                            ? theme.textTheme.labelSmall
+                            : theme.textTheme.labelLarge)
+                        ?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w700,
+                        ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              SizedBox(height: compact ? 4 : 8),
+              Text(
+                value,
+                style:
+                    (compact
+                            ? theme.textTheme.titleSmall
+                            : theme.textTheme.headlineSmall)
+                        ?.copyWith(fontWeight: FontWeight.w900),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              SizedBox(height: compact ? 2 : 6),
+              Text(
+                subtitle,
+                style:
+                    (compact
+                            ? theme.textTheme.labelSmall
+                            : theme.textTheme.bodySmall)
+                        ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                maxLines: compact ? 1 : 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
           ),
         ),
       ),
@@ -442,87 +447,156 @@ class _CommissionOrderCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
         onTap: () => context.go(Routes.serviceOrderById(item.id)),
-        child: Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: compact ? 12 : 16,
-            vertical: compact ? 12 : 14,
-          ),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: theme.colorScheme.outlineVariant),
-          ),
-          child: Column(
-            children: [
-              Row(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final useCompactLayout = compact || constraints.maxWidth < 680;
+            final useStackedMeta = constraints.maxWidth < 680;
+
+            return Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: useCompactLayout ? 12 : 16,
+                vertical: useCompactLayout ? 12 : 14,
+              ),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: theme.colorScheme.outlineVariant),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Text(
-                      item.clientName.isEmpty
-                          ? 'Cliente sin nombre'
-                          : item.clientName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style:
-                          (compact
-                                  ? theme.textTheme.titleSmall
-                                  : theme.textTheme.titleMedium)
-                              ?.copyWith(fontWeight: FontWeight.w800),
+                  if (useStackedMeta) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item.clientName.isEmpty
+                                ? 'Cliente sin nombre'
+                                : item.clientName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style:
+                                (useCompactLayout
+                                        ? theme.textTheme.titleSmall
+                                        : theme.textTheme.titleMedium)
+                                    ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  _StatusBadge(compact: compact),
-                  const SizedBox(width: 6),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        _StatusBadge(compact: true),
+                        Text(
+                          item.serviceType.isEmpty
+                              ? 'Servicio'
+                              : item.serviceType,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        Text(
+                          item.finalizedAt == null
+                              ? 'Sin fecha'
+                              : dateFormat.format(item.finalizedAt!.toLocal()),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        Text(
+                          currency.format(item.totalAmount),
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ] else ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item.clientName.isEmpty
+                                ? 'Cliente sin nombre'
+                                : item.clientName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style:
+                                (useCompactLayout
+                                        ? theme.textTheme.titleSmall
+                                        : theme.textTheme.titleMedium)
+                                    ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _StatusBadge(compact: useCompactLayout),
+                        const SizedBox(width: 6),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 4,
+                          child: Text(
+                            item.serviceType.isEmpty
+                                ? 'Servicio'
+                                : item.serviceType,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          flex: 3,
+                          child: Text(
+                            item.finalizedAt == null
+                                ? 'Sin fecha'
+                                : dateFormat.format(
+                                    item.finalizedAt!.toLocal(),
+                                  ),
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          flex: 4,
+                          child: Text(
+                            currency.format(item.totalAmount),
+                            textAlign: TextAlign.right,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Expanded(
-                    flex: 4,
-                    child: Text(
-                      item.serviceType.isEmpty ? 'Servicio' : item.serviceType,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    flex: 3,
-                    child: Text(
-                      item.finalizedAt == null
-                          ? 'Sin fecha'
-                          : dateFormat.format(item.finalizedAt!.toLocal()),
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    flex: 4,
-                    child: Text(
-                      currency.format(item.totalAmount),
-                      textAlign: TextAlign.right,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
@@ -572,18 +646,18 @@ class _MobilePeriodBanner extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
-      child: Row(
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Icon(Icons.date_range_rounded, color: theme.colorScheme.primary),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              rangeLabel?.trim().isNotEmpty == true
-                  ? rangeLabel!
-                  : 'Cargando periodo...',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+          Text(
+            rangeLabel?.trim().isNotEmpty == true
+                ? rangeLabel!
+                : 'Cargando periodo...',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],

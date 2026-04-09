@@ -42,6 +42,11 @@ class ResponsiveShell extends ConsumerStatefulWidget {
 class _ResponsiveShellState extends ConsumerState<ResponsiveShell> {
   bool _collapsed = false;
 
+  void _toggleSidebar() {
+    if (!mounted) return;
+    setState(() => _collapsed = !_collapsed);
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.watch(locationTrackingBootstrapProvider);
@@ -67,9 +72,7 @@ class _ResponsiveShellState extends ConsumerState<ResponsiveShell> {
             currentUser: user,
             sections: sections,
             currentLocation: location,
-            onToggleSidebar: () {
-              setState(() => _collapsed = !_collapsed);
-            },
+            onToggleSidebar: _toggleSidebar,
             onNavigate: (route) => context.go(route),
           ),
           Expanded(
@@ -82,9 +85,7 @@ class _ResponsiveShellState extends ConsumerState<ResponsiveShell> {
                       collapsed: _collapsed,
                       title: title,
                       currentUser: user,
-                      onToggleSidebar: () {
-                        setState(() => _collapsed = !_collapsed);
-                      },
+                      onToggleSidebar: _toggleSidebar,
                     ),
                   ),
                 Expanded(
@@ -218,134 +219,162 @@ class DesktopShellAppBar extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: IconButton(
-              tooltip: collapsed ? 'Expandir menú' : 'Colapsar menú',
-              onPressed: onToggleSidebar,
-              icon: AnimatedRotation(
-                turns: collapsed ? 0.5 : 0,
-                duration: const Duration(milliseconds: 240),
-                child: const Icon(Icons.menu_open_rounded, size: 20),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Espacio de trabajo FULLTECH',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.2,
-                    color: Colors.white,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final availableWidth = constraints.maxWidth;
+          final showRangeBadge = !collapsed && availableWidth >= 1120;
+          final showUserMeta = !collapsed && availableWidth >= 860;
+
+          return Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: IconButton(
+                  tooltip: collapsed ? 'Expandir menú' : 'Colapsar menú',
+                  onPressed: onToggleSidebar,
+                  icon: AnimatedRotation(
+                    turns: collapsed ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 240),
+                    child: const Icon(Icons.menu_open_rounded, size: 20),
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  branding.departmentName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.76),
-                    fontWeight: FontWeight.w600,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Espacio de trabajo FULLTECH',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.2,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      branding.departmentName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.76),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (showRangeBadge) ...[
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.12),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.circle, size: 8, color: Colors.white),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            '$title · $today',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
-            ),
-          ),
-          if (!collapsed) ...[
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.circle, size: 8, color: Colors.white),
-                  const SizedBox(width: 8),
-                  Text(
-                    '$title · $today',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 10),
-          ],
-          Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: collapsed ? 8 : 10,
-              vertical: 8,
-            ),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                UserAvatar(
-                  radius: 15,
-                  backgroundColor: Colors.white.withValues(alpha: 0.14),
-                  imageUrl: photoUrl,
-                  child: Text(
-                    userInitials(currentUser),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 12,
-                    ),
-                  ),
+              const SizedBox(width: 10),
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: showUserMeta ? 260 : 56,
                 ),
-                if (!collapsed) ...[
-                  const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: collapsed ? 8 : 10,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        (currentUser?.nombreCompleto ?? 'Usuario').toString(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
+                      UserAvatar(
+                        radius: 15,
+                        backgroundColor: Colors.white.withValues(alpha: 0.14),
+                        imageUrl: photoUrl,
+                        child: Text(
+                          userInitials(currentUser),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
-                      Text(
-                        branding.departmentName,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.74),
+                      if (showUserMeta) ...[
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                (currentUser?.nombreCompleto ?? 'Usuario')
+                                    .toString(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.labelLarge?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              Text(
+                                branding.departmentName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.74),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
-                ],
-              ],
-            ),
-          ),
-        ],
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -533,76 +562,42 @@ class DesktopSidebar extends ConsumerWidget {
                   collapsed ? 10 : 12,
                   8,
                 ),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final itemCount = sections.fold<int>(
-                      0,
-                      (sum, section) => sum + section.items.length,
-                    );
-                    final titleCount = collapsed ? 0 : sections.length;
-                    final titleHeight = collapsed ? 0.0 : 18.0;
-                    final reservedForTitles = titleCount * titleHeight;
-                    final availableForItems =
-                        (constraints.maxHeight - reservedForTitles).clamp(
-                          0.0,
-                          constraints.maxHeight,
-                        );
-                    final rawItemHeight = itemCount == 0
-                        ? 0.0
-                        : (availableForItems / itemCount);
-                    final itemHeight = rawItemHeight > 64.0
-                        ? 64.0
-                        : rawItemHeight;
-
-                    final children = <Widget>[];
-                    for (final section in sections) {
-                      if (!collapsed) {
-                        children.add(
-                          SizedBox(
-                            height: titleHeight,
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                ),
-                                child: Text(
-                                  section.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    color: onBase.withValues(alpha: 0.72),
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 0.7,
-                                  ),
-                                ),
-                              ),
+                child: ListView(
+                  physics: const ClampingScrollPhysics(),
+                  padding: EdgeInsets.zero,
+                  children: [
+                    for (final section in sections) ...[
+                      if (!collapsed)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 2, 8, 8),
+                          child: Text(
+                            section.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: onBase.withValues(alpha: 0.72),
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.7,
                             ),
                           ),
-                        );
-                      }
-
-                      for (final item in section.items) {
-                        children.add(
-                          SizedBox(
-                            height: itemHeight,
-                            child: _DesktopSidebarItem(
-                              collapsed: collapsed,
-                              item: item,
-                              height: itemHeight,
-                              selected: isNavigationRouteActive(
-                                currentLocation,
-                                item.route,
-                              ),
-                              onTap: () => onNavigate(item.route),
+                        ),
+                      for (final item in section.items)
+                        SizedBox(
+                          height: collapsed ? 52 : 56,
+                          child: _DesktopSidebarItem(
+                            collapsed: collapsed,
+                            item: item,
+                            height: collapsed ? 52 : 56,
+                            selected: isNavigationRouteActive(
+                              currentLocation,
+                              item.route,
                             ),
+                            onTap: () => onNavigate(item.route),
                           ),
-                        );
-                      }
-                    }
-
-                    return Column(children: children);
-                  },
+                        ),
+                      SizedBox(height: collapsed ? 6 : 10),
+                    ],
+                  ],
                 ),
               ),
             ),

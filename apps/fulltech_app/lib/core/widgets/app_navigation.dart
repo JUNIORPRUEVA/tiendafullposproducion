@@ -61,12 +61,6 @@ List<AppNavigationSection> buildAppNavigationSections(
             title: 'Operaciones',
             route: Routes.serviceOrders,
           ),
-        if (can(AppPermission.viewOperations))
-          const AppNavigationItem(
-            icon: Icons.stacked_line_chart_rounded,
-            title: 'Comisiones',
-            route: Routes.serviceOrderCommissions,
-          ),
         if (can(AppPermission.viewMediaGallery))
           const AppNavigationItem(
             icon: Icons.perm_media_outlined,
@@ -132,6 +126,12 @@ List<AppNavigationSection> buildAppNavigationSections(
             icon: Icons.payments_outlined,
             title: 'Nómina',
             route: Routes.nomina,
+          ),
+        if (can(AppPermission.viewOperations))
+          const AppNavigationItem(
+            icon: Icons.stacked_line_chart_rounded,
+            title: 'Comisiones',
+            route: Routes.serviceOrderCommissions,
           ),
         if (can(AppPermission.viewMyPayments))
           const AppNavigationItem(
