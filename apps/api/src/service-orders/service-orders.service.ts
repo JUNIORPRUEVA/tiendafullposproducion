@@ -23,6 +23,7 @@ import { CloneServiceOrderDto } from './dto/clone-service-order.dto';
 import { CreateEvidenceDto } from './dto/create-evidence.dto';
 import { CreateReportDto } from './dto/create-report.dto';
 import { CreateServiceOrderDto } from './dto/create-service-order.dto';
+import { ListServiceOrderCommissionsQueryDto } from './dto/list-service-order-commissions-query.dto';
 import { UpdateServiceOrderDto } from './dto/update-service-order.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import {
@@ -83,6 +84,45 @@ type ServiceSalesOrderWithRelations = Prisma.ServiceOrderGetPayload<{
     };
   };
 }>;
+
+type ServiceCommissionOrder = Prisma.ServiceOrderGetPayload<{
+  include: {
+    client: {
+      select: {
+        id: true;
+        nombre: true;
+      };
+    };
+    quotation: {
+      select: {
+        id: true;
+        total: true;
+        totalProfit: true;
+      };
+    };
+    assignedTo: {
+      select: {
+        id: true;
+        nombreCompleto: true;
+      };
+    };
+    createdBy: {
+      select: {
+        id: true;
+        nombreCompleto: true;
+      };
+    };
+  };
+}>;
+
+type CommissionPeriodKey = 'current' | 'previous';
+
+type CommissionPeriodRange = {
+  key: CommissionPeriodKey;
+  kind: 'bridged' | 'mid_month';
+  from: Date;
+  to: Date;
+};
 
 @Injectable()
 export class ServiceOrdersService {
@@ -222,6 +262,107 @@ export class ServiceOrdersService {
       items,
       skipped,
       ...totals,
+    };
+  }
+
+  async listCommissions(
+    user: AuthUser,
+    query: ListServiceOrderCommissionsQueryDto,
+  ) {
+    const periodKey: CommissionPeriodKey = query.period === 'previous' ? 'previous' : 'current';
+    const page = Math.max(1, query.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, query.pageSize ?? 25));
+    const period = this.resolveCommissionPeriod(periodKey, new Date());
+    const where = this.buildCommissionWhere(user, period);
+
+    const [totalItems, summaryOrders, orders] = await this.prisma.$transaction([
+      this.prisma.serviceOrder.count({ where }),
+      this.prisma.serviceOrder.findMany({
+        where,
+        orderBy: [{ finalizedAt: 'desc' }, { createdAt: 'desc' }],
+        include: {
+          client: {
+            select: {
+              id: true,
+              nombre: true,
+            },
+          },
+          quotation: {
+            select: {
+              id: true,
+              total: true,
+              totalProfit: true,
+            },
+          },
+          assignedTo: {
+            select: {
+              id: true,
+              nombreCompleto: true,
+            },
+          },
+          createdBy: {
+            select: {
+              id: true,
+              nombreCompleto: true,
+            },
+          },
+        },
+      }),
+      this.prisma.serviceOrder.findMany({
+        where,
+        orderBy: [{ finalizedAt: 'desc' }, { createdAt: 'desc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          client: {
+            select: {
+              id: true,
+              nombre: true,
+            },
+          },
+          quotation: {
+            select: {
+              id: true,
+              total: true,
+              totalProfit: true,
+            },
+          },
+          assignedTo: {
+            select: {
+              id: true,
+              nombreCompleto: true,
+            },
+          },
+          createdBy: {
+            select: {
+              id: true,
+              nombreCompleto: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const summary = this.buildCommissionSummary(summaryOrders, user.role);
+    const items = orders.map((order) => this.mapCommissionOrder(order, user.role));
+    const totalPages = totalItems == 0 ? 1 : Math.ceil(totalItems / pageSize);
+
+    return {
+      period: period.key,
+      range: {
+        from: this.toDateOnly(period.from),
+        to: this.toDateOnly(period.to),
+        label: this.buildCommissionRangeLabel(period),
+      },
+      summary,
+      pagination: {
+        page,
+        pageSize,
+        totalItems,
+        totalPages,
+        hasMore: page < totalPages,
+      },
+      items,
     };
   }
 
@@ -514,6 +655,282 @@ export class ServiceOrdersService {
 
   private buildListCacheKey(user: AuthUser) {
     return `service-orders:list:${user.role}:${user.id}`;
+  }
+
+  private buildCommissionWhere(
+    user: AuthUser,
+    period: CommissionPeriodRange,
+  ): Prisma.ServiceOrderWhereInput {
+    return {
+      status: PrismaServiceOrderStatus.FINALIZADO,
+      serviceType: {
+        in: [
+          PrismaServiceOrderType.INSTALACION,
+          PrismaServiceOrderType.MANTENIMIENTO,
+        ],
+      },
+      finalizedAt: {
+        gte: period.from,
+        lte: period.to,
+      },
+      ...this.buildCommissionVisibilityWhere(user),
+    };
+  }
+
+  private buildCommissionVisibilityWhere(
+    user: AuthUser,
+  ): Prisma.ServiceOrderWhereInput {
+    switch (user.role) {
+      case Role.ADMIN:
+        return {};
+      case Role.TECNICO:
+        return {
+          OR: [
+            { createdById: user.id },
+            { assignedToId: user.id },
+          ],
+        };
+      default:
+        return { createdById: user.id };
+    }
+  }
+
+  private buildCommissionSummary(
+    orders: ServiceCommissionOrder[],
+    role: Role,
+  ) {
+    let totalSold = 0;
+    let sellerCommissionTotal = 0;
+    let technicianCommissionTotal = 0;
+
+    for (const order of orders) {
+      const commission = this.computeCommissionAmounts(order);
+      totalSold += commission.totalAmount;
+      sellerCommissionTotal += commission.sellerCommissionAmount;
+      technicianCommissionTotal += commission.technicianCommissionAmount;
+    }
+
+    const totalServices = orders.length;
+    const visibleCommissionTotal = this.resolveVisibleCommissionTotal(
+      role,
+      sellerCommissionTotal,
+      technicianCommissionTotal,
+    );
+
+    return {
+      totalServices,
+      totalSold,
+      averageSold: totalServices == 0 ? 0 : totalSold / totalServices,
+      sellerCommissionTotal,
+      technicianCommissionTotal,
+      visibleCommissionTotal,
+      totalCommission: sellerCommissionTotal + technicianCommissionTotal,
+    };
+  }
+
+  private mapCommissionOrder(
+    order: ServiceCommissionOrder,
+    role: Role,
+  ) {
+    const commission = this.computeCommissionAmounts(order);
+    return {
+      id: order.id,
+      clientId: order.clientId,
+      clientName: order.client.nombre,
+      quotationId: order.quotationId,
+      createdById: order.createdById,
+      createdByName: order.createdBy.nombreCompleto,
+      technicianId: order.assignedToId,
+      technicianName: order.assignedTo?.nombreCompleto ?? null,
+      serviceType: SERVICE_ORDER_TYPE_FROM_DB[order.serviceType],
+      status: SERVICE_ORDER_STATUS_FROM_DB[order.status],
+      finalizedAt: order.finalizedAt,
+      totalAmount: commission.totalAmount,
+      sellerCommissionAmount: commission.sellerCommissionAmount,
+      technicianCommissionAmount: commission.technicianCommissionAmount,
+      visibleCommissionAmount: this.resolveVisibleCommissionTotal(
+        role,
+        commission.sellerCommissionAmount,
+        commission.technicianCommissionAmount,
+      ),
+      totalCommissionAmount:
+          commission.sellerCommissionAmount + commission.technicianCommissionAmount,
+    };
+  }
+
+  private computeCommissionAmounts(order: ServiceCommissionOrder) {
+    const totalAmount = this.toNumber(order.quotation.total);
+    const totalProfit = this.toNumber(order.quotation.totalProfit);
+    const operationalExpenseRate =
+      order.serviceType === PrismaServiceOrderType.INSTALACION ? 0.3 : 0.1;
+    const operationalExpenseAmount = totalProfit > 0 ? totalProfit * operationalExpenseRate : 0;
+    const profitAfterExpense = Math.max(0, totalProfit - operationalExpenseAmount);
+    const sellerCommissionAmount = profitAfterExpense > 0 ? profitAfterExpense * 0.1 : 0;
+    const technicianCommissionAmount = profitAfterExpense > 0 ? profitAfterExpense * 0.1 : 0;
+
+    return {
+      totalAmount,
+      totalProfit,
+      profitAfterExpense,
+      sellerCommissionAmount,
+      technicianCommissionAmount,
+    };
+  }
+
+  private resolveVisibleCommissionTotal(
+    role: Role,
+    sellerCommissionAmount: number,
+    technicianCommissionAmount: number,
+  ) {
+    switch (role) {
+      case Role.ADMIN:
+        return sellerCommissionAmount + technicianCommissionAmount;
+      case Role.TECNICO:
+        return technicianCommissionAmount;
+      default:
+        return sellerCommissionAmount;
+    }
+  }
+
+  private resolveCommissionPeriod(
+    key: CommissionPeriodKey,
+    now: Date,
+  ): CommissionPeriodRange {
+    const current = this.buildCurrentCommissionPeriod(now);
+    if (key == 'current') {
+      return current;
+    }
+    return this.buildPreviousCommissionPeriod(current);
+  }
+
+  private buildCurrentCommissionPeriod(now: Date): CommissionPeriodRange {
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const day = now.getDate();
+
+    if (day >= 15 && day <= 29) {
+      const monthLastDay = this.lastDayOfMonth(year, month);
+      return {
+        key: 'current',
+        kind: 'mid_month',
+        from: new Date(year, month, 15, 0, 0, 0, 0),
+        to: new Date(
+          year,
+          month,
+          Math.min(29, monthLastDay),
+          23,
+          59,
+          59,
+          999,
+        ),
+      };
+    }
+
+    if (day >= 30) {
+      return {
+        key: 'current',
+        kind: 'bridged',
+        from: new Date(year, month, 30, 0, 0, 0, 0),
+        to: new Date(year, month + 1, 14, 23, 59, 59, 999),
+      };
+    }
+
+    const previousMonth = this.shiftMonth(year, month, -1);
+    const previousMonthLastDay = this.lastDayOfMonth(
+      previousMonth.year,
+      previousMonth.month,
+    );
+    const previousMonthStartDay = Math.min(30, previousMonthLastDay);
+
+    return {
+      key: 'current',
+      kind: 'bridged',
+      from: new Date(
+        previousMonth.year,
+        previousMonth.month,
+        previousMonthStartDay,
+        0,
+        0,
+        0,
+        0,
+      ),
+      to: new Date(year, month, 14, 23, 59, 59, 999),
+    };
+  }
+
+  private buildPreviousCommissionPeriod(
+    current: CommissionPeriodRange,
+  ): CommissionPeriodRange {
+    if (current.kind === 'mid_month') {
+      const end = current.from;
+      const previousMonth = this.shiftMonth(end.getFullYear(), end.getMonth(), -1);
+      const previousMonthLastDay = this.lastDayOfMonth(
+        previousMonth.year,
+        previousMonth.month,
+      );
+      const previousMonthStartDay = Math.min(30, previousMonthLastDay);
+      return {
+        key: 'previous',
+        kind: 'bridged',
+        from: new Date(
+          previousMonth.year,
+          previousMonth.month,
+          previousMonthStartDay,
+          0,
+          0,
+          0,
+          0,
+        ),
+        to: new Date(end.getFullYear(), end.getMonth(), 14, 23, 59, 59, 999),
+      };
+    }
+
+    const start = current.from;
+    const monthLastDay = this.lastDayOfMonth(
+      start.getFullYear(),
+      start.getMonth(),
+    );
+    return {
+      key: 'previous',
+      kind: 'mid_month',
+      from: new Date(start.getFullYear(), start.getMonth(), 15, 0, 0, 0, 0),
+      to: new Date(
+        start.getFullYear(),
+        start.getMonth(),
+        Math.min(29, monthLastDay),
+        23,
+        59,
+        59,
+        999,
+      ),
+    };
+  }
+
+  private buildCommissionRangeLabel(period: CommissionPeriodRange) {
+    const from = period.from;
+    const to = period.to;
+    const fromMonth = from.toLocaleDateString('es-DO', { month: 'short' });
+    const toMonth = to.toLocaleDateString('es-DO', { month: 'short' });
+    return `${from.getDate()} ${fromMonth} - ${to.getDate()} ${toMonth}`;
+  }
+
+  private toDateOnly(value: Date) {
+    const year = value.getFullYear();
+    const month = `${value.getMonth() + 1}`.padStart(2, '0');
+    const day = `${value.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  private shiftMonth(year: number, month: number, delta: number) {
+    const shifted = new Date(year, month + delta, 1, 0, 0, 0, 0);
+    return {
+      year: shifted.getFullYear(),
+      month: shifted.getMonth(),
+    };
+  }
+
+  private lastDayOfMonth(year: number, month: number) {
+    return new Date(year, month + 1, 0, 0, 0, 0, 0).getDate();
   }
 
   private buildDetailCacheKey(user: AuthUser, id: string) {

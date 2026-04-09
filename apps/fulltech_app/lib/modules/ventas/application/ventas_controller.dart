@@ -9,10 +9,8 @@ enum SalesRangePreset { today, week, quincena, custom }
 class VentasState {
   final bool loading;
   final String? error;
-  final String? serviceSummaryError;
   final List<SaleModel> sales;
   final SalesSummaryModel summary;
-  final ServiceSalesSummaryModel serviceSummary;
   final SalesRangePreset preset;
   final DateTime from;
   final DateTime to;
@@ -20,10 +18,8 @@ class VentasState {
   const VentasState({
     this.loading = false,
     this.error,
-    this.serviceSummaryError,
     this.sales = const [],
     required this.summary,
-    required this.serviceSummary,
     required this.preset,
     required this.from,
     required this.to,
@@ -35,7 +31,6 @@ class VentasState {
     return VentasState(
       loading: false,
       summary: SalesSummaryModel.empty(),
-      serviceSummary: ServiceSalesSummaryModel.empty(),
       preset: SalesRangePreset.quincena,
       from: range.from,
       to: range.to,
@@ -45,25 +40,18 @@ class VentasState {
   VentasState copyWith({
     bool? loading,
     String? error,
-    String? serviceSummaryError,
     List<SaleModel>? sales,
     SalesSummaryModel? summary,
-    ServiceSalesSummaryModel? serviceSummary,
     SalesRangePreset? preset,
     DateTime? from,
     DateTime? to,
     bool clearError = false,
-    bool clearServiceSummaryError = false,
   }) {
     return VentasState(
       loading: loading ?? this.loading,
       error: clearError ? null : (error ?? this.error),
-      serviceSummaryError: clearServiceSummaryError
-          ? null
-          : (serviceSummaryError ?? this.serviceSummaryError),
       sales: sales ?? this.sales,
       summary: summary ?? this.summary,
-      serviceSummary: serviceSummary ?? this.serviceSummary,
       preset: preset ?? this.preset,
       from: from ?? this.from,
       to: to ?? this.to,
@@ -84,11 +72,7 @@ class VentasController extends StateNotifier<VentasState> {
   }
 
   Future<void> load() async {
-    state = state.copyWith(
-      loading: true,
-      clearError: true,
-      clearServiceSummaryError: true,
-    );
+    state = state.copyWith(loading: true, clearError: true);
     try {
       final repo = ref.read(ventasRepositoryProvider);
       final results = await Future.wait([
@@ -96,26 +80,10 @@ class VentasController extends StateNotifier<VentasState> {
         repo.summary(from: state.from, to: state.to),
       ]);
 
-      ServiceSalesSummaryModel serviceSummary =
-          ServiceSalesSummaryModel.empty();
-      String? serviceSummaryError;
-      try {
-        serviceSummary = await repo.serviceSalesSummary(
-          from: state.from,
-          to: state.to,
-        );
-      } catch (e) {
-        serviceSummaryError = e is ApiException
-            ? e.message
-            : 'No se pudo cargar el resumen de servicios';
-      }
-
       state = state.copyWith(
         loading: false,
         sales: results[0] as List<SaleModel>,
         summary: results[1] as SalesSummaryModel,
-        serviceSummary: serviceSummary,
-        serviceSummaryError: serviceSummaryError,
       );
     } catch (e) {
       final message = e is ApiException
@@ -147,9 +115,7 @@ class VentasController extends StateNotifier<VentasState> {
     state = state.copyWith(
       sales: const [],
       summary: SalesSummaryModel.empty(),
-      serviceSummary: ServiceSalesSummaryModel.empty(),
       clearError: true,
-      clearServiceSummaryError: true,
     );
     return (result['deletedSales'] as num?)?.toInt() ?? 0;
   }

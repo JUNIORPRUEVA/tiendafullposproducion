@@ -22,6 +22,10 @@ class UpdateGuardOverlay extends ConsumerWidget {
     final downloadUrl = updateInfo?.downloadUrl;
     final canOpenDownload =
         downloadUrl != null && downloadUrl.trim().isNotEmpty;
+    final isWindows = installed?.platform == ReleasePlatform.windows;
+    final isDownloading = state.phase == AppUpdatePhase.downloadingUpdate;
+    final isInstalling = state.phase == AppUpdatePhase.installingUpdate;
+    final progress = state.downloadProgress;
     final platformName = installed?.platform.displayName ?? 'esta plataforma';
     final installedLabel = installed == null
         ? null
@@ -29,6 +33,28 @@ class UpdateGuardOverlay extends ConsumerWidget {
     final latestLabel = updateInfo == null
         ? null
         : '${updateInfo.latestVersion ?? 'Nueva versión'}${updateInfo.latestBuild == null ? '' : '+${updateInfo.latestBuild}'}';
+    final title = isWindows
+      ? (isDownloading
+          ? 'Descargando actualización de Windows'
+          : isInstalling
+          ? 'Instalando actualización de Windows'
+          : 'Actualización requerida en Windows')
+      : 'Actualización obligatoria';
+    final description = isWindows
+      ? (isDownloading
+          ? 'FullTech está descargando el instalador más reciente de Windows.'
+          : isInstalling
+          ? 'FullTech inició la instalación automática. Espera unos segundos mientras se cierra la app.'
+          : 'Debes actualizar FullTech en Windows para continuar usando la app.')
+      : 'Debes actualizar FullTech en $platformName para continuar usando la app.';
+    final primaryLabel = isWindows
+      ? (isDownloading || isInstalling
+          ? 'Actualizando...'
+          : 'Reintentar instalación')
+      : 'Descargar APK';
+    final secondaryLabel = isWindows
+      ? 'Revalidar release'
+      : 'Reintentar';
 
     return Positioned.fill(
       child: ColoredBox(
@@ -69,13 +95,13 @@ class UpdateGuardOverlay extends ConsumerWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Actualización obligatoria',
+                                  title,
                                   style: theme.textTheme.headlineSmall
                                       ?.copyWith(fontWeight: FontWeight.w800),
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  'Debes actualizar FullTech en $platformName para continuar usando la app.',
+                                  description,
                                   style: theme.textTheme.bodyLarge?.copyWith(
                                     color: scheme.onSurfaceVariant,
                                   ),
@@ -94,6 +120,27 @@ class UpdateGuardOverlay extends ConsumerWidget {
                         label: 'Versión requerida',
                         value: latestLabel ?? 'Disponible',
                       ),
+                      if (isWindows && (isDownloading || isInstalling)) ...[
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            minHeight: 10,
+                            value: isInstalling ? 1 : progress,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          isInstalling
+                              ? 'Instalador descargado. La instalación silenciosa fue iniciada.'
+                              : progress == null
+                              ? 'Preparando descarga...'
+                              : 'Descarga ${(progress * 100).toStringAsFixed(0)}%',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                       if ((updateInfo?.releaseNotes ?? '')
                           .trim()
                           .isNotEmpty) ...[
@@ -122,13 +169,32 @@ class UpdateGuardOverlay extends ConsumerWidget {
                       ],
                       const SizedBox(height: 20),
                       Text(
-                        canOpenDownload
+                        isWindows
+                            ? 'Si el instalador no logra abrirse o necesitas reintentar, usa el botón de instalación automática. Cuando el nuevo build quede instalado, FullTech dejará de bloquear el acceso.'
+                            : canOpenDownload
                             ? 'Cuando termine la instalación, vuelve a abrir FullTech y la app validará la nueva versión automáticamente.'
                             : 'No se recibió un enlace de descarga válido. Reintenta la validación o corrige el release en el panel admin.',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: scheme.onSurfaceVariant,
                         ),
                       ),
+                      if ((state.message ?? '').trim().isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: scheme.surfaceContainerHighest.withValues(
+                              alpha: 0.65,
+                            ),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Text(
+                            state.message!,
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 20),
                       Row(
                         children: [
@@ -140,28 +206,36 @@ class UpdateGuardOverlay extends ConsumerWidget {
                                     .checkNow(force: true);
                               },
                               icon: const Icon(Icons.refresh_rounded),
-                              label: const Text('Reintentar'),
+                              label: Text(secondaryLabel),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: FilledButton.icon(
-                              onPressed: canOpenDownload
-                                  ? () {
-                                      safeOpenUrl(
-                                        context,
-                                        Uri.parse(downloadUrl),
-                                        copiedMessage:
-                                            'Enlace de actualización copiado',
-                                      );
-                                    }
-                                  : null,
-                              icon: const Icon(Icons.download_rounded),
-                              label: Text(
-                                installed?.platform == ReleasePlatform.android
-                                    ? 'Descargar APK'
-                                    : 'Descargar instalador',
+                              onPressed: isWindows
+                                  ? (isDownloading || isInstalling
+                                        ? null
+                                        : () {
+                                            ref
+                                                .read(appUpdateProvider.notifier)
+                                                .retryBlockedUpdate();
+                                          })
+                                  : (canOpenDownload
+                                        ? () {
+                                            safeOpenUrl(
+                                              context,
+                                              Uri.parse(downloadUrl),
+                                              copiedMessage:
+                                                  'Enlace de actualización copiado',
+                                            );
+                                          }
+                                        : null),
+                              icon: Icon(
+                                isWindows
+                                    ? Icons.system_update_alt_rounded
+                                    : Icons.download_rounded,
                               ),
+                              label: Text(primaryLabel),
                             ),
                           ),
                         ],

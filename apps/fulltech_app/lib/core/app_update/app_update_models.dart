@@ -80,6 +80,8 @@ enum AppUpdatePhase {
   upToDate,
   optionalUpdate,
   requiredUpdate,
+  downloadingUpdate,
+  installingUpdate,
   error,
 }
 
@@ -89,6 +91,7 @@ class AppUpdateState {
   final AppUpdateInfo? updateInfo;
   final String? message;
   final DateTime? checkedAt;
+  final double? downloadProgress;
 
   const AppUpdateState({
     required this.phase,
@@ -96,6 +99,7 @@ class AppUpdateState {
     this.updateInfo,
     this.message,
     this.checkedAt,
+    this.downloadProgress,
   });
 
   factory AppUpdateState.initial() {
@@ -108,8 +112,10 @@ class AppUpdateState {
     AppUpdateInfo? updateInfo,
     String? message,
     DateTime? checkedAt,
+    double? downloadProgress,
     bool clearUpdateInfo = false,
     bool clearMessage = false,
+    bool clearDownloadProgress = false,
   }) {
     return AppUpdateState(
       phase: phase ?? this.phase,
@@ -117,8 +123,14 @@ class AppUpdateState {
       updateInfo: clearUpdateInfo ? null : (updateInfo ?? this.updateInfo),
       message: clearMessage ? null : (message ?? this.message),
       checkedAt: checkedAt ?? this.checkedAt,
+      downloadProgress: clearDownloadProgress
+          ? null
+          : (downloadProgress ?? this.downloadProgress),
     );
   }
 
-  bool get blocksUsage => phase == AppUpdatePhase.requiredUpdate;
+  bool get blocksUsage =>
+      phase == AppUpdatePhase.requiredUpdate ||
+      phase == AppUpdatePhase.downloadingUpdate ||
+      phase == AppUpdatePhase.installingUpdate;
 }

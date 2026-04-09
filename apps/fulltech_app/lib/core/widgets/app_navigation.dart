@@ -61,6 +61,12 @@ List<AppNavigationSection> buildAppNavigationSections(
             title: 'Operaciones',
             route: Routes.serviceOrders,
           ),
+        if (can(AppPermission.viewOperations))
+          const AppNavigationItem(
+            icon: Icons.stacked_line_chart_rounded,
+            title: 'Comisiones',
+            route: Routes.serviceOrderCommissions,
+          ),
         if (can(AppPermission.viewMediaGallery))
           const AppNavigationItem(
             icon: Icons.perm_media_outlined,
@@ -185,10 +191,14 @@ String safeCurrentLocation(BuildContext context) {
 }
 
 bool isNavigationRouteActive(String location, String route) {
+  if (route == Routes.serviceOrderCommissions) {
+    return location == Routes.serviceOrderCommissions;
+  }
   if (route == Routes.serviceOrders) {
     return location == Routes.serviceOrders ||
         location == Routes.serviceOrderCreate ||
-        location.startsWith('${Routes.serviceOrders}/');
+        (location.startsWith('${Routes.serviceOrders}/') &&
+            location != Routes.serviceOrderCommissions);
   }
   return location == route || location.startsWith('$route/');
 }
@@ -210,6 +220,7 @@ String resolveNavigationTitle(
 
   if (path == Routes.registrarVenta) return 'Nueva venta';
   if (path == Routes.serviceOrders) return 'Operaciones';
+  if (path == Routes.serviceOrderCommissions) return 'Comisiones';
   if (path == Routes.mediaGallery) return 'Galería media';
   if (path == Routes.serviceOrderCreate) return 'Crear orden';
   if (path == Routes.documentFlows) return 'Flujo documental';
@@ -242,6 +253,7 @@ bool desktopShellShouldShowOwnAppBar(String location) {
     Routes.clientes,
     Routes.ventas,
     Routes.serviceOrders,
+    Routes.serviceOrderCommissions,
     Routes.mediaGallery,
     Routes.documentFlows,
     Routes.cotizaciones,

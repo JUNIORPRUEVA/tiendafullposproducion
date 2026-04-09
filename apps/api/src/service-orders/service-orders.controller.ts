@@ -8,6 +8,7 @@ import { CloneServiceOrderDto } from './dto/clone-service-order.dto';
 import { CreateEvidenceDto } from './dto/create-evidence.dto';
 import { CreateReportDto } from './dto/create-report.dto';
 import { CreateServiceOrderDto } from './dto/create-service-order.dto';
+import { ListServiceOrderCommissionsQueryDto } from './dto/list-service-order-commissions-query.dto';
 import { ServiceOrderSalesSummaryQueryDto } from './dto/service-order-sales-summary-query.dto';
 import { UpdateServiceOrderDto } from './dto/update-service-order.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
@@ -34,6 +35,11 @@ export class ServiceOrdersController {
   @Get('sales-summary')
   salesSummary(@Req() req: Request, @Query() query: ServiceOrderSalesSummaryQueryDto) {
     return this.serviceOrders.salesSummary(req.user as JwtUser, query.from, query.to);
+  }
+
+  @Get('commissions')
+  commissions(@Req() req: Request, @Query() query: ListServiceOrderCommissionsQueryDto) {
+    return this.serviceOrders.listCommissions(req.user as JwtUser, query);
   }
 
   @Get(':id')

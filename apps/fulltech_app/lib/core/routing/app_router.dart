@@ -31,6 +31,7 @@ import '../../modules/cotizaciones/cotizaciones_screen.dart';
 import '../../modules/document_flows/document_flow_detail_screen.dart';
 import '../../modules/document_flows/document_flows_screen.dart';
 import '../../modules/service_orders/create_service_order_screen.dart';
+import '../../modules/service_orders/service_order_commissions_screen.dart';
 import '../../modules/service_orders/service_order_detail_screen.dart';
 import '../../modules/service_orders/service_order_models.dart';
 import '../../modules/service_orders/service_orders_list_screen.dart';
@@ -44,7 +45,8 @@ import 'app_route_observer.dart';
 import 'route_access.dart';
 import 'routes.dart';
 
-final GlobalKey<NavigatorState> appRootNavigatorKey = GlobalKey<NavigatorState>();
+final GlobalKey<NavigatorState> appRootNavigatorKey =
+    GlobalKey<NavigatorState>();
 
 final _routerRefreshProvider = Provider<_RouterRefreshNotifier>((ref) {
   final notifier = _RouterRefreshNotifier();
@@ -178,6 +180,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.serviceOrders,
             builder: (context, state) => const ServiceOrdersListScreen(),
+          ),
+          GoRoute(
+            path: Routes.serviceOrderCommissions,
+            builder: (context, state) => const ServiceOrderCommissionsScreen(),
           ),
           GoRoute(
             path: Routes.mediaGallery,

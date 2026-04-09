@@ -20,6 +20,7 @@ class Routes {
   static const cotizaciones = '/cotizaciones';
   static const cotizacionesHistorial = '/cotizaciones/historial';
   static const serviceOrders = '/service-orders';
+  static const serviceOrderCommissions = '/service-orders/commissions';
   static const mediaGallery = '/media-gallery';
   static const serviceOrderCreate = '/service-orders/nueva';
   static const serviceOrderDetail = '/service-orders/:id';
@@ -42,5 +43,6 @@ class Routes {
   static String clienteDetail(String id) => '/clientes/$id';
   static String clienteEdit(String id) => '/clientes/$id/editar';
   static String serviceOrderById(String id) => '/service-orders/$id';
-  static String documentFlowByOrderId(String orderId) => '/document-flows/$orderId';
+  static String documentFlowByOrderId(String orderId) =>
+      '/document-flows/$orderId';
 }

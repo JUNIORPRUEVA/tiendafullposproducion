@@ -11,21 +11,10 @@ import '../../core/debug/debug_admin_action.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
-import '../nomina/data/nomina_repository.dart';
 import 'application/ventas_controller.dart';
 import 'data/ventas_repository.dart';
 import 'sales_models.dart';
 import 'utils/sales_pdf_service.dart';
-
-final salesGoalProvider = FutureProvider<double>((ref) async {
-  final user = ref.watch(authStateProvider).user;
-  if (user == null) return 0;
-  try {
-    return await ref.watch(nominaRepositoryProvider).getCuotaMinimaForUser();
-  } catch (_) {
-    return 0;
-  }
-});
 
 class MisVentasScreen extends ConsumerStatefulWidget {
   const MisVentasScreen({super.key});
@@ -35,8 +24,6 @@ class MisVentasScreen extends ConsumerStatefulWidget {
 }
 
 class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
-  bool _goalNotified = false;
-  String _lastRangeKey = '';
   bool _purgingAllDebug = false;
 
   bool _isDesktop(BuildContext context) =>
@@ -87,11 +74,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(ventasControllerProvider);
     final user = ref.watch(authStateProvider).user;
-    final goalAsync = ref.watch(salesGoalProvider);
-    final goal = goalAsync.value ?? 0;
     final isDesktop = _isDesktop(context);
-
-    _maybeNotifyGoal(state, goal);
 
     return Scaffold(
       appBar: CustomAppBar(
@@ -104,6 +87,13 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
             busy: _purgingAllDebug,
             tooltip: 'Limpiar tabla (debug)',
             onPressed: _purgeAllDebug,
+          ),
+          IconButton(
+            tooltip: 'Actualizar ventas',
+            onPressed: () {
+              ref.read(ventasControllerProvider.notifier).refresh();
+            },
+            icon: const Icon(Icons.refresh),
           ),
           IconButton(
             tooltip: 'Informe PDF de quincena',
@@ -119,78 +109,34 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
         ],
       ),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
-      floatingActionButton: isDesktop
-          ? null
-          : FloatingActionButton.extended(
-              heroTag: 'sales_new_fab',
-              onPressed: _openRegisterSale,
-              icon: const Icon(Icons.add_shopping_cart),
-              label: const Text('Registrar venta'),
-            ),
+      floatingActionButton: null,
       bottomNavigationBar: isDesktop
           ? null
           : SafeArea(
               minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: SizedBox(
-                height: 50,
-                child: FilledButton.icon(
-                  onPressed: () => _openSalesHistoryDialog(context, state),
-                  icon: const Icon(Icons.history),
-                  label: const Text('Historial de ventas'),
-                ),
-              ),
-            ),
-      body: isDesktop
-          ? _buildDesktopBody(state, goal, user?.nombreCompleto ?? user?.email)
-          : RefreshIndicator(
-              onRefresh: () =>
-                  ref.read(ventasControllerProvider.notifier).refresh(),
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
+              child: Row(
                 children: [
-                  _buildGoalCompact(state, goal),
-                  const SizedBox(height: 10),
-                  _buildCurrentQuincenaCard(state, goal),
-                  const SizedBox(height: 10),
-                  _buildServiceSalesCard(state),
-                  const SizedBox(height: 10),
-                  _buildSalesByDayStats(state),
-                  if (state.loading) const LinearProgressIndicator(),
-                  if (state.error != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      state.error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _openSalesHistoryDialog(context, state),
+                      icon: const Icon(Icons.history),
+                      label: const Text('Historial'),
                     ),
-                  ],
-                  const SizedBox(height: 10),
-                  if (state.sales.isEmpty && !state.loading)
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: [
-                            const Icon(Icons.receipt_long_outlined, size: 44),
-                            const SizedBox(height: 8),
-                            Text(
-                              'No hay ventas registradas en ${_quincenaLabel(state.from, state.to)}',
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 12),
-                            FilledButton.icon(
-                              onPressed: _openRegisterSale,
-                              icon: const Icon(Icons.add),
-                              label: const Text('Registrar venta'),
-                            ),
-                          ],
-                        ),
-                      ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _openRegisterSale,
+                      icon: const Icon(Icons.add_shopping_cart),
+                      label: const Text('Registrar'),
                     ),
+                  ),
                 ],
               ),
             ),
+      body: isDesktop
+          ? _buildDesktopBody(state, user?.nombreCompleto ?? user?.email)
+          : _buildMobileBody(state),
     );
   }
 
@@ -303,7 +249,6 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
 
   Widget _buildDesktopBody(
     VentasState state,
-    double goal,
     String? employeeName,
   ) {
     final averageTicket = state.summary.totalSales == 0
@@ -324,18 +269,6 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
     final dayPoints = _salesDayPoints(state);
     final weekdayStats = _salesWeekdayStats(state);
     final topProducts = _topProducts(state);
-    final remainingToGoal = goal > state.summary.totalProfit
-        ? goal - state.summary.totalProfit
-        : 0.0;
-    final today = DateTime.now();
-    final rangeEnd = DateTime(state.to.year, state.to.month, state.to.day);
-    final safeToday = DateTime(today.year, today.month, today.day);
-    final daysLeft = rangeEnd.isBefore(safeToday)
-        ? 0
-        : rangeEnd.difference(safeToday).inDays + 1;
-    final neededPerDay = remainingToGoal > 0 && daysLeft > 0
-        ? remainingToGoal / daysLeft
-        : 0.0;
     final bestDay = dayPoints.isEmpty
         ? null
         : (dayPoints.toList()..sort((a, b) => b.total.compareTo(a.total)))
@@ -392,17 +325,10 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
               : width >= 1280
               ? 370.0
               : 350.0;
-          final reachedGoal = goal > 0 && state.summary.totalProfit >= goal;
-          final insightMessage = goal <= 0
-              ? 'No hay una meta configurada para este usuario. Aun asi puedes usar este panel para monitorear desempeno.'
-              : reachedGoal
-              ? 'Meta alcanzada. Tus beneficios ya estan desbloqueados y puedes empujar por una quincena record.'
-              : 'Sigue monitoreando tus puntos acumulados para desbloquear beneficios antes de cerrar la quincena.';
           final header = _StatsHeader(
             rangeLabel: _quincenaLabel(state.from, state.to),
+            totalSales: state.summary.totalSales.toString(),
             totalSold: _money(state.summary.totalSold),
-            totalProfit: _money(state.summary.totalProfit),
-            totalCommission: _money(state.summary.totalCommission),
             onRegisterSale: _openRegisterSale,
             onOpenHistory: () => _openSalesHistoryDialog(context, state),
             onOpenPdf: () => _openPdfPreviewDialog(
@@ -435,18 +361,13 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                             SizedBox(
                               width: leftColumnWidth,
                               child: _StatsCards(
-                                goal: goal,
-                                achieved: state.summary.totalProfit,
                                 rangeLabel: _quincenaLabel(
                                   state.from,
                                   state.to,
                                 ),
                                 items: metricItems,
-                                reachedGoal: reachedGoal,
-                                insightMessage: insightMessage,
-                                remainingToGoal: remainingToGoal,
-                                daysLeft: daysLeft,
-                                neededPerDay: neededPerDay,
+                                totalSales: state.summary.totalSales,
+                                totalSold: state.summary.totalSold,
                                 money: _money,
                               ),
                             ),
@@ -457,11 +378,8 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    _buildServiceSalesCard(state),
-                                    SizedBox(height: gap),
                                     _SalesSummary(
                                       state: state,
-                                      goal: goal,
                                       dayPoints: dayPoints,
                                       weekdayStats: weekdayStats,
                                       topProducts: topProducts,
@@ -505,23 +423,15 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                     header,
                     SizedBox(height: gap),
                     _StatsCards(
-                      goal: goal,
-                      achieved: state.summary.totalProfit,
                       rangeLabel: _quincenaLabel(state.from, state.to),
                       items: metricItems,
-                      reachedGoal: reachedGoal,
-                      insightMessage: insightMessage,
-                      remainingToGoal: remainingToGoal,
-                      daysLeft: daysLeft,
-                      neededPerDay: neededPerDay,
+                      totalSales: state.summary.totalSales,
+                      totalSold: state.summary.totalSold,
                       money: _money,
                     ),
                     SizedBox(height: gap),
-                    _buildServiceSalesCard(state),
-                    SizedBox(height: gap),
                     _SalesSummary(
                       state: state,
-                      goal: goal,
                       dayPoints: dayPoints,
                       weekdayStats: weekdayStats,
                       topProducts: topProducts,
@@ -541,75 +451,84 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
     );
   }
 
-  Widget _buildGoalCompact(VentasState state, double goal) {
-    final progress = goal <= 0
-        ? 0.0
-        : (state.summary.totalProfit / goal).clamp(0.0, 1.0).toDouble();
-    final progressLabel = '${(progress * 100).toStringAsFixed(0)}%';
-    final reachedGoal = goal > 0 && state.summary.totalProfit >= goal;
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.filter_alt_outlined, size: 18),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Embudo de meta quincenal',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
+  Widget _buildMobileBody(VentasState state) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (state.loading) ...[
+                const LinearProgressIndicator(),
+                const SizedBox(height: 8),
+              ],
+              if (state.error != null) ...[
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
+                    horizontal: 12,
+                    vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: reachedGoal
-                        ? Colors.green.withValues(alpha: 0.12)
-                        : Colors.orange.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(18),
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    progressLabel,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                    state.error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                const SizedBox(height: 8),
               ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '${_quincenaLabel(state.from, state.to)} · Meta mínima (puntos): ${_money(goal)}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 8),
-            LinearProgressIndicator(value: progress),
-            const SizedBox(height: 8),
-            Text(
-              'Puntos acumulados: ${_money(state.summary.totalProfit)}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-      ),
+              _buildCurrentQuincenaCard(state, compact: true),
+              const SizedBox(height: 10),
+              Expanded(
+                child: state.sales.isEmpty && !state.loading
+                    ? Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.receipt_long_outlined,
+                                size: 44,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'No hay ventas registradas en ${_quincenaLabel(state.from, state.to)}',
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : _buildSalesByDayStats(
+                        state,
+                        compact: true,
+                        maxItems: 4,
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildCurrentQuincenaCard(VentasState state, double goal) {
-    final reachedGoal = goal > 0 && state.summary.totalProfit >= goal;
-    final lockColor = reachedGoal ? Colors.green : Colors.red;
+  Widget _buildCurrentQuincenaCard(
+    VentasState state, {
+    bool compact = false,
+  }) {
+    final accentColor = Theme.of(context).colorScheme.primary;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(compact ? 10 : 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -629,8 +548,10 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
             Text(
               _quincenaLabel(state.from, state.to),
               style: Theme.of(context).textTheme.bodySmall,
+              maxLines: compact ? 2 : null,
+              overflow: compact ? TextOverflow.ellipsis : null,
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: compact ? 8 : 10),
             Row(
               children: [
                 Expanded(
@@ -648,254 +569,41 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _miniMetric(
-                    'Total puntos',
-                    _money(state.summary.totalProfit),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _miniMetric(
-                    'Total beneficio (10%)',
-                    _money(state.summary.totalCommission),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
+            SizedBox(height: compact ? 6 : 8),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? 9 : 10,
+                vertical: compact ? 8 : 9,
+              ),
               decoration: BoxDecoration(
-                color: lockColor.withValues(alpha: 0.10),
+                color: accentColor.withValues(alpha: 0.10),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: lockColor.withValues(alpha: 0.35)),
+                border: Border.all(
+                  color: accentColor.withValues(alpha: 0.24),
+                ),
               ),
               child: Row(
                 children: [
-                  Icon(
-                    reachedGoal ? Icons.lock_open_outlined : Icons.lock_outline,
-                    color: lockColor,
-                  ),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Comisión por ventas (usuario)',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  Text(
-                    reachedGoal
-                        ? _money(state.summary.totalCommission)
-                        : 'BLOQUEADA',
-                    style: TextStyle(
-                      color: lockColor,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              reachedGoal
-                  ? 'Meta alcanzada: beneficios desbloqueados.'
-                  : 'Debes alcanzar la meta mínima en puntos para desbloquear beneficios.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildServiceSalesCard(VentasState state) {
-    final summary = state.serviceSummary;
-    final theme = Theme.of(context);
-    final canSeeTechnicalBenefit =
-        ref.read(authStateProvider).user?.role == 'ADMIN';
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.miscellaneous_services_outlined, size: 18),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'Ventas por servicios finalizados',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-                if (summary.totalOrders > 0)
-                  Text(
-                    '${summary.eligibleOrders}/${summary.totalOrders}',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Cálculo automático desde órdenes finalizadas en ${_quincenaLabel(state.from, state.to)} usando la fecha real de finalización de la orden.',
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _miniMetric(
-                    'Órdenes válidas',
-                    summary.eligibleOrders.toString(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _miniMetric(
-                    'Órdenes omitidas',
-                    summary.skippedOrders.toString(),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _miniMetric(
-                    'Utilidad calculada',
-                    _money(summary.totalProfit),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _miniMetric(
-                    'Gasto fijo aplicado',
-                    _money(summary.totalOperationalExpense),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _miniMetric(
-                    'Beneficio vendedor',
-                    _money(summary.totalSellerCommission),
-                  ),
-                ),
-                if (canSeeTechnicalBenefit) ...[
+                  const Icon(Icons.receipt_long_outlined),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: _miniMetric(
-                      'Beneficio técnico',
-                      _money(summary.totalTechnicianCommission),
+                    child: Text(
+                      'Resumen directo de ventas registradas en el rango activo',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                      maxLines: compact ? 2 : null,
+                      overflow: compact ? TextOverflow.ellipsis : null,
                     ),
                   ),
                 ],
-              ],
+              ),
             ),
-            if (state.serviceSummaryError != null) ...[
-              const SizedBox(height: 10),
+            if (!compact) ...[
+              const SizedBox(height: 6),
               Text(
-                state.serviceSummaryError!,
-                style: TextStyle(color: theme.colorScheme.error),
+                'Vista rapida del rango activo con cantidad de ventas y total vendido.',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
-            ] else if (!summary.hasActivity) ...[
-              const SizedBox(height: 10),
-              Text(
-                'No hay órdenes finalizadas que entren en este cálculo durante la quincena activa.',
-                style: theme.textTheme.bodySmall,
-              ),
-            ] else ...[
-              const SizedBox(height: 10),
-              if (summary.skipped.isNotEmpty)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: Colors.orange.withValues(alpha: 0.24),
-                    ),
-                  ),
-                  child: Text(
-                    '${summary.skipped.length} órdenes fueron omitidas porque una o más líneas no tienen costo trazable desde catálogo.',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ),
-              if (summary.items.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                ...summary.items.take(4).map(
-                  (item) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(10),
-                        color: theme.colorScheme.surfaceContainerHighest,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  item.customerName,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                _money(item.sellerCommissionAmount),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${item.serviceType} · ${item.category} · ${item.finalizedAt == null ? 'Sin fecha' : _date(item.finalizedAt!)}',
-                            style: theme.textTheme.bodySmall,
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Vendedor: ${_money(item.sellerCommissionAmount)} · Técnico: ${_money(item.technicianCommissionAmount)} · Base neta: ${_money(item.profitAfterExpense)}',
-                            style: theme.textTheme.bodySmall,
-                          ),
-                          if ((item.technicianName ?? '').trim().isNotEmpty) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              'Técnico asignado: ${item.technicianName}',
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                if (summary.items.length > 4)
-                  Text(
-                    'Se muestran las 4 órdenes más recientes de ${summary.items.length}.',
-                    style: theme.textTheme.bodySmall,
-                  ),
-              ],
             ],
           ],
         ),
@@ -924,7 +632,11 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
     );
   }
 
-  Widget _buildSalesByDayStats(VentasState state) {
+  Widget _buildSalesByDayStats(
+    VentasState state, {
+    bool compact = false,
+    int maxItems = 6,
+  }) {
     final totalsByDay = <String, double>{};
     for (final sale in state.sales) {
       final date = sale.saleDate ?? DateTime.now();
@@ -938,12 +650,12 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
 
     final entries = totalsByDay.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    final top = entries.take(6).toList();
+    final top = entries.take(maxItems).toList();
     final maxValue = top.isEmpty ? 1.0 : top.first.value;
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(compact ? 10 : 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -964,41 +676,48 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                 style: Theme.of(context).textTheme.bodySmall,
               )
             else
-              ...top.map((entry) {
-                final ratio = (entry.value / maxValue).clamp(0.0, 1.0);
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(
-                    children: [
-                      SizedBox(
-                        width: 48,
-                        child: Text(
-                          entry.key,
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ),
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: LinearProgressIndicator(value: ratio),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        width: 90,
-                        child: Text(
-                          _money(entry.value),
-                          textAlign: TextAlign.right,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: compact
+                      ? MainAxisAlignment.spaceEvenly
+                      : MainAxisAlignment.start,
+                  children: top.map((entry) {
+                    final ratio = (entry.value / maxValue).clamp(0.0, 1.0);
+                    return Padding(
+                      padding: EdgeInsets.symmetric(vertical: compact ? 2 : 4),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: compact ? 42 : 48,
+                            child: Text(
+                              entry.key,
+                              style: const TextStyle(fontSize: 12),
+                            ),
                           ),
-                        ),
+                          Expanded(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: LinearProgressIndicator(value: ratio),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            width: compact ? 82 : 90,
+                            child: Text(
+                              compact ? _moneyCompact(entry.value) : _money(entry.value),
+                              textAlign: TextAlign.right,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                );
-              }),
+                    );
+                  }).toList(growable: false),
+                ),
+              ),
           ],
         ),
       ),
@@ -1253,29 +972,6 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
     }
   }
 
-  void _maybeNotifyGoal(VentasState state, double goal) {
-    final rangeKey =
-        '${state.from.toIso8601String()}_${state.to.toIso8601String()}';
-    if (_lastRangeKey != rangeKey) {
-      _lastRangeKey = rangeKey;
-      _goalNotified = false;
-    }
-
-    if (goal <= 0) return;
-    if (state.summary.totalProfit < goal) return;
-    if (_goalNotified) return;
-
-    _goalNotified = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('🎉 Felicidades, has alcanzado tu meta de ventas'),
-        ),
-      );
-    });
-  }
-
   Future<void> _openPdfPreviewDialog(
     BuildContext context, {
     required String employeeName,
@@ -1406,14 +1102,6 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
           final filteredSold = items.fold<double>(
             0,
             (sum, sale) => sum + sale.totalSold,
-          );
-          final filteredPoints = items.fold<double>(
-            0,
-            (sum, sale) => sum + sale.totalProfit,
-          );
-          final filteredBenefit = items.fold<double>(
-            0,
-            (sum, sale) => sum + sale.commissionAmount,
           );
           final scheme = Theme.of(context).colorScheme;
 
@@ -1550,11 +1238,6 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                             style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
                           Text('Vendido: ${_money(filteredSold)}'),
-                          Text('Puntos: ${_money(filteredPoints)}'),
-                          Text(
-                            'Beneficio 10%: ${_money(filteredBenefit)}',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
                         ],
                       ),
                     ),
@@ -1591,7 +1274,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                   subtitle: Text(
-                                    'Vendido ${_money(sale.totalSold)} · Comisión ${_money(sale.commissionAmount)}',
+                                    'Vendido ${_money(sale.totalSold)}',
                                   ),
                                   trailing: Row(
                                     mainAxisSize: MainAxisSize.min,
@@ -1630,18 +1313,16 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
 class _StatsHeader extends StatelessWidget {
   const _StatsHeader({
     required this.rangeLabel,
+    required this.totalSales,
     required this.totalSold,
-    required this.totalProfit,
-    required this.totalCommission,
     required this.onRegisterSale,
     required this.onOpenHistory,
     required this.onOpenPdf,
   });
 
   final String rangeLabel;
+  final String totalSales;
   final String totalSold;
-  final String totalProfit;
-  final String totalCommission;
   final VoidCallback onRegisterSale;
   final VoidCallback onOpenHistory;
   final VoidCallback onOpenPdf;
@@ -1655,10 +1336,8 @@ class _StatsHeader extends StatelessWidget {
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final stacked = width < 1120;
-        final statsColumns = width >= 1520
-            ? 4
-            : width >= 1240
-            ? 3
+        final statsColumns = width >= 1240
+          ? 3
             : width >= 860
             ? 2
             : 1;
@@ -1692,17 +1371,9 @@ class _StatsHeader extends StatelessWidget {
           SizedBox(
             width: chipWidth,
             child: _StatsHeaderChip(
-              icon: Icons.auto_graph_outlined,
-              label: 'Puntos',
-              value: totalProfit,
-            ),
-          ),
-          SizedBox(
-            width: chipWidth,
-            child: _StatsHeaderChip(
-              icon: Icons.workspace_premium_outlined,
-              label: 'Beneficio',
-              value: totalCommission,
+              icon: Icons.receipt_long_outlined,
+              label: 'Ventas',
+              value: totalSales,
             ),
           ),
         ];
@@ -1908,27 +1579,17 @@ class _StatsHeaderChip extends StatelessWidget {
 
 class _StatsCards extends StatelessWidget {
   const _StatsCards({
-    required this.goal,
-    required this.achieved,
     required this.rangeLabel,
     required this.items,
-    required this.reachedGoal,
-    required this.insightMessage,
-    required this.remainingToGoal,
-    required this.daysLeft,
-    required this.neededPerDay,
+    required this.totalSales,
+    required this.totalSold,
     required this.money,
   });
 
-  final double goal;
-  final double achieved;
   final String rangeLabel;
   final List<_DesktopMetricData> items;
-  final bool reachedGoal;
-  final String insightMessage;
-  final double remainingToGoal;
-  final int daysLeft;
-  final double neededPerDay;
+  final int totalSales;
+  final double totalSold;
   final String Function(double value) money;
 
   @override
@@ -1946,31 +1607,16 @@ class _StatsCards extends StatelessWidget {
           children: [
             SizedBox(
               width: cardWidth,
-              child: _GoalProgressCard(
-                goal: goal,
-                achieved: achieved,
+              child: _RangeOverviewCard(
                 rangeLabel: rangeLabel,
+                totalSales: totalSales,
+                totalSold: totalSold,
+                money: money,
               ),
             ),
             SizedBox(
               width: cardWidth,
               child: _MetricPanel(items: items),
-            ),
-            SizedBox(
-              width: cardWidth,
-              child: _InsightBannerCard(
-                reachedGoal: reachedGoal,
-                message: insightMessage,
-              ),
-            ),
-            SizedBox(
-              width: cardWidth,
-              child: _GapStatusCard(
-                remainingToGoal: remainingToGoal,
-                daysLeft: daysLeft,
-                neededPerDay: neededPerDay,
-                money: money,
-              ),
             ),
           ],
         );
@@ -1979,25 +1625,22 @@ class _StatsCards extends StatelessWidget {
   }
 }
 
-class _GoalProgressCard extends StatelessWidget {
-  const _GoalProgressCard({
-    required this.goal,
-    required this.achieved,
+class _RangeOverviewCard extends StatelessWidget {
+  const _RangeOverviewCard({
     required this.rangeLabel,
+    required this.totalSales,
+    required this.totalSold,
+    required this.money,
   });
 
-  final double goal;
-  final double achieved;
   final String rangeLabel;
+  final int totalSales;
+  final double totalSold;
+  final String Function(double value) money;
 
   @override
   Widget build(BuildContext context) {
-    final progress = goal <= 0 ? 0.0 : (achieved / goal).clamp(0.0, 1.0);
-    final reachedGoal = goal > 0 && achieved >= goal;
-    final accent = reachedGoal
-        ? const Color(0xFF15803D)
-        : const Color(0xFFEA580C);
-    final moneyFormat = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final accent = Theme.of(context).colorScheme.primary;
 
     return Container(
       width: double.infinity,
@@ -2028,7 +1671,7 @@ class _GoalProgressCard extends StatelessWidget {
                   color: accent.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(Icons.track_changes_outlined, color: accent),
+                child: Icon(Icons.insights_outlined, color: accent),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -2037,7 +1680,7 @@ class _GoalProgressCard extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      'Meta quincenal',
+                      'Panorama del periodo',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w800,
                       ),
@@ -2053,16 +1696,6 @@ class _GoalProgressCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 12,
-              color: accent,
-              backgroundColor: accent.withValues(alpha: 0.12),
-            ),
-          ),
-          const SizedBox(height: 10),
           LayoutBuilder(
             builder: (context, constraints) {
               final width = constraints.maxWidth;
@@ -2073,27 +1706,25 @@ class _GoalProgressCard extends StatelessWidget {
                 children: [
                   SizedBox(
                     width: itemWidth,
-                    child: _GoalMiniStat(
-                      label: 'Acumulado',
-                      value: moneyFormat.format(achieved),
+                    child: _InfoMiniStat(
+                      label: 'Total vendido',
+                      value: money(totalSold),
                     ),
                   ),
                   SizedBox(
                     width: itemWidth,
-                    child: _GoalMiniStat(
-                      label: 'Meta',
-                      value: moneyFormat.format(goal),
+                    child: _InfoMiniStat(
+                      label: 'Ventas registradas',
+                      value: totalSales.toString(),
                     ),
                   ),
                 ],
               );
             },
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Text(
-            reachedGoal
-                ? 'Meta alcanzada. La comision ya esta desbloqueada para esta quincena.'
-                : 'Vas en ${(progress * 100).toStringAsFixed(0)}% de tu objetivo actual.',
+            'Este bloque resume los valores clave del rango visible con foco solo en ventas registradas.',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ],
@@ -2102,8 +1733,8 @@ class _GoalProgressCard extends StatelessWidget {
   }
 }
 
-class _GoalMiniStat extends StatelessWidget {
-  const _GoalMiniStat({required this.label, required this.value});
+class _InfoMiniStat extends StatelessWidget {
+  const _InfoMiniStat({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -2237,125 +1868,9 @@ class _DesktopMetricData {
   final IconData icon;
 }
 
-class _InsightBannerCard extends StatelessWidget {
-  const _InsightBannerCard({required this.reachedGoal, required this.message});
-
-  final bool reachedGoal;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = reachedGoal
-        ? const Color(0xFF15803D)
-        : const Color(0xFF1D4ED8);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            accent.withValues(alpha: 0.10),
-            accent.withValues(alpha: 0.04),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: accent.withValues(alpha: 0.25)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            reachedGoal ? Icons.lock_open_outlined : Icons.insights_outlined,
-            color: accent,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  reachedGoal ? 'Estado de beneficios' : 'Siguiente enfoque',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 6),
-                Text(message, style: Theme.of(context).textTheme.bodyMedium),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _GapStatusCard extends StatelessWidget {
-  const _GapStatusCard({
-    required this.remainingToGoal,
-    required this.daysLeft,
-    required this.neededPerDay,
-    required this.money,
-  });
-
-  final double remainingToGoal;
-  final int daysLeft;
-  final double neededPerDay;
-  final String Function(double value) money;
-
-  @override
-  Widget build(BuildContext context) {
-    final reached = remainingToGoal <= 0;
-    final accent = reached ? const Color(0xFF15803D) : const Color(0xFFB45309);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                reached ? Icons.check_circle_outline : Icons.flag_outlined,
-                color: accent,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  reached ? 'Objetivo cubierto' : 'Lo que falta por lograr',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            reached
-                ? 'Ya alcanzaste la meta de la quincena. Todo lo que generes ahora suma por encima del objetivo.'
-                : 'Te faltan ${money(remainingToGoal)} para completar la meta. ${daysLeft <= 0 ? 'El rango actual ya cerró.' : 'Si mantienes un ritmo de ${money(neededPerDay)} por dia, llegas a tiempo.'}',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(height: 1.45),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _SalesSummary extends StatelessWidget {
   const _SalesSummary({
     required this.state,
-    required this.goal,
     required this.dayPoints,
     required this.weekdayStats,
     required this.topProducts,
@@ -2367,7 +1882,6 @@ class _SalesSummary extends StatelessWidget {
   });
 
   final VentasState state;
-  final double goal;
   final List<_SalesDayPoint> dayPoints;
   final List<_SalesWeekdayStat> weekdayStats;
   final List<_TopProductStat> topProducts;
@@ -2380,9 +1894,6 @@ class _SalesSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final progress = goal <= 0
-        ? 0.0
-        : (state.summary.totalProfit / goal).clamp(0.0, 1.0).toDouble();
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -2421,8 +1932,6 @@ class _SalesSummary extends StatelessWidget {
                                 height: 1.35,
                               ),
                         ),
-                        const SizedBox(height: 12),
-                        _SummaryProgressBadge(progress: progress),
                       ],
                     )
                   : Row(
@@ -2453,8 +1962,6 @@ class _SalesSummary extends StatelessWidget {
                             ],
                           ),
                         ),
-                        const SizedBox(width: 16),
-                        _SummaryProgressBadge(progress: progress),
                       ],
                     );
             },
@@ -2497,7 +2004,7 @@ class _SalesSummary extends StatelessWidget {
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 520),
                       child: Text(
-                        'Cuando empieces a registrar ventas, este panel mostrara tendencia, rendimiento y avance hacia la meta.',
+                        'Cuando empieces a registrar ventas, este panel mostrara tendencia, rendimiento y resultados del periodo.',
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
@@ -2528,18 +2035,6 @@ class _SalesSummary extends StatelessWidget {
                           value: money(state.summary.totalSold),
                           subtitle: 'facturacion acumulada',
                           icon: Icons.payments_outlined,
-                        ),
-                        _SalesSummaryMetric(
-                          title: 'Puntos generados',
-                          value: money(state.summary.totalProfit),
-                          subtitle: 'avance que cuenta para tu meta',
-                          icon: Icons.auto_graph_outlined,
-                        ),
-                        _SalesSummaryMetric(
-                          title: 'Beneficio estimado',
-                          value: money(state.summary.totalCommission),
-                          subtitle: 'comision proyectada del periodo',
-                          icon: Icons.workspace_premium_outlined,
                         ),
                       ],
                     ),
@@ -2600,39 +2095,6 @@ class _SalesSummary extends StatelessWidget {
               },
             ),
         ],
-      ),
-    );
-  }
-}
-
-class _SummaryProgressBadge extends StatelessWidget {
-  const _SummaryProgressBadge({required this.progress});
-
-  final double progress;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            scheme.primary.withValues(alpha: 0.16),
-            scheme.primary.withValues(alpha: 0.08),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: scheme.primary.withValues(alpha: 0.16)),
-      ),
-      child: Text(
-        '${(progress * 100).toStringAsFixed(0)}% de meta',
-        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-          fontWeight: FontWeight.w800,
-          color: scheme.primary,
-        ),
       ),
     );
   }

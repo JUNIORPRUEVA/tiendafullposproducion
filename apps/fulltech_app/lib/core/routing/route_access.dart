@@ -25,6 +25,7 @@ class RouteAccess {
       case Routes.registrarVenta:
         return AppPermission.viewSales;
       case Routes.serviceOrders:
+      case Routes.serviceOrderCommissions:
       case Routes.serviceOrderCreate:
         return AppPermission.viewOperations;
       case Routes.mediaGallery:

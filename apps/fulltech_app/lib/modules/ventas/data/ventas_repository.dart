@@ -96,30 +96,6 @@ class VentasRepository {
     }
   }
 
-  Future<ServiceSalesSummaryModel> serviceSalesSummary({
-    required DateTime from,
-    required DateTime to,
-  }) async {
-    try {
-      final res = await _dio.get(
-        ApiRoutes.serviceOrderSalesSummary,
-        queryParameters: {'from': _dateOnly(from), 'to': _dateOnly(to)},
-        options: Options(extra: const {'skipLoader': true}),
-      );
-      return ServiceSalesSummaryModel.fromJson(
-        (res.data as Map).cast<String, dynamic>(),
-      );
-    } on DioException catch (e) {
-      throw ApiException(
-        _extractMessage(
-          e.response?.data,
-          'No se pudo cargar el resumen de servicios',
-        ),
-        e.response?.statusCode,
-      );
-    }
-  }
-
   Future<void> deleteSale(String id) async {
     try {
       await _dio.delete(ApiRoutes.saleDetail(id));

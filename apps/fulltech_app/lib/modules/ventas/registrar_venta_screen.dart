@@ -350,6 +350,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
     final isWide = screenWidth >= 1024;
     final isCompact = screenWidth < 900;
     final showInlineTotals = screenWidth >= 700 && screenHeight >= 780;
+    final maxContentWidth = isWide ? 1180.0 : double.infinity;
 
     return Scaffold(
       appBar: CustomAppBar(
@@ -379,7 +380,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
                   ],
                 ),
                 SizedBox(
-                  width: 320,
+                  width: 280,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: TextField(
@@ -494,38 +495,52 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
               ),
             ),
           Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                const dividerHeight = 1.0;
-                final available = constraints.maxHeight;
-                final contentHeight = (available - dividerHeight).clamp(
-                  160.0,
-                  available,
-                );
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxContentWidth),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    const dividerHeight = 1.0;
+                    final available = constraints.maxHeight;
+                    final contentHeight = (available - dividerHeight).clamp(
+                      160.0,
+                      available,
+                    );
 
-                final panelHeight = contentHeight * 0.50;
-                final productHeight = contentHeight - panelHeight;
+                    final panelRatio = isWide ? 0.42 : 0.50;
+                    final panelHeight = contentHeight * panelRatio;
+                    final productHeight = contentHeight - panelHeight;
 
-                return Column(
-                  children: [
-                    SizedBox(
-                      height: productHeight,
-                      child: _buildProductGrid(isCompact: isCompact),
-                    ),
-                    Container(
-                      height: dividerHeight,
-                      color: Theme.of(context).dividerColor,
-                    ),
-                    SizedBox(
-                      height: panelHeight,
-                      child: _buildCartPanel(
-                        isCompact: isCompact,
-                        showInlineTotals: showInlineTotals,
-                      ),
-                    ),
-                  ],
-                );
-              },
+                    return Column(
+                      children: [
+                        SizedBox(
+                          height: productHeight,
+                          child: _buildProductGrid(isCompact: isCompact),
+                        ),
+                        Container(
+                          height: dividerHeight,
+                          color: Theme.of(context).dividerColor,
+                        ),
+                        SizedBox(
+                          height: panelHeight,
+                          child: Align(
+                            alignment: Alignment.topCenter,
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth: isWide ? 720 : double.infinity,
+                              ),
+                              child: _buildCartPanel(
+                                isCompact: isCompact,
+                                showInlineTotals: showInlineTotals,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
             ),
           ),
         ],
@@ -695,8 +710,9 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
     required bool isCompact,
     required bool showInlineTotals,
   }) {
+    final isWide = MediaQuery.of(context).size.width >= 1024;
     return Padding(
-      padding: EdgeInsets.all(isCompact ? 10 : 12),
+      padding: EdgeInsets.all(isCompact ? 10 : (isWide ? 8 : 12)),
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surface,
@@ -707,10 +723,10 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
         ),
         child: Padding(
           padding: EdgeInsets.fromLTRB(
-            isCompact ? 8 : 10,
-            isCompact ? 8 : 10,
-            isCompact ? 8 : 10,
-            isCompact ? 6 : 8,
+            isCompact ? 8 : (isWide ? 10 : 10),
+            isCompact ? 8 : (isWide ? 10 : 10),
+            isCompact ? 8 : (isWide ? 10 : 10),
+            isCompact ? 6 : (isWide ? 6 : 8),
           ),
           child: LayoutBuilder(
             builder: (context, constraints) {
@@ -877,7 +893,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
                                   ),
                                   label: Text(
                                     _selectedClient == null
-                                        ? 'Cliente'
+                                          ? 'Seleccionar cliente'
                                         : _selectedClient!.nombre,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
@@ -900,7 +916,7 @@ class _RegistrarVentaScreenState extends ConsumerState<RegistrarVentaScreen>
                                   ),
                                   label: Text(
                                     _noteCtrl.text.trim().isEmpty
-                                        ? 'Nota'
+                                          ? 'Agregar nota'
                                         : 'Editar nota',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
