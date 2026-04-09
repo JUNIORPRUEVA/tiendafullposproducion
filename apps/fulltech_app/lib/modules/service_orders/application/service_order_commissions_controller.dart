@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_provider.dart';
 import '../commissions_models.dart';
 import '../data/service_order_commissions_api.dart';
 
@@ -66,21 +67,41 @@ class ServiceOrderCommissionsState {
 }
 
 final serviceOrderCommissionsControllerProvider =
-    StateNotifierProvider<
+    StateNotifierProvider.autoDispose.family<
       ServiceOrderCommissionsController,
-      ServiceOrderCommissionsState
-    >((ref) {
-      return ServiceOrderCommissionsController(ref);
+      ServiceOrderCommissionsState,
+      String?
+    >((ref, userId) {
+      return ServiceOrderCommissionsController(ref, userId);
     });
 
 class ServiceOrderCommissionsController
     extends StateNotifier<ServiceOrderCommissionsState> {
-  ServiceOrderCommissionsController(this.ref)
+  ServiceOrderCommissionsController(this.ref, this.userId)
     : super(const ServiceOrderCommissionsState()) {
+    ref.listen<AuthState>(authStateProvider, (previous, next) {
+      final previousUserId = previous?.user?.id;
+      final nextUserId = next.user?.id;
+
+      if (previousUserId == nextUserId) {
+        return;
+      }
+
+      state = const ServiceOrderCommissionsState();
+      if (next.isAuthenticated && nextUserId != null) {
+        unawaited(load());
+      }
+    });
+
+    if (userId == null) {
+      return;
+    }
+
     unawaited(load());
   }
 
   final Ref ref;
+  final String? userId;
   Future<void>? _inFlightLoad;
 
   Future<void> load({
@@ -88,6 +109,11 @@ class ServiceOrderCommissionsController
     bool refresh = false,
     bool loadMore = false,
   }) async {
+    if (userId == null) {
+      state = const ServiceOrderCommissionsState();
+      return;
+    }
+
     if (_inFlightLoad != null) {
       return _inFlightLoad!;
     }

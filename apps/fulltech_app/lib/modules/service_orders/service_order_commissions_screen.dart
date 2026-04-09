@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import 'application/service_order_commissions_controller.dart';
 import 'commissions_models.dart';
@@ -14,11 +16,14 @@ class ServiceOrderCommissionsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authStateProvider);
     final currentUser = auth.user;
-    final state = ref.watch(serviceOrderCommissionsControllerProvider);
+    final state = ref.watch(
+      serviceOrderCommissionsControllerProvider(currentUser?.id),
+    );
     final controller = ref.read(
-      serviceOrderCommissionsControllerProvider.notifier,
+      serviceOrderCommissionsControllerProvider(currentUser?.id).notifier,
     );
     final theme = Theme.of(context);
+    final isMobile = MediaQuery.sizeOf(context).width < 760;
     final currency = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ');
     final dateFormat = DateFormat('dd/MM/yyyy', 'es_DO');
 
@@ -27,6 +32,16 @@ class ServiceOrderCommissionsScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Comisiones'),
         actions: [
+          if (isMobile)
+            IconButton(
+              tooltip: 'Filtros',
+              onPressed: () => _showMobileFiltersSheet(
+                context,
+                selectedPeriod: state.selectedPeriod,
+                onSelected: controller.changePeriod,
+              ),
+              icon: const Icon(Icons.tune_rounded),
+            ),
           IconButton(
             tooltip: 'Actualizar',
             onPressed: state.refreshing ? null : () => controller.refresh(),
@@ -46,89 +61,191 @@ class ServiceOrderCommissionsScreen extends ConsumerWidget {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
             children: [
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      theme.colorScheme.primaryContainer,
-                      theme.colorScheme.surface,
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+              if (!isMobile)
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        theme.colorScheme.primaryContainer,
+                        theme.colorScheme.surface,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: theme.colorScheme.outlineVariant),
                   ),
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: theme.colorScheme.outlineVariant),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Resumen de comisiones',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Resumen de comisiones',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      state.range?.label.isNotEmpty == true
-                          ? state.range!.label
-                          : 'Cargando periodo...',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                      const SizedBox(height: 6),
+                      Text(
+                        state.range?.label.isNotEmpty == true
+                            ? state.range!.label
+                            : 'Cargando periodo...',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: ServiceOrderCommissionPeriod.values
-                          .map(
-                            (period) => ChoiceChip(
-                              label: Text(period.label),
-                              selected: state.selectedPeriod == period,
-                              onSelected: (_) =>
-                                  controller.changePeriod(period),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: ServiceOrderCommissionPeriod.values
+                            .map(
+                              (period) => ChoiceChip(
+                                label: Text(period.label),
+                                selected: state.selectedPeriod == period,
+                                onSelected: (_) =>
+                                    controller.changePeriod(period),
+                              ),
+                            )
+                            .toList(growable: false),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                _MobilePeriodBanner(rangeLabel: state.range?.label),
+              const SizedBox(height: 16),
+              if (isMobile)
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final spacing = 8.0;
+                    final cardWidth =
+                        (constraints.maxWidth - (spacing * 2)) / 3;
+                    return Row(
+                      children: [
+                        _SummaryCard(
+                          title: 'Servicios',
+                          value: '${state.summary.totalServices}',
+                          subtitle: 'Finalizados',
+                          icon: Icons.assignment_turned_in_outlined,
+                          width: cardWidth,
+                          compact: true,
+                          onTap: () => _showSummaryCardDialog(
+                            context,
+                            title: 'Servicios finalizados',
+                            value: '${state.summary.totalServices}',
+                            subtitle: 'Órdenes cerradas en el período activo.',
+                            icon: Icons.assignment_turned_in_outlined,
+                          ),
+                        ),
+                        SizedBox(width: spacing),
+                        _SummaryCard(
+                          title: 'Vendido',
+                          value: currency.format(state.summary.totalSold),
+                          subtitle: 'Periodo',
+                          icon: Icons.payments_outlined,
+                          width: cardWidth,
+                          compact: true,
+                          onTap: () => _showSummaryCardDialog(
+                            context,
+                            title: 'Monto total vendido',
+                            value: currency.format(state.summary.totalSold),
+                            subtitle:
+                                'Suma total vendida dentro de la quincena seleccionada.',
+                            icon: Icons.payments_outlined,
+                          ),
+                        ),
+                        SizedBox(width: spacing),
+                        _SummaryCard(
+                          title: 'Comisión',
+                          value: currency.format(
+                            state.summary.visibleCommissionTotal,
+                          ),
+                          subtitle: 'Visible',
+                          icon: Icons.account_balance_wallet_outlined,
+                          width: cardWidth,
+                          compact: true,
+                          onTap: () => _showSummaryCardDialog(
+                            context,
+                            title: 'Comisión estimada',
+                            value: currency.format(
+                              state.summary.visibleCommissionTotal,
                             ),
-                          )
-                          .toList(growable: false),
+                            subtitle:
+                                'Total de comisión visible según el rol actual.',
+                            icon: Icons.account_balance_wallet_outlined,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                )
+              else
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    _SummaryCard(
+                      title: 'Total servicios',
+                      value: '${state.summary.totalServices}',
+                      subtitle: 'Órdenes finalizadas en el periodo',
+                      icon: Icons.assignment_turned_in_outlined,
+                      onTap: () => _showSummaryCardDialog(
+                        context,
+                        title: 'Servicios finalizados',
+                        value: '${state.summary.totalServices}',
+                        subtitle: 'Órdenes cerradas en el período activo.',
+                        icon: Icons.assignment_turned_in_outlined,
+                      ),
+                    ),
+                    _SummaryCard(
+                      title: 'Monto total vendido',
+                      value: currency.format(state.summary.totalSold),
+                      subtitle: 'Suma de cotizaciones asociadas',
+                      icon: Icons.payments_outlined,
+                      onTap: () => _showSummaryCardDialog(
+                        context,
+                        title: 'Monto total vendido',
+                        value: currency.format(state.summary.totalSold),
+                        subtitle:
+                            'Suma total vendida dentro de la quincena seleccionada.',
+                        icon: Icons.payments_outlined,
+                      ),
+                    ),
+                    _SummaryCard(
+                      title: 'Comisión estimada',
+                      value: currency.format(
+                        state.summary.visibleCommissionTotal,
+                      ),
+                      subtitle: 'Según tu visibilidad actual',
+                      icon: Icons.account_balance_wallet_outlined,
+                      onTap: () => _showSummaryCardDialog(
+                        context,
+                        title: 'Comisión estimada',
+                        value: currency.format(
+                          state.summary.visibleCommissionTotal,
+                        ),
+                        subtitle:
+                            'Total de comisión visible según el rol actual.',
+                        icon: Icons.account_balance_wallet_outlined,
+                      ),
+                    ),
+                    _SummaryCard(
+                      title: 'Promedio por servicio',
+                      value: currency.format(state.summary.averageSold),
+                      subtitle: 'Promedio de venta por orden',
+                      icon: Icons.analytics_outlined,
+                      onTap: () => _showSummaryCardDialog(
+                        context,
+                        title: 'Promedio por servicio',
+                        value: currency.format(state.summary.averageSold),
+                        subtitle:
+                            'Promedio vendido por cada orden del período.',
+                        icon: Icons.analytics_outlined,
+                      ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  _SummaryCard(
-                    title: 'Total servicios',
-                    value: '${state.summary.totalServices}',
-                    subtitle: 'Órdenes finalizadas en el periodo',
-                    icon: Icons.assignment_turned_in_outlined,
-                  ),
-                  _SummaryCard(
-                    title: 'Monto total vendido',
-                    value: currency.format(state.summary.totalSold),
-                    subtitle: 'Suma de cotizaciones asociadas',
-                    icon: Icons.payments_outlined,
-                  ),
-                  _SummaryCard(
-                    title: 'Comisión estimada',
-                    value: currency.format(
-                      state.summary.visibleCommissionTotal,
-                    ),
-                    subtitle: 'Según tu visibilidad actual',
-                    icon: Icons.account_balance_wallet_outlined,
-                  ),
-                  _SummaryCard(
-                    title: 'Promedio por servicio',
-                    value: currency.format(state.summary.averageSold),
-                    subtitle: 'Promedio de venta por orden',
-                    icon: Icons.analytics_outlined,
-                  ),
-                ],
-              ),
               const SizedBox(height: 20),
               Row(
                 children: [
@@ -172,11 +289,12 @@ class ServiceOrderCommissionsScreen extends ConsumerWidget {
               else ...[
                 for (final item in state.items)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.only(bottom: 8),
                     child: _CommissionOrderCard(
                       item: item,
                       currency: currency,
                       dateFormat: dateFormat,
+                      compact: isMobile,
                     ),
                   ),
                 if (state.pagination.hasMore)
@@ -209,59 +327,93 @@ class _SummaryCard extends StatelessWidget {
     required this.value,
     required this.subtitle,
     required this.icon,
+    this.onTap,
+    this.width,
+    this.compact = false,
   });
 
   final String title;
   final String value;
   final String subtitle;
   final IconData icon;
+  final VoidCallback? onTap;
+  final double? width;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final width = MediaQuery.sizeOf(context).width;
-    final cardWidth = width >= 1200
-        ? (width - 72) / 4
-        : width >= 800
-        ? 260.0
-        : double.infinity;
+    final cardWidth =
+        this.width ??
+        (width >= 1200
+            ? (width - 72) / 4
+            : width >= 800
+            ? 260.0
+            : double.infinity);
 
     return SizedBox(
       width: cardWidth,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: theme.colorScheme.outlineVariant),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: theme.colorScheme.primary),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w700,
-              ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(compact ? 16 : 20),
+          child: Container(
+            padding: EdgeInsets.all(compact ? 10 : 16),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(compact ? 16 : 20),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
             ),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w900,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  color: theme.colorScheme.primary,
+                  size: compact ? 16 : 24,
+                ),
+                SizedBox(height: compact ? 6 : 12),
+                Text(
+                  title,
+                  style:
+                      (compact
+                              ? theme.textTheme.labelSmall
+                              : theme.textTheme.labelLarge)
+                          ?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
+                          ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                SizedBox(height: compact ? 4 : 8),
+                Text(
+                  value,
+                  style:
+                      (compact
+                              ? theme.textTheme.titleSmall
+                              : theme.textTheme.headlineSmall)
+                          ?.copyWith(fontWeight: FontWeight.w900),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                SizedBox(height: compact ? 2 : 6),
+                Text(
+                  subtitle,
+                  style:
+                      (compact
+                              ? theme.textTheme.labelSmall
+                              : theme.textTheme.bodySmall)
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                  maxLines: compact ? 1 : 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
-            const SizedBox(height: 6),
-            Text(
-              subtitle,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -273,124 +425,169 @@ class _CommissionOrderCard extends StatelessWidget {
     required this.item,
     required this.currency,
     required this.dateFormat,
+    required this.compact,
   });
 
   final ServiceOrderCommissionItem item;
   final NumberFormat currency;
   final DateFormat dateFormat;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        onTap: () => context.go(Routes.serviceOrderById(item.id)),
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 12 : 16,
+            vertical: compact ? 12 : 14,
+          ),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+          ),
+          child: Column(
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
                       item.clientName.isEmpty
                           ? 'Cliente sin nombre'
                           : item.clientName,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          (compact
+                                  ? theme.textTheme.titleSmall
+                                  : theme.textTheme.titleMedium)
+                              ?.copyWith(fontWeight: FontWeight.w800),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
+                  ),
+                  const SizedBox(width: 8),
+                  _StatusBadge(compact: compact),
+                  const SizedBox(width: 6),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 4,
+                    child: Text(
                       item.serviceType.isEmpty ? 'Servicio' : item.serviceType,
-                      style: theme.textTheme.bodyMedium?.copyWith(
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE9F8EF),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: const Text(
-                  'Finalizada',
-                  style: TextStyle(
-                    color: Color(0xFF197A3E),
-                    fontWeight: FontWeight.w800,
                   ),
-                ),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      item.finalizedAt == null
+                          ? 'Sin fecha'
+                          : dateFormat.format(item.finalizedAt!.toLocal()),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 4,
+                    child: Text(
+                      currency.format(item.totalAmount),
+                      textAlign: TextAlign.right,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 18,
-            runSpacing: 10,
-            children: [
-              _MetaItem(
-                label: 'Fecha',
-                value: item.finalizedAt == null
-                    ? 'No disponible'
-                    : dateFormat.format(item.finalizedAt!.toLocal()),
-              ),
-              _MetaItem(
-                label: 'Monto',
-                value: currency.format(item.totalAmount),
-              ),
-              _MetaItem(
-                label: 'Comisión estimada',
-                value: currency.format(item.visibleCommissionAmount),
-              ),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
-class _MetaItem extends StatelessWidget {
-  const _MetaItem({required this.label, required this.value});
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.compact});
 
-  final String label;
-  final String value;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 8 : 10,
+        vertical: compact ? 4 : 6,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE9F8EF),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        'Finalizada',
+        style: TextStyle(
+          color: const Color(0xFF197A3E),
+          fontWeight: FontWeight.w800,
+          fontSize: compact ? 11 : 12,
+        ),
+      ),
+    );
+  }
+}
+
+class _MobilePeriodBanner extends StatelessWidget {
+  const _MobilePeriodBanner({required this.rangeLabel});
+
+  final String? rangeLabel;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: theme.textTheme.labelMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-            fontWeight: FontWeight.w700,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.date_range_rounded, color: theme.colorScheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              rangeLabel?.trim().isNotEmpty == true
+                  ? rangeLabel!
+                  : 'Cargando periodo...',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: theme.textTheme.bodyLarge?.copyWith(
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -450,4 +647,126 @@ class _StateMessageCard extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<void> _showMobileFiltersSheet(
+  BuildContext context, {
+  required ServiceOrderCommissionPeriod selectedPeriod,
+  required Future<void> Function(ServiceOrderCommissionPeriod period)
+  onSelected,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      final theme = Theme.of(sheetContext);
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Filtros de comisiones',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Selecciona la quincena que quieres consultar.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              for (final period in ServiceOrderCommissionPeriod.values)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    selectedPeriod == period
+                        ? Icons.radio_button_checked_rounded
+                        : Icons.radio_button_off_rounded,
+                  ),
+                  title: Text(period.label),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    await onSelected(period);
+                  },
+                ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+Future<void> _showSummaryCardDialog(
+  BuildContext context, {
+  required String title,
+  required String value,
+  required String subtitle,
+  required IconData icon,
+}) {
+  final theme = Theme.of(context);
+  return showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 68,
+                height: 68,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                alignment: Alignment.center,
+                child: Icon(icon, size: 34, color: theme.colorScheme.primary),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                value,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      );
+    },
+  );
 }

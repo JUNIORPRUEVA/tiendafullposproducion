@@ -385,6 +385,13 @@ export class PayrollController {
       customer_name: item.serviceOrder?.client?.nombre ?? null,
       seller_user_id: item.serviceOrder?.createdById ?? null,
       assigned_to_user_id: item.serviceOrder?.assignedToId ?? null,
+      recipient_user_id: item.employee?.userId ?? item.employeeId,
+      recipient_source:
+        (item.employee?.userId ?? item.employeeId) === item.serviceOrder?.assignedToId
+          ? 'assigned_technician'
+          : (item.employee?.userId ?? item.employeeId) === item.serviceOrder?.createdById
+            ? 'order_creator'
+            : 'payroll_employee',
     };
   }
 }

@@ -73,6 +73,13 @@ type ServiceSalesOrderWithRelations = Prisma.ServiceOrderGetPayload<{
         email: true;
       };
     };
+    createdBy: {
+      select: {
+        id: true;
+        nombreCompleto: true;
+        role: true;
+      };
+    };
     quotation: {
       include: {
         items: {
@@ -110,6 +117,7 @@ type ServiceCommissionOrder = Prisma.ServiceOrderGetPayload<{
       select: {
         id: true;
         nombreCompleto: true;
+        role: true;
       };
     };
   };
@@ -211,6 +219,13 @@ export class ServiceOrdersService {
             email: true,
           },
         },
+        createdBy: {
+          select: {
+            id: true,
+            nombreCompleto: true,
+            role: true,
+          },
+        },
         quotation: {
           include: {
             items: {
@@ -304,6 +319,7 @@ export class ServiceOrdersService {
             select: {
               id: true,
               nombreCompleto: true,
+              role: true,
             },
           },
         },
@@ -337,6 +353,7 @@ export class ServiceOrdersService {
             select: {
               id: true,
               nombreCompleto: true,
+              role: true,
             },
           },
         },
@@ -449,7 +466,7 @@ export class ServiceOrdersService {
         },
       });
       if (nextStatus === 'finalizado') {
-        await this.queueTechnicalCommissionForPayroll(updated.id, user.id);
+        await this.queueServiceCommissionForPayroll(updated.id, user.id);
       }
       const mapped = this.mapOrder(updated);
       await this.invalidateCachesForOrder(updated.id);
@@ -686,8 +703,31 @@ export class ServiceOrdersService {
       case Role.TECNICO:
         return {
           OR: [
-            { createdById: user.id },
-            { assignedToId: user.id },
+            {
+              assignedToId: user.id,
+              createdBy: {
+                is: {
+                  role: Role.TECNICO,
+                },
+              },
+            },
+            {
+              createdById: user.id,
+              OR: [
+                {
+                  createdBy: {
+                    is: {
+                      role: {
+                        not: Role.TECNICO,
+                      },
+                    },
+                  },
+                },
+                {
+                  assignedToId: null,
+                },
+              ],
+            },
           ],
         };
       default:
@@ -748,32 +788,65 @@ export class ServiceOrdersService {
       totalAmount: commission.totalAmount,
       sellerCommissionAmount: commission.sellerCommissionAmount,
       technicianCommissionAmount: commission.technicianCommissionAmount,
+      commissionRecipientUserId: commission.recipientUserId,
+      commissionRecipientSource: commission.recipientSource,
       visibleCommissionAmount: this.resolveVisibleCommissionTotal(
         role,
         commission.sellerCommissionAmount,
         commission.technicianCommissionAmount,
       ),
-      totalCommissionAmount:
-          commission.sellerCommissionAmount + commission.technicianCommissionAmount,
+      totalCommissionAmount: commission.totalCommissionAmount,
     };
   }
 
   private computeCommissionAmounts(order: ServiceCommissionOrder) {
     const totalAmount = this.toNumber(order.quotation.total);
     const totalProfit = this.toNumber(order.quotation.totalProfit);
-    const operationalExpenseRate =
-      order.serviceType === PrismaServiceOrderType.INSTALACION ? 0.3 : 0.1;
+    const { recipientSource, recipientUserId } = this.resolveCommissionRecipient({
+      createdById: order.createdById,
+      assignedToId: order.assignedToId,
+      createdByRole: order.createdBy.role,
+    });
+    const operationalExpenseRate = 0.2;
     const operationalExpenseAmount = totalProfit > 0 ? totalProfit * operationalExpenseRate : 0;
     const profitAfterExpense = Math.max(0, totalProfit - operationalExpenseAmount);
-    const sellerCommissionAmount = profitAfterExpense > 0 ? profitAfterExpense * 0.1 : 0;
-    const technicianCommissionAmount = profitAfterExpense > 0 ? profitAfterExpense * 0.1 : 0;
+    const totalCommissionAmount = profitAfterExpense;
+    const sellerCommissionAmount = recipientSource === 'creator' ? totalCommissionAmount : 0;
+    const technicianCommissionAmount = recipientSource === 'assigned_technician'
+      ? totalCommissionAmount
+      : 0;
 
     return {
       totalAmount,
       totalProfit,
       profitAfterExpense,
+      operationalExpenseRate,
+      operationalExpenseAmount,
+      recipientUserId,
+      recipientSource,
       sellerCommissionAmount,
       technicianCommissionAmount,
+      totalCommissionAmount,
+    };
+  }
+
+  private resolveCommissionRecipient(params: {
+    createdById: string;
+    assignedToId: string | null;
+    createdByRole: Role;
+  }) {
+    const assignedToId = params.assignedToId?.trim() ?? '';
+
+    if (params.createdByRole === Role.TECNICO && assignedToId.length > 0) {
+      return {
+        recipientUserId: assignedToId,
+        recipientSource: 'assigned_technician' as const,
+      };
+    }
+
+    return {
+      recipientUserId: params.createdById,
+      recipientSource: 'creator' as const,
     };
   }
 
@@ -1027,12 +1100,19 @@ export class ServiceOrdersService {
     const totalQuoted = this.toNumber(quotation.total);
     const totalCost = this.toNumber(quotation.totalCost);
     const totalProfit = this.toNumber(quotation.totalProfit);
-    const operationalExpenseRate =
-      order.serviceType === PrismaServiceOrderType.INSTALACION ? 0.3 : 0.1;
+    const { recipientUserId, recipientSource } = this.resolveCommissionRecipient({
+      createdById: order.createdById,
+      assignedToId: order.assignedToId,
+      createdByRole: order.createdBy.role,
+    });
+    const operationalExpenseRate = 0.2;
     const operationalExpenseAmount = totalProfit > 0 ? totalProfit * operationalExpenseRate : 0;
     const profitAfterExpense = Math.max(0, totalProfit - operationalExpenseAmount);
-    const sellerCommissionAmount = profitAfterExpense > 0 ? profitAfterExpense * 0.1 : 0;
-    const technicianCommissionAmount = profitAfterExpense > 0 ? profitAfterExpense * 0.1 : 0;
+    const totalCommissionAmount = profitAfterExpense;
+    const sellerCommissionAmount = recipientSource === 'creator' ? totalCommissionAmount : 0;
+    const technicianCommissionAmount = recipientSource === 'assigned_technician'
+      ? totalCommissionAmount
+      : 0;
 
     return {
       orderId: order.id,
@@ -1054,10 +1134,13 @@ export class ServiceOrdersService {
       operationalExpenseRate,
       operationalExpenseAmount,
       profitAfterExpense,
-      sellerCommissionRate: 0.1,
+      commissionRecipientUserId: recipientUserId,
+      commissionRecipientSource: recipientSource,
+      sellerCommissionRate: recipientSource === 'creator' ? 0.8 : 0,
       sellerCommissionAmount,
-      technicianCommissionRate: 0.1,
+      technicianCommissionRate: recipientSource === 'assigned_technician' ? 0.8 : 0,
       technicianCommissionAmount,
+      totalCommissionAmount,
     };
   }
 
@@ -1085,7 +1168,7 @@ export class ServiceOrdersService {
     };
   }
 
-  private async queueTechnicalCommissionForPayroll(
+  private async queueServiceCommissionForPayroll(
     serviceOrderId: string,
     finalizedByUserId?: string,
   ) {
@@ -1098,6 +1181,13 @@ export class ServiceOrdersService {
             id: true,
             nombreCompleto: true,
             email: true,
+          },
+        },
+        createdBy: {
+          select: {
+            id: true,
+            nombreCompleto: true,
+            role: true,
           },
         },
         quotation: {
@@ -1114,11 +1204,14 @@ export class ServiceOrdersService {
       return;
     }
 
-    if (order.serviceType !== PrismaServiceOrderType.INSTALACION) {
+    if (
+      order.serviceType !== PrismaServiceOrderType.INSTALACION &&
+      order.serviceType !== PrismaServiceOrderType.MANTENIMIENTO
+    ) {
       return;
     }
 
-    if (!order.assignedToId || !order.finalizedAt) {
+    if (!order.finalizedAt) {
       return;
     }
 
@@ -1127,24 +1220,35 @@ export class ServiceOrdersService {
       return;
     }
 
+    const recipientUserId = evaluated.commissionRecipientUserId?.trim();
+    if (!recipientUserId) {
+      return;
+    }
+
     const ownerId = await this.payroll.resolveCompanyOwnerId(order.createdById);
     const concept = [
-      'Comisión técnica por instalación',
+      evaluated.commissionRecipientSource === 'assigned_technician'
+        ? 'Comisión de servicio para técnico instalador'
+        : 'Comisión de servicio para creador de la orden',
       order.client.nombre.trim(),
       `OS ${order.id.slice(0, 8).toUpperCase()}`,
     ].join(' · ');
 
-    await this.payroll.queueTechnicalServiceCommissionRequest({
+    await this.payroll.queueServiceCommissionRequest({
       ownerId,
       serviceOrderId: order.id,
       quotationId: order.quotationId,
-      technicianUserId: order.assignedToId,
-      createdByUserId: finalizedByUserId ?? order.createdById,
+      recipientUserId,
+      technicianUserId: order.assignedToId ?? recipientUserId,
+      createdByUserId: order.createdById,
       serviceType: order.serviceType,
       finalizedAt: order.finalizedAt,
       profitAfterExpense: this.toNumber(evaluated.profitAfterExpense),
-      commissionRate: this.toNumber(evaluated.technicianCommissionRate),
-      commissionAmount: this.toNumber(evaluated.technicianCommissionAmount),
+      commissionRate:
+        evaluated.commissionRecipientSource === 'assigned_technician'
+          ? this.toNumber(evaluated.technicianCommissionRate)
+          : this.toNumber(evaluated.sellerCommissionRate),
+      commissionAmount: this.toNumber(evaluated.totalCommissionAmount),
       concept,
     });
   }

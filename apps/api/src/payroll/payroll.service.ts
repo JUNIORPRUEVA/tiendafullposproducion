@@ -296,11 +296,12 @@ export class PayrollService {
     });
   }
 
-  async queueTechnicalServiceCommissionRequest(params: {
+  async queueServiceCommissionRequest(params: {
     ownerId: string;
     serviceOrderId: string;
     quotationId?: string | null;
-    technicianUserId: string;
+    recipientUserId: string;
+    technicianUserId?: string | null;
     createdByUserId?: string | null;
     serviceType: ServiceOrderType;
     finalizedAt: Date;
@@ -309,14 +310,13 @@ export class PayrollService {
     commissionAmount: number;
     concept: string;
   }) {
-    const technicianUserId = params.technicianUserId.trim();
-    if (!technicianUserId) {
+    const recipientUserId = params.recipientUserId.trim();
+    if (!recipientUserId) {
       return null;
     }
 
-    if (params.serviceType !== ServiceOrderType.INSTALACION) {
-      return null;
-    }
+    const technicianUserId =
+      params.technicianUserId?.trim() || recipientUserId;
 
     const roundedAmount = this.round2(params.commissionAmount);
     if (roundedAmount <= 0) {
@@ -327,7 +327,7 @@ export class PayrollService {
       const employee = await this.ensurePayrollEmployeeLinkedToUser(
         tx,
         params.ownerId,
-        technicianUserId,
+        recipientUserId,
       );
 
       const existing = await tx.payrollServiceCommissionRequest.findUnique({
@@ -451,7 +451,7 @@ export class PayrollService {
       });
 
       if (!request) {
-        throw new NotFoundException('Comisión técnica pendiente no encontrada');
+        throw new NotFoundException('Comisión de servicio pendiente no encontrada');
       }
 
       if (request.status === PayrollServiceCommissionStatus.APPROVED) {
@@ -459,7 +459,7 @@ export class PayrollService {
       }
 
       if (request.status !== PayrollServiceCommissionStatus.PENDING) {
-        throw new BadRequestException('Solo se pueden aprobar comisiones técnicas pendientes');
+        throw new BadRequestException('Solo se pueden aprobar comisiones de servicio pendientes');
       }
 
       const entry = await tx.payrollEntry.create({
@@ -516,11 +516,11 @@ export class PayrollService {
     });
 
     if (!existing) {
-      throw new NotFoundException('Comisión técnica pendiente no encontrada');
+      throw new NotFoundException('Comisión de servicio pendiente no encontrada');
     }
 
     if (existing.status !== PayrollServiceCommissionStatus.PENDING) {
-      throw new BadRequestException('Solo se pueden rechazar comisiones técnicas pendientes');
+      throw new BadRequestException('Solo se pueden rechazar comisiones de servicio pendientes');
     }
 
     return this.prisma.payrollServiceCommissionRequest.update({
@@ -1046,14 +1046,16 @@ export class PayrollService {
       throw new BadRequestException('No se encontró el usuario del técnico para crear el empleado de nómina');
     }
 
+    const roleLabel = user.nombreCompleto.trim() ? 'Colaborador' : 'Usuario';
+
     return tx.payrollEmployee.create({
       data: {
         id: user.id,
         ownerId,
         userId: user.id,
-        nombre: user.nombreCompleto.trim() || 'Técnico',
+        nombre: user.nombreCompleto.trim() || roleLabel,
         telefono: user.telefono.trim() || null,
-        puesto: 'Técnico',
+        puesto: 'Colaborador',
         salarioBaseQuincenal: new Prisma.Decimal(0),
         cuotaMinima: new Prisma.Decimal(0),
         seguroLeyMonto: new Prisma.Decimal(0),
