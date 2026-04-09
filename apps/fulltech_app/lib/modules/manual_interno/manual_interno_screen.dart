@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:printing/printing.dart';
 
 import '../../core/auth/app_permissions.dart';
 import '../../core/auth/app_role.dart';
@@ -8,7 +7,6 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../../core/errors/api_exception.dart';
-import 'company_manual_executive_presentation_service.dart';
 import 'company_manual_models.dart';
 import 'company_manual_repository.dart';
 
@@ -217,8 +215,6 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
   }
 
   void _openEntryDetail(CompanyManualEntry entry, bool canManage) {
-    final user = ref.read(authStateProvider).user;
-    final isAdmin = user?.appRole == AppRole.admin;
     final width = MediaQuery.of(context).size.width;
     if (width >= 980) {
       setState(() => _selectedEntryId = entry.id);
@@ -230,10 +226,6 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
         builder: (_) => _ManualEntryDetailScreen(
           entry: entry,
           canManage: canManage,
-          canPresentExecutivePdf: isAdmin,
-          onPresentExecutivePdf: isAdmin
-            ? () => _openExecutivePresentation(entry)
-            : null,
           onEdit: canManage
               ? () async {
                   final saved = await _openEditor(entry: entry);
@@ -265,22 +257,12 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
     return '$day/$month/$year $hour:$minute';
   }
 
-  Future<void> _openExecutivePresentation(CompanyManualEntry entry) async {
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => _ManualExecutivePresentationPreviewScreen(entry: entry),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authStateProvider).user;
     final canManage =
         user != null &&
         hasPermission(user.appRole, AppPermission.manageCompanyManual);
-    final isAdmin = user?.appRole == AppRole.admin;
     final entries = _visibleEntries;
     final selectedEntry = _resolveSelectedEntry(entries);
 
@@ -387,13 +369,10 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
                               selectedFilter:
                                   _kindFilter?.label ?? 'Todo el manual',
                               canManage: canManage,
-                              canPresentExecutivePdf: isAdmin,
                               onOpenEntry: (entry) =>
                                   _openEntryDetail(entry, canManage),
                               onEditEntry: (entry) => _openEditor(entry: entry),
                               onDeleteEntry: _deleteEntry,
-                              onPresentExecutivePdf: (entry) =>
-                                  _openExecutivePresentation(entry),
                               formatDate: _formatDate,
                             ),
                           );
@@ -553,11 +532,9 @@ class _ManualDesktopSplitView extends StatelessWidget {
     required this.selectedEntry,
     required this.selectedFilter,
     required this.canManage,
-    required this.canPresentExecutivePdf,
     required this.onOpenEntry,
     required this.onEditEntry,
     required this.onDeleteEntry,
-    required this.onPresentExecutivePdf,
     required this.formatDate,
   });
 
@@ -565,11 +542,9 @@ class _ManualDesktopSplitView extends StatelessWidget {
   final CompanyManualEntry? selectedEntry;
   final String selectedFilter;
   final bool canManage;
-  final bool canPresentExecutivePdf;
   final ValueChanged<CompanyManualEntry> onOpenEntry;
   final Future<bool> Function(CompanyManualEntry entry) onEditEntry;
   final Future<bool> Function(CompanyManualEntry entry) onDeleteEntry;
-  final Future<void> Function(CompanyManualEntry entry) onPresentExecutivePdf;
   final String Function(DateTime? value) formatDate;
 
   @override
@@ -697,17 +672,12 @@ class _ManualDesktopSplitView extends StatelessWidget {
                 child: _ManualEntryDetailPane(
                   entry: selectedEntry,
                   canManage: canManage,
-                  canPresentExecutivePdf:
-                      canPresentExecutivePdf && selectedEntry != null,
                   onEdit: selectedEntry == null
                       ? null
                       : () => onEditEntry(selectedEntry!),
                   onDelete: selectedEntry == null
                       ? null
                       : () => onDeleteEntry(selectedEntry!),
-                  onPresentExecutivePdf: selectedEntry == null
-                      ? null
-                      : () => onPresentExecutivePdf(selectedEntry!),
                   formatDate: formatDate,
                 ),
               ),
@@ -1188,20 +1158,16 @@ class _ManualEntryDetailPane extends StatelessWidget {
   const _ManualEntryDetailPane({
     required this.entry,
     required this.canManage,
-    required this.canPresentExecutivePdf,
     required this.onEdit,
     required this.onDelete,
-    required this.onPresentExecutivePdf,
     required this.formatDate,
     this.scrollableBody = true,
   });
 
   final CompanyManualEntry? entry;
   final bool canManage;
-  final bool canPresentExecutivePdf;
   final Future<bool> Function()? onEdit;
   final Future<bool> Function()? onDelete;
-  final Future<void> Function()? onPresentExecutivePdf;
   final String Function(DateTime? value) formatDate;
   final bool scrollableBody;
 
@@ -1213,68 +1179,46 @@ class _ManualEntryDetailPane extends StatelessWidget {
       return const _ManualEmptyDetail();
     }
 
-    final bodyPadding = EdgeInsets.fromLTRB(
-      isCompact ? 18 : 24,
-      isCompact ? 18 : 24,
-      isCompact ? 18 : 24,
-      canPresentExecutivePdf ? 96 : (isCompact ? 18 : 24),
-    );
-
-    return Stack(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: BorderRadius.circular(30),
-            border: Border.all(
-              color: Theme.of(context).colorScheme.outlineVariant,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.06),
-                blurRadius: 24,
-                offset: const Offset(0, 14),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              _ManualDetailHeader(
-                entry: selectedEntry,
-                canManage: canManage,
-                onEdit: onEdit,
-                onDelete: onDelete,
-                formatDate: formatDate,
-                compact: isCompact,
-              ),
-              const Divider(height: 1),
-              if (scrollableBody)
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: bodyPadding,
-                    child: _ManualEntryBody(entry: selectedEntry),
-                  ),
-                )
-              else
-                Padding(
-                  padding: bodyPadding,
-                  child: _ManualEntryBody(entry: selectedEntry),
-                ),
-            ],
-          ),
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant,
         ),
-        if (canPresentExecutivePdf && onPresentExecutivePdf != null)
-          Positioned(
-            right: 20,
-            bottom: 20,
-            child: FloatingActionButton.extended(
-              heroTag: 'manual-presentation-${selectedEntry.id}',
-              onPressed: () => onPresentExecutivePdf!.call(),
-              icon: const Icon(Icons.slideshow_rounded),
-              label: const Text('Modo presentacion'),
-            ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 24,
+            offset: const Offset(0, 14),
           ),
-      ],
+        ],
+      ),
+      child: Column(
+        children: [
+          _ManualDetailHeader(
+            entry: selectedEntry,
+            canManage: canManage,
+            onEdit: onEdit,
+            onDelete: onDelete,
+            formatDate: formatDate,
+            compact: isCompact,
+          ),
+          const Divider(height: 1),
+          if (scrollableBody)
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.all(isCompact ? 18 : 24),
+                child: _ManualEntryBody(entry: selectedEntry),
+              ),
+            )
+          else
+            Padding(
+              padding: EdgeInsets.all(isCompact ? 18 : 24),
+              child: _ManualEntryBody(entry: selectedEntry),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -1458,16 +1402,12 @@ class _ManualEntryDetailScreen extends StatelessWidget {
   const _ManualEntryDetailScreen({
     required this.entry,
     required this.canManage,
-    required this.canPresentExecutivePdf,
-    required this.onPresentExecutivePdf,
     required this.onEdit,
     required this.onDelete,
   });
 
   final CompanyManualEntry entry;
   final bool canManage;
-  final bool canPresentExecutivePdf;
-  final Future<void> Function()? onPresentExecutivePdf;
   final Future<void> Function()? onEdit;
   final Future<void> Function()? onDelete;
 
@@ -1506,10 +1446,8 @@ class _ManualEntryDetailScreen extends StatelessWidget {
               child: _ManualEntryDetailPane(
                 entry: entry,
                 canManage: false,
-                canPresentExecutivePdf: false,
                 onEdit: null,
                 onDelete: null,
-                onPresentExecutivePdf: null,
                 formatDate: _formatDate,
                 scrollableBody: false,
               ),
@@ -1546,13 +1484,6 @@ class _ManualEntryDetailScreen extends StatelessWidget {
           ),
         ],
       ),
-      floatingActionButton: canPresentExecutivePdf && onPresentExecutivePdf != null
-          ? FloatingActionButton.extended(
-              onPressed: () => onPresentExecutivePdf!.call(),
-              icon: const Icon(Icons.slideshow_rounded),
-              label: const Text('Presentacion PDF'),
-            )
-          : null,
     );
   }
 }
@@ -1592,178 +1523,6 @@ class _FloatingDetailAction extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _ManualExecutivePresentationPreviewScreen extends ConsumerStatefulWidget {
-  const _ManualExecutivePresentationPreviewScreen({required this.entry});
-
-  final CompanyManualEntry entry;
-
-  @override
-  ConsumerState<_ManualExecutivePresentationPreviewScreen> createState() =>
-      _ManualExecutivePresentationPreviewScreenState();
-}
-
-class _ManualExecutivePresentationPreviewScreenState
-    extends ConsumerState<_ManualExecutivePresentationPreviewScreen> {
-  CompanyManualExecutivePresentationBundle? _bundle;
-  bool _loading = true;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPresentation();
-  }
-
-  Future<void> _loadPresentation() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
-    try {
-      final user = ref.read(authStateProvider).user;
-      final role = user?.appRole ?? AppRole.admin;
-      final bundle = await ref
-          .read(companyManualExecutivePresentationServiceProvider)
-          .generateBundle(entry: widget.entry, role: role);
-      if (!mounted) return;
-      setState(() {
-        _bundle = bundle;
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e is ApiException ? e.message : '$e';
-        _loading = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final bundle = _bundle;
-
-    return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
-      appBar: AppBar(
-        title: Text(
-          bundle?.presentation.title ?? 'Presentacion ejecutiva',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        actions: [
-          if (bundle != null)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: bundle.presentation.generatedWithAi
-                        ? theme.colorScheme.primary.withValues(alpha: 0.12)
-                        : theme.colorScheme.secondary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    bundle.presentation.generatedWithAi
-                        ? 'Diseño IA'
-                        : 'Modo local',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: bundle.presentation.generatedWithAi
-                          ? theme.colorScheme.primary
-                          : theme.colorScheme.secondary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          if (bundle != null)
-            IconButton(
-              tooltip: 'Compartir PDF',
-              onPressed: () => Printing.sharePdf(
-                bytes: bundle.pdfBytes,
-                filename: bundle.fileName,
-              ),
-              icon: const Icon(Icons.ios_share_rounded),
-            ),
-        ],
-      ),
-      body: _loading
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Preparando presentacion ejecutiva...',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Estamos generando un PDF tipo presentacion con estilo FullTech.',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ],
-              ),
-            )
-          : _error != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.slideshow_outlined,
-                      size: 54,
-                      color: theme.colorScheme.primary,
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      'No se pudo generar la presentacion',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      _error!,
-                      style: theme.textTheme.bodyMedium,
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 18),
-                    FilledButton.icon(
-                      onPressed: _loadPresentation,
-                      icon: const Icon(Icons.refresh_rounded),
-                      label: const Text('Reintentar'),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : PdfPreview(
-              canChangePageFormat: false,
-              canChangeOrientation: false,
-              canDebug: false,
-              allowPrinting: true,
-              allowSharing: true,
-              build: (_) async => bundle!.pdfBytes,
-            ),
     );
   }
 }
