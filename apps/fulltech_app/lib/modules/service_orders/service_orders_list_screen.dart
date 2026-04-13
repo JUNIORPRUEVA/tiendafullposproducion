@@ -2847,7 +2847,7 @@ class _ServiceOrderListCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        if (!isTechnician && onChangeStatus != null)
+                        if (onChangeStatus != null)
                           Align(
                             alignment: Alignment.centerLeft,
                             child: _InlineStatusButton(
@@ -3050,9 +3050,7 @@ class _ServiceOrderListCard extends StatelessWidget {
                   children: [
                     Padding(
                       padding: EdgeInsets.only(
-                        right: !isTechnician && onChangeStatus != null
-                            ? 116
-                            : 36,
+                        right: onChangeStatus != null ? 116 : 36,
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3177,7 +3175,7 @@ class _ServiceOrderListCard extends StatelessWidget {
                               ],
                             ],
                           ),
-                          if (!isTechnician && onChangeStatus != null) ...[
+                          if (onChangeStatus != null) ...[
                             const SizedBox(height: 8),
                             _InlineStatusButton(
                               order: order,

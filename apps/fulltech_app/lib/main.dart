@@ -18,6 +18,7 @@ import 'core/offline/sync_queue_service.dart';
 import 'core/realtime/catalog_realtime_service.dart';
 import 'core/realtime/operations_realtime_service.dart';
 import 'core/startup/app_startup_controller.dart';
+import 'core/startup/initial_release_check.dart';
 import 'core/app_update/update_guard_overlay.dart';
 import 'core/widgets/fulltech_global_background.dart';
 import 'features/catalogo/application/catalog_background_sync.dart';
@@ -179,7 +180,15 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() => _backgroundStartupStarted = true);
       unawaited(prepareAppFirstFrame());
-      unawaited(ref.read(appUpdateProvider.notifier).checkNow(force: true));
+      unawaited(
+        runInitialReleaseCheck(
+          ensureStartupReady: prepareAppFirstFrame,
+          checkForUpdates: () async {
+            if (!mounted) return;
+            await ref.read(appUpdateProvider.notifier).checkNow(force: true);
+          },
+        ),
+      );
 
       final authState = ref.read(authStateProvider);
       if (authState.isAuthenticated) {
