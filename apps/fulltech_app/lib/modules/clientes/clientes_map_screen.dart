@@ -458,10 +458,7 @@ class _InteractiveClientMapState extends State<_InteractiveClientMap> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _MapStyleToggleButton(
-                style: _style,
-                onTap: _toggleStyle,
-              ),
+              _MapStyleToggleButton(style: _style, onTap: _toggleStyle),
               const SizedBox(height: 10),
               _MapZoomControls(
                 onZoomIn: () => _zoomBy(1),
@@ -570,10 +567,7 @@ class _MapStyleToggleButton extends StatelessWidget {
 }
 
 class _MapZoomControls extends StatelessWidget {
-  const _MapZoomControls({
-    required this.onZoomIn,
-    required this.onZoomOut,
-  });
+  const _MapZoomControls({required this.onZoomIn, required this.onZoomOut});
 
   final VoidCallback onZoomIn;
   final VoidCallback onZoomOut;
@@ -660,7 +654,10 @@ class _MapMarker extends StatelessWidget {
               constraints: const BoxConstraints(maxWidth: 120),
               child: Container(
                 margin: const EdgeInsets.only(bottom: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.94),
                   borderRadius: BorderRadius.circular(999),
@@ -1208,10 +1205,7 @@ LatLng _mapCenter(List<_ClientMapItem> items) {
 
 _MapViewport _buildPreferredViewport(List<_ClientMapItem> items) {
   if (items.isEmpty) {
-    return const _MapViewport(
-      center: LatLng(18.4861, -69.9312),
-      zoom: 10.5,
-    );
+    return const _MapViewport(center: LatLng(18.4861, -69.9312), zoom: 10.5);
   }
 
   if (items.length == 1) {
@@ -1235,8 +1229,9 @@ _MapViewport _buildPreferredViewport(List<_ClientMapItem> items) {
       }
     }
 
-    final averageDistance =
-        cluster.isEmpty ? double.infinity : distanceSum / cluster.length;
+    final averageDistance = cluster.isEmpty
+        ? double.infinity
+        : distanceSum / cluster.length;
 
     if (cluster.length > bestCluster.length ||
         (cluster.length == bestCluster.length &&
