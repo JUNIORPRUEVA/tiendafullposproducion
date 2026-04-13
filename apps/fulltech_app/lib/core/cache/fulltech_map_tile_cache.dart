@@ -34,10 +34,7 @@ class FulltechMapTileCacheManager {
 
     final response = await Dio().get<List<int>>(
       url,
-      options: Options(
-        responseType: ResponseType.bytes,
-        headers: headers,
-      ),
+      options: Options(responseType: ResponseType.bytes, headers: headers),
     );
     return Uint8List.fromList(response.data ?? const <int>[]);
   }

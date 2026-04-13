@@ -473,10 +473,7 @@ class _CachedMapTileProvider extends TileProvider {
 @immutable
 class _CachedMapTileImageProvider
     extends ImageProvider<_CachedMapTileImageProvider> {
-  const _CachedMapTileImageProvider(
-    this.url, {
-    this.headers,
-  });
+  const _CachedMapTileImageProvider(this.url, {this.headers});
 
   final String url;
   final Map<String, String>? headers;
