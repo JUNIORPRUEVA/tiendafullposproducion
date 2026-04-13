@@ -289,41 +289,25 @@ class _FullscreenMapSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final center = _mapCenter(items);
-    final zoom = items.length <= 1
-        ? 15.5
-        : items.length <= 4
-        ? 11.5
-        : 9.0;
+    final viewport = _buildPreferredViewport(items);
 
     return Stack(
       fit: StackFit.expand,
       children: [
         Positioned.fill(
           child: SizedBox.expand(
-            child: FlutterMap(
-              options: MapOptions(initialCenter: center, initialZoom: zoom),
-              children: [
-                TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.fulltech.app',
-                  tileProvider: _CachedMapTileProvider(),
-                  panBuffer: 2,
-                ),
-                MarkerLayer(
-                  markers: [
-                    for (final item in items)
-                      Marker(
-                        point: item.location,
-                        width: 84,
-                        height: 84,
-                        child: _MapMarker(item: item, onTap: onClientTap),
-                      ),
-                  ],
-                ),
-              ],
+            child: _InteractiveClientMap(
+              items: items,
+              viewport: viewport,
+              onClientTap: onClientTap,
             ),
           ),
+        ),
+        Positioned(
+          left: 16,
+          right: 92,
+          bottom: 18,
+          child: _MapLegendCard(summary: summary),
         ),
         if (summary.total == 0)
           Positioned.fill(
@@ -364,58 +348,517 @@ class _FullscreenMapSurface extends StatelessWidget {
   }
 }
 
-class _MapMarker extends StatelessWidget {
-  const _MapMarker({required this.item, required this.onTap});
+class _InteractiveClientMap extends StatefulWidget {
+  const _InteractiveClientMap({
+    required this.items,
+    required this.viewport,
+    required this.onClientTap,
+  });
 
-  final _ClientMapItem item;
-  final ValueChanged<String> onTap;
+  final List<_ClientMapItem> items;
+  final _MapViewport viewport;
+  final ValueChanged<String> onClientTap;
+
+  @override
+  State<_InteractiveClientMap> createState() => _InteractiveClientMapState();
+}
+
+class _InteractiveClientMapState extends State<_InteractiveClientMap> {
+  late final MapController _mapController;
+  late double _currentZoom;
+  _MapVisualStyle _style = _MapVisualStyle.street;
+
+  @override
+  void initState() {
+    super.initState();
+    _mapController = MapController();
+    _currentZoom = widget.viewport.zoom;
+  }
+
+  @override
+  void didUpdateWidget(covariant _InteractiveClientMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.viewport.center != widget.viewport.center ||
+        oldWidget.viewport.zoom != widget.viewport.zoom) {
+      _currentZoom = widget.viewport.zoom;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _mapController.move(widget.viewport.center, widget.viewport.zoom);
+      });
+    }
+  }
+
+  void _zoomBy(double delta) {
+    final nextZoom = (_currentZoom + delta).clamp(4.0, 18.5);
+    _mapController.move(_mapController.camera.center, nextZoom);
+    setState(() => _currentZoom = nextZoom);
+  }
+
+  void _toggleStyle() {
+    setState(() {
+      _style = _style == _MapVisualStyle.street
+          ? _MapVisualStyle.earth
+          : _MapVisualStyle.street;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: GestureDetector(
-        onTap: () => onTap(item.client.id),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+    final showLabels = _currentZoom >= 12.8 || widget.items.length <= 3;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            initialCenter: widget.viewport.center,
+            initialZoom: widget.viewport.zoom,
+            onPositionChanged: (position, _) {
+              final zoom = position.zoom;
+              if (zoom == null || zoom == _currentZoom) return;
+              setState(() => _currentZoom = zoom);
+            },
+          ),
           children: [
-            Container(
-              width: 22,
-              height: 22,
-              decoration: BoxDecoration(
-                color: item.state.color,
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 3),
-                boxShadow: [
-                  BoxShadow(
-                    color: item.state.color.withValues(alpha: 0.34),
-                    blurRadius: 14,
-                    offset: const Offset(0, 6),
+            TileLayer(
+              urlTemplate: _style.urlTemplate,
+              userAgentPackageName: 'com.fulltech.app',
+              tileProvider: _CachedMapTileProvider(),
+              panBuffer: 2,
+            ),
+            if (_style == _MapVisualStyle.earth)
+              TileLayer(
+                urlTemplate:
+                    'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+                userAgentPackageName: 'com.fulltech.app',
+                tileProvider: _CachedMapTileProvider(),
+                panBuffer: 1,
+              ),
+            MarkerLayer(
+              markers: [
+                for (final item in widget.items)
+                  Marker(
+                    point: item.location,
+                    width: showLabels ? 132 : 64,
+                    height: showLabels ? 106 : 70,
+                    child: _MapMarker(
+                      item: item,
+                      onTap: widget.onClientTap,
+                      showLabel: showLabels,
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+        Positioned(
+          right: 16,
+          bottom: 112,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _MapStyleToggleButton(
+                style: _style,
+                onTap: _toggleStyle,
+              ),
+              const SizedBox(height: 10),
+              _MapZoomControls(
+                onZoomIn: () => _zoomBy(1),
+                onZoomOut: () => _zoomBy(-1),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+enum _MapVisualStyle { street, earth }
+
+extension on _MapVisualStyle {
+  String get urlTemplate {
+    switch (this) {
+      case _MapVisualStyle.street:
+        return 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+      case _MapVisualStyle.earth:
+        return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case _MapVisualStyle.street:
+        return 'Mapa';
+      case _MapVisualStyle.earth:
+        return 'Satélite';
+    }
+  }
+
+  String get helperLabel {
+    switch (this) {
+      case _MapVisualStyle.street:
+        return 'Calles';
+      case _MapVisualStyle.earth:
+        return 'Casas y terreno';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case _MapVisualStyle.street:
+        return Icons.map_rounded;
+      case _MapVisualStyle.earth:
+        return Icons.public_rounded;
+    }
+  }
+}
+
+class _MapStyleToggleButton extends StatelessWidget {
+  const _MapStyleToggleButton({required this.style, required this.onTap});
+
+  final _MapVisualStyle style;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Cambiar entre vista mapa y satélite',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.30),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(style.icon, color: Colors.white, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    style.label,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 6),
+              const SizedBox(height: 2),
+              Text(
+                style.helperLabel,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.78),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MapZoomControls extends StatelessWidget {
+  const _MapZoomControls({
+    required this.onZoomIn,
+    required this.onZoomOut,
+  });
+
+  final VoidCallback onZoomIn;
+  final VoidCallback onZoomOut;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.30),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _MapZoomButton(
+            icon: Icons.add_rounded,
+            tooltip: 'Acercar',
+            onTap: onZoomIn,
+          ),
+          Container(
+            width: 34,
+            height: 1,
+            color: Colors.white.withValues(alpha: 0.14),
+          ),
+          _MapZoomButton(
+            icon: Icons.remove_rounded,
+            tooltip: 'Alejar',
+            onTap: onZoomOut,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MapZoomButton extends StatelessWidget {
+  const _MapZoomButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Icon(icon, color: Colors.white, size: 22),
+        ),
+      ),
+    );
+  }
+}
+
+class _MapMarker extends StatelessWidget {
+  const _MapMarker({
+    required this.item,
+    required this.onTap,
+    required this.showLabel,
+  });
+
+  final _ClientMapItem item;
+  final ValueChanged<String> onTap;
+  final bool showLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => onTap(item.client.id),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (showLabel)
             ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 80),
+              constraints: const BoxConstraints(maxWidth: 120),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                margin: const EdgeInsets.only(bottom: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.96),
+                  color: Colors.white.withValues(alpha: 0.94),
                   borderRadius: BorderRadius.circular(999),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x1A0F172A),
+                      blurRadius: 18,
+                      offset: Offset(0, 8),
+                    ),
+                  ],
                 ),
                 child: Text(
                   item.client.nombre,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF0F172A),
+                    letterSpacing: 0.1,
+                  ),
                 ),
               ),
             ),
+          SizedBox(
+            width: 48,
+            height: 54,
+            child: Stack(
+              alignment: Alignment.topCenter,
+              children: [
+                Positioned(
+                  top: 8,
+                  child: Container(
+                    width: 14,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: item.state.color.withValues(alpha: 0.35),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: item.state.color.withValues(alpha: 0.32),
+                          blurRadius: 18,
+                          spreadRadius: 4,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Icon(
+                  Icons.location_on_rounded,
+                  size: 44,
+                  color: Colors.white,
+                  shadows: const [
+                    Shadow(
+                      color: Color(0x330F172A),
+                      blurRadius: 18,
+                      offset: Offset(0, 10),
+                    ),
+                  ],
+                ),
+                Icon(
+                  Icons.location_on_rounded,
+                  size: 39,
+                  color: item.state.color,
+                ),
+                Positioned(
+                  top: 10,
+                  child: Container(
+                    width: 16,
+                    height: 16,
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: item.state.color,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MapLegendCard extends StatelessWidget {
+  const _MapLegendCard({required this.summary});
+
+  final _MapSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.90),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x140F172A),
+            blurRadius: 24,
+            offset: Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.place_rounded,
+                  size: 15,
+                  color: const Color(0xFF0F172A).withValues(alpha: 0.78),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '${summary.total} clientes con ubicación',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF0F172A),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                _LegendChip(
+                  color: const Color(0xFFF59E0B),
+                  label: 'Proceso ${summary.inProgress}',
+                ),
+                _LegendChip(
+                  color: const Color(0xFFDC2626),
+                  label: 'Sin servicio ${summary.noService}',
+                ),
+                _LegendChip(
+                  color: const Color(0xFF15803D),
+                  label: 'Atendidos ${summary.serviced}',
+                ),
+              ],
+            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _LegendChip extends StatelessWidget {
+  const _LegendChip({required this.color, required this.label});
+
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 9,
+            height: 9,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF0F172A),
+              fontSize: 12,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -656,20 +1099,45 @@ class _ClientMapItem {
 }
 
 class _MapSummary {
-  const _MapSummary({required this.total, required this.inProgress});
+  const _MapSummary({
+    required this.total,
+    required this.inProgress,
+    required this.serviced,
+    required this.noService,
+  });
 
   final int total;
   final int inProgress;
+  final int serviced;
+  final int noService;
 
   factory _MapSummary.fromItems(List<_ClientMapItem> items) {
     var inProgress = 0;
+    var serviced = 0;
+    var noService = 0;
     for (final item in items) {
       if (item.state.kind == _ClientServiceKind.inProgress) {
         inProgress++;
+      } else if (item.state.kind == _ClientServiceKind.serviced) {
+        serviced++;
+      } else {
+        noService++;
       }
     }
-    return _MapSummary(total: items.length, inProgress: inProgress);
+    return _MapSummary(
+      total: items.length,
+      inProgress: inProgress,
+      serviced: serviced,
+      noService: noService,
+    );
   }
+}
+
+class _MapViewport {
+  const _MapViewport({required this.center, required this.zoom});
+
+  final LatLng center;
+  final double zoom;
 }
 
 enum _ClientServiceKind { serviced, inProgress, noService }
@@ -736,6 +1204,74 @@ LatLng _mapCenter(List<_ClientMapItem> items) {
       items.fold<double>(0, (sum, item) => sum + item.location.longitude) /
       items.length;
   return LatLng(latitude, longitude);
+}
+
+_MapViewport _buildPreferredViewport(List<_ClientMapItem> items) {
+  if (items.isEmpty) {
+    return const _MapViewport(
+      center: LatLng(18.4861, -69.9312),
+      zoom: 10.5,
+    );
+  }
+
+  if (items.length == 1) {
+    return _MapViewport(center: items.first.location, zoom: 15.5);
+  }
+
+  final distance = const Distance();
+  final radiusMeters = items.length >= 12 ? 4500.0 : 6500.0;
+  List<_ClientMapItem> bestCluster = <_ClientMapItem>[];
+  double bestAverageDistance = double.infinity;
+
+  for (final anchor in items) {
+    final cluster = <_ClientMapItem>[];
+    var distanceSum = 0.0;
+
+    for (final candidate in items) {
+      final meters = distance(anchor.location, candidate.location);
+      if (meters <= radiusMeters) {
+        cluster.add(candidate);
+        distanceSum += meters;
+      }
+    }
+
+    final averageDistance =
+        cluster.isEmpty ? double.infinity : distanceSum / cluster.length;
+
+    if (cluster.length > bestCluster.length ||
+        (cluster.length == bestCluster.length &&
+            averageDistance < bestAverageDistance)) {
+      bestCluster = cluster;
+      bestAverageDistance = averageDistance;
+    }
+  }
+
+  final effectiveCluster = bestCluster.length >= 2 ? bestCluster : items;
+  final center = _mapCenter(effectiveCluster);
+  final zoom = _clusterZoom(effectiveCluster, center);
+  return _MapViewport(center: center, zoom: zoom);
+}
+
+double _clusterZoom(List<_ClientMapItem> items, LatLng center) {
+  if (items.length <= 1) return 15.5;
+
+  final latitudeSpan = items
+      .map((item) => (item.location.latitude - center.latitude).abs())
+      .reduce(math.max);
+  final longitudeSpan = items
+      .map((item) => (item.location.longitude - center.longitude).abs())
+      .reduce(math.max);
+  final span = math.max(latitudeSpan, longitudeSpan);
+
+  if (span <= 0.003) return 16.0;
+  if (span <= 0.008) return 15.0;
+  if (span <= 0.02) return 14.0;
+  if (span <= 0.04) return 13.0;
+  if (span <= 0.08) return 12.0;
+  if (span <= 0.16) return 11.0;
+  if (span <= 0.30) return 10.0;
+  if (span <= 0.55) return 9.0;
+  return 8.0;
 }
 
 String _buildTileWarmSignature(List<_ClientMapItem> items) {
