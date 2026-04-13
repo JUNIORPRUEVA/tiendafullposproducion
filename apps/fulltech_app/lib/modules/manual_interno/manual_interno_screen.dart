@@ -99,20 +99,22 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
   }
 
   List<CompanyManualEntry> get _visibleEntries {
-    final filteredByKind = (_kindFilter == null
-        ? _entries
-        : _entries.where((item) => item.kind == _kindFilter))
-      .toList();
+    final filteredByKind =
+        (_kindFilter == null
+                ? _entries
+                : _entries.where((item) => item.kind == _kindFilter))
+            .toList();
     final query = _searchQuery.trim().toLowerCase();
-    final filtered = (query.isEmpty
-        ? filteredByKind
-        : filteredByKind.where((item) {
-          return item.title.toLowerCase().contains(query) ||
-            (item.summary ?? '').toLowerCase().contains(query) ||
-            item.content.toLowerCase().contains(query) ||
-            (item.moduleKey ?? '').toLowerCase().contains(query);
-          }))
-      .toList();
+    final filtered =
+        (query.isEmpty
+                ? filteredByKind
+                : filteredByKind.where((item) {
+                    return item.title.toLowerCase().contains(query) ||
+                        (item.summary ?? '').toLowerCase().contains(query) ||
+                        item.content.toLowerCase().contains(query) ||
+                        (item.moduleKey ?? '').toLowerCase().contains(query);
+                  }))
+            .toList();
     filtered.sort((left, right) {
       final byOrder = left.sortOrder.compareTo(right.sortOrder);
       if (byOrder != 0) return byOrder;
@@ -159,10 +161,23 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
   }
 
   Future<bool> _openEditor({CompanyManualEntry? entry}) async {
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (_) => _CompanyManualEntryDialog(entry: entry),
-    );
+    final isMobile = MediaQuery.sizeOf(context).width < 720;
+    final bool? saved;
+    if (isMobile) {
+      final navigator = Navigator.of(context);
+      saved = await navigator.push<bool>(
+        MaterialPageRoute<bool>(
+          fullscreenDialog: true,
+          builder: (_) =>
+              _CompanyManualEntryDialog(entry: entry, fullscreen: true),
+        ),
+      );
+    } else {
+      saved = await showDialog<bool>(
+        context: context,
+        builder: (_) => _CompanyManualEntryDialog(entry: entry),
+      );
+    }
     if (saved == true) {
       await _loadEntries();
       return true;
@@ -465,9 +480,9 @@ class _ManualRemovableChip extends StatelessWidget {
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
           if (onRemove != null) ...[
@@ -767,7 +782,9 @@ class _ManualDesktopEntryTile extends StatelessWidget {
                 )
               else
                 Icon(
-                  selected ? Icons.visibility_outlined : Icons.arrow_forward_rounded,
+                  selected
+                      ? Icons.visibility_outlined
+                      : Icons.arrow_forward_rounded,
                   color: scheme.primary,
                   size: 18,
                 ),
@@ -970,11 +987,14 @@ class _ManualCompactEntryBody extends StatelessWidget {
           entry.title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: (dense ? theme.textTheme.titleSmall : theme.textTheme.bodyLarge)
-              ?.copyWith(
-                fontWeight: emphasizeTitle ? FontWeight.w800 : FontWeight.w700,
-                fontSize: dense ? 14 : 13.6,
-              ),
+          style:
+              (dense ? theme.textTheme.titleSmall : theme.textTheme.bodyLarge)
+                  ?.copyWith(
+                    fontWeight: emphasizeTitle
+                        ? FontWeight.w800
+                        : FontWeight.w700,
+                    fontSize: dense ? 14 : 13.6,
+                  ),
         ),
         const SizedBox(height: 4),
         Text(
@@ -1032,7 +1052,8 @@ class _ManualSearchDelegate extends SearchDelegate<_ManualSearchResult?> {
     }).toList();
 
     filtered.sort(
-      (left, right) => left.title.toLowerCase().compareTo(right.title.toLowerCase()),
+      (left, right) =>
+          left.title.toLowerCase().compareTo(right.title.toLowerCase()),
     );
     return filtered;
   }
@@ -1065,7 +1086,8 @@ class _ManualSearchDelegate extends SearchDelegate<_ManualSearchResult?> {
         ),
       IconButton(
         tooltip: 'Aplicar búsqueda',
-        onPressed: () => close(context, _ManualSearchResult(query: query.trim())),
+        onPressed: () =>
+            close(context, _ManualSearchResult(query: query.trim())),
         icon: const Icon(Icons.check_rounded),
       ),
     ];
@@ -1102,16 +1124,21 @@ class _ManualSearchDelegate extends SearchDelegate<_ManualSearchResult?> {
       itemBuilder: (context, index) {
         final entry = filtered[index];
         return ListTile(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           tileColor: Theme.of(context).colorScheme.surfaceContainerLowest,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 4,
+          ),
           title: Text(
             entry.title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
           ),
           subtitle: Text(
             'Tipo: ${entry.kind.label} • ${_audienceLabel(entry)}',
@@ -1183,9 +1210,7 @@ class _ManualEntryDetailPane extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(30),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant,
-        ),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.06),
@@ -1528,9 +1553,10 @@ class _FloatingDetailAction extends StatelessWidget {
 }
 
 class _CompanyManualEntryDialog extends ConsumerStatefulWidget {
-  const _CompanyManualEntryDialog({this.entry});
+  const _CompanyManualEntryDialog({this.entry, this.fullscreen = false});
 
   final CompanyManualEntry? entry;
+  final bool fullscreen;
 
   @override
   ConsumerState<_CompanyManualEntryDialog> createState() =>
@@ -1539,6 +1565,14 @@ class _CompanyManualEntryDialog extends ConsumerStatefulWidget {
 
 class _CompanyManualEntryDialogState
     extends ConsumerState<_CompanyManualEntryDialog> {
+  static const List<AppRole> _editableRoles = [
+    AppRole.asistente,
+    AppRole.vendedor,
+    AppRole.marketing,
+    AppRole.tecnico,
+    AppRole.admin,
+  ];
+
   late final TextEditingController _titleCtrl;
   late final TextEditingController _summaryCtrl;
   late final TextEditingController _contentCtrl;
@@ -1642,157 +1676,396 @@ class _CompanyManualEntryDialogState
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.entry == null ? 'Nueva entrada' : 'Editar entrada'),
-      content: SizedBox(
-        width: 560,
-        child: ListView(
-          shrinkWrap: true,
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: [
-            if (_error != null) ...[
-              Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+  String get _screenTitle {
+    return widget.entry == null ? 'Nueva norma' : 'Editar norma';
+  }
+
+  String get _screenSubtitle {
+    return widget.entry == null
+        ? 'Completa lo esencial primero. Luego ajusta visibilidad, roles o modulo si hace falta.'
+        : 'Actualiza la norma con un formulario mas comodo para vista movil.';
+  }
+
+  Widget _buildErrorBanner(BuildContext context) {
+    final message = _error;
+    if (message == null || message.isEmpty) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.errorContainer,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.error_outline_rounded, color: scheme.onErrorContainer),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: scheme.onErrorContainer,
+                fontWeight: FontWeight.w700,
               ),
-              const SizedBox(height: 10),
-            ],
-            TextField(
-              controller: _titleCtrl,
-              decoration: const InputDecoration(labelText: 'Título'),
             ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _summaryCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Resumen breve (opcional)',
-              ),
-            ),
-            const SizedBox(height: 10),
-            DropdownButtonFormField<CompanyManualEntryKind>(
-              initialValue: _kind,
-              items: CompanyManualEntryKind.values
-                  .map(
-                    (kind) =>
-                        DropdownMenuItem(value: kind, child: Text(kind.label)),
-                  )
-                  .toList(),
-              onChanged: _saving
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionCard({
+    required BuildContext context,
+    required String title,
+    required String subtitle,
+    required Widget child,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 4),
+          Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 14),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAudienceChips(BuildContext context) {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: CompanyManualAudience.values
+          .map((audience) {
+            final selected = _audience == audience;
+            return ChoiceChip(
+              label: Text(audience.label),
+              selected: selected,
+              onSelected: _saving
                   ? null
-                  : (value) {
-                      if (value == null) return;
-                      setState(() => _kind = value);
-                    },
-              decoration: const InputDecoration(labelText: 'Tipo de entrada'),
-            ),
-            const SizedBox(height: 10),
-            DropdownButtonFormField<CompanyManualAudience>(
-              initialValue: _audience,
-              items: CompanyManualAudience.values
-                  .map(
-                    (audience) => DropdownMenuItem(
-                      value: audience,
-                      child: Text(audience.label),
-                    ),
-                  )
-                  .toList(),
-              onChanged: _saving
-                  ? null
-                  : (value) {
-                      if (value == null) return;
+                  : (_) {
                       setState(() {
-                        _audience = value;
+                        _audience = audience;
                         if (_audience == CompanyManualAudience.general) {
                           _targetRoles.clear();
                         }
                       });
                     },
-              decoration: const InputDecoration(labelText: 'Alcance'),
-            ),
-            if (_audience == CompanyManualAudience.roleSpecific) ...[
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final role in [
-                    AppRole.asistente,
-                    AppRole.vendedor,
-                    AppRole.marketing,
-                    AppRole.tecnico,
-                    AppRole.admin,
-                  ])
-                    FilterChip(
-                      label: Text(role.label),
-                      selected: _targetRoles.contains(role),
-                      onSelected: _saving
-                          ? null
-                          : (selected) {
-                              setState(() {
-                                if (selected) {
-                                  _targetRoles.add(role);
-                                } else {
-                                  _targetRoles.remove(role);
-                                }
-                              });
-                            },
-                    ),
+            );
+          })
+          .toList(growable: false),
+    );
+  }
+
+  Widget _buildRoleChips() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final role in _editableRoles)
+          FilterChip(
+            label: Text(role.label),
+            selected: _targetRoles.contains(role),
+            onSelected: _saving
+                ? null
+                : (selected) {
+                    setState(() {
+                      if (selected) {
+                        _targetRoles.add(role);
+                      } else {
+                        _targetRoles.remove(role);
+                      }
+                    });
+                  },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildEditorFields(BuildContext context, {required bool mobile}) {
+    return ListView(
+      padding: EdgeInsets.fromLTRB(16, mobile ? 16 : 0, 16, mobile ? 20 : 0),
+      children: [
+        if (mobile)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.10),
+                  Theme.of(context).colorScheme.surfaceContainerLowest,
                 ],
               ),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _screenTitle,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _screenSubtitle,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+            ),
+          ),
+        if (mobile) const SizedBox(height: 14),
+        _buildErrorBanner(context),
+        if (_error != null && _error!.isNotEmpty) const SizedBox(height: 14),
+        _buildSectionCard(
+          context: context,
+          title: 'Contenido principal',
+          subtitle:
+              'Primero define el titulo y el texto de la norma. Eso es lo mas importante.',
+          child: Column(
+            children: [
+              TextField(
+                controller: _titleCtrl,
+                enabled: !_saving,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(
+                  labelText: 'Titulo',
+                  hintText: 'Ejemplo: Protocolo para cierre de caja',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _summaryCtrl,
+                enabled: !_saving,
+                textCapitalization: TextCapitalization.sentences,
+                minLines: 2,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Resumen breve',
+                  hintText: 'Describe rapidamente de que trata esta norma',
+                  helperText: 'Opcional, pero ayuda mucho en movil.',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _contentCtrl,
+                enabled: !_saving,
+                textCapitalization: TextCapitalization.sentences,
+                minLines: mobile ? 10 : 8,
+                maxLines: mobile ? 16 : 14,
+                decoration: const InputDecoration(
+                  labelText: 'Contenido',
+                  hintText:
+                      'Escribe los pasos, reglas o indicaciones completas',
+                  helperText:
+                      'Usa parrafos cortos o listas para que sea facil de leer.',
+                  alignLabelWithHint: true,
+                ),
+              ),
             ],
-            const SizedBox(height: 10),
-            TextField(
-              controller: _moduleCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Módulo relacionado (opcional)',
-              ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _sortCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Orden'),
-            ),
-            const SizedBox(height: 10),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _published,
-              onChanged: _saving
-                  ? null
-                  : (value) => setState(() => _published = value),
-              title: const Text('Visible para usuarios'),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _contentCtrl,
-              minLines: 8,
-              maxLines: 14,
-              decoration: const InputDecoration(
-                labelText: 'Contenido',
-                alignLabelWithHint: true,
-              ),
-            ),
-          ],
+          ),
         ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.pop(context, false),
-          child: const Text('Cancelar'),
+        const SizedBox(height: 14),
+        _buildSectionCard(
+          context: context,
+          title: 'Clasificacion',
+          subtitle:
+              'Ajusta tipo, alcance y si esta norma pertenece a un modulo especifico.',
+          child: Column(
+            children: [
+              DropdownButtonFormField<CompanyManualEntryKind>(
+                initialValue: _kind,
+                items: CompanyManualEntryKind.values
+                    .map(
+                      (kind) => DropdownMenuItem(
+                        value: kind,
+                        child: Text(kind.label),
+                      ),
+                    )
+                    .toList(growable: false),
+                onChanged: _saving
+                    ? null
+                    : (value) {
+                        if (value == null) return;
+                        setState(() => _kind = value);
+                      },
+                decoration: const InputDecoration(labelText: 'Tipo de entrada'),
+              ),
+              const SizedBox(height: 14),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Alcance',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: _buildAudienceChips(context),
+              ),
+              if (_audience == CompanyManualAudience.roleSpecific) ...[
+                const SizedBox(height: 14),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Roles permitidos',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _buildRoleChips(),
+                ),
+              ],
+              const SizedBox(height: 14),
+              TextField(
+                controller: _moduleCtrl,
+                enabled: !_saving,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(
+                  labelText: 'Modulo relacionado',
+                  hintText: 'Opcional: ventas, tecnico, inventario...',
+                ),
+              ),
+            ],
+          ),
         ),
-        FilledButton(
-          onPressed: _saving ? null : _save,
-          child: _saving
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Guardar'),
+        const SizedBox(height: 14),
+        _buildSectionCard(
+          context: context,
+          title: 'Visibilidad y orden',
+          subtitle:
+              'Controla si la norma esta visible y en que posicion se muestra.',
+          child: Column(
+            children: [
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _published,
+                onChanged: _saving
+                    ? null
+                    : (value) => setState(() => _published = value),
+                title: const Text('Visible para usuarios'),
+                subtitle: const Text('Desactivalo si todavia no debe verse.'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _sortCtrl,
+                enabled: !_saving,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Orden',
+                  hintText: '0, 1, 2...',
+                  helperText: 'Los numeros menores aparecen primero.',
+                ),
+              ),
+            ],
+          ),
         ),
       ],
+    );
+  }
+
+  Widget _buildActionBar(BuildContext context, {required bool mobile}) {
+    final content = Row(
+      children: [
+        Expanded(
+          child: OutlinedButton(
+            onPressed: _saving ? null : () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: FilledButton.icon(
+            onPressed: _saving ? null : _save,
+            icon: _saving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save_outlined),
+            label: Text(_saving ? 'Guardando...' : 'Guardar'),
+          ),
+        ),
+      ],
+    );
+
+    if (!mobile) {
+      return content;
+    }
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          border: Border(
+            top: BorderSide(
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
+          ),
+        ),
+        child: content,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mobile = widget.fullscreen || MediaQuery.sizeOf(context).width < 720;
+    final fields = _buildEditorFields(context, mobile: mobile);
+
+    if (mobile) {
+      return Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        appBar: AppBar(title: Text(_screenTitle), centerTitle: false),
+        body: fields,
+        bottomNavigationBar: _buildActionBar(context, mobile: true),
+      );
+    }
+
+    return AlertDialog(
+      title: Text(_screenTitle),
+      content: SizedBox(
+        width: 620,
+        child: SizedBox(height: 640, child: fields),
+      ),
+      actions: [_buildActionBar(context, mobile: false)],
     );
   }
 }

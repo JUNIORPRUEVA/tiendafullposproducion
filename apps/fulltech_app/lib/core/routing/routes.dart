@@ -28,6 +28,7 @@ class Routes {
   static const documentFlowDetail = '/document-flows/:orderId';
   static const registrarVenta = '/ventas/nueva';
   static const clienteNuevo = '/clientes/nuevo';
+  static const clientesMapa = '/clientes/mapa';
   static const clienteDetalle = '/clientes/:id';
   static const clienteEditar = '/clientes/:id/editar';
   static const ai = '/ia';

@@ -15,5 +15,9 @@ Checklist sugerido para validar el flujo completo:
    - Orden A-Z / Z-A
    - Todos / Con correo / Sin correo
    - Activos / Eliminados / Todos
-11. Eliminar cliente y confirmar diálogo de advertencia.
-12. Validar mensaje de éxito y actualización de lista.
+11. Abrir el botón **Mapa** al lado del filtro y validar:
+   - Leyenda verde / amarillo / rojo
+   - Conteo de ubicaciones y tarjetas resumen
+   - Tap en un punto del mapa abre el detalle del cliente
+12. Eliminar cliente y confirmar diálogo de advertencia.
+13. Validar mensaje de éxito y actualización de lista.

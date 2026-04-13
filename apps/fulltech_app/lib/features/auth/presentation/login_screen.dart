@@ -8,7 +8,7 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../core/auth/app_role.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/routing/route_access.dart';
-import '../../../core/widgets/error_banner.dart';
+import '../../../core/utils/app_feedback.dart';
 import '../../../core/widgets/primary_button.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -22,7 +22,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
-  String? _error;
+  _LoginNoticeData? _notice;
   bool _rememberMe = false;
   bool _obscurePassword = true;
 
@@ -33,14 +33,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    _emailCtrl.addListener(_clearNoticeOnInput);
+    _passwordCtrl.addListener(_clearNoticeOnInput);
     _loadRememberedCredentials();
   }
 
   @override
   void dispose() {
+    _emailCtrl.removeListener(_clearNoticeOnInput);
+    _passwordCtrl.removeListener(_clearNoticeOnInput);
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
     super.dispose();
+  }
+
+  void _clearNoticeOnInput() {
+    if (_notice == null || !_notice!.isError || !mounted) {
+      return;
+    }
+    setState(() => _notice = null);
   }
 
   Future<void> _loadRememberedCredentials() async {
@@ -71,23 +82,87 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  String _formatLoginError(ApiException error) {
-    final code = 'Código: ${error.displayCode}';
-    final detail = error.message.trim().isEmpty
-        ? 'No se recibió detalle del servidor.'
-        : error.message.trim();
-    return 'No se pudo iniciar sesión.\nCausa exacta: $code\nDetalle: $detail';
+  _LoginNoticeData _buildErrorNotice(ApiException error) {
+    switch (error.type) {
+      case ApiErrorType.unauthorized:
+        return _LoginNoticeData.error(
+          title: 'Datos de acceso incorrectos',
+          message: error.message,
+          helpText:
+              'Revisa tu correo corporativo y tu contraseña antes de volver a intentar.',
+        );
+      case ApiErrorType.forbidden:
+        return _LoginNoticeData.error(
+          title: 'Acceso restringido',
+          message: error.message,
+          helpText:
+              'Si tu acceso debería estar activo, comunícate con administración.',
+        );
+      case ApiErrorType.noInternet:
+      case ApiErrorType.dns:
+      case ApiErrorType.tls:
+      case ApiErrorType.network:
+      case ApiErrorType.timeout:
+        return _LoginNoticeData.error(
+          title: 'No se pudo conectar',
+          message: error.message,
+          helpText:
+              'Verifica tu conexión a internet y vuelve a intentar en unos segundos.',
+        );
+      case ApiErrorType.config:
+        return _LoginNoticeData.error(
+          title: 'Configuración pendiente',
+          message: error.message,
+          helpText:
+              'La aplicación necesita una configuración válida del backend para continuar.',
+        );
+      case ApiErrorType.server:
+        return _LoginNoticeData.error(
+          title: 'Servidor no disponible',
+          message: error.message,
+          helpText:
+              'El sistema está respondiendo con un problema interno. Intenta nuevamente en un momento.',
+        );
+      case ApiErrorType.badRequest:
+      case ApiErrorType.notFound:
+      case ApiErrorType.conflict:
+      case ApiErrorType.parse:
+      case ApiErrorType.cancelled:
+      case ApiErrorType.unknown:
+        return _LoginNoticeData.error(
+          title: 'No se pudo iniciar sesión',
+          message: error.message,
+          helpText:
+              'Corrige los datos ingresados o vuelve a intentarlo en unos segundos.',
+        );
+    }
   }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (!mounted) return;
-    setState(() => _error = null);
+    FocusScope.of(context).unfocus();
+    setState(() => _notice = null);
     try {
       await ref
           .read(authStateProvider.notifier)
           .login(_emailCtrl.text, _passwordCtrl.text);
       await _persistRememberedCredentials();
+      if (!mounted) return;
+      setState(
+        () => _notice = const _LoginNoticeData.success(
+          title: 'Inicio de sesión correcto',
+          message: 'Tu acceso fue validado. Te estamos redirigiendo ahora.',
+          helpText: 'Espera un momento mientras cargamos tu panel de trabajo.',
+        ),
+      );
+      await AppFeedback.showInfo(
+        context,
+        'Inicio de sesión correcto. Cargando tu panel...',
+        scope: 'LoginScreen',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      if (!mounted) return;
       if (mounted) {
         context.go(
           RouteAccess.defaultHomeForRole(
@@ -97,13 +172,28 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       }
     } on ApiException catch (e) {
       if (mounted) {
-        setState(() => _error = _formatLoginError(e));
+        final notice = _buildErrorNotice(e);
+        setState(() => _notice = notice);
+        await AppFeedback.showError(
+          context,
+          '${notice.title}. ${notice.message}',
+          scope: 'LoginScreen',
+        );
       }
     } catch (e) {
       if (mounted) {
-        setState(
-          () => _error =
-              'No se pudo iniciar sesión.\nCausa exacta: error inesperado\nDetalle: $e',
+        const notice = _LoginNoticeData.error(
+          title: 'No se pudo iniciar sesión',
+          message:
+              'Ocurrió un error inesperado al validar tu acceso. Intenta nuevamente.',
+          helpText:
+              'Si el problema persiste, informa al área técnica para revisar el sistema.',
+        );
+        setState(() => _notice = notice);
+        await AppFeedback.showError(
+          context,
+          '${notice.title}. ${notice.message}',
+          scope: 'LoginScreen',
         );
       }
     }
@@ -231,9 +321,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             ),
                           ],
                         ),
-                        if (_error != null) ...[
+                        if (_notice != null) ...[
                           const SizedBox(height: 12),
-                          ErrorBanner(message: _error!),
+                          _LoginNoticeCard(data: _notice!),
                         ],
                         const SizedBox(height: 16),
                         PrimaryButton(
@@ -249,6 +339,120 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _LoginNoticeData {
+  const _LoginNoticeData({
+    required this.title,
+    required this.message,
+    required this.helpText,
+    required this.isError,
+  });
+
+  const _LoginNoticeData.error({
+    required this.title,
+    required this.message,
+    required this.helpText,
+  }) : isError = true;
+
+  const _LoginNoticeData.success({
+    required this.title,
+    required this.message,
+    required this.helpText,
+  }) : isError = false;
+
+  final String title;
+  final String message;
+  final String helpText;
+  final bool isError;
+}
+
+class _LoginNoticeCard extends StatelessWidget {
+  const _LoginNoticeCard({required this.data});
+
+  final _LoginNoticeData data;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final backgroundColor = data.isError
+        ? colorScheme.errorContainer
+        : const Color(0xFFE8F7EE);
+    final foregroundColor = data.isError
+        ? colorScheme.onErrorContainer
+        : const Color(0xFF155724);
+    final accentColor = data.isError
+        ? colorScheme.error
+        : const Color(0xFF1F8F4D);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accentColor.withValues(alpha: 0.28)),
+        boxShadow: [
+          BoxShadow(
+            color: accentColor.withValues(alpha: 0.08),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: accentColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(
+              data.isError
+                  ? Icons.error_outline_rounded
+                  : Icons.check_circle_outline_rounded,
+              color: accentColor,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  data.title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: foregroundColor,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  data.message,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: foregroundColor,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  data.helpText,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: foregroundColor.withValues(alpha: 0.86),
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -12,6 +12,7 @@ import '../../core/widgets/custom_app_bar.dart';
 import '../../core/widgets/sync_status_banner.dart';
 import 'application/clientes_controller.dart';
 import 'cliente_model.dart';
+import 'data/clientes_repository.dart';
 
 class ClientesScreen extends ConsumerStatefulWidget {
   const ClientesScreen({super.key});
@@ -24,6 +25,33 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   Timer? _debounce;
   bool _purgingAllDebug = false;
+
+  Future<void> _openFilters(ClientesState state) async {
+    final next = await showModalBottomSheet<_ClientesFilterState>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return _ClientesFiltersSheet(
+          initialState: _ClientesFilterState(
+            order: state.order,
+            correoFilter: state.correoFilter,
+            estadoFilter: state.estadoFilter,
+          ),
+        );
+      },
+    );
+
+    if (next == null || !mounted) return;
+
+    await ref
+        .read(clientesControllerProvider.notifier)
+        .applyFilters(
+          order: next.order,
+          correoFilter: next.correoFilter,
+          estadoFilter: next.estadoFilter,
+        );
+  }
 
   @override
   void dispose() {
@@ -58,9 +86,9 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text('$e')),
-      );
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text('$e')));
     } finally {
       if (mounted) {
         setState(() => _purgingAllDebug = false);
@@ -74,6 +102,11 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
     final state = ref.watch(clientesControllerProvider);
     final controller = ref.read(clientesControllerProvider.notifier);
     final theme = Theme.of(context);
+    final activeFilterCount = [
+      state.order != ClientesOrder.az,
+      state.correoFilter != CorreoFilter.todos,
+      state.estadoFilter != EstadoFilter.activos,
+    ].where((active) => active).length;
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
@@ -82,6 +115,32 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
         showLogo: false,
         showDepartmentLabel: false,
         actions: [
+          _AppBarIconBadge(
+            tooltip: 'Filtros',
+            icon: Icons.filter_alt_rounded,
+            badgeCount: activeFilterCount,
+            onPressed: () => _openFilters(state),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: TextButton.icon(
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.white,
+                backgroundColor: Colors.white.withValues(alpha: 0.10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
+                  side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+                ),
+              ),
+              onPressed: () => context.push(Routes.clientesMapa),
+              icon: const Icon(Icons.map_outlined, size: 18),
+              label: const Text('Mapa'),
+            ),
+          ),
           IconButton(
             tooltip: 'Actualizar',
             onPressed: state.refreshing ? null : controller.refresh,
@@ -164,7 +223,8 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
                         : ListView.separated(
                             padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
                             itemCount: state.items.length,
-                            separatorBuilder: (_, _) => const SizedBox(height: 4),
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 4),
                             itemBuilder: (context, index) {
                               final client = state.items[index];
                               return _ClienteCard(client: client);
@@ -320,7 +380,9 @@ Future<void> _confirmDelete(
     builder: (dialogContext) {
       return AlertDialog(
         title: const Text('Eliminar cliente'),
-        content: Text('Se eliminara ${client.nombre}. Esta accion no se puede deshacer.'),
+        content: Text(
+          'Se eliminara ${client.nombre}. Esta accion no se puede deshacer.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -340,14 +402,14 @@ Future<void> _confirmDelete(
   try {
     await ref.read(clientesControllerProvider.notifier).remove(client.id);
     if (!context.mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      const SnackBar(content: Text('Cliente eliminado')),
-    );
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(const SnackBar(content: Text('Cliente eliminado')));
   } catch (error) {
     if (!context.mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(error.toString())),
-    );
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(error.toString())));
   }
 }
 
@@ -356,4 +418,261 @@ String _formatClientDate(DateTime value) {
   final month = local.month.toString().padLeft(2, '0');
   final day = local.day.toString().padLeft(2, '0');
   return '${local.year}-$month-$day';
+}
+
+class _AppBarIconBadge extends StatelessWidget {
+  const _AppBarIconBadge({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+    this.badgeCount = 0,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+  final int badgeCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        IconButton(tooltip: tooltip, onPressed: onPressed, icon: Icon(icon)),
+        if (badgeCount > 0)
+          Positioned(
+            right: 7,
+            top: 7,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '$badgeCount',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ClientesFilterState {
+  const _ClientesFilterState({
+    required this.order,
+    required this.correoFilter,
+    required this.estadoFilter,
+  });
+
+  final ClientesOrder order;
+  final CorreoFilter correoFilter;
+  final EstadoFilter estadoFilter;
+
+  _ClientesFilterState copyWith({
+    ClientesOrder? order,
+    CorreoFilter? correoFilter,
+    EstadoFilter? estadoFilter,
+  }) {
+    return _ClientesFilterState(
+      order: order ?? this.order,
+      correoFilter: correoFilter ?? this.correoFilter,
+      estadoFilter: estadoFilter ?? this.estadoFilter,
+    );
+  }
+}
+
+class _ClientesFiltersSheet extends StatefulWidget {
+  const _ClientesFiltersSheet({required this.initialState});
+
+  final _ClientesFilterState initialState;
+
+  @override
+  State<_ClientesFiltersSheet> createState() => _ClientesFiltersSheetState();
+}
+
+class _ClientesFiltersSheetState extends State<_ClientesFiltersSheet> {
+  late _ClientesFilterState _draft = widget.initialState;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 8,
+          bottom: MediaQuery.viewInsetsOf(context).bottom + 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Filtros de clientes',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Organiza la lista y el mapa con el mismo criterio de consulta.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 20),
+            _FilterSection<ClientesOrder>(
+              title: 'Orden',
+              value: _draft.order,
+              options: const [ClientesOrder.az, ClientesOrder.za],
+              labelBuilder: _clientesOrderLabel,
+              onSelected: (value) {
+                setState(() => _draft = _draft.copyWith(order: value));
+              },
+            ),
+            const SizedBox(height: 16),
+            _FilterSection<CorreoFilter>(
+              title: 'Correo',
+              value: _draft.correoFilter,
+              options: const [
+                CorreoFilter.todos,
+                CorreoFilter.conCorreo,
+                CorreoFilter.sinCorreo,
+              ],
+              labelBuilder: _correoFilterLabel,
+              onSelected: (value) {
+                setState(() => _draft = _draft.copyWith(correoFilter: value));
+              },
+            ),
+            const SizedBox(height: 16),
+            _FilterSection<EstadoFilter>(
+              title: 'Estado',
+              value: _draft.estadoFilter,
+              options: const [
+                EstadoFilter.activos,
+                EstadoFilter.eliminados,
+                EstadoFilter.todos,
+              ],
+              labelBuilder: _estadoFilterLabel,
+              onSelected: (value) {
+                setState(() => _draft = _draft.copyWith(estadoFilter: value));
+              },
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop(
+                      const _ClientesFilterState(
+                        order: ClientesOrder.az,
+                        correoFilter: CorreoFilter.todos,
+                        estadoFilter: EstadoFilter.activos,
+                      ),
+                    );
+                  },
+                  child: const Text('Limpiar'),
+                ),
+                const Spacer(),
+                OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancelar'),
+                ),
+                const SizedBox(width: 12),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(_draft),
+                  child: const Text('Aplicar'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FilterSection<T> extends StatelessWidget {
+  const _FilterSection({
+    required this.title,
+    required this.value,
+    required this.options,
+    required this.labelBuilder,
+    required this.onSelected,
+  });
+
+  final String title;
+  final T value;
+  final List<T> options;
+  final String Function(T value) labelBuilder;
+  final ValueChanged<T> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final option in options)
+              ChoiceChip(
+                label: Text(labelBuilder(option)),
+                selected: option == value,
+                onSelected: (_) => onSelected(option),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+String _clientesOrderLabel(ClientesOrder order) {
+  switch (order) {
+    case ClientesOrder.az:
+      return 'Nombre A-Z';
+    case ClientesOrder.za:
+      return 'Nombre Z-A';
+  }
+}
+
+String _correoFilterLabel(CorreoFilter filter) {
+  switch (filter) {
+    case CorreoFilter.todos:
+      return 'Todos';
+    case CorreoFilter.conCorreo:
+      return 'Con correo';
+    case CorreoFilter.sinCorreo:
+      return 'Sin correo';
+  }
+}
+
+String _estadoFilterLabel(EstadoFilter filter) {
+  switch (filter) {
+    case EstadoFilter.activos:
+      return 'Activos';
+    case EstadoFilter.eliminados:
+      return 'Eliminados';
+    case EstadoFilter.todos:
+      return 'Todos';
+  }
 }

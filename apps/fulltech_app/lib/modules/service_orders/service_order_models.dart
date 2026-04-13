@@ -230,6 +230,20 @@ extension ServiceOrderStatusX on ServiceOrderStatus {
         return const [];
     }
   }
+
+  List<ServiceOrderStatus> nextStatusesForRole({
+    required bool canFinalizeDirectly,
+  }) {
+    if (this == ServiceOrderStatus.pendiente && canFinalizeDirectly) {
+      return const [
+        ServiceOrderStatus.enProceso,
+        ServiceOrderStatus.finalizado,
+        ServiceOrderStatus.cancelado,
+      ];
+    }
+
+    return allowedNextStatuses;
+  }
 }
 
 extension ServiceEvidenceTypeX on ServiceEvidenceType {

@@ -16,12 +16,14 @@ import '../../core/company/company_settings_model.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../../core/debug/debug_admin_action.dart';
 import '../../core/errors/api_exception.dart';
+import '../../core/models/user_model.dart';
 import '../../core/models/product_model.dart';
 import '../../core/realtime/catalog_realtime_service.dart';
 import '../../core/routing/app_route_observer.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/product_network_image.dart';
+import '../../features/user/data/users_repository.dart';
 import '../clientes/cliente_model.dart';
 import '../clientes/cliente_form_screen.dart';
 import '../ventas/data/ventas_repository.dart';
@@ -1431,7 +1433,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     required CotizacionModel cotizacion,
     required Uint8List pdfBytes,
   }) async {
-    final currentUser = ref.read(authStateProvider).user;
+    final currentUser = await _resolveCurrentUserForSelfDelivery();
     final selfPhone = _resolveCurrentUserDeliveryPhone(currentUser);
     if (selfPhone == null) {
       throw ApiException(
@@ -1458,7 +1460,18 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         );
   }
 
-  String? _resolveCurrentUserDeliveryPhone(dynamic currentUser) {
+  Future<UserModel?> _resolveCurrentUserForSelfDelivery() async {
+    final currentUser = ref.read(authStateProvider).user;
+    try {
+      final freshUser = await ref.read(usersRepositoryProvider).fetchMe();
+      ref.read(authStateProvider.notifier).setUser(freshUser);
+      return freshUser;
+    } catch (_) {
+      return currentUser;
+    }
+  }
+
+  String? _resolveCurrentUserDeliveryPhone(UserModel? currentUser) {
     if (currentUser == null) return null;
     final fleet = (currentUser.numeroFlota ?? '').trim();
     if (fleet.isNotEmpty) {
@@ -1476,7 +1489,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     String? currentUserName,
   }) {
     final recipientName = (currentUserName ?? '').trim();
-    final safeRecipient = recipientName.isEmpty ? 'Hola' : 'Hola $recipientName';
+    final safeRecipient = recipientName.isEmpty
+        ? 'Hola'
+        : 'Hola $recipientName';
     final quoteCode = _buildQuotationCode(cotizacion.id);
     final total = NumberFormat.currency(
       locale: 'es_DO',
@@ -1563,7 +1578,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     if (normalized.isEmpty) {
       return 'COT-MANUAL';
     }
-    final token = normalized.length > 8 ? normalized.substring(0, 8) : normalized;
+    final token = normalized.length > 8
+        ? normalized.substring(0, 8)
+        : normalized;
     return 'COT-$token';
   }
 
@@ -1596,11 +1613,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         return StatefulBuilder(
           builder: (context, setDialogState) {
             final currentUser = ref.read(authStateProvider).user;
-            final selfPhone = _resolveCurrentUserDeliveryPhone(currentUser);
-            final canSend = selfPhone != null && !sendingWhatsApp;
+            final canSend = currentUser != null && !sendingWhatsApp;
             final adminPhone = Env.quotationApprovalAdminPhone.trim();
-            final canSendAdmin =
-                adminPhone.isNotEmpty && !sendingAdminApproval;
+            final canSendAdmin = adminPhone.isNotEmpty && !sendingAdminApproval;
 
             Future<void> sendWhatsApp() async {
               setDialogState(() => sendingWhatsApp = true);
@@ -1611,16 +1626,12 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                 ).timeout(const Duration(seconds: 25));
                 if (!scaffoldContext.mounted) return;
                 ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
-                  SnackBar(
-                    content: Text(_selfDeliverySuccessMessage()),
-                  ),
+                  SnackBar(content: Text(_selfDeliverySuccessMessage())),
                 );
               } on TimeoutException {
                 if (!scaffoldContext.mounted) return;
                 ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
-                  SnackBar(
-                    content: Text(_selfDeliveryTimeoutMessage()),
-                  ),
+                  SnackBar(content: Text(_selfDeliveryTimeoutMessage())),
                 );
               } on ApiException catch (e) {
                 if (!scaffoldContext.mounted) return;
@@ -1728,11 +1739,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                                     ),
                                   )
                                 : const Icon(Icons.verified_user_outlined),
-                            label: Text(
-                              compact
-                                  ? 'A admin'
-                                  : 'Enviar a admin',
-                            ),
+                            label: Text(compact ? 'A admin' : 'Enviar a admin'),
                           ),
                           const SizedBox(width: 6),
                           TextButton.icon(

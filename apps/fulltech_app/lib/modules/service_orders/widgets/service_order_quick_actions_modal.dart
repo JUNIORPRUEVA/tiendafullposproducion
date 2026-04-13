@@ -276,7 +276,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
         currentUser?.appRole.isAdmin == true ||
         currentUser?.appRole.isTechnician == true;
     final nextStatuses = canPromoteStatus
-        ? order.status.allowedNextStatuses
+        ? order.status.nextStatusesForRole(canFinalizeDirectly: true)
         : order.status.allowedNextStatuses
               .where((status) => status == ServiceOrderStatus.cancelado)
               .toList(growable: false);

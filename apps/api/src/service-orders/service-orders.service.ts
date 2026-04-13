@@ -449,7 +449,9 @@ export class ServiceOrdersService {
     const previousStatus = this.toApiStatus(item.status);
     const nextStatus = dto.status as ApiServiceOrderStatus;
     this.assertCanChangeOrderStatus(user, nextStatus);
-    this.assertValidStatusTransition(previousStatus, nextStatus);
+    if (!this.canFinalizePendingDirectly(user, previousStatus, nextStatus)) {
+      this.assertValidStatusTransition(previousStatus, nextStatus);
+    }
     const resolvedAssignedToId =
       nextStatus === 'finalizado' && user.role === Role.TECNICO
         ? user.id
@@ -1515,6 +1517,18 @@ export class ServiceOrdersService {
         `Transición inválida de estado: ${current} -> ${next}`,
       );
     }
+  }
+
+  private canFinalizePendingDirectly(
+    user: AuthUser,
+    current: ApiServiceOrderStatus,
+    next: ApiServiceOrderStatus,
+  ) {
+    return (
+      current === 'pendiente' &&
+      next === 'finalizado' &&
+      (user.role === Role.ADMIN || user.role === Role.TECNICO)
+    );
   }
 
   private requireAliasValue(primary: string | undefined, alias: string | undefined, fieldName: string) {

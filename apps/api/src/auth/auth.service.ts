@@ -18,6 +18,7 @@ export class AuthService {
     const normalizedIdentifier = identifier.trim().toLowerCase();
     const user = await this.findUserForLogin(normalizedIdentifier);
     if (!user) throw new UnauthorizedException('Invalid credentials');
+    if (user.blocked === true) throw new UnauthorizedException('User blocked');
 
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
@@ -131,15 +132,39 @@ export class AuthService {
           email: true,
           passwordHash: true,
           role: true,
+          blocked: true,
         },
       });
     } catch (error) {
+      if (this.isMissingBlockedColumn(error)) {
+        const row = await this.prisma.user.findUnique({
+          where: { email },
+          select: {
+            id: true,
+            email: true,
+            passwordHash: true,
+            role: true,
+          },
+        });
+        if (!row) return null;
+        return {
+          ...row,
+          blocked: false,
+        };
+      }
+
       if (!this.isMissingUserTable(error)) throw error;
 
       const rows = await this.prisma.$queryRaw<
-        Array<{ id: string; email: string; passwordHash: string; role: string }>
+        Array<{
+          id: string;
+          email: string;
+          passwordHash: string;
+          role: string;
+          blocked: boolean | null;
+        }>
       >(Prisma.sql`
-        SELECT id, email, "passwordHash", role
+        SELECT id, email, "passwordHash", role, COALESCE(blocked, false) AS blocked
         FROM users
         WHERE email = ${email}
         LIMIT 1
@@ -152,6 +177,7 @@ export class AuthService {
         email: row.email,
         passwordHash: row.passwordHash,
         role: row.role,
+        blocked: row.blocked ?? false,
       };
     }
   }

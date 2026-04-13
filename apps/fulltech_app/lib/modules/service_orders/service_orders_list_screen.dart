@@ -37,8 +37,11 @@ class ServiceOrdersListScreen extends ConsumerStatefulWidget {
 class _ServiceOrdersListScreenState
     extends ConsumerState<ServiceOrdersListScreen> {
   ServiceOrdersFilter _filter = const ServiceOrdersFilter.mainDefault();
+  final TextEditingController _collapsedQuickSearchCtrl =
+      TextEditingController();
   final Set<String> _busyOrderIds = <String>{};
   final Set<String> _creatingFromOrderIds = <String>{};
+  bool _desktopControlsCollapsed = false;
   bool _mobileControlsCollapsed = true;
   bool _purgingAllDebug = false;
   StreamSubscription<OperationsRealtimeMessage>?
@@ -60,6 +63,7 @@ class _ServiceOrdersListScreenState
   @override
   void dispose() {
     _operationsRealtimeSubscription?.cancel();
+    _collapsedQuickSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -125,7 +129,11 @@ class _ServiceOrdersListScreenState
     final currentUserId = currentUser?.id ?? '';
     final width = MediaQuery.sizeOf(context).width;
     final isDesktop = width >= kDesktopShellBreakpoint;
-    final visibleOrders = _filter.apply(state.items);
+    final visibleOrders = _applyCollapsedQuickSearch(
+      orders: _filter.apply(state.items),
+      clientsById: state.clientsById,
+      usersById: state.usersById,
+    );
     final availableCreators = _buildFilterUserOptions(
       orders: state.items,
       usersById: state.usersById,
@@ -190,6 +198,11 @@ class _ServiceOrdersListScreenState
             },
             icon: const Icon(Icons.filter_alt_rounded),
             tooltip: 'Filtros',
+          ),
+          IconButton(
+            onPressed: () => context.push(Routes.clientesMapa),
+            icon: const Icon(Icons.map_rounded),
+            tooltip: 'Mapa de clientes',
           ),
           IconButton(
             onPressed: state.refreshing ? null : controller.refresh,
@@ -271,50 +284,80 @@ class _ServiceOrdersListScreenState
                                       refreshing: state.refreshing,
                                     ),
                                     const SizedBox(height: 12),
-                                    _OperationsControlPanel(
-                                      filter: _filter,
-                                      activeCount: visibleOrders.length,
-                                      refreshing: state.refreshing,
-                                      onCollapse: null,
-                                      onReset: _filter.hasActiveFilters
-                                          ? () {
-                                              setState(() {
-                                                _filter =
-                                                    const ServiceOrdersFilter.mainDefault();
-                                              });
+                                    if (!_desktopControlsCollapsed)
+                                      _OperationsControlPanel(
+                                        filter: _filter,
+                                        activeCount: visibleOrders.length,
+                                        refreshing: state.refreshing,
+                                        onCollapse: () {
+                                          setState(() {
+                                            _desktopControlsCollapsed = true;
+                                          });
+                                        },
+                                        onReset: _filter.hasActiveFilters
+                                            ? () {
+                                                setState(() {
+                                                  _filter =
+                                                      const ServiceOrdersFilter.mainDefault();
+                                                });
+                                              }
+                                            : null,
+                                        onToggleStatus: (status) {
+                                          setState(() {
+                                            final nextStatuses = {
+                                              ..._filter.statuses,
+                                            };
+                                            if (nextStatuses.contains(status)) {
+                                              nextStatuses.remove(status);
+                                            } else {
+                                              nextStatuses.add(status);
                                             }
-                                          : null,
-                                      onToggleStatus: (status) {
-                                        setState(() {
-                                          final nextStatuses = {
-                                            ..._filter.statuses,
-                                          };
-                                          if (nextStatuses.contains(status)) {
-                                            nextStatuses.remove(status);
-                                          } else {
-                                            nextStatuses.add(status);
-                                          }
-                                          _filter = _filter.copyWith(
-                                            statuses: nextStatuses,
-                                          );
-                                        });
-                                      },
-                                      onToggleServiceType: (serviceType) {
-                                        setState(() {
-                                          final nextTypes = {
-                                            ..._filter.serviceTypes,
-                                          };
-                                          if (nextTypes.contains(serviceType)) {
-                                            nextTypes.remove(serviceType);
-                                          } else {
-                                            nextTypes.add(serviceType);
-                                          }
-                                          _filter = _filter.copyWith(
-                                            serviceTypes: nextTypes,
-                                          );
-                                        });
-                                      },
-                                    ),
+                                            _filter = _filter.copyWith(
+                                              statuses: nextStatuses,
+                                            );
+                                          });
+                                        },
+                                        onToggleServiceType: (serviceType) {
+                                          setState(() {
+                                            final nextTypes = {
+                                              ..._filter.serviceTypes,
+                                            };
+                                            if (nextTypes.contains(
+                                              serviceType,
+                                            )) {
+                                              nextTypes.remove(serviceType);
+                                            } else {
+                                              nextTypes.add(serviceType);
+                                            }
+                                            _filter = _filter.copyWith(
+                                              serviceTypes: nextTypes,
+                                            );
+                                          });
+                                        },
+                                      )
+                                    else
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: _CollapsedOperationsPanelToggle(
+                                          activeCount: visibleOrders.length,
+                                          hasActiveFilters:
+                                              _filter.hasActiveFilters,
+                                          searchController:
+                                              _collapsedQuickSearchCtrl,
+                                          onSearchChanged: (_) {
+                                            setState(() {});
+                                          },
+                                          onClearSearch: () {
+                                            _collapsedQuickSearchCtrl.clear();
+                                            setState(() {});
+                                          },
+                                          onTap: () {
+                                            setState(() {
+                                              _desktopControlsCollapsed = false;
+                                            });
+                                          },
+                                        ),
+                                      ),
                                   ],
                                 )
                               : !_mobileControlsCollapsed
@@ -371,6 +414,14 @@ class _ServiceOrdersListScreenState
                                   child: _CollapsedOperationsPanelToggle(
                                     activeCount: visibleOrders.length,
                                     hasActiveFilters: _filter.hasActiveFilters,
+                                    searchController: _collapsedQuickSearchCtrl,
+                                    onSearchChanged: (_) {
+                                      setState(() {});
+                                    },
+                                    onClearSearch: () {
+                                      _collapsedQuickSearchCtrl.clear();
+                                      setState(() {});
+                                    },
                                     onTap: () {
                                       setState(() {
                                         _mobileControlsCollapsed = false;
@@ -611,6 +662,51 @@ class _ServiceOrdersListScreenState
       }
     }
   }
+
+  List<ServiceOrderModel> _applyCollapsedQuickSearch({
+    required List<ServiceOrderModel> orders,
+    required Map<String, ClienteModel> clientsById,
+    required Map<String, UserModel> usersById,
+  }) {
+    final query = _normalizeCollapsedQuickSearch(
+      _collapsedQuickSearchCtrl.text,
+    );
+    if (query.isEmpty) {
+      return orders;
+    }
+
+    return orders
+        .where((order) {
+          final client = order.client ?? clientsById[order.clientId];
+          final creatorName =
+              usersById[order.createdById]?.nombreCompleto ?? '';
+          final technicianName = order.assignedToId == null
+              ? ''
+              : (usersById[order.assignedToId!]?.nombreCompleto ?? '');
+          final searchable = _normalizeCollapsedQuickSearch(
+            [
+              order.id,
+              order.clientId,
+              order.quotationId ?? '',
+              order.category.label,
+              order.serviceType.label,
+              order.status.label,
+              client?.nombre ?? '',
+              client?.telefono ?? '',
+              creatorName,
+              technicianName,
+              order.technicalNote ?? '',
+              order.extraRequirements ?? '',
+            ].join(' '),
+          );
+          return searchable.contains(query);
+        })
+        .toList(growable: false);
+  }
+
+  String _normalizeCollapsedQuickSearch(String value) {
+    return value.toLowerCase().trim();
+  }
 }
 
 enum ServiceOrdersDatePreset { all, today, thisWeek, custom }
@@ -687,9 +783,9 @@ class ServiceOrdersFilter {
         serviceTypes.isEmpty &&
         creatorIds.isEmpty &&
         technicianIds.isEmpty &&
-      statuses.length == 2 &&
+        statuses.length == 2 &&
         statuses.contains(ServiceOrderStatus.pendiente) &&
-      statuses.contains(ServiceOrderStatus.enProceso);
+        statuses.contains(ServiceOrderStatus.enProceso);
   }
 
   ServiceOrdersFilter copyWith({
@@ -2019,66 +2115,138 @@ class _CollapsedOperationsPanelToggle extends StatelessWidget {
   const _CollapsedOperationsPanelToggle({
     required this.activeCount,
     required this.hasActiveFilters,
+    required this.searchController,
+    required this.onSearchChanged,
+    required this.onClearSearch,
     required this.onTap,
   });
 
   final int activeCount;
   final bool hasActiveFilters;
+  final TextEditingController searchController;
+  final ValueChanged<String> onSearchChanged;
+  final VoidCallback onClearSearch;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(999),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.9),
+    final hasSearchText = searchController.text.trim().isNotEmpty;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ConstrainedBox(
+          constraints: const BoxConstraints.tightFor(width: 168, height: 42),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: colorScheme.surface,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: colorScheme.outlineVariant.withValues(alpha: 0.82),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: colorScheme.shadow.withValues(alpha: 0.03),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
             ),
-            boxShadow: [
-              BoxShadow(
-                color: colorScheme.shadow.withValues(alpha: 0.04),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
+            child: TextField(
+              controller: searchController,
+              onChanged: onSearchChanged,
+              textInputAction: TextInputAction.search,
+              style: Theme.of(
+                context,
+              ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Buscar',
+                hintStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w500,
+                ),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 11),
+                prefixIcon: Icon(
+                  Icons.search_rounded,
+                  size: 18,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+                suffixIcon: hasSearchText
+                    ? IconButton(
+                        tooltip: 'Limpiar búsqueda',
+                        visualDensity: VisualDensity.compact,
+                        splashRadius: 16,
+                        onPressed: onClearSearch,
+                        icon: Icon(
+                          Icons.close_rounded,
+                          size: 16,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      )
+                    : null,
               ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.tune_rounded, size: 17, color: colorScheme.primary),
-              const SizedBox(width: 8),
-              Text(
-                'Panel',
-                style: Theme.of(
-                  context,
-                ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(width: 8),
-              _PanelMetaPill(
-                icon: hasActiveFilters
-                    ? Icons.filter_alt_rounded
-                    : Icons.layers_outlined,
-                text: hasActiveFilters ? 'Filtros' : '$activeCount',
-                accent: hasActiveFilters ? colorScheme.primary : null,
-              ),
-              const SizedBox(width: 4),
-              Icon(
-                Icons.keyboard_arrow_down_rounded,
-                size: 18,
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ],
+            ),
           ),
         ),
-      ),
+        const SizedBox(width: 8),
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: onTap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.9),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: colorScheme.shadow.withValues(alpha: 0.04),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.tune_rounded,
+                    size: 17,
+                    color: colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Panel',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _PanelMetaPill(
+                    icon: hasActiveFilters
+                        ? Icons.filter_alt_rounded
+                        : Icons.layers_outlined,
+                    text: hasActiveFilters ? 'Filtros' : '$activeCount',
+                    accent: hasActiveFilters ? colorScheme.primary : null,
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    size: 18,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -3391,7 +3559,7 @@ class _InlineStatusButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final nextStatuses = canPromoteStatus
-        ? order.status.allowedNextStatuses
+        ? order.status.nextStatusesForRole(canFinalizeDirectly: true)
         : order.status.allowedNextStatuses
               .where((status) => status == ServiceOrderStatus.cancelado)
               .toList(growable: false);

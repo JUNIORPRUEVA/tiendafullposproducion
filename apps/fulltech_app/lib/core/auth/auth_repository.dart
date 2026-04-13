@@ -110,6 +110,161 @@ class AuthRepository {
     return ApiErrorMapper.fromDio(error, fallbackMessage: fallback, dio: _dio);
   }
 
+  ApiException _mapLoginError(ApiException error) {
+    final normalizedMessage = error.message.trim().toLowerCase();
+
+    if (error.type == ApiErrorType.badRequest &&
+        normalizedMessage.contains('email o identifier')) {
+      return ApiException.detailed(
+        message: 'Ingresa tu correo corporativo para iniciar sesión.',
+        code: error.code,
+        type: error.type,
+        displayCode: error.displayCode,
+        technicalDetails: error.technicalDetails,
+        responseBody: error.responseBody,
+        uri: error.uri,
+        method: error.method,
+        retryable: false,
+      );
+    }
+
+    if (error.type == ApiErrorType.unauthorized) {
+      if (normalizedMessage.contains('invalid credentials')) {
+        return ApiException.detailed(
+          message:
+              'Correo o contraseña incorrectos. Verifica tus datos e inténtalo de nuevo.',
+          code: error.code,
+          type: error.type,
+          displayCode: error.displayCode,
+          technicalDetails: error.technicalDetails,
+          responseBody: error.responseBody,
+          uri: error.uri,
+          method: error.method,
+          retryable: false,
+        );
+      }
+
+      if (normalizedMessage.contains('user blocked')) {
+        return ApiException.detailed(
+          message:
+              'Tu cuenta está bloqueada temporalmente. Contacta a un administrador para reactivarla.',
+          code: error.code,
+          type: error.type,
+          displayCode: error.displayCode,
+          technicalDetails: error.technicalDetails,
+          responseBody: error.responseBody,
+          uri: error.uri,
+          method: error.method,
+          retryable: false,
+        );
+      }
+
+      return ApiException.detailed(
+        message:
+            'No fue posible validar tus credenciales. Revisa tu correo y tu contraseña.',
+        code: error.code,
+        type: error.type,
+        displayCode: error.displayCode,
+        technicalDetails: error.technicalDetails,
+        responseBody: error.responseBody,
+        uri: error.uri,
+        method: error.method,
+        retryable: false,
+      );
+    }
+
+    if (error.type == ApiErrorType.forbidden) {
+      return ApiException.detailed(
+        message:
+            'Tu cuenta no tiene permisos para acceder en este momento. Si el problema continúa, contacta a administración.',
+        code: error.code,
+        type: error.type,
+        displayCode: error.displayCode,
+        technicalDetails: error.technicalDetails,
+        responseBody: error.responseBody,
+        uri: error.uri,
+        method: error.method,
+        retryable: false,
+      );
+    }
+
+    if (error.type == ApiErrorType.timeout) {
+      return ApiException.detailed(
+        message:
+            'El servidor tardó demasiado en responder. Revisa tu conexión e inténtalo nuevamente.',
+        code: error.code,
+        type: error.type,
+        displayCode: error.displayCode,
+        technicalDetails: error.technicalDetails,
+        responseBody: error.responseBody,
+        uri: error.uri,
+        method: error.method,
+        retryable: true,
+      );
+    }
+
+    if (error.type == ApiErrorType.noInternet ||
+        error.type == ApiErrorType.dns ||
+        error.type == ApiErrorType.tls ||
+        error.type == ApiErrorType.network) {
+      return ApiException.detailed(
+        message:
+            'No pudimos conectar con el servidor. Verifica tu internet e intenta otra vez.',
+        code: error.code,
+        type: error.type,
+        displayCode: error.displayCode,
+        technicalDetails: error.technicalDetails,
+        responseBody: error.responseBody,
+        uri: error.uri,
+        method: error.method,
+        retryable: true,
+      );
+    }
+
+    if (error.type == ApiErrorType.config) {
+      return ApiException.detailed(
+        message:
+            'La app no tiene una configuración válida para conectarse al backend. Revisa la configuración del sistema.',
+        code: error.code,
+        type: error.type,
+        displayCode: error.displayCode,
+        technicalDetails: error.technicalDetails,
+        responseBody: error.responseBody,
+        uri: error.uri,
+        method: error.method,
+        retryable: false,
+      );
+    }
+
+    if (error.type == ApiErrorType.server) {
+      return ApiException.detailed(
+        message:
+            'El servidor presentó un problema al procesar el inicio de sesión. Intenta nuevamente en unos momentos.',
+        code: error.code,
+        type: error.type,
+        displayCode: error.displayCode,
+        technicalDetails: error.technicalDetails,
+        responseBody: error.responseBody,
+        uri: error.uri,
+        method: error.method,
+        retryable: true,
+      );
+    }
+
+    return ApiException.detailed(
+      message:
+          'No fue posible iniciar sesión en este momento. Intenta nuevamente.',
+      code: error.code,
+      type: error.type,
+      displayCode: error.displayCode,
+      technicalDetails: error.technicalDetails,
+      responseBody: error.responseBody,
+      uri: error.uri,
+      method: error.method,
+      retryable: error.retryable,
+    );
+  }
+
   UserModel? _userFromLoginResponse(dynamic data) {
     if (data is! Map) return null;
     final user = data['user'];
@@ -210,7 +365,9 @@ class AuthRepository {
         retryable: true,
       );
     } on DioException catch (e) {
-      throw _mapDioError(e, 'No se pudo iniciar sesión');
+      throw _mapLoginError(_mapDioError(e, 'No se pudo iniciar sesión'));
+    } on ApiException catch (e) {
+      throw _mapLoginError(e);
     } catch (_) {
       rethrow;
     }

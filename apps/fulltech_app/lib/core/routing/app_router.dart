@@ -21,6 +21,7 @@ import '../../features/catalogo/catalogo_screen.dart';
 import '../../features/media_gallery/presentation/media_gallery_screen.dart';
 import '../../modules/clientes/cliente_detail_screen.dart';
 import '../../modules/clientes/clientes_screen.dart';
+import '../../modules/clientes/clientes_map_screen.dart';
 import '../../modules/clientes/cliente_form_screen.dart';
 import '../../modules/nomina/nomina_screen.dart';
 import '../../modules/nomina/mis_pagos_screen.dart';
@@ -168,6 +169,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.clientes,
             builder: (context, state) => const ClientesScreen(),
+          ),
+          GoRoute(
+            path: Routes.clientesMapa,
+            builder: (context, state) => const ClientesMapScreen(),
           ),
           GoRoute(
             path: Routes.ventas,

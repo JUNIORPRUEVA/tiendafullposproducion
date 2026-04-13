@@ -8,7 +8,6 @@ class Env {
       'https://fulltech-tienda-fulltechapppwa.gcdndd.easypanel.host';
   static const String _defaultAppBaseUrl =
       'https://fulltech-tienda-fulltechapppwa.gcdndd.easypanel.host';
-  static const String _defaultQuotationApprovalAdminPhone = '8295344286';
   static const int _defaultApiTimeoutMs = 15000;
   static const int _minApiTimeoutMs = 1000;
 
@@ -133,7 +132,7 @@ class Env {
 
   static String get quotationApprovalAdminPhone {
     final raw = (_readEnv('QUOTATION_APPROVAL_ADMIN_PHONE') ?? '').trim();
-    return raw.isEmpty ? _defaultQuotationApprovalAdminPhone : raw;
+    return raw;
   }
 
   static String? get releasesApiBaseUrl {
