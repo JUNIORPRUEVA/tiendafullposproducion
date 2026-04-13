@@ -131,9 +131,10 @@ export class ClientsService {
   private extractCoordinatesFromLocationUrl(locationUrl: string) {
     const decoded = decodeURIComponent(locationUrl);
     const patterns = [
-      /[?&]q=(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/i,
-      /@(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/i,
-      /(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/,
+      /[?&]q=\+?(-?\d+(?:\.\d+)?),[\s+]*(-?\d+(?:\.\d+)?)/i,
+      /\/maps\/search\/\+?(-?\d+(?:\.\d+)?),[\s+]*(-?\d+(?:\.\d+)?)/i,
+      /@\+?(-?\d+(?:\.\d+)?),[\s+]*(-?\d+(?:\.\d+)?)/i,
+      /\+?(-?\d+(?:\.\d+)?),[\s+]*(-?\d+(?:\.\d+)?)/,
     ];
 
     for (const pattern of patterns) {

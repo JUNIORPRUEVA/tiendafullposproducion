@@ -55,12 +55,19 @@ ClientLocationPreview parseClientLocationPreview(String? rawUrl) {
   final decoded = Uri.decodeFull(normalized);
   final patterns = <RegExp>[
     RegExp(
-      r'[?&]q=(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)',
+      r'[?&]q=\+?(-?\d+(?:\.\d+)?),[\s+]*(-?\d+(?:\.\d+)?)',
       caseSensitive: false,
     ),
-    RegExp(r'@(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)', caseSensitive: false),
+    RegExp(
+      r'/maps/search/\+?(-?\d+(?:\.\d+)?),[\s+]*(-?\d+(?:\.\d+)?)',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'@\+?(-?\d+(?:\.\d+)?),[\s+]*(-?\d+(?:\.\d+)?)',
+      caseSensitive: false,
+    ),
     RegExp(r'!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)', caseSensitive: false),
-    RegExp(r'(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)'),
+    RegExp(r'\+?(-?\d+(?:\.\d+)?),[\s+]*(-?\d+(?:\.\d+)?)'),
   ];
 
   for (final pattern in patterns) {

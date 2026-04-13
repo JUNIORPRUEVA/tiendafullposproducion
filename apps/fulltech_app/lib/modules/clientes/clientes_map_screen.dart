@@ -64,7 +64,10 @@ class _ClientesMapScreenState extends ConsumerState<ClientesMapScreen> {
   Future<void> _resolveLocations({bool force = false}) async {
     final clients = ref.read(clientesControllerProvider).items;
     final signature = clients
-        .map((client) => '${client.id}|${client.locationUrl ?? ''}')
+        .map(
+          (client) =>
+              '${client.id}|${client.locationUrl ?? ''}|${client.latitude ?? ''}|${client.longitude ?? ''}',
+        )
         .join('||');
 
     if (!force && signature == _locationSignature) return;
@@ -75,6 +78,20 @@ class _ClientesMapScreenState extends ConsumerState<ClientesMapScreen> {
     try {
       final entries = await Future.wait(
         clients.map((client) async {
+          if (client.latitude != null &&
+              client.longitude != null &&
+              client.latitude!.isFinite &&
+              client.longitude!.isFinite) {
+            return MapEntry(
+              client.id,
+              ClientLocationPreview(
+                latitude: client.latitude,
+                longitude: client.longitude,
+                resolvedUrl: client.locationUrl,
+              ),
+            );
+          }
+
           final preview = await resolveClientLocationPreview(
             client.locationUrl,
             dio: dio,
@@ -104,7 +121,10 @@ class _ClientesMapScreenState extends ConsumerState<ClientesMapScreen> {
     final ordersState = ref.watch(serviceOrdersListControllerProvider);
 
     final nextSignature = clientsState.items
-        .map((client) => '${client.id}|${client.locationUrl ?? ''}')
+      .map(
+        (client) =>
+          '${client.id}|${client.locationUrl ?? ''}|${client.latitude ?? ''}|${client.longitude ?? ''}',
+      )
         .join('||');
     if (!_resolvingLocations && nextSignature != _locationSignature) {
       WidgetsBinding.instance.addPostFrameCallback((_) {

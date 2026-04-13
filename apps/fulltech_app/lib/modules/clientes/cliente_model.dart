@@ -5,6 +5,8 @@ class ClienteModel {
   final String telefono;
   final String? direccion;
   final String? locationUrl;
+  final double? latitude;
+  final double? longitude;
   final String? correo;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -19,6 +21,8 @@ class ClienteModel {
     required this.telefono,
     this.direccion,
     this.locationUrl,
+    this.latitude,
+    this.longitude,
     this.correo,
     this.createdAt,
     this.updatedAt,
@@ -28,6 +32,12 @@ class ClienteModel {
   });
 
   factory ClienteModel.fromMap(Map<String, dynamic> map) {
+    double? parseDouble(dynamic value) {
+      if (value == null) return null;
+      final parsed = double.tryParse(value.toString());
+      return (parsed != null && parsed.isFinite) ? parsed : null;
+    }
+
     return ClienteModel(
       id: (map['id'] ?? '').toString(),
       ownerId: (map['owner_id'] ?? map['ownerId'] ?? '').toString(),
@@ -43,6 +53,8 @@ class ClienteModel {
               true
           ? null
           : (map['locationUrl'] ?? map['location_url']) as String?,
+        latitude: parseDouble(map['latitude']),
+        longitude: parseDouble(map['longitude']),
       correo:
           ((map['correo'] ?? map['email']) as String?)?.trim().isEmpty == true
           ? null
@@ -74,6 +86,8 @@ class ClienteModel {
       'telefono': telefono,
       'direccion': direccion,
       'location_url': locationUrl,
+      'latitude': latitude,
+      'longitude': longitude,
       'correo': correo,
       'created_at': createdAt?.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
@@ -104,6 +118,8 @@ class ClienteModel {
     String? telefono,
     String? direccion,
     String? locationUrl,
+    double? latitude,
+    double? longitude,
     String? correo,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -122,6 +138,8 @@ class ClienteModel {
       telefono: telefono ?? this.telefono,
       direccion: clearDireccion ? null : (direccion ?? this.direccion),
       locationUrl: clearLocationUrl ? null : (locationUrl ?? this.locationUrl),
+      latitude: clearLocationUrl ? null : (latitude ?? this.latitude),
+      longitude: clearLocationUrl ? null : (longitude ?? this.longitude),
       correo: clearCorreo ? null : (correo ?? this.correo),
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
