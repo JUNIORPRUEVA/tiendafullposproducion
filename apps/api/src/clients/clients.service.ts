@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+
 import {
   BadRequestException,
   ConflictException,
@@ -13,12 +15,16 @@ import { CreateClientDto } from './dto/create-client.dto';
 import { ClientsQueryDto } from './dto/clients-query.dto';
 import { UpdateClientLocationDto } from './dto/update-client-location.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
+import { CatalogRealtimeRelayService } from '../products/catalog-realtime-relay.service';
 
 type AuthUser = { id: string; role: Role };
 
 @Injectable()
 export class ClientsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly realtime: CatalogRealtimeRelayService,
+  ) {}
 
   private static readonly adminLikeRoles = new Set<Role>([Role.ADMIN, Role.ASISTENTE]);
 
@@ -251,6 +257,17 @@ export class ClientsService {
     return clients.map((client) => this.serializeClient(client));
   }
 
+  private emitClientEvent(type: string, client?: Client | null, clientId?: string) {
+    const serialized = this.serializeClient(client ?? null);
+    const resolvedClientId = clientId?.trim() || serialized?.id?.toString().trim() || undefined;
+    this.realtime.emitOps('client.event', {
+      eventId: crypto.randomUUID(),
+      type,
+      clientId: resolvedClientId,
+      client: serialized,
+    });
+  }
+
   private async assertNoActiveDuplicatePhoneNormalized(
     phoneNormalized: string,
     excludeClientId?: string,
@@ -291,6 +308,7 @@ export class ClientsService {
           ...(locationData ?? {}),
         },
       });
+      this.emitClientEvent('client.created', client);
       return this.serializeClient(client);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -376,6 +394,7 @@ export class ClientsService {
           ...(locationData ?? {}),
         },
       });
+      this.emitClientEvent('client.updated', client);
       return this.serializeClient(client);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -398,13 +417,16 @@ export class ClientsService {
       data: locationData,
     });
 
+    this.emitClientEvent('client.updated', client);
+
     return this.serializeClient(client);
   }
 
   async remove(user: AuthUser, id: string) {
     this.assertAdmin(user, 'Only admin can delete clients');
     await this.findAccessibleClientOrThrow(user, id);
-    await this.prisma.client.update({ where: { id }, data: { isDeleted: true } });
+    const client = await this.prisma.client.update({ where: { id }, data: { isDeleted: true } });
+    this.emitClientEvent('client.deleted', client, id);
     return { ok: true };
   }
 
@@ -462,6 +484,8 @@ export class ClientsService {
         deletedLegacyServices: deletedLegacyServices.count,
       };
     });
+
+    this.emitClientEvent('client.bulkDeleted');
 
     return { ok: true, ...result };
   }

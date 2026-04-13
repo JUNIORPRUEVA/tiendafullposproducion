@@ -9,6 +9,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/auth/auth_repository.dart';
+import '../../core/realtime/operations_realtime_service.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/safe_url_launcher.dart';
 import '../../core/widgets/app_drawer.dart';
@@ -37,13 +38,49 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
   ClienteModel? _cliente;
   ClienteProfileResponse? _profile;
   List<ClienteTimelineEvent> _timeline = const [];
+  StreamSubscription<ClientsRealtimeMessage>? _clientsRealtimeSubscription;
 
   static const Duration _detailTimeout = Duration(seconds: 12);
 
   @override
   void initState() {
     super.initState();
+    _clientsRealtimeSubscription = ref
+        .read(operationsRealtimeServiceProvider)
+        .clientStream
+        .listen(_handleRealtimeMessage);
     _load();
+  }
+
+  @override
+  void dispose() {
+    _clientsRealtimeSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _handleRealtimeMessage(ClientsRealtimeMessage message) {
+    if (!mounted) return;
+    final incomingId = (message.clientId ?? '').trim();
+    final currentId = widget.clienteId.trim();
+
+    if (message.type == 'client.bulkDeleted') {
+      context.go(Routes.clientes);
+      return;
+    }
+
+    if (incomingId.isEmpty || incomingId != currentId) {
+      return;
+    }
+
+    if (message.type == 'client.deleted') {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('Este cliente fue eliminado.')),
+      );
+      context.go(Routes.clientes);
+      return;
+    }
+
+    unawaited(_load());
   }
 
   Future<void> _load() async {
@@ -240,37 +277,45 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
     final createdBy = profile?.createdBy;
 
     return [
-      _ClientFactData(
-        label: 'Telefono',
-        value: (client?.telefono ?? _cliente?.telefono ?? '').trim(),
-        icon: Icons.call_outlined,
-      ),
-      _ClientFactData(
-        label: 'Correo',
-        value: (client?.email ?? _cliente?.correo ?? '').trim(),
-        icon: Icons.alternate_email_rounded,
-      ),
-      _ClientFactData(
-        label: 'Direccion',
-        value: (client?.direccion ?? _cliente?.direccion ?? '').trim(),
-        icon: Icons.location_on_outlined,
-      ),
-      _ClientFactData(
-        label: 'Creado por',
-        value: createdBy?.displayName ?? '',
-        icon: Icons.person_outline_rounded,
-      ),
-      _ClientFactData(
-        label: 'Creado',
-        value: client?.createdAt != null ? _formatDate(client!.createdAt) : '',
-        icon: Icons.calendar_today_outlined,
-      ),
-      _ClientFactData(
-        label: 'Ultima actividad',
-        value: _formatDate(profile?.metrics.lastActivityAt ?? client?.lastActivityAt),
-        icon: Icons.schedule_rounded,
-      ),
-    ].where((item) => item.value.trim().isNotEmpty && item.value.trim() != '-').toList(growable: false);
+          _ClientFactData(
+            label: 'Telefono',
+            value: (client?.telefono ?? _cliente?.telefono ?? '').trim(),
+            icon: Icons.call_outlined,
+          ),
+          _ClientFactData(
+            label: 'Correo',
+            value: (client?.email ?? _cliente?.correo ?? '').trim(),
+            icon: Icons.alternate_email_rounded,
+          ),
+          _ClientFactData(
+            label: 'Direccion',
+            value: (client?.direccion ?? _cliente?.direccion ?? '').trim(),
+            icon: Icons.location_on_outlined,
+          ),
+          _ClientFactData(
+            label: 'Creado por',
+            value: createdBy?.displayName ?? '',
+            icon: Icons.person_outline_rounded,
+          ),
+          _ClientFactData(
+            label: 'Creado',
+            value: client?.createdAt != null
+                ? _formatDate(client!.createdAt)
+                : '',
+            icon: Icons.calendar_today_outlined,
+          ),
+          _ClientFactData(
+            label: 'Ultima actividad',
+            value: _formatDate(
+              profile?.metrics.lastActivityAt ?? client?.lastActivityAt,
+            ),
+            icon: Icons.schedule_rounded,
+          ),
+        ]
+        .where(
+          (item) => item.value.trim().isNotEmpty && item.value.trim() != '-',
+        )
+        .toList(growable: false);
   }
 
   @override
@@ -323,7 +368,8 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
                 children: [
                   _ClientHeroCard(
-                    name: profile?.client.nombre ?? _cliente?.nombre ?? 'Cliente',
+                    name:
+                        profile?.client.nombre ?? _cliente?.nombre ?? 'Cliente',
                     phone: profile?.client.telefono ?? _cliente?.telefono,
                     email: profile?.client.email ?? _cliente?.correo,
                     totalPurchased: _formatMoney(profile?.metrics.salesTotal),
@@ -331,7 +377,10 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                       profile?.metrics.lastActivityAt ??
                           profile?.client.lastActivityAt,
                     ),
-                    deleted: profile?.client.isDeleted ?? _cliente?.isDeleted ?? false,
+                    deleted:
+                        profile?.client.isDeleted ??
+                        _cliente?.isDeleted ??
+                        false,
                   ),
                   const SizedBox(height: 12),
                   _SectionCard(
@@ -358,7 +407,9 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                           child: _MetricCard(
                             label: 'Cotizaciones',
                             value: '${profile?.metrics.cotizacionesCount ?? 0}',
-                            helper: _formatMoney(profile?.metrics.cotizacionesTotal),
+                            helper: _formatMoney(
+                              profile?.metrics.cotizacionesTotal,
+                            ),
                           ),
                         ),
                       ],
@@ -372,9 +423,15 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                       children: [
                         _ClientFactsGrid(items: _buildClientFacts(profile)),
                         _LocationDetailCard(
-                          locationUrl: profile?.client.locationUrl ?? _cliente?.locationUrl,
-                          latitude: profile?.client.latitude ?? fallbackLocation.latitude,
-                          longitude: profile?.client.longitude ?? fallbackLocation.longitude,
+                          locationUrl:
+                              profile?.client.locationUrl ??
+                              _cliente?.locationUrl,
+                          latitude:
+                              profile?.client.latitude ??
+                              fallbackLocation.latitude,
+                          longitude:
+                              profile?.client.longitude ??
+                              fallbackLocation.longitude,
                         ),
                         if (_hasText(profile?.client.notas))
                           _InlineNoteCard(note: profile!.client.notas!.trim()),
@@ -408,8 +465,12 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                           title: event.title,
                           summary: _timelineSummary(event),
                           date: _formatDate(event.at),
-                          amount: event.amount == null ? null : _formatMoney(event.amount),
-                          status: (event.status ?? '').trim().isEmpty ? null : event.status!.trim(),
+                          amount: event.amount == null
+                              ? null
+                              : _formatMoney(event.amount),
+                          status: (event.status ?? '').trim().isEmpty
+                              ? null
+                              : event.status!.trim(),
                           onTap: () => _openEvent(event),
                         ),
                       ),
@@ -714,7 +775,9 @@ class _ClientHeroCard extends StatelessWidget {
                   backgroundColor: theme.colorScheme.primaryContainer,
                   foregroundColor: theme.colorScheme.onPrimaryContainer,
                   child: Text(
-                    name.isEmpty ? '?' : name.trim().substring(0, 1).toUpperCase(),
+                    name.isEmpty
+                        ? '?'
+                        : name.trim().substring(0, 1).toUpperCase(),
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -734,7 +797,7 @@ class _ClientHeroCard extends StatelessWidget {
                           height: 1.2,
                         ),
                       ),
-                      if (contactLine.isNotEmpty) ...[  
+                      if (contactLine.isNotEmpty) ...[
                         const SizedBox(height: 2),
                         Text(
                           contactLine,
@@ -748,16 +811,25 @@ class _ClientHeroCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (deleted)
-                  const Chip(label: Text('Eliminado')),
+                if (deleted) const Chip(label: Text('Eliminado')),
               ],
             ),
             const SizedBox(height: 10),
             Row(
               children: [
-                Expanded(child: _InfoBadge(label: 'Total comprado', value: totalPurchased)),
+                Expanded(
+                  child: _InfoBadge(
+                    label: 'Total comprado',
+                    value: totalPurchased,
+                  ),
+                ),
                 const SizedBox(width: 8),
-                Expanded(child: _InfoBadge(label: 'Ultima actividad', value: lastActivity)),
+                Expanded(
+                  child: _InfoBadge(
+                    label: 'Ultima actividad',
+                    value: lastActivity,
+                  ),
+                ),
               ],
             ),
           ],
@@ -830,7 +902,9 @@ class _ClientFactsGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 700;
-        final itemWidth = isCompact ? constraints.maxWidth : (constraints.maxWidth - 12) / 2;
+        final itemWidth = isCompact
+            ? constraints.maxWidth
+            : (constraints.maxWidth - 12) / 2;
         return Wrap(
           spacing: 12,
           runSpacing: 12,
@@ -980,7 +1054,11 @@ class _TimelineEventCard extends StatelessWidget {
                   color: theme.colorScheme.primaryContainer,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(icon, size: 18, color: theme.colorScheme.onPrimaryContainer),
+                child: Icon(
+                  icon,
+                  size: 18,
+                  color: theme.colorScheme.onPrimaryContainer,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -999,7 +1077,10 @@ class _TimelineEventCard extends StatelessWidget {
                           ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: theme.colorScheme.surfaceContainerHighest,
                             borderRadius: BorderRadius.circular(999),

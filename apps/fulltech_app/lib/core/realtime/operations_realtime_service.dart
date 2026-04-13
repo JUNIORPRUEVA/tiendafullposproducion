@@ -22,17 +22,34 @@ class OperationsRealtimeMessage {
   final Map<String, dynamic>? service;
 }
 
+class ClientsRealtimeMessage {
+  const ClientsRealtimeMessage({
+    required this.eventId,
+    required this.type,
+    this.clientId,
+    this.client,
+  });
+
+  final String eventId;
+  final String type;
+  final String? clientId;
+  final Map<String, dynamic>? client;
+}
+
 class OperationsRealtimeService {
   OperationsRealtimeService(this._storage);
 
   final TokenStorage _storage;
   final StreamController<OperationsRealtimeMessage> _controller =
       StreamController<OperationsRealtimeMessage>.broadcast();
+  final StreamController<ClientsRealtimeMessage> _clientsController =
+      StreamController<ClientsRealtimeMessage>.broadcast();
   final Set<String> _seenEventIds = <String>{};
 
   io.Socket? _socket;
 
   Stream<OperationsRealtimeMessage> get stream => _controller.stream;
+  Stream<ClientsRealtimeMessage> get clientStream => _clientsController.stream;
 
   Future<void> connect(AuthState authState) async {
     if (!authState.isAuthenticated) {
@@ -87,10 +104,9 @@ class OperationsRealtimeService {
         return;
       }
 
-      final resolvedId =
-          (serviceId != null && serviceId.isNotEmpty)
-              ? serviceId
-              : (service?['id']?.toString().trim());
+      final resolvedId = (serviceId != null && serviceId.isNotEmpty)
+          ? serviceId
+          : (service?['id']?.toString().trim());
 
       _controller.add(
         OperationsRealtimeMessage(
@@ -100,6 +116,44 @@ class OperationsRealtimeService {
               ? resolvedId
               : null,
           service: service,
+        ),
+      );
+    });
+
+    socket.on('client.event', (data) {
+      if (data is! Map) return;
+      final payload = Map<String, dynamic>.from(data);
+      final eventId = payload['eventId']?.toString() ?? '';
+      if (eventId.isNotEmpty && !_seenEventIds.add(eventId)) {
+        return;
+      }
+      if (_seenEventIds.length > 300) {
+        _seenEventIds.remove(_seenEventIds.first);
+      }
+
+      final clientId = payload['clientId']?.toString().trim();
+      final clientJson = payload['client'];
+      Map<String, dynamic>? client;
+      if (clientJson is Map) {
+        client = Map<String, dynamic>.from(clientJson);
+      }
+
+      if (client == null && (clientId == null || clientId.isEmpty)) {
+        return;
+      }
+
+      final resolvedId = (clientId != null && clientId.isNotEmpty)
+          ? clientId
+          : (client?['id']?.toString().trim());
+
+      _clientsController.add(
+        ClientsRealtimeMessage(
+          eventId: eventId,
+          type: payload['type']?.toString() ?? 'client.updated',
+          clientId: (resolvedId != null && resolvedId.isNotEmpty)
+              ? resolvedId
+              : null,
+          client: client,
         ),
       );
     });
@@ -114,7 +168,9 @@ class OperationsRealtimeService {
   }
 }
 
-final operationsRealtimeServiceProvider = Provider<OperationsRealtimeService>((ref) {
+final operationsRealtimeServiceProvider = Provider<OperationsRealtimeService>((
+  ref,
+) {
   final storage = ref.read(tokenStorageProvider);
   return OperationsRealtimeService(storage);
 });

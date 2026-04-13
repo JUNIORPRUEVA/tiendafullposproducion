@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/errors/api_exception.dart';
+import '../../../core/realtime/operations_realtime_service.dart';
 import '../cliente_model.dart';
 import '../data/clientes_repository.dart';
 
@@ -67,9 +70,34 @@ final clientesControllerProvider =
 class ClientesController extends StateNotifier<ClientesState> {
   final Ref ref;
   int _loadSeq = 0;
+  Timer? _realtimeRefreshDebounce;
+  late final StreamSubscription<ClientsRealtimeMessage> _realtimeSubscription;
 
   ClientesController(this.ref) : super(const ClientesState()) {
+    _realtimeSubscription = ref
+        .read(operationsRealtimeServiceProvider)
+        .clientStream
+        .listen(_handleRealtimeMessage);
     load();
+  }
+
+  void _handleRealtimeMessage(ClientsRealtimeMessage message) {
+    if (message.type == 'client.bulkDeleted') {
+      unawaited(refresh());
+      return;
+    }
+
+    _realtimeRefreshDebounce?.cancel();
+    _realtimeRefreshDebounce = Timer(const Duration(milliseconds: 250), () {
+      unawaited(refresh());
+    });
+  }
+
+  @override
+  void dispose() {
+    _realtimeRefreshDebounce?.cancel();
+    _realtimeSubscription.cancel();
+    super.dispose();
   }
 
   String get _ownerId =>
