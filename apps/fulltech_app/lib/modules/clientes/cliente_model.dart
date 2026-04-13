@@ -53,8 +53,8 @@ class ClienteModel {
               true
           ? null
           : (map['locationUrl'] ?? map['location_url']) as String?,
-        latitude: parseDouble(map['latitude']),
-        longitude: parseDouble(map['longitude']),
+      latitude: parseDouble(map['latitude']),
+      longitude: parseDouble(map['longitude']),
       correo:
           ((map['correo'] ?? map['email']) as String?)?.trim().isEmpty == true
           ? null

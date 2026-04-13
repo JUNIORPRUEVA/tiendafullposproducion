@@ -121,10 +121,10 @@ class _ClientesMapScreenState extends ConsumerState<ClientesMapScreen> {
     final ordersState = ref.watch(serviceOrdersListControllerProvider);
 
     final nextSignature = clientsState.items
-      .map(
-        (client) =>
-          '${client.id}|${client.locationUrl ?? ''}|${client.latitude ?? ''}|${client.longitude ?? ''}',
-      )
+        .map(
+          (client) =>
+              '${client.id}|${client.locationUrl ?? ''}|${client.latitude ?? ''}|${client.longitude ?? ''}',
+        )
         .join('||');
     if (!_resolvingLocations && nextSignature != _locationSignature) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
