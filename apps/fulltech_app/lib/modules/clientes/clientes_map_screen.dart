@@ -8,7 +8,6 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
 import '../../core/cache/fulltech_map_tile_cache.dart';
 import '../../core/auth/auth_repository.dart';
@@ -467,7 +466,6 @@ class _CachedMapTileProvider extends TileProvider {
     return _CachedMapTileImageProvider(
       url,
       headers: headers.isEmpty ? null : headers,
-      cacheManager: FulltechMapTileCacheManager.instance,
     );
   }
 }
@@ -477,12 +475,10 @@ class _CachedMapTileImageProvider
     extends ImageProvider<_CachedMapTileImageProvider> {
   const _CachedMapTileImageProvider(
     this.url, {
-    required this.cacheManager,
     this.headers,
   });
 
   final String url;
-  final BaseCacheManager cacheManager;
   final Map<String, String>? headers;
 
   @override
@@ -513,7 +509,7 @@ class _CachedMapTileImageProvider
       final bytes = await _readAndValidateBytes();
       return decode(await ImmutableBuffer.fromUint8List(bytes));
     } catch (_) {
-      await cacheManager.removeFile(url);
+      await FulltechMapTileCacheManager.removeFile(url);
       try {
         final bytes = await _readAndValidateBytes();
         return decode(await ImmutableBuffer.fromUint8List(bytes));
@@ -526,11 +522,10 @@ class _CachedMapTileImageProvider
   }
 
   Future<Uint8List> _readAndValidateBytes() async {
-    final file = await cacheManager.getSingleFile(
+    final bytes = await FulltechMapTileCacheManager.getTileBytes(
       url,
       headers: headers ?? const <String, String>{},
     );
-    final bytes = await file.readAsBytes();
     if (!_looksLikeImage(bytes)) {
       throw const FormatException('Tile payload is not a supported image');
     }
