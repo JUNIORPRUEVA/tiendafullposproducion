@@ -4,6 +4,10 @@ import { hostname } from 'os';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildNotificationMessage } from './notification-templates';
 import { EvolutionWhatsAppService } from './evolution-whatsapp.service';
+import {
+  alignToNotificationBusinessHours,
+  isWithinNotificationBusinessHours,
+} from './notification-business-hours.util';
 import { NotificationPayload } from './notification.types';
 
 const WORKER_ID = `${hostname()}-${process.pid}`;
@@ -16,6 +20,14 @@ export class NotificationsService {
     private readonly prisma: PrismaService,
     private readonly evolution: EvolutionWhatsAppService,
   ) {}
+
+  normalizeWhatsAppNumber(raw: string) {
+    return this.evolution.normalizeWhatsAppNumber(raw);
+  }
+
+  private getInitialAttemptAt(date: Date = new Date()) {
+    return alignToNotificationBusinessHours(date);
+  }
 
   private pad2(n: number) {
     return String(n).padStart(2, '0');
@@ -168,6 +180,7 @@ export class NotificationsService {
     const normalized = this.evolution.normalizeWhatsAppNumber(rawPhone);
     let messageText = (params.messageText ?? '').toString();
     messageText = await this.maybeInjectOrderNumber(messageText, params.payload);
+    const nextAttemptAt = this.getInitialAttemptAt();
 
     if (!normalized) {
       return this.prisma.notificationOutbox.create({
@@ -182,7 +195,7 @@ export class NotificationsService {
           toNumber: rawPhone,
           toNumberNormalized: '',
           attempts: 0,
-          nextAttemptAt: new Date(),
+          nextAttemptAt,
           lastError: 'Número de WhatsApp inválido',
         },
       });
@@ -201,7 +214,7 @@ export class NotificationsService {
           toNumber: rawPhone,
           toNumberNormalized: normalized,
           attempts: 0,
-          nextAttemptAt: new Date(),
+          nextAttemptAt,
           lastError: 'Mensaje vacío',
         },
       });
@@ -220,7 +233,7 @@ export class NotificationsService {
         toNumber: rawPhone,
         toNumberNormalized: normalized,
         attempts: 0,
-        nextAttemptAt: new Date(),
+        nextAttemptAt,
       },
     });
   }
@@ -242,6 +255,7 @@ export class NotificationsService {
     const bytes = params.bytes instanceof Uint8Array ? params.bytes : new Uint8Array(params.bytes);
     let messageText = (params.messageText ?? '').toString();
     messageText = await this.maybeInjectOrderNumber(messageText, params.payload);
+    const nextAttemptAt = this.getInitialAttemptAt();
 
     const data = {
       channel: 'WHATSAPP' as const,
@@ -258,7 +272,7 @@ export class NotificationsService {
       toNumber: rawPhone,
       toNumberNormalized: normalized || '',
       attempts: 0,
-      nextAttemptAt: new Date(),
+      nextAttemptAt,
       lastError: !normalized
         ? 'Número de WhatsApp inválido'
         : !bytes.length
@@ -302,6 +316,7 @@ export class NotificationsService {
 
     let messageText = buildNotificationMessage(params.payload);
     messageText = await this.maybeInjectOrderNumber(messageText, params.payload);
+    const nextAttemptAt = this.getInitialAttemptAt();
 
     if (!user || user.blocked) {
       return this.prisma.notificationOutbox.create({
@@ -317,7 +332,7 @@ export class NotificationsService {
           toNumber: rawPhone,
           toNumberNormalized: normalized,
           attempts: 0,
-          nextAttemptAt: new Date(),
+          nextAttemptAt,
           lastError: 'Usuario inválido o bloqueado',
         },
       });
@@ -337,7 +352,7 @@ export class NotificationsService {
           toNumber: rawPhone,
           toNumberNormalized: '',
           attempts: 0,
-          nextAttemptAt: new Date(),
+          nextAttemptAt,
           lastError: 'Usuario no tiene teléfono válido',
         },
       });
@@ -356,7 +371,7 @@ export class NotificationsService {
         toNumber: rawPhone,
         toNumberNormalized: normalized,
         attempts: 0,
-        nextAttemptAt: new Date(),
+        nextAttemptAt,
       },
     });
   }
@@ -405,6 +420,20 @@ export class NotificationsService {
         const kind = payload?.kind ? String(payload.kind) : '';
         if (kind === 'reservation_reminder') {
           await this.disableLegacyReservationReminder(row);
+          continue;
+        }
+
+        if (!isWithinNotificationBusinessHours()) {
+          await this.prisma.notificationOutbox.update({
+            where: { id: row.id },
+            data: {
+              status: 'PENDING',
+              nextAttemptAt: this.getInitialAttemptAt(),
+              lockedAt: null,
+              lockedBy: null,
+              lastError: null,
+            },
+          });
           continue;
         }
 

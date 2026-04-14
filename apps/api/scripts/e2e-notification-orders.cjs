@@ -307,20 +307,20 @@ async function main() {
       assert(job.kind === 'THIRTY_MINUTES_BEFORE', `Job kind is ${job.kind}, expected THIRTY_MINUTES_BEFORE`);
       assert(job.status === 'PENDING', `Job status is ${job.status}, expected PENDING`);
 
-      // Verify runAt is approximately 30 minutes before scheduledFor
+      // Verify runAt is approximately 20 minutes before scheduledFor
       const scheduledForTime = new Date(createResp.body.scheduledFor).getTime();
       const runAtTime = new Date(job.runAt).getTime();
-      const thirtyMinutesMs = 30 * 60 * 1000;
+      const twentyMinutesMs = 20 * 60 * 1000;
       const diffMs = scheduledForTime - runAtTime;
       const tolerance = 5 * 60 * 1000; // 5 minute tolerance
 
-      if (Math.abs(diffMs - thirtyMinutesMs) <= tolerance) {
-        recordPass('Scenario 1: 30-minute trigger timing', `Diff: ${diffMs / 60000} minutes`);
+      if (Math.abs(diffMs - twentyMinutesMs) <= tolerance) {
+        recordPass('Scenario 1: 20-minute trigger timing', `Diff: ${diffMs / 60000} minutes`);
         recordScenario('Create order with future time', true);
       } else {
         recordFail(
-          'Scenario 1: 30-minute trigger timing',
-          `Expected ~30 min, got ${diffMs / 60000} min`,
+          'Scenario 1: 20-minute trigger timing',
+          `Expected ~20 min, got ${diffMs / 60000} min`,
         );
         recordScenario('Create order with future time', false);
       }

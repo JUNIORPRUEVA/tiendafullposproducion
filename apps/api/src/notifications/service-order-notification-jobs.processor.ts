@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { hostname } from 'os';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  alignToNotificationBusinessHours,
+  isWithinNotificationBusinessHours,
+} from './notification-business-hours.util';
 import { ServiceOrderNotificationsListener } from './service-order-notifications.listener';
 
 const JOB_WORKER_ID = `${hostname()}-${process.pid}`;
@@ -53,14 +57,28 @@ export class ServiceOrderNotificationJobsProcessor {
 
     for (const row of claimed) {
       try {
+        if (!isWithinNotificationBusinessHours()) {
+          await this.prisma.serviceOrderNotificationJob.update({
+            where: { id: row.id },
+            data: {
+              status: 'PENDING',
+              runAt: alignToNotificationBusinessHours(new Date()),
+              lockedAt: null,
+              lockedBy: null,
+              lastError: null,
+            },
+          });
+          continue;
+        }
+
         if (row.kind === 'THIRTY_MINUTES_BEFORE') {
           await this.listener.dispatchThirtyMinuteReminder(row.id);
         } else if (row.kind === 'FIFTEEN_MINUTES_PENDING') {
-          await this.listener.dispatchFifteenMinutePending(row.id);
+          await this.listener.dispatchPendingTechnicianReminder(row.id);
         }
 
-        await this.prisma.serviceOrderNotificationJob.update({
-          where: { id: row.id },
+        await this.prisma.serviceOrderNotificationJob.updateMany({
+          where: { id: row.id, status: 'PROCESSING' },
           data: {
             status: 'COMPLETED',
             completedAt: new Date(),

@@ -1,6 +1,10 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma, Role, ServiceOrderStatus, ServiceOrderType } from '@prisma/client';
+import { NotificationStatus, Prisma, Role, ServiceOrderStatus, ServiceOrderType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  alignToNotificationBusinessHours,
+  isSameDominicanDay,
+} from './notification-business-hours.util';
 import { NotificationsService } from './notifications.service';
 import { ServiceOrderQuotationPdfService } from './service-order-quotation-pdf.service';
 
@@ -51,6 +55,15 @@ type InternalRecipient = {
 @Injectable()
 export class ServiceOrderNotificationsListener {
   private readonly logger = new Logger(ServiceOrderNotificationsListener.name);
+  private static readonly SCHEDULED_TECHNICIAN_REMINDER_MINUTES = 20;
+  private static readonly PENDING_TECHNICIAN_REMINDER_INTERVAL_MINUTES = 60;
+  private static readonly MAX_TECHNICIAN_REMINDERS_PER_RECIPIENT = 5;
+  private static readonly TECHNICIAN_REMINDER_KINDS = [
+    'service_order_thirty_minutes_before',
+    'service_order_twenty_minutes_before',
+    'service_order_fifteen_minutes_pending',
+    'service_order_hourly_pending',
+  ] as const;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -60,15 +73,17 @@ export class ServiceOrderNotificationsListener {
 
   async handleOrderCreated(orderId: string) {
     await this.scheduleThirtyMinuteReminder(orderId);
-    await this.scheduleFifteenMinutePendingReminders(orderId);
+    await this.syncPendingTechnicianReminders(orderId);
   }
 
   async handleOrderUpdated(orderId: string) {
     await this.scheduleThirtyMinuteReminder(orderId);
+    await this.syncPendingTechnicianReminders(orderId);
   }
 
   async handleOrderDeleted(orderId: string) {
     await this.cancelPendingReminderJobs(orderId, 'Orden eliminada');
+    await this.cancelPendingTechnicianReminderJobs(orderId, 'Orden eliminada');
   }
 
   async handleOrderConfirmed(orderId: string, technicianId: string) {
@@ -77,6 +92,10 @@ export class ServiceOrderNotificationsListener {
     if (!technician || technician.id !== technicianId) {
       throw new NotFoundException('Técnico confirmado no encontrado en la orden');
     }
+
+    await this.cancelPendingReminderJobs(order.id, 'Orden confirmada por tecnico');
+    await this.cancelPendingTechnicianReminderJobs(order.id, 'Orden confirmada por tecnico');
+    await this.cancelPendingTechnicianReminderOutbox(order.id, 'Orden confirmada por tecnico');
 
     const recipients = this.collectCreatorRecipients(order);
     if (!recipients.length) {
@@ -112,7 +131,8 @@ export class ServiceOrderNotificationsListener {
   async handleStatusChanged(orderId: string, previousStatus: string, nextStatus: string) {
     if (nextStatus === 'en_proceso' || nextStatus === 'finalizado' || nextStatus === 'cancelado') {
       await this.cancelPendingReminderJobs(orderId, `Estado actualizado a ${nextStatus}`);
-      await this.cancelFifteenMinuteReminderJobs(orderId, `Estado actualizado a ${nextStatus}`);
+      await this.cancelPendingTechnicianReminderJobs(orderId, `Estado actualizado a ${nextStatus}`);
+      await this.cancelPendingTechnicianReminderOutbox(orderId, `Estado actualizado a ${nextStatus}`);
     }
 
     if (nextStatus === 'en_proceso') {
@@ -148,6 +168,11 @@ export class ServiceOrderNotificationsListener {
       return;
     }
 
+    if (order.technicianConfirmedById) {
+      await this.markJobCancelled(job.id, 'La orden ya fue confirmada por un tecnico');
+      return;
+    }
+
     const payloadScheduledFor = this.extractScheduledFor(job.payload);
     if (payloadScheduledFor && payloadScheduledFor !== order.scheduledFor.toISOString()) {
       await this.markJobCancelled(job.id, 'La fecha programada cambió y el job quedó obsoleto');
@@ -156,12 +181,12 @@ export class ServiceOrderNotificationsListener {
 
     const technicians = await this.getRoleRecipients(Role.TECNICO, { fleetOnly: true, fallbackToPhone: true });
     if (!technicians.length) {
-      this.logger.warn(`No technician recipients found for 30-minute reminder order=${order.id}`);
+      this.logger.warn(`No technician recipients found for scheduled reminder order=${order.id}`);
       return;
     }
 
     const message = [
-      '*Servicio en 30 minutos*',
+      '*Servicio en 20 minutos*',
       `Cliente: ${order.client.nombre}`,
       `Teléfono cliente: ${order.client.telefono}`,
       `Ubicación: ${this.mapsLink(order)}`,
@@ -173,12 +198,18 @@ export class ServiceOrderNotificationsListener {
 
     for (const technician of technicians) {
       for (const number of technician.numbers) {
+        const nextReminderSequence = await this.getNextTechnicianReminderSequence(order.id, number);
+        if (!nextReminderSequence) {
+          this.logger.warn(`Technician reminder limit reached order=${order.id} recipient=${number}`);
+          continue;
+        }
+
         await this.notifications.enqueueWhatsAppRawText({
           toNumber: number,
-          messageText: message,
-          dedupeKey: `service-order:30m:${order.id}:${order.scheduledFor.toISOString()}:${technician.userId}:${number}`,
+          messageText: this.buildTechnicianReminderMessage(message, nextReminderSequence),
+          dedupeKey: `service-order:20m:${order.id}:${order.scheduledFor.toISOString()}:${technician.userId}:${number}`,
           payload: {
-            kind: 'service_order_thirty_minutes_before',
+            kind: 'service_order_twenty_minutes_before',
             jobId: job.id,
             orderId: order.id,
             scheduledFor: order.scheduledFor.toISOString(),
@@ -186,6 +217,11 @@ export class ServiceOrderNotificationsListener {
           },
         });
       }
+    }
+
+    const hasOpenHourlyJob = await this.hasOpenPendingTechnicianReminderJob(order.id);
+    if (!hasOpenHourlyJob) {
+      await this.schedulePendingTechnicianFollowUp(order.id, order.scheduledFor);
     }
   }
 
@@ -196,6 +232,7 @@ export class ServiceOrderNotificationsListener {
         id: true,
         status: true,
         scheduledFor: true,
+        technicianConfirmedById: true,
       },
     });
 
@@ -203,19 +240,28 @@ export class ServiceOrderNotificationsListener {
       return;
     }
 
-    await this.cancelPendingReminderJobs(order.id, 'Reprogramando notificación de 30 minutos');
+    await this.cancelPendingReminderJobs(order.id, 'Reprogramando notificación programada');
 
     if (!order.scheduledFor) {
       return;
     }
 
-    if (order.status === ServiceOrderStatus.CANCELADO || order.status === ServiceOrderStatus.FINALIZADO) {
+    if (
+      order.status === ServiceOrderStatus.CANCELADO ||
+      order.status === ServiceOrderStatus.FINALIZADO ||
+      order.technicianConfirmedById
+    ) {
       return;
     }
 
-    const runAt = new Date(order.scheduledFor.getTime() - 30 * 60_000);
-    const nextRunAt = runAt.getTime() <= Date.now() ? new Date() : runAt;
-    const dedupeKey = `service-order:job:30m:${order.id}:${order.scheduledFor.toISOString()}`;
+    const runAt = new Date(
+      order.scheduledFor.getTime() -
+        ServiceOrderNotificationsListener.SCHEDULED_TECHNICIAN_REMINDER_MINUTES * 60_000,
+    );
+    const nextRunAt = alignToNotificationBusinessHours(
+      runAt.getTime() <= Date.now() ? new Date() : runAt,
+    );
+    const dedupeKey = `service-order:job:20m:${order.id}:${order.scheduledFor.toISOString()}`;
 
     await this.prisma.serviceOrderNotificationJob.create({
       data: {
@@ -252,7 +298,7 @@ export class ServiceOrderNotificationsListener {
     });
   }
 
-  async dispatchFifteenMinutePending(jobId: string) {
+  async dispatchPendingTechnicianReminder(jobId: string) {
     const job = await this.prisma.serviceOrderNotificationJob.findUnique({
       where: { id: jobId },
     });
@@ -263,15 +309,27 @@ export class ServiceOrderNotificationsListener {
 
     const order = await this.loadContext(job.orderId);
 
-    // Si la orden ya no está en pendiente, cancelar el trabajo
     if (order.status !== ServiceOrderStatus.PENDIENTE) {
       await this.markJobCancelled(job.id, `La orden ya cambió de estado (${order.status})`);
       return;
     }
 
+    if (order.technicianConfirmedById) {
+      await this.markJobCancelled(job.id, 'La orden ya fue confirmada por un tecnico');
+      return;
+    }
+
+    if (!this.shouldNotifyTechniciansForPending(order)) {
+      await this.cancelPendingTechnicianReminderJobs(
+        order.id,
+        'La orden solo debe notificar seguimiento el mismo dia agendado',
+      );
+      return;
+    }
+
     const technicians = await this.getRoleRecipients(Role.TECNICO, { fleetOnly: true, fallbackToPhone: true });
     if (!technicians.length) {
-      this.logger.warn(`No technician recipients found for 15-minute pending reminder order=${order.id}`);
+      this.logger.warn(`No technician recipients found for hourly pending reminder order=${order.id}`);
       return;
     }
 
@@ -286,26 +344,46 @@ export class ServiceOrderNotificationsListener {
       'Abre la app y toma la orden para iniciar el servicio.',
     ].join('\n');
 
+    let enqueuedCount = 0;
     for (const technician of technicians) {
       for (const number of technician.numbers) {
+        const nextReminderSequence = await this.getNextTechnicianReminderSequence(order.id, number);
+        if (!nextReminderSequence) {
+          this.logger.warn(`Technician reminder limit reached order=${order.id} recipient=${number}`);
+          continue;
+        }
+
         await this.notifications.enqueueWhatsAppRawText({
           toNumber: number,
-          messageText: message,
-          dedupeKey: `service-order:15m-pending:${order.id}:${job.runAt.toISOString()}:${technician.userId}:${number}`,
+          messageText: this.buildTechnicianReminderMessage(message, nextReminderSequence),
+          dedupeKey: `service-order:1h-pending:${order.id}:${job.runAt.toISOString()}:${technician.userId}:${number}`,
           payload: {
-            kind: 'service_order_fifteen_minutes_pending',
+            kind: 'service_order_hourly_pending',
             jobId: job.id,
             orderId: order.id,
             scheduledFor: order.scheduledFor?.toISOString(),
             recipientUserId: technician.userId,
           },
         });
+        enqueuedCount += 1;
       }
     }
 
-    // Programar el siguiente trabajo para 15 minutos después
-    const nextRunAt = new Date(Date.now() + 15 * 60_000);
-    const nextDedupeKey = `service-order:job:15m-pending:${order.id}:run-${nextRunAt.toISOString()}`;
+    if (!enqueuedCount) {
+      await this.cancelPendingTechnicianReminderJobs(
+        order.id,
+        'Se alcanzó el maximo de 5 recordatorios por orden y destinatario',
+      );
+      return;
+    }
+
+    const nextRunAt = await this.computeNextPendingTechnicianReminderRunAt(order.id);
+
+    if (!this.shouldNotifyTechniciansForPending(order, nextRunAt)) {
+      return;
+    }
+
+    const nextDedupeKey = `service-order:job:1h-pending:${order.id}:run-${nextRunAt.toISOString()}`;
 
     await this.prisma.serviceOrderNotificationJob.create({
       data: {
@@ -336,16 +414,18 @@ export class ServiceOrderNotificationsListener {
         });
         return;
       }
-      this.logger.error(`Error creando siguiente job de 15 min para orden ${order.id}:`, error);
+      this.logger.error(`Error creando siguiente job horario para orden ${order.id}:`, error);
     });
   }
 
-  async scheduleFifteenMinutePendingReminders(orderId: string) {
+  async syncPendingTechnicianReminders(orderId: string) {
     const order = await this.prisma.serviceOrder.findUnique({
       where: { id: orderId },
       select: {
         id: true,
         status: true,
+        scheduledFor: true,
+        technicianConfirmedById: true,
       },
     });
 
@@ -353,13 +433,14 @@ export class ServiceOrderNotificationsListener {
       return;
     }
 
-    // Solo programar si la orden está en estado PENDIENTE
-    if (order.status !== ServiceOrderStatus.PENDIENTE) {
+    await this.cancelPendingTechnicianReminderJobs(order.id, 'Reprogramando seguimiento tecnico');
+
+    if (!this.shouldNotifyTechniciansForPending(order)) {
       return;
     }
 
-    const runAt = new Date();
-    const dedupeKey = `service-order:job:15m-pending:${order.id}:initial`;
+    const runAt = await this.computeNextPendingTechnicianReminderRunAt(order.id);
+    const dedupeKey = `service-order:job:1h-pending:${order.id}:initial`;
 
     await this.prisma.serviceOrderNotificationJob.create({
       data: {
@@ -630,7 +711,7 @@ export class ServiceOrderNotificationsListener {
     });
   }
 
-  private async cancelFifteenMinuteReminderJobs(orderId: string, reason: string) {
+  private async cancelPendingTechnicianReminderJobs(orderId: string, reason: string) {
     await this.prisma.serviceOrderNotificationJob.updateMany({
       where: {
         orderId,
@@ -644,6 +725,191 @@ export class ServiceOrderNotificationsListener {
         lastError: reason,
       },
     });
+  }
+
+  private async cancelPendingTechnicianReminderOutbox(orderId: string, reason: string) {
+    await this.prisma.notificationOutbox.updateMany({
+      where: {
+        status: { in: [NotificationStatus.PENDING, NotificationStatus.SENDING] },
+        payload: {
+          path: ['orderId'],
+          equals: orderId,
+        },
+        OR: ServiceOrderNotificationsListener.TECHNICIAN_REMINDER_KINDS.map((kind) => ({
+          payload: {
+            path: ['kind'],
+            equals: kind,
+          },
+        })),
+      },
+      data: {
+        status: 'FAILED',
+        lockedAt: null,
+        lockedBy: null,
+        lastError: reason,
+      },
+    });
+  }
+
+  private shouldNotifyTechniciansForPending(
+    order: {
+      status: ServiceOrderStatus;
+      scheduledFor: Date | null;
+      technicianConfirmedById?: string | null;
+    },
+    referenceDate: Date = new Date(),
+  ) {
+    if (order.status !== ServiceOrderStatus.PENDIENTE || order.technicianConfirmedById) {
+      return false;
+    }
+
+    if (!order.scheduledFor) {
+      return true;
+    }
+
+    return isSameDominicanDay(order.scheduledFor, referenceDate);
+  }
+
+  private async computeNextPendingTechnicianReminderRunAt(orderId: string, fromDate: Date = new Date()) {
+    const latestReminder = await this.prisma.notificationOutbox.findFirst({
+      where: {
+        status: {
+          in: [NotificationStatus.PENDING, NotificationStatus.SENDING, NotificationStatus.SENT],
+        },
+        payload: {
+          path: ['orderId'],
+          equals: orderId,
+        },
+        OR: ServiceOrderNotificationsListener.TECHNICIAN_REMINDER_KINDS.map((kind) => ({
+          payload: {
+            path: ['kind'],
+            equals: kind,
+          },
+        })),
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      select: {
+        createdAt: true,
+        sentAt: true,
+      },
+    });
+
+    const latestAt = latestReminder?.sentAt ?? latestReminder?.createdAt ?? null;
+    const minRunAt = latestAt
+      ? new Date(
+          latestAt.getTime() +
+            ServiceOrderNotificationsListener.PENDING_TECHNICIAN_REMINDER_INTERVAL_MINUTES * 60_000,
+        )
+      : fromDate;
+
+    return alignToNotificationBusinessHours(
+      minRunAt.getTime() > fromDate.getTime() ? minRunAt : fromDate,
+    );
+  }
+
+  private async hasOpenPendingTechnicianReminderJob(orderId: string) {
+    const count = await this.prisma.serviceOrderNotificationJob.count({
+      where: {
+        orderId,
+        kind: 'FIFTEEN_MINUTES_PENDING',
+        status: { in: ['PENDING', 'PROCESSING'] },
+      },
+    });
+
+    return count > 0;
+  }
+
+  private async schedulePendingTechnicianFollowUp(orderId: string, scheduledFor: Date | null) {
+    const runAt = await this.computeNextPendingTechnicianReminderRunAt(orderId);
+    const order = {
+      status: ServiceOrderStatus.PENDIENTE,
+      scheduledFor,
+      technicianConfirmedById: null,
+    };
+
+    if (!this.shouldNotifyTechniciansForPending(order, runAt)) {
+      return;
+    }
+
+    const dedupeKey = `service-order:job:1h-pending:${orderId}:run-${runAt.toISOString()}`;
+
+    await this.prisma.serviceOrderNotificationJob.create({
+      data: {
+        orderId,
+        kind: 'FIFTEEN_MINUTES_PENDING',
+        status: 'PENDING',
+        dedupeKey,
+        runAt,
+        payload: {
+          scheduledFor: scheduledFor?.toISOString() ?? null,
+          source: 'scheduled-reminder-follow-up',
+        },
+      },
+    }).catch(async (error: unknown) => {
+      const code = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code ?? '') : '';
+      if (code === 'P2002') {
+        await this.prisma.serviceOrderNotificationJob.update({
+          where: { dedupeKey },
+          data: {
+            status: 'PENDING',
+            runAt,
+            attempts: 0,
+            lockedAt: null,
+            lockedBy: null,
+            lastError: null,
+            completedAt: null,
+          },
+        });
+        return;
+      }
+      throw error;
+    });
+  }
+
+  private buildTechnicianReminderMessage(message: string, sequence: number) {
+    const lines = [`*Aviso #${sequence}*`, message];
+    if (sequence > 1) {
+      lines.push(
+        'Este aviso sigue llegando porque la orden todavia no ha sido marcada como confirmada.',
+      );
+    }
+
+    return lines.join('\n');
+  }
+
+  private async countTechnicianRemindersForRecipient(orderId: string, rawNumber: string) {
+    const normalized = this.notifications.normalizeWhatsAppNumber(rawNumber);
+    if (!normalized) {
+      return ServiceOrderNotificationsListener.MAX_TECHNICIAN_REMINDERS_PER_RECIPIENT;
+    }
+
+    return this.prisma.notificationOutbox.count({
+      where: {
+        status: {
+          in: [NotificationStatus.PENDING, NotificationStatus.SENDING, NotificationStatus.SENT],
+        },
+        toNumberNormalized: normalized,
+        payload: {
+          path: ['orderId'],
+          equals: orderId,
+        },
+        OR: ServiceOrderNotificationsListener.TECHNICIAN_REMINDER_KINDS.map((kind) => ({
+          payload: {
+            path: ['kind'],
+            equals: kind,
+          },
+        })),
+      },
+    });
+  }
+
+  private async getNextTechnicianReminderSequence(orderId: string, rawNumber: string) {
+    const count = await this.countTechnicianRemindersForRecipient(orderId, rawNumber);
+    if (count >= ServiceOrderNotificationsListener.MAX_TECHNICIAN_REMINDERS_PER_RECIPIENT) {
+      return null;
+    }
+
+    return count + 1;
   }
 
   private async markJobCancelled(jobId: string, reason: string) {

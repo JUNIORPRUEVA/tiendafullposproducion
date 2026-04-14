@@ -35,14 +35,14 @@ The notification system E2E test suite has been **created and documented** with 
 ## SCENARIO COVERAGE
 
 ### Scenario 1: Create Order with Future Scheduled Time ✓
-**Goal**: Verify notification job is created with correct 30-minute offset
+**Goal**: Verify notification job is created with correct 20-minute offset
 
 **Test Steps**:
 1. Create service order with `scheduledFor` = 2 hours in future
 2. Verify `ServiceOrderNotificationJob` row created
 3. Assert job `kind` = `THIRTY_MINUTES_BEFORE`
 4. Assert job `status` = `PENDING`
-5. Verify `runAt` = `scheduledFor - 30 minutes` (±5 min tolerance)
+5. Verify `runAt` = `scheduledFor - 20 minutes` (±5 min tolerance)
 
 **Expected Result**: 
 - Job created and scheduled correctly
@@ -269,7 +269,7 @@ NOTIFICATION SYSTEM E2E QA TEST
 ...
 [SCENARIO 1] Create order with future scheduled timestamp
 ✓ PASS Scenario 1: Notification job creation
-✓ PASS Scenario 1: 30-minute trigger timing
+✓ PASS Scenario 1: 20-minute trigger timing
 [SCENARIO PASS] Create order with future time
 ...
 ============================================================
