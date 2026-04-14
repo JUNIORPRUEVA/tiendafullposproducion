@@ -186,13 +186,12 @@ export class ServiceOrderNotificationsListener {
     }
 
     const message = [
-      '*Servicio en 20 minutos*',
+      `*Programado para:* ${order.scheduledFor.toLocaleString('es-DO')}`,
       `Cliente: ${order.client.nombre}`,
       `Teléfono cliente: ${order.client.telefono}`,
       `Ubicación: ${this.mapsLink(order)}`,
       `Servicio: ${this.formatServiceLabel(order)}`,
       `Detalle: ${this.orderDetails(order)}`,
-      `Programado para: ${order.scheduledFor.toLocaleString('es-DO')}`,
       'Abre la app y confirma la orden para tomar el servicio.',
     ].join('\n');
 
