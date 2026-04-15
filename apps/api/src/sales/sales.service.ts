@@ -28,10 +28,11 @@ export class SalesService {
   }
 
   async listMine(userId: string, from?: string, to?: string, customerId?: string) {
+    const normalizedCustomerId = customerId?.trim();
     const where: Prisma.SaleWhereInput = {
       userId,
       isDeleted: false,
-      ...(customerId?.trim().isNotEmpty == true ? { customerId: customerId.trim() } : {}),
+      ...(normalizedCustomerId ? { customerId: normalizedCustomerId } : {}),
       ...this.buildDateRange(from, to),
     };
 
@@ -57,10 +58,11 @@ export class SalesService {
   }
 
   async summaryMine(userId: string, from?: string, to?: string, customerId?: string) {
+    const normalizedCustomerId = customerId?.trim();
     const where: Prisma.SaleWhereInput = {
       userId,
       isDeleted: false,
-      ...(customerId?.trim().isNotEmpty == true ? { customerId: customerId.trim() } : {}),
+      ...(normalizedCustomerId ? { customerId: normalizedCustomerId } : {}),
       ...this.buildDateRange(from, to),
     };
 
