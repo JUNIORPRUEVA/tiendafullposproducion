@@ -16,13 +16,13 @@ export class SalesController {
   @Get()
   listMine(@Req() req: Request, @Query() query: SalesRangeQueryDto) {
     const user = req.user as { id: string; role: string };
-    return this.sales.listMine(user.id, query.from, query.to);
+    return this.sales.listMine(user.id, query.from, query.to, query.customerId);
   }
 
   @Get('summary')
   summaryMine(@Req() req: Request, @Query() query: SalesRangeQueryDto) {
     const user = req.user as { id: string; role: string };
-    return this.sales.summaryMine(user.id, query.from, query.to);
+    return this.sales.summaryMine(user.id, query.from, query.to, query.customerId);
   }
 
   @Post()

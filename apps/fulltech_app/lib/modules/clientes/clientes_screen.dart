@@ -115,12 +115,6 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
         showLogo: false,
         showDepartmentLabel: false,
         actions: [
-          _AppBarIconBadge(
-            tooltip: 'Filtros',
-            icon: Icons.filter_alt_rounded,
-            badgeCount: activeFilterCount,
-            onPressed: () => _openFilters(state),
-          ),
           Padding(
             padding: const EdgeInsets.only(right: 4),
             child: TextButton.icon(
@@ -167,14 +161,33 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: TextField(
-              controller: _searchCtrl,
-              onChanged: _handleSearch,
-              decoration: const InputDecoration(
-                labelText: 'Buscar cliente',
-                hintText: 'Nombre, teléfono o correo',
-                prefixIcon: Icon(Icons.search_rounded),
-              ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchCtrl,
+                    onChanged: _handleSearch,
+                    decoration: InputDecoration(
+                      labelText: 'Buscar cliente',
+                      hintText: 'Nombre, teléfono o correo',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 14,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                _SearchFilterButton(
+                  tooltip: 'Filtros',
+                  badgeCount: activeFilterCount,
+                  onPressed: () => _openFilters(state),
+                ),
+              ],
             ),
           ),
           if (state.error != null)
@@ -247,9 +260,6 @@ class _ClienteCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final subtitle = _buildCompactSubtitle(client);
-    final initial = client.nombre.trim().isEmpty
-        ? '?'
-        : client.nombre.trim().substring(0, 1).toUpperCase();
 
     return Card(
       margin: EdgeInsets.zero,
@@ -265,18 +275,28 @@ class _ClienteCard extends ConsumerWidget {
         borderRadius: BorderRadius.circular(12),
         onTap: () => context.push(Routes.clienteDetail(client.id)),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
           child: Row(
             children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: theme.colorScheme.primaryContainer,
-                foregroundColor: theme.colorScheme.onPrimaryContainer,
-                child: Text(
-                  initial,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.55,
                   ),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: theme.colorScheme.outlineVariant.withValues(
+                      alpha: 0.55,
+                    ),
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  Icons.person_outline_rounded,
+                  size: 18,
+                  color: theme.colorScheme.primary,
                 ),
               ),
               const SizedBox(width: 10),
@@ -289,9 +309,10 @@ class _ClienteCard extends ConsumerWidget {
                       client.nombre,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w500,
                         height: 1.2,
+                        letterSpacing: 0.1,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -339,14 +360,21 @@ class _InlineIconBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return SizedBox(
-      width: 32,
-      height: 32,
-      child: IconButton(
-        visualDensity: VisualDensity.compact,
-        padding: EdgeInsets.zero,
-        icon: Icon(icon, size: 18, color: color),
-        onPressed: onPressed,
+      width: 34,
+      height: 34,
+      child: Material(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(
+          alpha: 0.38,
+        ),
+        borderRadius: BorderRadius.circular(10),
+        child: IconButton(
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          icon: Icon(icon, size: 17, color: color),
+          onPressed: onPressed,
+        ),
       ),
     );
   }
@@ -453,6 +481,69 @@ class _AppBarIconBadge extends StatelessWidget {
                 '$badgeCount',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: Theme.of(context).colorScheme.onPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _SearchFilterButton extends StatelessWidget {
+  const _SearchFilterButton({
+    required this.tooltip,
+    required this.onPressed,
+    this.badgeCount = 0,
+  });
+
+  final String tooltip;
+  final VoidCallback onPressed;
+  final int badgeCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Material(
+          color: theme.colorScheme.surfaceContainerHighest.withValues(
+            alpha: 0.6,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: onPressed,
+            child: SizedBox(
+              width: 52,
+              height: 52,
+              child: Tooltip(
+                message: tooltip,
+                child: Icon(
+                  Icons.tune_rounded,
+                  size: 22,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (badgeCount > 0)
+          Positioned(
+            right: -2,
+            top: -2,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '$badgeCount',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onPrimary,
                   fontWeight: FontWeight.w800,
                 ),
               ),

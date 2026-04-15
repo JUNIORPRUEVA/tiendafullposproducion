@@ -165,6 +165,8 @@ class CreateServiceOrderController
   final ServiceOrderCreateArgs? args;
 
   String get _ownerId => ref.read(authStateProvider).user?.id ?? '';
+  String get _currentRoleKey =>
+      normalizeRoleKey(ref.read(authStateProvider).user?.role);
   AppRole get _currentRole =>
       ref.read(authStateProvider).user?.appRole ?? AppRole.unknown;
   bool get _isCreatorEditingOrder =>
@@ -172,9 +174,51 @@ class CreateServiceOrderController
   bool get _canEditOperationalNotes =>
       _currentRole == AppRole.tecnico ||
       _currentRole == AppRole.admin ||
+      _currentRoleKey.contains('tecn') ||
+      _currentRoleKey.contains('admin') ||
       _isCreatorEditingOrder;
   bool get _canAssignTechnician =>
-      _currentRole == AppRole.admin || _isCreatorEditingOrder;
+      _currentRole == AppRole.admin ||
+      _currentRole == AppRole.asistente ||
+      _currentRole == AppRole.vendedor ||
+      _currentRole == AppRole.marketing ||
+      _currentRole == AppRole.tecnico ||
+      _currentRoleKey.contains('admin') ||
+      _currentRoleKey.contains('asist') ||
+      _currentRoleKey.contains('vend') ||
+      _currentRoleKey.contains('mark') ||
+      _currentRoleKey.contains('tecn') ||
+      _isCreatorEditingOrder;
+
+  Future<List<UserModel>> _loadTechnicians() async {
+    final users = await ref
+        .read(usersRepositoryProvider)
+        .getAllUsers(forceRefresh: true, skipLoader: true);
+    return users
+        .where(
+          (user) =>
+              user.appRole == AppRole.tecnico ||
+              normalizeRoleKey(user.role).contains('tecn'),
+        )
+        .toList(growable: false);
+  }
+
+  Future<void> ensureTechniciansLoaded() async {
+    if (!_canAssignTechnician ||
+        state.loading ||
+        state.technicians.isNotEmpty) {
+      return;
+    }
+    try {
+      final technicians = await _loadTechnicians();
+      state = state.copyWith(technicians: technicians, clearActionError: true);
+    } catch (error) {
+      final message = error is ApiException
+          ? error.message
+          : 'No se pudo cargar la lista de técnicos';
+      state = state.copyWith(actionError: message);
+    }
+  }
 
   Future<void> load() async {
     if (state.initialized || state.loading) return;
@@ -187,11 +231,15 @@ class CreateServiceOrderController
       final clients = await ref
           .read(clientesRepositoryProvider)
           .listClients(ownerId: _ownerId, pageSize: 200);
-      final technicians = _canAssignTechnician
-          ? (await ref.read(usersRepositoryProvider).getAllUsers())
-                .where((user) => user.appRole == AppRole.tecnico)
-                .toList(growable: false)
-          : const <UserModel>[];
+      var technicians = const <UserModel>[];
+      if (_canAssignTechnician) {
+        try {
+          technicians = await _loadTechnicians();
+        } catch (_) {
+          // Keep form usable even if user listing fails due role/endpoint restrictions.
+          technicians = const <UserModel>[];
+        }
+      }
       final seedOrder = args?.editSource ?? args?.cloneSource;
       final selectedClient = seedOrder == null
           ? null

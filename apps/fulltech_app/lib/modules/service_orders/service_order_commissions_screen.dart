@@ -119,146 +119,147 @@ class ServiceOrderCommissionsScreen extends ConsumerWidget {
                 builder: (context, constraints) {
                   const spacing = 8.0;
                   final useCompactCards = constraints.maxWidth < 700;
-                  final compactColumns = constraints.maxWidth >= 520
-                      ? 3
-                      : constraints.maxWidth >= 340
-                      ? 2
-                      : 1;
-                  final compactCardWidth =
-                      (constraints.maxWidth -
-                          (spacing * (compactColumns - 1))) /
-                      compactColumns;
 
                   if (useCompactCards) {
-                    return Wrap(
-                      spacing: spacing,
-                      runSpacing: spacing,
-                      children: [
-                        SizedBox(
-                          width: compactCardWidth,
-                          child: _SummaryCard(
-                            title: 'Servicios',
+                    final List<Widget> compactCards = [];
+                    if (state.summary.totalServices > 0) {
+                      compactCards.add(Expanded(
+                        child: _SummaryCard(
+                          title: 'Servicios',
+                          value: '${state.summary.totalServices}',
+                          subtitle: 'Finalizados',
+                          icon: Icons.assignment_turned_in_outlined,
+                          compact: true,
+                          onTap: () => _showSummaryCardDialog(
+                            context,
+                            title: 'Servicios finalizados',
                             value: '${state.summary.totalServices}',
-                            subtitle: 'Finalizados',
+                            subtitle: 'Órdenes cerradas en el período activo.',
                             icon: Icons.assignment_turned_in_outlined,
-                            compact: true,
-                            onTap: () => _showSummaryCardDialog(
-                              context,
-                              title: 'Servicios finalizados',
-                              value: '${state.summary.totalServices}',
-                              subtitle:
-                                  'Órdenes cerradas en el período activo.',
-                              icon: Icons.assignment_turned_in_outlined,
-                            ),
                           ),
                         ),
-                        SizedBox(
-                          width: compactCardWidth,
-                          child: _SummaryCard(
-                            title: 'Vendido',
+                      ));
+                    }
+                    if (state.summary.totalSold > 0) {
+                      compactCards.add(Expanded(
+                        child: _SummaryCard(
+                          title: 'Vendido',
+                          value: currency.format(state.summary.totalSold),
+                          subtitle: 'Periodo',
+                          icon: Icons.payments_outlined,
+                          compact: true,
+                          onTap: () => _showSummaryCardDialog(
+                            context,
+                            title: 'Monto total vendido',
                             value: currency.format(state.summary.totalSold),
-                            subtitle: 'Periodo',
+                            subtitle:
+                                'Suma total vendida dentro de la quincena seleccionada.',
                             icon: Icons.payments_outlined,
-                            compact: true,
-                            onTap: () => _showSummaryCardDialog(
-                              context,
-                              title: 'Monto total vendido',
-                              value: currency.format(state.summary.totalSold),
-                              subtitle:
-                                  'Suma total vendida dentro de la quincena seleccionada.',
-                              icon: Icons.payments_outlined,
-                            ),
                           ),
                         ),
-                        SizedBox(
-                          width: compactCardWidth,
-                          child: _SummaryCard(
-                            title: 'Comisión',
+                      ));
+                    }
+                    if (state.summary.visibleCommissionTotal > 0) {
+                      compactCards.add(Expanded(
+                        child: _SummaryCard(
+                          title: 'Comisión',
+                          value: currency.format(
+                            state.summary.visibleCommissionTotal,
+                          ),
+                          subtitle: 'Visible',
+                          icon: Icons.account_balance_wallet_outlined,
+                          compact: true,
+                          onTap: () => _showSummaryCardDialog(
+                            context,
+                            title: 'Comisión estimada',
                             value: currency.format(
                               state.summary.visibleCommissionTotal,
                             ),
-                            subtitle: 'Visible',
+                            subtitle:
+                                'Total de comisión visible según el rol actual.',
                             icon: Icons.account_balance_wallet_outlined,
-                            compact: true,
-                            onTap: () => _showSummaryCardDialog(
-                              context,
-                              title: 'Comisión estimada',
-                              value: currency.format(
-                                state.summary.visibleCommissionTotal,
-                              ),
-                              subtitle:
-                                  'Total de comisión visible según el rol actual.',
-                              icon: Icons.account_balance_wallet_outlined,
-                            ),
                           ),
                         ),
-                      ],
-                    );
+                      ));
+                    }
+                    if (compactCards.isEmpty) return const SizedBox.shrink();
+                    final List<Widget> rowChildren = [];
+                    for (var i = 0; i < compactCards.length; i++) {
+                      if (i > 0) {
+                        rowChildren.add(const SizedBox(width: spacing));
+                      }
+                      rowChildren.add(compactCards[i]);
+                    }
+                    return Row(children: rowChildren);
                   }
 
                   return Wrap(
                     spacing: 12,
                     runSpacing: 12,
                     children: [
-                      _SummaryCard(
-                        title: 'Total servicios',
-                        value: '${state.summary.totalServices}',
-                        subtitle: 'Órdenes finalizadas en el periodo',
-                        icon: Icons.assignment_turned_in_outlined,
-                        onTap: () => _showSummaryCardDialog(
-                          context,
-                          title: 'Servicios finalizados',
+                      if (state.summary.totalServices > 0)
+                        _SummaryCard(
+                          title: 'Total servicios',
                           value: '${state.summary.totalServices}',
-                          subtitle: 'Órdenes cerradas en el período activo.',
+                          subtitle: 'Órdenes finalizadas en el periodo',
                           icon: Icons.assignment_turned_in_outlined,
+                          onTap: () => _showSummaryCardDialog(
+                            context,
+                            title: 'Servicios finalizados',
+                            value: '${state.summary.totalServices}',
+                            subtitle: 'Órdenes cerradas en el período activo.',
+                            icon: Icons.assignment_turned_in_outlined,
+                          ),
                         ),
-                      ),
-                      _SummaryCard(
-                        title: 'Monto total vendido',
-                        value: currency.format(state.summary.totalSold),
-                        subtitle: 'Suma de cotizaciones asociadas',
-                        icon: Icons.payments_outlined,
-                        onTap: () => _showSummaryCardDialog(
-                          context,
+                      if (state.summary.totalSold > 0)
+                        _SummaryCard(
                           title: 'Monto total vendido',
                           value: currency.format(state.summary.totalSold),
-                          subtitle:
-                              'Suma total vendida dentro de la quincena seleccionada.',
+                          subtitle: 'Suma de cotizaciones asociadas',
                           icon: Icons.payments_outlined,
+                          onTap: () => _showSummaryCardDialog(
+                            context,
+                            title: 'Monto total vendido',
+                            value: currency.format(state.summary.totalSold),
+                            subtitle:
+                                'Suma total vendida dentro de la quincena seleccionada.',
+                            icon: Icons.payments_outlined,
+                          ),
                         ),
-                      ),
-                      _SummaryCard(
-                        title: 'Comisión estimada',
-                        value: currency.format(
-                          state.summary.visibleCommissionTotal,
-                        ),
-                        subtitle: 'Según tu visibilidad actual',
-                        icon: Icons.account_balance_wallet_outlined,
-                        onTap: () => _showSummaryCardDialog(
-                          context,
+                      if (state.summary.visibleCommissionTotal > 0)
+                        _SummaryCard(
                           title: 'Comisión estimada',
                           value: currency.format(
                             state.summary.visibleCommissionTotal,
                           ),
-                          subtitle:
-                              'Total de comisión visible según el rol actual.',
+                          subtitle: 'Según tu visibilidad actual',
                           icon: Icons.account_balance_wallet_outlined,
+                          onTap: () => _showSummaryCardDialog(
+                            context,
+                            title: 'Comisión estimada',
+                            value: currency.format(
+                              state.summary.visibleCommissionTotal,
+                            ),
+                            subtitle:
+                                'Total de comisión visible según el rol actual.',
+                            icon: Icons.account_balance_wallet_outlined,
+                          ),
                         ),
-                      ),
-                      _SummaryCard(
-                        title: 'Promedio por servicio',
-                        value: currency.format(state.summary.averageSold),
-                        subtitle: 'Promedio de venta por orden',
-                        icon: Icons.analytics_outlined,
-                        onTap: () => _showSummaryCardDialog(
-                          context,
+                      if (state.summary.averageSold > 0)
+                        _SummaryCard(
                           title: 'Promedio por servicio',
                           value: currency.format(state.summary.averageSold),
-                          subtitle:
-                              'Promedio vendido por cada orden del período.',
+                          subtitle: 'Promedio de venta por orden',
                           icon: Icons.analytics_outlined,
+                          onTap: () => _showSummaryCardDialog(
+                            context,
+                            title: 'Promedio por servicio',
+                            value: currency.format(state.summary.averageSold),
+                            subtitle:
+                                'Promedio vendido por cada orden del período.',
+                            icon: Icons.analytics_outlined,
+                          ),
                         ),
-                      ),
                     ],
                   );
                 },

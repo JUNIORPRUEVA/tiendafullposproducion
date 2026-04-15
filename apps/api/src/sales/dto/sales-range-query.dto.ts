@@ -12,4 +12,8 @@ export class SalesRangeQueryDto {
   @IsOptional()
   @IsUUID()
   userId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  customerId?: string;
 }

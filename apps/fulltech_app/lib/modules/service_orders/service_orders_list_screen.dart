@@ -117,6 +117,30 @@ class _ServiceOrdersListScreenState
     }
   }
 
+  Future<void> _openFiltersSheet({
+    required List<_FilterUserOption> availableCreators,
+    required List<_FilterUserOption> availableTechnicians,
+  }) async {
+    final next = await showModalBottomSheet<ServiceOrdersFilter>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return _FiltersSheet(
+          initialFilter: _filter,
+          availableCreators: availableCreators,
+          availableTechnicians: availableTechnicians,
+        );
+      },
+    );
+    if (next == null || !mounted) {
+      return;
+    }
+    setState(() {
+      _filter = next;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(serviceOrdersListControllerProvider);
@@ -145,6 +169,7 @@ class _ServiceOrdersListScreenState
       userIdSelector: (order) => order.assignedToId,
     );
     final contentMaxWidth = isDesktop ? 1120.0 : double.infinity;
+    final canShowPurgeAction = canUseDebugAdminAction(currentUser);
     final gpsReadyCount = visibleOrders.where((order) {
       final client = order.client ?? state.clientsById[order.clientId];
       final preview = parseClientLocationPreview(client?.locationUrl);
@@ -174,46 +199,80 @@ class _ServiceOrdersListScreenState
         showLogo: false,
         showDepartmentLabel: false,
         actions: [
-          _ProfileAvatarButton(currentUser: currentUser),
-          IconButton(
-            onPressed: () async {
-              final next = await showModalBottomSheet<ServiceOrdersFilter>(
-                context: context,
-                isScrollControlled: true,
-                showDragHandle: true,
-                builder: (sheetContext) {
-                  return _FiltersSheet(
-                    initialFilter: _filter,
-                    availableCreators: availableCreators,
-                    availableTechnicians: availableTechnicians,
-                  );
-                },
-              );
-              if (next == null || !mounted) {
-                return;
-              }
-              setState(() {
-                _filter = next;
-              });
-            },
-            icon: const Icon(Icons.filter_alt_rounded),
-            tooltip: 'Filtros',
-          ),
-          IconButton(
+          _PriorityMapButton(
             onPressed: () => context.push(Routes.clientesMapa),
-            icon: const Icon(Icons.map_rounded),
-            tooltip: 'Mapa de clientes',
           ),
-          IconButton(
-            onPressed: state.refreshing ? null : controller.refresh,
-            icon: const Icon(Icons.refresh_rounded),
-            tooltip: 'Actualizar',
-          ),
-          DebugAdminActionButton(
-            user: currentUser,
-            busy: _purgingAllDebug,
-            tooltip: 'Limpiar tabla (debug)',
-            onPressed: _purgeAllDebug,
+          _ProfileAvatarButton(currentUser: currentUser),
+          PopupMenuButton<_OperationsOverflowAction>(
+            tooltip: 'Más opciones',
+            enabled: !state.refreshing || canShowPurgeAction,
+            onSelected: (action) async {
+              switch (action) {
+                case _OperationsOverflowAction.sync:
+                  await controller.refresh();
+                case _OperationsOverflowAction.purge:
+                  await _purgeAllDebug();
+              }
+            },
+            itemBuilder: (menuContext) {
+              final colorScheme = Theme.of(menuContext).colorScheme;
+              return [
+                PopupMenuItem<_OperationsOverflowAction>(
+                  value: _OperationsOverflowAction.sync,
+                  enabled: !state.refreshing,
+                  child: Row(
+                    children: [
+                      if (state.refreshing)
+                        SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.1,
+                            color: colorScheme.primary,
+                          ),
+                        )
+                      else
+                        const Icon(Icons.sync_rounded, size: 18),
+                      const SizedBox(width: 10),
+                      Text(
+                        state.refreshing ? 'Sincronizando...' : 'Sincronizar',
+                      ),
+                    ],
+                  ),
+                ),
+                if (canShowPurgeAction)
+                  PopupMenuItem<_OperationsOverflowAction>(
+                    value: _OperationsOverflowAction.purge,
+                    enabled: !_purgingAllDebug,
+                    child: Row(
+                      children: [
+                        if (_purgingAllDebug)
+                          SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.1,
+                              color: colorScheme.error,
+                            ),
+                          )
+                        else
+                          Icon(
+                            Icons.delete_sweep_rounded,
+                            size: 18,
+                            color: colorScheme.error,
+                          ),
+                        const SizedBox(width: 10),
+                        Text(
+                          _purgingAllDebug
+                              ? 'Eliminando datos...'
+                              : 'Eliminar todo',
+                        ),
+                      ],
+                    ),
+                  ),
+              ];
+            },
+            icon: const Icon(Icons.more_vert_rounded),
           ),
           const SizedBox(width: 4),
         ],
@@ -289,6 +348,23 @@ class _ServiceOrdersListScreenState
                                         filter: _filter,
                                         activeCount: visibleOrders.length,
                                         refreshing: state.refreshing,
+                                        searchController:
+                                            _collapsedQuickSearchCtrl,
+                                        onSearchChanged: (_) {
+                                          setState(() {});
+                                        },
+                                        onClearSearch: () {
+                                          _collapsedQuickSearchCtrl.clear();
+                                          setState(() {});
+                                        },
+                                        onOpenFilters: () {
+                                          _openFiltersSheet(
+                                            availableCreators:
+                                                availableCreators,
+                                            availableTechnicians:
+                                                availableTechnicians,
+                                          );
+                                        },
                                         onCollapse: () {
                                           setState(() {
                                             _desktopControlsCollapsed = true;
@@ -351,6 +427,14 @@ class _ServiceOrdersListScreenState
                                             _collapsedQuickSearchCtrl.clear();
                                             setState(() {});
                                           },
+                                          onOpenFilters: () {
+                                            _openFiltersSheet(
+                                              availableCreators:
+                                                  availableCreators,
+                                              availableTechnicians:
+                                                  availableTechnicians,
+                                            );
+                                          },
                                           onTap: () {
                                             setState(() {
                                               _desktopControlsCollapsed = false;
@@ -365,6 +449,21 @@ class _ServiceOrdersListScreenState
                                   filter: _filter,
                                   activeCount: visibleOrders.length,
                                   refreshing: state.refreshing,
+                                  searchController: _collapsedQuickSearchCtrl,
+                                  onSearchChanged: (_) {
+                                    setState(() {});
+                                  },
+                                  onClearSearch: () {
+                                    _collapsedQuickSearchCtrl.clear();
+                                    setState(() {});
+                                  },
+                                  onOpenFilters: () {
+                                    _openFiltersSheet(
+                                      availableCreators: availableCreators,
+                                      availableTechnicians:
+                                          availableTechnicians,
+                                    );
+                                  },
                                   onCollapse: () {
                                     setState(() {
                                       _mobileControlsCollapsed = true;
@@ -421,6 +520,13 @@ class _ServiceOrdersListScreenState
                                     onClearSearch: () {
                                       _collapsedQuickSearchCtrl.clear();
                                       setState(() {});
+                                    },
+                                    onOpenFilters: () {
+                                      _openFiltersSheet(
+                                        availableCreators: availableCreators,
+                                        availableTechnicians:
+                                            availableTechnicians,
+                                      );
                                     },
                                     onTap: () {
                                       setState(() {
@@ -486,16 +592,11 @@ class _ServiceOrdersListScreenState
                           onCreateNewOrder: order.isCloneSourceAllowed
                               ? () => _createOrderFromSource(order)
                               : null,
-                          trailing:
+                          onEdit:
                               (isAdmin || currentUserId == order.createdById)
-                              ? _OrderActionsMenu(
-                                  busy: _busyOrderIds.contains(order.id),
-                                  onEdit: () => _editOrder(order),
-                                  onDelete: isAdmin
-                                      ? () => _deleteOrder(order)
-                                      : null,
-                                )
+                              ? () => _editOrder(order)
                               : null,
+                          onDelete: isAdmin ? () => _deleteOrder(order) : null,
                           onTap: () async {
                             final updated = await context.push<bool>(
                               Routes.serviceOrderById(order.id),
@@ -1039,31 +1140,133 @@ List<_FilterUserOption> _buildFilterUserOptions({
   return options;
 }
 
-class _ProfileAvatarButton extends ConsumerWidget {
+enum _OperationsOverflowAction { sync, purge }
+
+class _PriorityMapButton extends StatelessWidget {
+  const _PriorityMapButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Tooltip(
+        message: 'Mapa de clientes',
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: onPressed,
+            child: Ink(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.12),
+                    blurRadius: 14,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Icon(Icons.map_rounded, size: 21),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileAvatarButton extends StatefulWidget {
   const _ProfileAvatarButton({required this.currentUser});
 
   final UserModel? currentUser;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final photoUrl = currentUser?.fotoPersonalUrl;
-    final name = currentUser?.nombreCompleto ?? '';
+  State<_ProfileAvatarButton> createState() => _ProfileAvatarButtonState();
+}
+
+class _ProfileAvatarButtonState extends State<_ProfileAvatarButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2600),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final photoUrl = widget.currentUser?.fotoPersonalUrl;
+    final name = widget.currentUser?.nombreCompleto ?? '';
     final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
 
     return Padding(
       padding: const EdgeInsets.only(right: 8),
-      child: GestureDetector(
-        onTap: () => context.push(Routes.profile),
-        child: UserAvatar(
-          radius: 17,
-          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-          imageUrl: photoUrl,
-          child: Text(
-            initial,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).colorScheme.onPrimaryContainer,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          final pulse = Curves.easeInOut.transform(_controller.value);
+          return Transform.scale(
+            scale: 1 + (pulse * 0.035),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(999),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.white.withValues(
+                      alpha: 0.10 + (pulse * 0.08),
+                    ),
+                    blurRadius: 16 + (pulse * 6),
+                    spreadRadius: pulse * 1.2,
+                  ),
+                ],
+              ),
+              child: child,
+            ),
+          );
+        },
+        child: Tooltip(
+          message: 'Mi perfil',
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: () => context.push(Routes.profile),
+              child: Ink(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.22),
+                  ),
+                ),
+                child: UserAvatar(
+                  radius: 19,
+                  backgroundColor: Theme.of(
+                    context,
+                  ).colorScheme.primaryContainer,
+                  imageUrl: photoUrl,
+                  child: Text(
+                    initial,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         ),
@@ -1960,6 +2163,10 @@ class _OperationsControlPanel extends StatelessWidget {
     required this.filter,
     required this.activeCount,
     required this.refreshing,
+    required this.searchController,
+    required this.onSearchChanged,
+    required this.onClearSearch,
+    required this.onOpenFilters,
     required this.onCollapse,
     required this.onToggleStatus,
     required this.onToggleServiceType,
@@ -1969,6 +2176,10 @@ class _OperationsControlPanel extends StatelessWidget {
   final ServiceOrdersFilter filter;
   final int activeCount;
   final bool refreshing;
+  final TextEditingController searchController;
+  final ValueChanged<String> onSearchChanged;
+  final VoidCallback onClearSearch;
+  final VoidCallback onOpenFilters;
   final VoidCallback? onCollapse;
   final ValueChanged<ServiceOrderStatus> onToggleStatus;
   final ValueChanged<ServiceOrderType> onToggleServiceType;
@@ -2075,6 +2286,15 @@ class _OperationsControlPanel extends StatelessWidget {
                   ),
               ],
             ),
+            const SizedBox(height: 10),
+            _OperationsQuickSearchField(
+              controller: searchController,
+              onChanged: onSearchChanged,
+              onClear: onClearSearch,
+              onOpenFilters: onOpenFilters,
+              hasActiveFilters: filter.hasActiveFilters,
+              hintText: 'Buscar por cliente, orden o técnico',
+            ),
             const SizedBox(height: 8),
             _CompactFilterLine<ServiceOrderStatus>(
               label: '',
@@ -2118,6 +2338,7 @@ class _CollapsedOperationsPanelToggle extends StatelessWidget {
     required this.searchController,
     required this.onSearchChanged,
     required this.onClearSearch,
+    required this.onOpenFilters,
     required this.onTap,
   });
 
@@ -2126,128 +2347,314 @@ class _CollapsedOperationsPanelToggle extends StatelessWidget {
   final TextEditingController searchController;
   final ValueChanged<String> onSearchChanged;
   final VoidCallback onClearSearch;
+  final VoidCallback onOpenFilters;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final hasSearchText = searchController.text.trim().isNotEmpty;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        ConstrainedBox(
-          constraints: const BoxConstraints.tightFor(width: 168, height: 42),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: colorScheme.surface,
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: colorScheme.outlineVariant.withValues(alpha: 0.82),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: colorScheme.shadow.withValues(alpha: 0.03),
-                  blurRadius: 10,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: TextField(
-              controller: searchController,
-              onChanged: onSearchChanged,
-              textInputAction: TextInputAction.search,
-              style: Theme.of(
-                context,
-              ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: 'Buscar',
-                hintStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w500,
-                ),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 11),
-                prefixIcon: Icon(
-                  Icons.search_rounded,
-                  size: 18,
-                  color: colorScheme.onSurfaceVariant,
-                ),
-                suffixIcon: hasSearchText
-                    ? IconButton(
-                        tooltip: 'Limpiar búsqueda',
-                        visualDensity: VisualDensity.compact,
-                        splashRadius: 16,
-                        onPressed: onClearSearch,
-                        icon: Icon(
-                          Icons.close_rounded,
-                          size: 16,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      )
-                    : null,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(999),
-            onTap: onTap,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: colorScheme.surface,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: colorScheme.outlineVariant.withValues(alpha: 0.9),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: colorScheme.shadow.withValues(alpha: 0.04),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final preferredSearchWidth = screenWidth >= 900
+        ? 340.0
+        : screenWidth >= 600
+        ? 280.0
+        : 220.0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: preferredSearchWidth),
+                  child: _OperationsQuickSearchField(
+                    controller: searchController,
+                    onChanged: onSearchChanged,
+                    onClear: onClearSearch,
+                    onOpenFilters: onOpenFilters,
+                    hasActiveFilters: hasActiveFilters,
                   ),
-                ],
+                ),
               ),
-              child: Row(
+            ),
+            const SizedBox(width: 10),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: onTap,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: colorScheme.surface,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: colorScheme.outlineVariant.withValues(alpha: 0.78),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: colorScheme.shadow.withValues(alpha: 0.025),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.dashboard_customize_outlined,
+                        size: 15,
+                        color: colorScheme.primary,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Panel',
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.1,
+                            ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: hasActiveFilters
+                              ? colorScheme.primary.withValues(alpha: 0.10)
+                              : colorScheme.surfaceContainerHighest.withValues(
+                                  alpha: 0.45,
+                                ),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              hasActiveFilters
+                                  ? Icons.filter_alt_outlined
+                                  : Icons.layers_outlined,
+                              size: 11,
+                              color: hasActiveFilters
+                                  ? colorScheme.primary
+                                  : colorScheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              hasActiveFilters ? 'Filtros' : '$activeCount',
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: hasActiveFilters
+                                        ? colorScheme.primary
+                                        : colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        size: 16,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _OperationsQuickSearchField extends StatelessWidget {
+  const _OperationsQuickSearchField({
+    required this.controller,
+    required this.onChanged,
+    required this.onClear,
+    required this.onOpenFilters,
+    required this.hasActiveFilters,
+    this.hintText = 'Buscar',
+  });
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+  final VoidCallback onOpenFilters;
+  final bool hasActiveFilters;
+  final String hintText;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final hasSearchText = controller.text.trim().isNotEmpty;
+    final inputTextStyle = theme.textTheme.labelMedium?.copyWith(
+      fontSize: 11.8,
+      fontWeight: FontWeight.w500,
+      letterSpacing: 0.05,
+      height: 1,
+    );
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 36),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colorScheme.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: hasActiveFilters
+                ? colorScheme.primary.withValues(alpha: 0.44)
+                : colorScheme.outlineVariant.withValues(alpha: 0.72),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: colorScheme.shadow.withValues(alpha: 0.014),
+              blurRadius: 5,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              Icon(
+                Icons.search_rounded,
+                size: 15,
+                color: colorScheme.onSurfaceVariant.withValues(alpha: 0.92),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  onChanged: onChanged,
+                  textInputAction: TextInputAction.search,
+                  style: inputTextStyle,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: hintText,
+                    hintStyle: inputTextStyle?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w400,
+                    ),
+                    border: InputBorder.none,
+                    isCollapsed: true,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.tune_rounded,
-                    size: 17,
-                    color: colorScheme.primary,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Panel',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
+                  if (hasSearchText)
+                    _SearchFieldIconButton(
+                      tooltip: 'Limpiar búsqueda',
+                      onPressed: onClear,
+                      icon: Icon(
+                        Icons.close_rounded,
+                        size: 13,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  _PanelMetaPill(
-                    icon: hasActiveFilters
-                        ? Icons.filter_alt_rounded
-                        : Icons.layers_outlined,
-                    text: hasActiveFilters ? 'Filtros' : '$activeCount',
-                    accent: hasActiveFilters ? colorScheme.primary : null,
+                  if (hasSearchText) const SizedBox(width: 2),
+                  Container(
+                    width: 1,
+                    height: 12,
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.38),
                   ),
                   const SizedBox(width: 4),
-                  Icon(
-                    Icons.keyboard_arrow_down_rounded,
-                    size: 18,
-                    color: colorScheme.onSurfaceVariant,
+                  _SearchFieldIconButton(
+                    tooltip: 'Filtros',
+                    onPressed: onOpenFilters,
+                    size: 30,
+                    icon: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Icon(
+                          Icons.filter_alt_outlined,
+                          size: 17,
+                          color: hasActiveFilters
+                              ? colorScheme.primary
+                              : colorScheme.onSurfaceVariant,
+                        ),
+                        if (hasActiveFilters)
+                          Positioned(
+                            right: -1,
+                            top: -1,
+                            child: Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                color: colorScheme.primary,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: colorScheme.surface,
+                                  width: 1,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ],
               ),
-            ),
+            ],
           ),
         ),
-      ],
+      ),
     );
+  }
+}
+
+class _SearchFieldIconButton extends StatelessWidget {
+  const _SearchFieldIconButton({
+    required this.tooltip,
+    required this.icon,
+    this.onPressed,
+    this.size = 22,
+  });
+
+  final String tooltip;
+  final Widget icon;
+  final VoidCallback? onPressed;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final button = SizedBox(
+      width: size,
+      height: size,
+      child: IconButton(
+        tooltip: tooltip,
+        visualDensity: VisualDensity.compact,
+        splashRadius: 13,
+        padding: EdgeInsets.zero,
+        onPressed: onPressed,
+        icon: icon,
+      ),
+    );
+
+    if (onPressed == null) {
+      return IgnorePointer(child: button);
+    }
+    return button;
   }
 }
 
@@ -2620,7 +3027,8 @@ class _ServiceOrderListCard extends StatelessWidget {
     required this.canPromoteStatus,
     this.onCreateNewOrder,
     this.onChangeStatus,
-    this.trailing,
+    this.onEdit,
+    this.onDelete,
   });
 
   final ServiceOrderModel order;
@@ -2635,7 +3043,8 @@ class _ServiceOrderListCard extends StatelessWidget {
   final bool canPromoteStatus;
   final VoidCallback? onCreateNewOrder;
   final ValueChanged<ServiceOrderStatus>? onChangeStatus;
-  final Widget? trailing;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -2650,16 +3059,18 @@ class _ServiceOrderListCard extends StatelessWidget {
       'dd/MM/yyyy · h:mm a',
       'es_DO',
     ).format(createdAt);
-    final isPriorityInstallation =
-        order.serviceType == ServiceOrderType.instalacion;
+    final priorityStyle = _resolveServiceTypePriorityStyle(order.serviceType);
     final creatorDisplayName = creatorName.trim();
     final creatorFirstName = _extractFirstName(creatorDisplayName);
+    final creatorCompactLabel = _compactCreatorLabel(creatorDisplayName);
     final hasCreatorName = creatorDisplayName.isNotEmpty;
     final clientDisplayName = clientName.trim();
-    final hasClientName = clientDisplayName.isNotEmpty;
     final clientPhone = (client?.telefono ?? '').trim();
     final hasClientPhone = clientPhone.isNotEmpty;
-    final hasClientInfo = hasClientName || hasClientPhone;
+    final serviceCityLabel = _extractServiceCity(
+      address: client?.direccion,
+      locationUrl: client?.locationUrl,
+    );
     final callUri = _buildPhoneUri(clientPhone);
     final whatsappUri = _buildWhatsAppUri(clientPhone);
 
@@ -2695,14 +3106,23 @@ class _ServiceOrderListCard extends StatelessWidget {
           onTap: onTap,
           child: Ink(
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFFAFBFD), Color(0xFFF4F7FB)],
+              gradient: LinearGradient(
+                colors: [
+                  Color.alphaBlend(
+                    priorityStyle.backgroundTint.withValues(alpha: 0.45),
+                    const Color(0xFFFAFBFD),
+                  ),
+                  Color.alphaBlend(
+                    priorityStyle.backgroundTint.withValues(alpha: 0.18),
+                    const Color(0xFFF4F7FB),
+                  ),
+                ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(18),
               border: Border.all(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.65),
+                color: priorityStyle.borderColor.withValues(alpha: 0.5),
               ),
               boxShadow: [
                 BoxShadow(
@@ -2721,7 +3141,7 @@ class _ServiceOrderListCard extends StatelessWidget {
                     width: 4,
                     margin: const EdgeInsets.only(top: 1, right: 10),
                     decoration: BoxDecoration(
-                      color: order.status.color.withValues(alpha: 0.9),
+                      color: priorityStyle.edgeColor.withValues(alpha: 0.92),
                       borderRadius: BorderRadius.circular(999),
                     ),
                   ),
@@ -2752,8 +3172,6 @@ class _ServiceOrderListCard extends StatelessWidget {
                                       text: 'Vendedor: $creatorFirstName',
                                       accent: theme.colorScheme.tertiary,
                                     ),
-                                  if (isPriorityInstallation)
-                                    const _PriorityPill(),
                                 ],
                               ),
                             ),
@@ -2857,16 +3275,14 @@ class _ServiceOrderListCard extends StatelessWidget {
                               onSelected: onChangeStatus!,
                             ),
                           ),
-                        if (trailing != null && !isTechnician) ...[
+                        if (onEdit != null && !isTechnician) ...[
                           const SizedBox(height: 6),
                           Align(
                             alignment: Alignment.centerLeft,
-                            child: IconTheme(
-                              data: IconThemeData(
-                                size: 18,
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                              child: trailing!,
+                            child: _OrderActionsMenu(
+                              busy: statusBusy,
+                              onEdit: onEdit!,
+                              onDelete: onDelete,
                             ),
                           ),
                         ],
@@ -2941,318 +3357,549 @@ class _ServiceOrderListCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         onTap: onTap,
         child: Ink(
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFFF9FAFC), Color(0xFFF5F7FA)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+            color: Color.alphaBlend(
+              priorityStyle.backgroundTint.withValues(alpha: 0.36),
+              theme.colorScheme.surface,
             ),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
-                color: theme.colorScheme.shadow.withValues(alpha: 0.04),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
+                color: theme.colorScheme.shadow.withValues(alpha: 0.022),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
               ),
             ],
             border: Border.all(
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.52),
+              color: priorityStyle.borderColor.withValues(alpha: 0.48),
             ),
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerLowest,
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: theme.colorScheme.outlineVariant.withValues(
-                        alpha: 0.7,
+                Row(
+                  children: [
+                    Container(
+                      width: 3,
+                      height: 34,
+                      margin: const EdgeInsets.only(right: 8, top: 1),
+                      decoration: BoxDecoration(
+                        color: priorityStyle.edgeColor.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(999),
                       ),
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          topLineText,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w700,
-                            height: 1,
-                          ),
+                    Flexible(
+                      child: Text(
+                        hasCreatorName ? creatorCompactLabel : '---',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontSize: 10.2,
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.12,
+                          height: 1,
                         ),
                       ),
-                      if (hasCreatorName) ...[
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Text(
-                            creatorDisplayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.end,
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w800,
-                              height: 1,
-                            ),
-                          ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _buildRelativeTopLine(createdAt),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontSize: 10,
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                          height: 1,
                         ),
-                      ],
-                      if (isPriorityInstallation)
-                        Padding(
-                          padding: const EdgeInsets.only(left: 8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(
-                                0xFFD97706,
-                              ).withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                color: const Color(
-                                  0xFFD97706,
-                                ).withValues(alpha: 0.28),
-                              ),
-                            ),
-                            child: const Text(
-                              'Prioridad',
-                              style: TextStyle(
-                                color: Color(0xFFB45309),
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w800,
-                                height: 1,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    _StatusBadge(status: order.status, compact: true),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                Stack(
+                const SizedBox(height: 7),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Padding(
-                      padding: EdgeInsets.only(
-                        right: onChangeStatus != null ? 116 : 36,
-                      ),
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
+                          Transform.translate(
+                            offset: const Offset(0, -1),
+                            child: Text(
+                              clientDisplayName.isEmpty
+                                  ? 'Cliente sin nombre'
+                                  : clientDisplayName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.1,
+                                height: 1.0,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 3),
                           Row(
                             children: [
                               Expanded(
-                                child: SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  physics: const BouncingScrollPhysics(),
-                                  child: Row(
-                                    children: [
-                                      _CompactInfoChip(
-                                        icon: Icons.category_outlined,
-                                        text: order.category.label,
-                                      ),
-                                      const SizedBox(width: 5),
-                                      _CompactInfoChip(
-                                        icon: Icons.build_circle_outlined,
-                                        text: order.serviceType.label,
-                                      ),
-                                    ],
+                                child: Text(
+                                  '${order.serviceType.label} - ${order.category.label}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.w400,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                    letterSpacing: 0.12,
+                                    height: 1,
                                   ),
                                 ),
                               ),
-                              if (locationUri != null) ...[
+                              if (serviceCityLabel != null) ...[
                                 const SizedBox(width: 8),
-                                _TechnicianLocationButton(
-                                  locationUri: locationUri,
-                                  compact: true,
+                                Text(
+                                  serviceCityLabel,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.end,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.w700,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                    letterSpacing: 0.28,
+                                    height: 1,
+                                  ),
                                 ),
                               ],
                             ],
-                          ),
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.surfaceContainerLowest,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: theme.colorScheme.outlineVariant
-                                    .withValues(alpha: 0.7),
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                if (hasClientInfo) ...[
-                                  Icon(
-                                    Icons.person_outline_rounded,
-                                    size: 14,
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: RichText(
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      text: TextSpan(
-                                        children: [
-                                          if (hasClientName)
-                                            TextSpan(
-                                              text: clientDisplayName,
-                                              style: theme.textTheme.bodySmall
-                                                  ?.copyWith(
-                                                    color: theme
-                                                        .colorScheme
-                                                        .onSurface,
-                                                    fontWeight: FontWeight.w800,
-                                                    letterSpacing: 0.1,
-                                                  ),
-                                            ),
-                                          if (hasClientPhone)
-                                            TextSpan(
-                                              text: hasClientName
-                                                  ? '  ·  $clientPhone'
-                                                  : clientPhone,
-                                              style: theme.textTheme.bodySmall
-                                                  ?.copyWith(
-                                                    color: theme
-                                                        .colorScheme
-                                                        .onSurfaceVariant,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                ] else
-                                  const Spacer(),
-                                _StatusBadge(
-                                  status: order.status,
-                                  compact: true,
-                                ),
-                              ],
-                            ),
                           ),
                         ],
                       ),
                     ),
-                    Positioned(
-                      top: 0,
-                      right: 0,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (trailing != null && !isTechnician) ...[
-                                SizedBox(
-                                  width: 26,
-                                  height: 26,
-                                  child: Center(child: trailing!),
-                                ),
-                                const SizedBox(width: 6),
-                              ],
-                            ],
-                          ),
-                          if (onChangeStatus != null) ...[
-                            const SizedBox(height: 8),
-                            _InlineStatusButton(
-                              order: order,
-                              busy: statusBusy,
-                              canPromoteStatus: canPromoteStatus,
-                              onSelected: onChangeStatus!,
-                            ),
-                          ],
-                        ],
-                      ),
+                    const SizedBox(width: 8),
+                    _MobileOrderActionsButton(
+                      order: order,
+                      statusBusy: statusBusy,
+                      creatingNewOrder: creatingNewOrder,
+                      canPromoteStatus: canPromoteStatus,
+                      isTechnician: isTechnician,
+                      callUri: callUri,
+                      whatsappUri: whatsappUri,
+                      locationUri: locationUri,
+                      onCreateNewOrder: onCreateNewOrder,
+                      onChangeStatus: onChangeStatus,
+                      onEdit: onEdit,
+                      onDelete: onDelete,
                     ),
                   ],
                 ),
-                if (onCreateNewOrder != null) ...[
-                  const SizedBox(height: 9),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: FilledButton.tonalIcon(
-                      onPressed: creatingNewOrder ? null : onCreateNewOrder,
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 7,
-                        ),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                      ),
-                      icon: creatingNewOrder
-                          ? const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.add_rounded, size: 16),
-                      label: const Text('Nueva orden'),
-                    ),
-                  ),
-                ],
-                if (callUri != null || whatsappUri != null || isTechnician) ...[
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      if (callUri != null) ...[
-                        _ContactIconButton(
-                          icon: Icons.call_outlined,
-                          tooltip: 'Llamar cliente',
-                          onTap: () => safeOpenUrl(context, callUri),
-                          size: 42,
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                      if (whatsappUri != null) ...[
-                        _ContactIconButton(
-                          icon: Icons.chat_bubble_outline_rounded,
-                          tooltip: 'Escribir por WhatsApp',
-                          onTap: () => safeOpenUrl(context, whatsappUri),
-                          size: 42,
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                      if (isTechnician)
-                        Expanded(
-                          child: _TechnicianQuickActionButton(order: order),
-                        )
-                      else
-                        const Spacer(),
-                    ],
-                  ),
-                ],
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ServiceTypePriorityStyle {
+  const _ServiceTypePriorityStyle({
+    required this.edgeColor,
+    required this.borderColor,
+    required this.backgroundTint,
+  });
+
+  final Color edgeColor;
+  final Color borderColor;
+  final Color backgroundTint;
+}
+
+_ServiceTypePriorityStyle _resolveServiceTypePriorityStyle(
+  ServiceOrderType type,
+) {
+  switch (type) {
+    case ServiceOrderType.instalacion:
+      return const _ServiceTypePriorityStyle(
+        edgeColor: Color(0xFFD97706),
+        borderColor: Color(0xFFE7B15D),
+        backgroundTint: Color(0xFFFFF4DB),
+      );
+    case ServiceOrderType.mantenimiento:
+      return const _ServiceTypePriorityStyle(
+        edgeColor: Color(0xFF1F8A5B),
+        borderColor: Color(0xFF78C79E),
+        backgroundTint: Color(0xFFEAF8F0),
+      );
+    case ServiceOrderType.levantamiento:
+    case ServiceOrderType.garantia:
+      return const _ServiceTypePriorityStyle(
+        edgeColor: Color(0xFF8A94A6),
+        borderColor: Color(0xFFD4DAE3),
+        backgroundTint: Color(0xFFF6F8FB),
+      );
+  }
+}
+
+String? _extractServiceCity({String? address, String? locationUrl}) {
+  final normalizedAddress = (address ?? '').trim();
+  final candidates = <String>[
+    if (normalizedAddress.isNotEmpty)
+      ...normalizedAddress.split(RegExp(r'[,;|\-]')),
+    if ((locationUrl ?? '').trim().isNotEmpty)
+      ...Uri.decodeFull(locationUrl!.trim()).split(RegExp(r'[/,;|\-]')),
+  ];
+
+  const knownCities = <String>[
+    'higuey',
+    'higüey',
+    'bavaro',
+    'bávaro',
+    'punta cana',
+    'veron',
+    'verón',
+    'la romana',
+    'santo domingo',
+    'santiago',
+    'san pedro de macoris',
+    'san pedro de macorís',
+    'bonao',
+    'moca',
+    'salvaleon de higuey',
+    'salvaleón de higüey',
+  ];
+
+  for (final raw in candidates) {
+    final chunk = raw.trim();
+    if (chunk.isEmpty) continue;
+    final lowered = chunk.toLowerCase();
+    for (final city in knownCities) {
+      if (lowered.contains(city)) {
+        return city.toUpperCase().replaceAll('Ü', 'U');
+      }
+    }
+  }
+
+  if (normalizedAddress.isNotEmpty) {
+    final parts = normalizedAddress
+        .split(RegExp(r'[,;|]'))
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList(growable: false);
+    if (parts.isNotEmpty) {
+      return parts.last.toUpperCase();
+    }
+  }
+
+  return null;
+}
+
+String _compactCreatorLabel(String value) {
+  final firstName = _extractFirstName(value).trim();
+  if (firstName.isEmpty) {
+    return '---';
+  }
+  return firstName.length <= 5 ? firstName : firstName.substring(0, 5);
+}
+
+String _buildRelativeTopLine(DateTime createdAt) {
+  final localDate = createdAt.toLocal();
+  final now = DateTime.now();
+  final startOfToday = DateTime(now.year, now.month, now.day);
+  final startOfCreated = DateTime(
+    localDate.year,
+    localDate.month,
+    localDate.day,
+  );
+  final dayDiff = startOfToday.difference(startOfCreated).inDays;
+  final timeLabel = DateFormat('h:mm a', 'es_DO').format(localDate);
+
+  if (dayDiff == 0) {
+    return 'Hoy · $timeLabel';
+  }
+  if (dayDiff == 1) {
+    return 'Ayer · $timeLabel';
+  }
+  final dateLabel = DateFormat('dd/MM/yy', 'es_DO').format(localDate);
+  return '$dateLabel · $timeLabel';
+}
+
+class _MobileOrderActionsButton extends ConsumerWidget {
+  const _MobileOrderActionsButton({
+    required this.order,
+    required this.statusBusy,
+    required this.creatingNewOrder,
+    required this.canPromoteStatus,
+    required this.isTechnician,
+    required this.callUri,
+    required this.whatsappUri,
+    required this.locationUri,
+    this.onCreateNewOrder,
+    this.onChangeStatus,
+    this.onEdit,
+    this.onDelete,
+  });
+
+  final ServiceOrderModel order;
+  final bool statusBusy;
+  final bool creatingNewOrder;
+  final bool canPromoteStatus;
+  final bool isTechnician;
+  final Uri? callUri;
+  final Uri? whatsappUri;
+  final Uri? locationUri;
+  final VoidCallback? onCreateNewOrder;
+  final ValueChanged<ServiceOrderStatus>? onChangeStatus;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final buttonKey = GlobalKey();
+    return OutlinedButton(
+      key: buttonKey,
+      onPressed: () => _showActionsMenu(context, ref, buttonKey),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(92, 32),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        side: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.8),
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+      ),
+      child: Text(
+        'Acciones',
+        style: theme.textTheme.labelMedium?.copyWith(
+          fontSize: 11.6,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.1,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showActionsMenu(
+    BuildContext context,
+    WidgetRef ref,
+    GlobalKey buttonKey,
+  ) async {
+    final selected = await showMenu<_OrderMenuAction>(
+      context: context,
+      position: _menuPositionFromButton(context, buttonKey),
+      items: [
+        if (onChangeStatus != null)
+          const PopupMenuItem<_OrderMenuAction>(
+            value: _OrderMenuAction.changeStatus,
+            child: _OrderMenuRow(
+              icon: Icons.sync_alt_rounded,
+              label: 'Cambiar estado',
+              trailing: Icons.chevron_right_rounded,
+            ),
+          ),
+        if (onCreateNewOrder != null)
+          PopupMenuItem<_OrderMenuAction>(
+            value: _OrderMenuAction.newOrder,
+            enabled: !creatingNewOrder,
+            child: _OrderMenuRow(
+              icon: Icons.add_circle_outline_rounded,
+              label: creatingNewOrder ? 'Creando...' : 'Nueva orden',
+            ),
+          ),
+        if (callUri != null)
+          const PopupMenuItem<_OrderMenuAction>(
+            value: _OrderMenuAction.call,
+            child: _OrderMenuRow(icon: Icons.call_outlined, label: 'Llamar'),
+          ),
+        if (whatsappUri != null)
+          const PopupMenuItem<_OrderMenuAction>(
+            value: _OrderMenuAction.whatsapp,
+            child: _OrderMenuRow(
+              icon: Icons.chat_bubble_outline_rounded,
+              label: 'WhatsApp',
+            ),
+          ),
+        if (locationUri != null)
+          const PopupMenuItem<_OrderMenuAction>(
+            value: _OrderMenuAction.location,
+            child: _OrderMenuRow(
+              icon: Icons.location_on_outlined,
+              label: 'Ubicación',
+            ),
+          ),
+        if (onEdit != null)
+          const PopupMenuItem<_OrderMenuAction>(
+            value: _OrderMenuAction.edit,
+            child: _OrderMenuRow(icon: Icons.edit_outlined, label: 'Editar'),
+          ),
+        if (onDelete != null)
+          const PopupMenuItem<_OrderMenuAction>(
+            value: _OrderMenuAction.delete,
+            child: _OrderMenuRow(
+              icon: Icons.delete_outline_rounded,
+              label: 'Eliminar',
+              destructive: true,
+            ),
+          ),
+        if (isTechnician)
+          const PopupMenuItem<_OrderMenuAction>(
+            value: _OrderMenuAction.technical,
+            child: _OrderMenuRow(
+              icon: Icons.tune_rounded,
+              label: 'Gestión técnica',
+            ),
+          ),
+      ],
+    );
+
+    if (selected == null || !context.mounted) {
+      return;
+    }
+
+    switch (selected) {
+      case _OrderMenuAction.changeStatus:
+        await _showStatusSubmenu(context, buttonKey);
+      case _OrderMenuAction.newOrder:
+        if (!creatingNewOrder) {
+          onCreateNewOrder?.call();
+        }
+      case _OrderMenuAction.call:
+        if (callUri != null) {
+          safeOpenUrl(context, callUri!);
+        }
+      case _OrderMenuAction.whatsapp:
+        if (whatsappUri != null) {
+          safeOpenUrl(context, whatsappUri!);
+        }
+      case _OrderMenuAction.location:
+        if (locationUri != null) {
+          safeOpenUrl(context, locationUri!);
+        }
+      case _OrderMenuAction.edit:
+        onEdit?.call();
+      case _OrderMenuAction.delete:
+        onDelete?.call();
+      case _OrderMenuAction.technical:
+        await showServiceOrderQuickActionsModal(
+          context: context,
+          ref: ref,
+          orderId: order.id,
+          order: order,
+          onOrderUpdated: () {
+            ref.read(serviceOrdersListControllerProvider.notifier).refresh();
+          },
+        );
+    }
+  }
+
+  Future<void> _showStatusSubmenu(
+    BuildContext context,
+    GlobalKey buttonKey,
+  ) async {
+    if (onChangeStatus == null) {
+      return;
+    }
+    final selected = await showMenu<ServiceOrderStatus>(
+      context: context,
+      position: _menuPositionFromButton(context, buttonKey, dx: 128),
+      items: ServiceOrderStatus.values
+          .map(
+            (status) => PopupMenuItem<ServiceOrderStatus>(
+              value: status,
+              enabled: !statusBusy && status != order.status,
+              child: _OrderMenuRow(
+                icon: status == order.status
+                    ? Icons.radio_button_checked_rounded
+                    : Icons.radio_button_unchecked_rounded,
+                label: status.label,
+              ),
+            ),
+          )
+          .toList(growable: false),
+    );
+
+    if (selected != null && selected != order.status && !statusBusy) {
+      onChangeStatus?.call(selected);
+    }
+  }
+
+  RelativeRect _menuPositionFromButton(
+    BuildContext context,
+    GlobalKey buttonKey, {
+    double dx = 0,
+  }) {
+    final overlayBox =
+        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final buttonBox =
+        buttonKey.currentContext?.findRenderObject() as RenderBox?;
+    if (buttonBox == null) {
+      return const RelativeRect.fromLTRB(0, 0, 0, 0);
+    }
+    final offset = buttonBox.localToGlobal(Offset.zero, ancestor: overlayBox);
+    final left = offset.dx + dx;
+    final top = offset.dy + buttonBox.size.height + 4;
+    final right = overlayBox.size.width - (offset.dx + buttonBox.size.width);
+    final bottom = overlayBox.size.height - top;
+    return RelativeRect.fromLTRB(left, top, right, bottom);
+  }
+}
+
+enum _OrderMenuAction {
+  changeStatus,
+  newOrder,
+  call,
+  whatsapp,
+  location,
+  edit,
+  delete,
+  technical,
+}
+
+class _OrderMenuRow extends StatelessWidget {
+  const _OrderMenuRow({
+    required this.icon,
+    required this.label,
+    this.destructive = false,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool destructive;
+  final IconData? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final foreground = destructive ? colorScheme.error : colorScheme.onSurface;
+    return Row(
+      children: [
+        Icon(icon, color: foreground, size: 18),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            label,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: foreground,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        if (trailing != null)
+          Icon(trailing, size: 16, color: colorScheme.onSurfaceVariant),
+      ],
     );
   }
 }
@@ -3374,33 +4021,6 @@ class _DesktopInfoBlock extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _PriorityPill extends StatelessWidget {
-  const _PriorityPill();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: const Color(0xFFD97706).withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: const Color(0xFFD97706).withValues(alpha: 0.26),
-        ),
-      ),
-      child: const Text(
-        'Prioridad',
-        style: TextStyle(
-          color: Color(0xFFB45309),
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-          height: 1,
-        ),
       ),
     );
   }
@@ -3777,37 +4397,6 @@ class _OrderActionsMenu extends StatelessWidget {
   }
 }
 
-class _CompactInfoChip extends StatelessWidget {
-  const _CompactInfoChip({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12),
-          const SizedBox(width: 4),
-          Text(
-            text,
-            style: Theme.of(
-              context,
-            ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _StatusBadge extends StatelessWidget {
   const _StatusBadge({required this.status, this.compact = false});
 
@@ -3929,51 +4518,6 @@ class _TechnicianQuickActionButton extends ConsumerWidget {
           },
         );
       },
-    );
-  }
-}
-
-class _TechnicianLocationButton extends StatelessWidget {
-  const _TechnicianLocationButton({
-    required this.locationUri,
-    this.compact = false,
-  });
-
-  final Uri? locationUri;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final targetUri = locationUri;
-    final theme = Theme.of(context);
-    return FilledButton.icon(
-      onPressed: targetUri == null
-          ? null
-          : () => safeOpenUrl(context, targetUri),
-      style: FilledButton.styleFrom(
-        minimumSize: Size(compact ? 0 : 120, compact ? 34 : 42),
-        padding: EdgeInsets.symmetric(
-          horizontal: compact ? 12 : 14,
-          vertical: compact ? 8 : 10,
-        ),
-        backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.1),
-        foregroundColor: theme.colorScheme.primary,
-        elevation: 0,
-        side: BorderSide(
-          color: theme.colorScheme.primary.withValues(alpha: 0.16),
-        ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      ),
-      icon: Icon(Icons.near_me_rounded, size: compact ? 16 : 18),
-      label: Text(
-        'Ubicación',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-          fontWeight: FontWeight.w700,
-          fontSize: compact ? 12 : null,
-        ),
-      ),
     );
   }
 }

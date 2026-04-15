@@ -213,19 +213,33 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
   }
 
   void _openEvent(ClienteTimelineEvent event) {
-    final phone = (_cliente?.telefono ?? '').trim();
-    if (event.eventType == 'cotizacion' && phone.isNotEmpty) {
+    final clienteId = widget.clienteId.trim();
+    final clienteNombre = (_cliente?.nombre ?? _profile?.client.nombre ?? '')
+        .trim();
+    if (event.eventType == 'cotizacion' && event.eventId.trim().isNotEmpty) {
       context.go(
-        '${Routes.cotizacionesHistorial}?customerPhone=${Uri.encodeQueryComponent(phone)}',
+        '${Routes.cotizaciones}?quotationId=${Uri.encodeQueryComponent(event.eventId)}',
       );
       return;
     }
     if (event.eventType == 'sale') {
+      if (clienteId.isNotEmpty && !clienteId.startsWith('local_')) {
+        final query = StringBuffer(
+          '${Routes.ventas}?customerId=${Uri.encodeQueryComponent(clienteId)}',
+        );
+        if (clienteNombre.isNotEmpty) {
+          query.write(
+            '&customerName=${Uri.encodeQueryComponent(clienteNombre)}',
+          );
+        }
+        context.go(query.toString());
+        return;
+      }
       context.go(Routes.ventas);
       return;
     }
-    if (event.eventType == 'service') {
-      context.go(Routes.serviceOrders);
+    if (event.eventType == 'service' && event.eventId.trim().isNotEmpty) {
+      context.go(Routes.serviceOrderById(event.eventId));
     }
   }
 
@@ -234,13 +248,13 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
   String _timelineTypeLabel(String type) {
     switch (type) {
       case 'sale':
-        return 'Venta';
+        return 'Ventas';
       case 'cotizacion':
-        return 'Cotizacion';
+        return 'Cotizaciones';
       case 'service':
-        return 'Servicio';
+        return 'Ordenes de servicio';
       default:
-        return 'Actividad';
+        return 'Otros procesos';
     }
   }
 
@@ -262,14 +276,90 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
     final category = (event.meta['category'] ?? '').toString().trim();
     final orderNumber = (event.meta['orderNumber'] ?? '').toString().trim();
     final phase = (event.meta['currentPhase'] ?? '').toString().trim();
+    final serviceType = (event.meta['serviceType'] ?? '').toString().trim();
+    final note = (event.meta['note'] ?? '').toString().trim();
     final userName = (event.userName ?? '').trim();
 
     if (orderNumber.isNotEmpty) parts.add('Orden $orderNumber');
+    if (serviceType.isNotEmpty) parts.add(serviceType.replaceAll('_', ' '));
     if (category.isNotEmpty) parts.add(category);
     if (phase.isNotEmpty) parts.add(phase);
+    if (note.isNotEmpty) parts.add(note);
     if (userName.isNotEmpty) parts.add('Por $userName');
 
     return parts.join(' • ');
+  }
+
+  String _timelineStatusLabel(ClienteTimelineEvent event) {
+    final raw = (event.status ?? '').trim().toLowerCase();
+    if (raw.isEmpty) {
+      return event.eventType == 'sale' ? 'Finalizado' : 'Pendiente';
+    }
+
+    switch (raw) {
+      case 'finalized':
+      case 'finalizado':
+        return 'Finalizado';
+      case 'cancelled':
+      case 'cancelado':
+        return 'Cancelado';
+      case 'en_proceso':
+      case 'en proceso':
+      case 'in_progress':
+      case 'in progress':
+      case 'pending':
+      case 'pendiente':
+      default:
+        return 'Pendiente';
+    }
+  }
+
+  Color _timelineStatusColor(BuildContext context, ClienteTimelineEvent event) {
+    final label = _timelineStatusLabel(event);
+    switch (label) {
+      case 'Finalizado':
+        return const Color(0xFF2E8B57);
+      case 'Cancelado':
+        return Theme.of(context).colorScheme.error;
+      case 'Pendiente':
+      default:
+        return const Color(0xFFD98324);
+    }
+  }
+
+  List<_TimelineGroupData> _buildTimelineGroups() {
+    final grouped = <String, List<ClienteTimelineEvent>>{};
+    for (final event in _timeline) {
+      grouped
+          .putIfAbsent(event.eventType, () => <ClienteTimelineEvent>[])
+          .add(event);
+    }
+
+    const order = ['service', 'cotizacion', 'sale'];
+    final items = <_TimelineGroupData>[];
+    for (final type in order) {
+      final rows = grouped.remove(type);
+      if (rows == null || rows.isEmpty) continue;
+      items.add(
+        _TimelineGroupData(
+          type: type,
+          label: _timelineTypeLabel(type),
+          items: rows,
+        ),
+      );
+    }
+
+    for (final entry in grouped.entries) {
+      if (entry.value.isEmpty) continue;
+      items.add(
+        _TimelineGroupData(
+          type: entry.key,
+          label: _timelineTypeLabel(entry.key),
+          items: entry.value,
+        ),
+      );
+    }
+    return items;
   }
 
   List<_ClientFactData> _buildClientFacts(ClienteProfileResponse? profile) {
@@ -440,38 +530,53 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Actividad del cliente',
+                    'Procesos del cliente',
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                   const SizedBox(height: 8),
                   if (_timeline.isEmpty)
-                    const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Text(
-                          'No hay eventos disponibles para este cliente.',
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surface,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: theme.colorScheme.outlineVariant,
                         ),
+                      ),
+                      child: const Text(
+                        'No hay procesos disponibles para este cliente.',
                       ),
                     )
                   else
-                    ..._timeline.map(
-                      (event) => Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: _TimelineEventCard(
-                          icon: _timelineIcon(event.eventType),
-                          badge: _timelineTypeLabel(event.eventType),
-                          title: event.title,
-                          summary: _timelineSummary(event),
-                          date: _formatDate(event.at),
-                          amount: event.amount == null
-                              ? null
-                              : _formatMoney(event.amount),
-                          status: (event.status ?? '').trim().isEmpty
-                              ? null
-                              : event.status!.trim(),
-                          onTap: () => _openEvent(event),
+                    ..._buildTimelineGroups().map(
+                      (group) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _TimelineSection(
+                          icon: _timelineIcon(group.type),
+                          title: group.label,
+                          itemCount: group.items.length,
+                          children: group.items
+                              .map(
+                                (event) => _TimelineEventCard(
+                                  icon: _timelineIcon(event.eventType),
+                                  title: event.title,
+                                  summary: _timelineSummary(event),
+                                  date: _formatDate(event.at),
+                                  amount: event.amount == null
+                                      ? null
+                                      : _formatMoney(event.amount),
+                                  statusLabel: _timelineStatusLabel(event),
+                                  statusColor: _timelineStatusColor(
+                                    context,
+                                    event,
+                                  ),
+                                  onTap: () => _openEvent(event),
+                                ),
+                              )
+                              .toList(growable: false),
                         ),
                       ),
                     ),
@@ -1009,38 +1114,30 @@ class _InlineNoteCard extends StatelessWidget {
 class _TimelineEventCard extends StatelessWidget {
   const _TimelineEventCard({
     required this.icon,
-    required this.badge,
     required this.title,
     required this.summary,
     required this.date,
     required this.amount,
-    required this.status,
+    required this.statusLabel,
+    required this.statusColor,
     required this.onTap,
   });
 
   final IconData icon;
-  final String badge;
   final String title;
   final String summary;
   final String date;
   final String? amount;
-  final String? status;
+  final String statusLabel;
+  final Color statusColor;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
-          width: 0.8,
-        ),
-      ),
+    return Material(
+      color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(10),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -1048,15 +1145,16 @@ class _TimelineEventCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 34,
-                height: 34,
+                width: 30,
+                height: 30,
                 decoration: BoxDecoration(
                   color: theme.colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(9),
                 ),
+                alignment: Alignment.center,
                 child: Icon(
                   icon,
-                  size: 18,
+                  size: 16,
                   color: theme.colorScheme.onPrimaryContainer,
                 ),
               ),
@@ -1065,36 +1163,31 @@ class _TimelineEventCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      crossAxisAlignment: WrapCrossAlignment.center,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          title,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
+                        Expanded(
                           child: Text(
-                            badge,
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
                         ),
+                        if (amount != null) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            amount!,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                     Text(
                       date,
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -1102,34 +1195,133 @@ class _TimelineEventCard extends StatelessWidget {
                       ),
                     ),
                     if (summary.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(summary, style: theme.textTheme.bodyMedium),
-                    ],
-                    if (status != null && status!.trim().isNotEmpty) ...[
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 4),
                       Text(
-                        'Estado: ${status!.trim()}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
+                        summary,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall,
                       ),
                     ],
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: statusColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            statusLabel,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: statusColor,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          size: 18,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
-              if (amount != null) ...[
-                const SizedBox(width: 12),
-                Text(
-                  amount!,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
             ],
           ),
         ),
       ),
     );
   }
+}
+
+class _TimelineSection extends StatelessWidget {
+  const _TimelineSection({
+    required this.icon,
+    required this.title,
+    required this.itemCount,
+    required this.children,
+  });
+
+  final IconData icon;
+  final String title;
+  final int itemCount;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.55,
+              ),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(16),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(icon, size: 16, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                Text(
+                  '$itemCount',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          for (var index = 0; index < children.length; index++) ...[
+            if (index > 0)
+              Divider(
+                height: 1,
+                thickness: 1,
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+              ),
+            children[index],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _TimelineGroupData {
+  const _TimelineGroupData({
+    required this.type,
+    required this.label,
+    required this.items,
+  });
+
+  final String type;
+  final String label;
+  final List<ClienteTimelineEvent> items;
 }

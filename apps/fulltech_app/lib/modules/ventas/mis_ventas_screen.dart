@@ -25,6 +25,14 @@ class MisVentasScreen extends ConsumerStatefulWidget {
 
 class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
   bool _purgingAllDebug = false;
+  String? _lastRouteCustomerId;
+  String? _lastRouteCustomerName;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncRouteCustomerFilter();
+  }
 
   bool _isDesktop(BuildContext context) =>
       MediaQuery.sizeOf(context).width >= 1180;
@@ -43,6 +51,78 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
     return '${_quincenaName(from, to)} · ${_date(from)} - ${_date(to)}';
   }
 
+  void _syncRouteCustomerFilter() {
+    final qp = GoRouterState.of(context).uri.queryParameters;
+    final nextCustomerId = (qp['customerId'] ?? '').trim();
+    final nextCustomerName = (qp['customerName'] ?? '').trim();
+    final normalizedCustomerId = nextCustomerId.isEmpty ? null : nextCustomerId;
+    final normalizedCustomerName = nextCustomerName.isEmpty
+        ? null
+        : nextCustomerName;
+
+    if (_lastRouteCustomerId == normalizedCustomerId &&
+        _lastRouteCustomerName == normalizedCustomerName) {
+      return;
+    }
+
+    _lastRouteCustomerId = normalizedCustomerId;
+    _lastRouteCustomerName = normalizedCustomerName;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref
+          .read(ventasControllerProvider.notifier)
+          .setCustomerFilter(normalizedCustomerId);
+      setState(() {});
+    });
+  }
+
+  Widget _buildCustomerFilterBanner(VentasState state) {
+    final customerId = state.customerIdFilter;
+    if (customerId == null || customerId.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final theme = Theme.of(context);
+    final customerName = (_lastRouteCustomerName ?? '').trim();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.person_search_outlined,
+            size: 18,
+            color: theme.colorScheme.onPrimaryContainer,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              customerName.isEmpty
+                  ? 'Ventas filtradas por cliente'
+                  : 'Ventas de $customerName',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onPrimaryContainer,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => context.go(Routes.ventas),
+            child: const Text('Quitar filtro'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _purgeAllDebug() async {
     final confirmed = await confirmDebugAdminPurge(
       context,
@@ -53,16 +133,16 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
 
     setState(() => _purgingAllDebug = true);
     try {
-      final deleted = await ref.read(ventasControllerProvider.notifier).purgeAllDebug();
+      final deleted = await ref
+          .read(ventasControllerProvider.notifier)
+          .purgeAllDebug();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Se limpiaron $deleted ventas.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Se limpiaron $deleted ventas.')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     } finally {
       if (mounted) {
         setState(() => _purgingAllDebug = false);
@@ -247,10 +327,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
     return 'RD\$${value.toStringAsFixed(0)}';
   }
 
-  Widget _buildDesktopBody(
-    VentasState state,
-    String? employeeName,
-  ) {
+  Widget _buildDesktopBody(VentasState state, String? employeeName) {
     final averageTicket = state.summary.totalSales == 0
         ? 0.0
         : state.summary.totalSold / state.summary.totalSales;
@@ -352,6 +429,10 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      if (state.customerIdFilter != null) ...[
+                        _buildCustomerFilterBanner(state),
+                        SizedBox(height: gap),
+                      ],
                       header,
                       SizedBox(height: gap),
                       Expanded(
@@ -420,6 +501,10 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (state.customerIdFilter != null) ...[
+                      _buildCustomerFilterBanner(state),
+                      SizedBox(height: gap),
+                    ],
                     header,
                     SizedBox(height: gap),
                     _StatsCards(
@@ -459,6 +544,10 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (state.customerIdFilter != null) ...[
+                _buildCustomerFilterBanner(state),
+                const SizedBox(height: 8),
+              ],
               if (state.loading) ...[
                 const LinearProgressIndicator(),
                 const SizedBox(height: 8),
@@ -495,10 +584,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Icon(
-                                Icons.receipt_long_outlined,
-                                size: 44,
-                              ),
+                              const Icon(Icons.receipt_long_outlined, size: 44),
                               const SizedBox(height: 8),
                               Text(
                                 'No hay ventas registradas en ${_quincenaLabel(state.from, state.to)}',
@@ -508,11 +594,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                           ),
                         ),
                       )
-                    : _buildSalesByDayStats(
-                        state,
-                        compact: true,
-                        maxItems: 4,
-                      ),
+                    : _buildSalesByDayStats(state, compact: true, maxItems: 4),
               ),
             ],
           ),
@@ -521,10 +603,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
     );
   }
 
-  Widget _buildCurrentQuincenaCard(
-    VentasState state, {
-    bool compact = false,
-  }) {
+  Widget _buildCurrentQuincenaCard(VentasState state, {bool compact = false}) {
     final accentColor = Theme.of(context).colorScheme.primary;
     return Card(
       child: Padding(
@@ -579,9 +658,7 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
               decoration: BoxDecoration(
                 color: accentColor.withValues(alpha: 0.10),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: accentColor.withValues(alpha: 0.24),
-                ),
+                border: Border.all(color: accentColor.withValues(alpha: 0.24)),
               ),
               child: Row(
                 children: [
@@ -681,41 +758,47 @@ class _MisVentasScreenState extends ConsumerState<MisVentasScreen> {
                   mainAxisAlignment: compact
                       ? MainAxisAlignment.spaceEvenly
                       : MainAxisAlignment.start,
-                  children: top.map((entry) {
-                    final ratio = (entry.value / maxValue).clamp(0.0, 1.0);
-                    return Padding(
-                      padding: EdgeInsets.symmetric(vertical: compact ? 2 : 4),
-                      child: Row(
-                        children: [
-                          SizedBox(
-                            width: compact ? 42 : 48,
-                            child: Text(
-                              entry.key,
-                              style: const TextStyle(fontSize: 12),
-                            ),
+                  children: top
+                      .map((entry) {
+                        final ratio = (entry.value / maxValue).clamp(0.0, 1.0);
+                        return Padding(
+                          padding: EdgeInsets.symmetric(
+                            vertical: compact ? 2 : 4,
                           ),
-                          Expanded(
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: LinearProgressIndicator(value: ratio),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            width: compact ? 82 : 90,
-                            child: Text(
-                              compact ? _moneyCompact(entry.value) : _money(entry.value),
-                              textAlign: TextAlign.right,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 12,
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: compact ? 42 : 48,
+                                child: Text(
+                                  entry.key,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
                               ),
-                            ),
+                              Expanded(
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: LinearProgressIndicator(value: ratio),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              SizedBox(
+                                width: compact ? 82 : 90,
+                                child: Text(
+                                  compact
+                                      ? _moneyCompact(entry.value)
+                                      : _money(entry.value),
+                                  textAlign: TextAlign.right,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    );
-                  }).toList(growable: false),
+                        );
+                      })
+                      .toList(growable: false),
                 ),
               ),
           ],
@@ -1337,7 +1420,7 @@ class _StatsHeader extends StatelessWidget {
         final width = constraints.maxWidth;
         final stacked = width < 1120;
         final statsColumns = width >= 1240
-          ? 3
+            ? 3
             : width >= 860
             ? 2
             : 1;

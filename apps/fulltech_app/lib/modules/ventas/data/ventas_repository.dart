@@ -45,6 +45,7 @@ class VentasRepository {
     required DateTime from,
     required DateTime to,
     String? userId,
+    String? customerId,
   }) async {
     try {
       final res = await _dio.get(
@@ -53,6 +54,8 @@ class VentasRepository {
           'from': _dateOnly(from),
           'to': _dateOnly(to),
           if ((userId ?? '').trim().isNotEmpty) 'userId': userId!.trim(),
+          if ((customerId ?? '').trim().isNotEmpty)
+            'customerId': customerId!.trim(),
         },
         options: Options(extra: const {'skipLoader': true}),
       );
@@ -74,6 +77,7 @@ class VentasRepository {
     required DateTime from,
     required DateTime to,
     String? userId,
+    String? customerId,
   }) async {
     try {
       final res = await _dio.get(
@@ -82,6 +86,8 @@ class VentasRepository {
           'from': _dateOnly(from),
           'to': _dateOnly(to),
           if ((userId ?? '').trim().isNotEmpty) 'userId': userId!.trim(),
+          if ((customerId ?? '').trim().isNotEmpty)
+            'customerId': customerId!.trim(),
         },
         options: Options(extra: const {'skipLoader': true}),
       );

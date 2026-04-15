@@ -14,6 +14,7 @@ class VentasState {
   final SalesRangePreset preset;
   final DateTime from;
   final DateTime to;
+  final String? customerIdFilter;
 
   const VentasState({
     this.loading = false,
@@ -23,6 +24,7 @@ class VentasState {
     required this.preset,
     required this.from,
     required this.to,
+    this.customerIdFilter,
   });
 
   factory VentasState.initial() {
@@ -45,6 +47,8 @@ class VentasState {
     SalesRangePreset? preset,
     DateTime? from,
     DateTime? to,
+    String? customerIdFilter,
+    bool clearCustomerIdFilter = false,
     bool clearError = false,
   }) {
     return VentasState(
@@ -55,6 +59,9 @@ class VentasState {
       preset: preset ?? this.preset,
       from: from ?? this.from,
       to: to ?? this.to,
+      customerIdFilter: clearCustomerIdFilter
+          ? null
+          : (customerIdFilter ?? this.customerIdFilter),
     );
   }
 }
@@ -76,8 +83,16 @@ class VentasController extends StateNotifier<VentasState> {
     try {
       final repo = ref.read(ventasRepositoryProvider);
       final results = await Future.wait([
-        repo.listSales(from: state.from, to: state.to),
-        repo.summary(from: state.from, to: state.to),
+        repo.listSales(
+          from: state.from,
+          to: state.to,
+          customerId: state.customerIdFilter,
+        ),
+        repo.summary(
+          from: state.from,
+          to: state.to,
+          customerId: state.customerIdFilter,
+        ),
       ]);
 
       state = state.copyWith(
@@ -94,6 +109,21 @@ class VentasController extends StateNotifier<VentasState> {
   }
 
   Future<void> refresh() => load();
+
+  Future<void> setCustomerFilter(String? customerId) async {
+    final normalized = (customerId ?? '').trim();
+    final nextFilter = normalized.isEmpty ? null : normalized;
+    if (nextFilter == state.customerIdFilter) {
+      return;
+    }
+
+    state = state.copyWith(
+      customerIdFilter: nextFilter,
+      clearCustomerIdFilter: nextFilter == null,
+      clearError: true,
+    );
+    await load();
+  }
 
   Future<void> deleteSale(String id) async {
     final previous = state.sales;

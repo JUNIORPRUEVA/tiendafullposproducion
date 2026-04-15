@@ -19,7 +19,6 @@ import '../cotizaciones/cotizacion_models.dart';
 import '../cotizaciones/cotizaciones_screen.dart';
 import 'application/create_service_order_controller.dart';
 import 'service_order_models.dart';
-import 'widgets/client_location_card.dart';
 import 'widgets/evidence_item_widget.dart';
 
 class CreateServiceOrderScreen extends ConsumerStatefulWidget {
@@ -63,20 +62,37 @@ class _CreateServiceOrderScreenState
     final state = ref.watch(provider);
     final controller = ref.read(provider.notifier);
     final user = ref.watch(authStateProvider).user;
+    final userRoleKey = normalizeRoleKey(user?.role);
     final isCreatorEditingOrder =
         widget.args?.isEditMode == true &&
         widget.args?.editSource?.createdById == user?.id;
     final canManageOperationalFields =
         user?.appRole.isTechnician == true ||
         user?.appRole.isAdmin == true ||
+        userRoleKey.contains('tecn') ||
+        userRoleKey.contains('admin') ||
         isCreatorEditingOrder;
-    final canAssignTechnician =
-        user?.appRole.isAdmin == true || isCreatorEditingOrder;
     final canCreateClients =
         user?.appRole == AppRole.admin ||
         user?.appRole == AppRole.asistente ||
         user?.appRole == AppRole.vendedor ||
-        user?.appRole == AppRole.tecnico;
+        user?.appRole == AppRole.tecnico ||
+        userRoleKey.contains('admin') ||
+        userRoleKey.contains('asist') ||
+        userRoleKey.contains('vend') ||
+        userRoleKey.contains('tecn');
+    final canAssignTechnician =
+        user?.appRole == AppRole.admin ||
+        user?.appRole == AppRole.asistente ||
+        user?.appRole == AppRole.vendedor ||
+        user?.appRole == AppRole.marketing ||
+        user?.appRole == AppRole.tecnico ||
+        userRoleKey.contains('admin') ||
+        userRoleKey.contains('asist') ||
+        userRoleKey.contains('vend') ||
+        userRoleKey.contains('mark') ||
+        userRoleKey.contains('tecn') ||
+        isCreatorEditingOrder;
     final width = MediaQuery.sizeOf(context).width;
     final isDesktop = width >= kDesktopShellBreakpoint;
     final shellFallback = widget.args?.isEditMode == true
@@ -93,7 +109,7 @@ class _CreateServiceOrderScreenState
       drawer: isDesktop
           ? null
           : buildAdaptiveDrawer(context, currentUser: user),
-      backgroundColor: const Color(0xFFF4F7FB),
+      backgroundColor: const Color(0xFFF9FFFC),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'service-order-reference-fab',
         onPressed: state.submitting || state.uploadingEvidence
@@ -122,7 +138,6 @@ class _CreateServiceOrderScreenState
                   canCreateClients: canCreateClients,
                 );
                 final horizontalPadding = desktop ? 20.0 : 16.0;
-                final floatingTop = MediaQuery.paddingOf(context).top + 10;
 
                 return Stack(
                   children: [
@@ -133,7 +148,7 @@ class _CreateServiceOrderScreenState
                         child: ListView(
                           padding: EdgeInsets.fromLTRB(
                             horizontalPadding,
-                            10,
+                            84,
                             horizontalPadding,
                             120,
                           ),
@@ -143,30 +158,29 @@ class _CreateServiceOrderScreenState
                     ),
                     if (backButton != null)
                       Positioned(
-                        top: floatingTop,
-                        left: horizontalPadding,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.primary,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.primary.withValues(alpha: 0.34),
-                                blurRadius: 18,
-                                offset: const Offset(0, 8),
-                              ),
-                            ],
-                          ),
+                        top: MediaQuery.paddingOf(context).top,
+                        left: 4,
+                        child: Material(
+                          color: Theme.of(context).colorScheme.surface,
+                          shape: const CircleBorder(),
+                          elevation: 3,
+                          shadowColor: Theme.of(
+                            context,
+                          ).colorScheme.shadow.withValues(alpha: 0.22),
                           child: Theme(
                             data: Theme.of(context).copyWith(
                               iconButtonTheme: const IconButtonThemeData(
                                 style: ButtonStyle(
                                   foregroundColor:
                                       WidgetStatePropertyAll<Color>(
-                                        Colors.white,
+                                        Colors.black87,
                                       ),
+                                  minimumSize: WidgetStatePropertyAll<Size>(
+                                    Size(36, 36),
+                                  ),
+                                  padding: WidgetStatePropertyAll<EdgeInsets>(
+                                    EdgeInsets.zero,
+                                  ),
                                 ),
                               ),
                             ),
@@ -179,75 +193,96 @@ class _CreateServiceOrderScreenState
               },
             ),
       bottomNavigationBar: SafeArea(
+        maintainBottomViewPadding: true,
         minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            boxShadow: [
-              BoxShadow(
-                color: Theme.of(
-                  context,
-                ).colorScheme.primary.withValues(alpha: 0.18),
-                blurRadius: 18,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: FilledButton.icon(
-            onPressed: state.submitting || state.uploadingEvidence
-                ? null
-                : () async {
-                    try {
-                      final result = await controller.submit(
-                        technicalNote: _technicalNoteController.text,
-                        extraRequirements: _extraRequirementsController.text,
-                      );
-                      if (!context.mounted) return;
-                      await AppFeedback.showInfo(
-                        context,
-                        result.warningMessage ??
-                            (state.isEditMode
-                                ? 'Orden actualizada correctamente'
-                                : state.isCloneMode
-                                ? 'Orden clonada correctamente'
-                                : 'Orden creada correctamente'),
-                      );
-                      if (!context.mounted) return;
-                      if (state.isEditMode) {
-                        context.pop(true);
-                      } else {
-                        context.go(Routes.serviceOrderById(result.order.id));
-                      }
-                    } catch (_) {
-                      if (!context.mounted) return;
-                      final message =
-                          ref.read(provider).actionError ??
-                          'No se pudo guardar la orden';
-                      await AppFeedback.showError(context, message);
-                    }
-                  },
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(56),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
-              ),
-              backgroundColor: Theme.of(context).colorScheme.primary,
-              foregroundColor: Theme.of(context).colorScheme.onPrimary,
-            ),
-            icon: state.submitting
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.save_outlined),
-            label: Text(
-              state.isEditMode
-                  ? 'Guardar cambios'
-                  : state.isCloneMode
-                  ? 'Crear nueva orden'
-                  : 'Guardar orden',
-            ),
-          ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final buttonWidth = (constraints.maxWidth * 0.52)
+                .clamp(156.0, 210.0)
+                .toDouble();
+
+            return Row(
+              children: [
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    boxShadow: [
+                      BoxShadow(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: 0.16),
+                        blurRadius: 14,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: SizedBox(
+                    width: buttonWidth,
+                    child: FilledButton(
+                      onPressed: state.submitting || state.uploadingEvidence
+                          ? null
+                          : () async {
+                              if (state.scheduledFor == null) {
+                                await AppFeedback.showError(
+                                  context,
+                                  'Selecciona la fecha y hora preferencial de la orden',
+                                );
+                                return;
+                              }
+                              try {
+                                final result = await controller.submit(
+                                  technicalNote: _technicalNoteController.text,
+                                  extraRequirements:
+                                      _extraRequirementsController.text,
+                                );
+                                if (!context.mounted) return;
+                                await AppFeedback.showInfo(
+                                  context,
+                                  result.warningMessage ??
+                                      (state.isEditMode
+                                          ? 'Orden actualizada correctamente'
+                                          : state.isCloneMode
+                                          ? 'Orden clonada correctamente'
+                                          : 'Orden creada correctamente'),
+                                );
+                                if (!context.mounted) return;
+                                if (state.isEditMode) {
+                                  context.pop(true);
+                                } else {
+                                  context.go(
+                                    Routes.serviceOrderById(result.order.id),
+                                  );
+                                }
+                              } catch (_) {
+                                if (!context.mounted) return;
+                                final message =
+                                    ref.read(provider).actionError ??
+                                    'No se pudo guardar la orden';
+                                await AppFeedback.showError(context, message);
+                              }
+                            },
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(156, 52),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        foregroundColor: Theme.of(
+                          context,
+                        ).colorScheme.onPrimary,
+                        textStyle: Theme.of(context).textTheme.titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      child: const Text('Guardar'),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -263,7 +298,6 @@ class _CreateServiceOrderScreenState
     required bool canCreateClients,
   }) {
     final inputDecoration = _inputDecoration(context);
-    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
     final existingReferences = (state.editSource?.referenceItems ?? const [])
         .map(
           (reference) => ServiceOrderDraftReference(
@@ -309,73 +343,66 @@ class _CreateServiceOrderScreenState
           const LinearProgressIndicator(minHeight: 3),
         ],
         const SizedBox(height: 12),
-        SectionCard(
-          title: 'Cliente',
-          child: Column(
-            children: [
-              InputSelector(
-                label: 'Cliente',
-                value: state.selectedClient?.nombre ?? 'Buscar cliente',
-                hint: state.selectedClient?.telefono,
-                enabled: !state.isCloneMode && !_inlineFlowBusy,
-                icon: Icons.search_rounded,
-                onTap: state.isCloneMode
-                    ? null
-                    : () => _pickClient(context, state, controller),
-              ),
-              if (!state.isCloneMode && canCreateClients) ...[
-                const SizedBox(height: 10),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: _InlineCreateAction(
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FractionallySizedBox(
+            widthFactor: 0.94,
+            child: Row(
+              children: [
+                Expanded(
+                  child: _CompactSelectorField(
+                    label: 'Cliente',
+                    value:
+                        state.selectedClient?.nombre ?? 'Seleccionar cliente',
+                    enabled: !state.isCloneMode && !_inlineFlowBusy,
+                    onTap: state.isCloneMode
+                        ? null
+                        : () => _pickClient(context, state, controller),
+                  ),
+                ),
+                if (!state.isCloneMode && canCreateClients) ...[
+                  const SizedBox(width: 6),
+                  _CompactActionIconButton(
                     icon: Icons.person_add_alt_1_rounded,
-                    label: 'Nuevo cliente',
                     onTap: _inlineFlowBusy
                         ? null
                         : () => _createClientInline(context, controller),
                   ),
-                ),
+                ],
               ],
-              if (state.selectedClient != null) ...[
-                const SizedBox(height: 12),
-                ClientLocationCard(
-                  client: state.selectedClient,
-                  title: 'Ubicación',
-                  compact: true,
-                ),
-              ],
-            ],
+            ),
           ),
         ),
         const SizedBox(height: 14),
-        SectionCard(
-          title: 'Cotización',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (state.loading)
-                const LinearProgressIndicator(minHeight: 3)
-              else if ((state.quotationMessage ?? '').trim().isNotEmpty) ...[
-                _InlineStatus(message: state.quotationMessage!),
-                const SizedBox(height: 12),
-              ],
-              if (state.selectedClient == null)
-                const _EmptyInlineState(
-                  icon: Icons.person_search_outlined,
-                  label: 'Selecciona un cliente para ver sus cotizaciones',
-                )
-              else if (state.quotations.isEmpty) ...[
-                const _EmptyInlineState(
-                  icon: Icons.request_quote_outlined,
-                  label: 'Este cliente no tiene cotizaciones',
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FractionallySizedBox(
+            widthFactor: 0.94,
+            child: Row(
+              children: [
+                Expanded(
+                  child: _CompactSelectorField(
+                    label: 'Cotización',
+                    value: state.selectedQuotation == null
+                        ? 'Seleccionar cotización'
+                        : 'Cotización ${state.selectedQuotation!.id.substring(0, state.selectedQuotation!.id.length >= 6 ? 6 : state.selectedQuotation!.id.length).toUpperCase()}',
+                    enabled:
+                        !state.isCloneMode &&
+                        !_inlineFlowBusy &&
+                        state.selectedClient != null,
+                    onTap: state.isCloneMode || state.selectedClient == null
+                        ? null
+                        : () => _pickQuotation(context, state, controller),
+                  ),
                 ),
-                const SizedBox(height: 10),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: _InlineCreateAction(
+                if (!state.isCloneMode) ...[
+                  const SizedBox(width: 6),
+                  _CompactActionIconButton(
                     icon: Icons.add_circle_outline_rounded,
-                    label: 'Crear cotización',
-                    onTap: _inlineFlowBusy || state.loading
+                    onTap:
+                        _inlineFlowBusy ||
+                            state.loading ||
+                            state.selectedClient == null
                         ? null
                         : () => _createQuotationInline(
                             context,
@@ -383,47 +410,9 @@ class _CreateServiceOrderScreenState
                             controller,
                           ),
                   ),
-                ),
-              ] else ...[
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: _InlineCreateAction(
-                    icon: Icons.add_circle_outline_rounded,
-                    label: 'Crear cotización',
-                    onTap: _inlineFlowBusy || state.loading
-                        ? null
-                        : () => _createQuotationInline(
-                            context,
-                            state,
-                            controller,
-                          ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                InputSelector(
-                  label: 'Cotización',
-                  value: state.selectedQuotation == null
-                      ? 'Seleccionar cotización'
-                      : 'Cotización ${state.selectedQuotation!.id.substring(0, state.selectedQuotation!.id.length >= 6 ? 6 : state.selectedQuotation!.id.length).toUpperCase()}',
-                  hint: state.selectedQuotation == null
-                      ? '${state.quotations.length} disponibles'
-                      : '${state.selectedQuotation!.items.length} items · ${money.format(state.selectedQuotation!.total)}',
-                  enabled: !state.isCloneMode && !_inlineFlowBusy,
-                  icon: Icons.request_quote_outlined,
-                  onTap: state.isCloneMode
-                      ? null
-                      : () => _pickQuotation(context, state, controller),
-                ),
-                const SizedBox(height: 12),
-                if (state.selectedQuotation != null)
-                  _QuotationSummaryCard(quotation: state.selectedQuotation!)
-                else
-                  const _EmptyInlineState(
-                    icon: Icons.request_quote_outlined,
-                    label: 'Sin cotización seleccionada',
-                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
         const SizedBox(height: 14),
@@ -431,120 +420,168 @@ class _CreateServiceOrderScreenState
           title: 'Configuración',
           child: Column(
             children: [
-              DropdownButtonFormField<ServiceOrderCategory>(
-                initialValue: state.category,
-                decoration: inputDecoration.copyWith(labelText: 'Categoría'),
-                items: ServiceOrderCategory.values
-                    .map(
-                      (category) => DropdownMenuItem(
-                        value: category,
-                        child: Text(category.label),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final compactDecoration = inputDecoration.copyWith(
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 10,
+                    ),
+                  );
+                  final tooNarrow = constraints.maxWidth < 370;
+                  if (tooNarrow) {
+                    return Column(
+                      children: [
+                        DropdownButtonFormField<ServiceOrderCategory>(
+                          isExpanded: true,
+                          initialValue: state.category,
+                          decoration: compactDecoration.copyWith(
+                            labelText: 'Categoría',
+                          ),
+                          items: ServiceOrderCategory.values
+                              .map(
+                                (category) => DropdownMenuItem(
+                                  value: category,
+                                  child: Text(
+                                    category.label,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(growable: false),
+                          onChanged: state.isCloneMode
+                              ? null
+                              : (value) {
+                                  if (value != null) {
+                                    controller.setCategory(value);
+                                  }
+                                },
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<ServiceOrderType>(
+                          isExpanded: true,
+                          initialValue: state.serviceType,
+                          decoration: compactDecoration.copyWith(
+                            labelText: 'Tipo',
+                          ),
+                          items: ServiceOrderType.values
+                              .map(
+                                (type) => DropdownMenuItem(
+                                  value: type,
+                                  child: Text(
+                                    type.label,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(growable: false),
+                          onChanged: (value) =>
+                              controller.setServiceType(value),
+                        ),
+                      ],
+                    );
+                  }
+
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<ServiceOrderCategory>(
+                          isExpanded: true,
+                          initialValue: state.category,
+                          decoration: compactDecoration.copyWith(
+                            labelText: 'Categoría',
+                          ),
+                          items: ServiceOrderCategory.values
+                              .map(
+                                (category) => DropdownMenuItem(
+                                  value: category,
+                                  child: Text(
+                                    category.label,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(growable: false),
+                          onChanged: state.isCloneMode
+                              ? null
+                              : (value) {
+                                  if (value != null) {
+                                    controller.setCategory(value);
+                                  }
+                                },
+                        ),
                       ),
-                    )
-                    .toList(growable: false),
-                onChanged: state.isCloneMode
-                    ? null
-                    : (value) {
-                        if (value != null) controller.setCategory(value);
-                      },
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: DropdownButtonFormField<ServiceOrderType>(
+                          isExpanded: true,
+                          initialValue: state.serviceType,
+                          decoration: compactDecoration.copyWith(
+                            labelText: 'Tipo',
+                          ),
+                          items: ServiceOrderType.values
+                              .map(
+                                (type) => DropdownMenuItem(
+                                  value: type,
+                                  child: Text(
+                                    type.label,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(growable: false),
+                          onChanged: (value) =>
+                              controller.setServiceType(value),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<ServiceOrderType>(
-                initialValue: state.serviceType,
-                decoration: inputDecoration.copyWith(
-                  labelText: 'Tipo de servicio',
-                ),
-                items: ServiceOrderType.values
-                    .map(
-                      (type) => DropdownMenuItem(
-                        value: type,
-                        child: Text(type.label),
-                      ),
-                    )
-                    .toList(growable: false),
-                onChanged: (value) => controller.setServiceType(value),
-              ),
-              const SizedBox(height: 12),
-              InputSelector(
-                label: 'Fecha y hora del servicio',
+              _CompactSelectorField(
+                label: 'Fecha y hora *',
                 value: state.scheduledFor == null
-                    ? 'Programar visita'
+                    ? 'Seleccionar fecha y hora'
                     : DateFormat(
                         'dd/MM/yyyy h:mm a',
                         'es_DO',
                       ).format(state.scheduledFor!),
-                hint: state.scheduledFor == null
-                    ? 'Opcional. Se enviará recordatorio 30 minutos antes.'
-                    : 'La notificación se activará 30 minutos antes.',
-                icon: Icons.event_available_outlined,
+                enabled: !_inlineFlowBusy,
                 onTap: () => _pickScheduledFor(context, state, controller),
               ),
-              if (state.scheduledFor != null) ...[
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    onPressed: () => controller.setScheduledFor(null),
-                    icon: const Icon(Icons.event_busy_outlined),
-                    label: const Text('Quitar fecha programada'),
-                  ),
-                ),
-              ],
               if (canAssignTechnician) ...[
                 const SizedBox(height: 12),
-                InputSelector(
-                  label: 'Técnico',
-                  value:
-                      state.selectedTechnician?.nombreCompleto ??
-                      'Seleccionar técnico',
-                  hint: state.selectedTechnician?.telefono,
-                  icon: Icons.engineering_outlined,
+                _TechnicianSelectorField(
+                  value: state.selectedTechnician?.nombreCompleto,
                   onTap: () => _pickTechnician(context, state, controller),
                 ),
               ],
             ],
           ),
         ),
-        const SizedBox(height: 14),
-        SectionCard(
-          title: 'Referencia',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (existingReferences.isNotEmpty) ...[
-                Text(
-                  'Referencias actuales',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 10),
-                ReferenceGallery(references: existingReferences),
-              ],
-              if (existingReferences.isNotEmpty && state.references.isNotEmpty)
-                const SizedBox(height: 14),
-              if (state.references.isNotEmpty) ...[
+        if (existingReferences.isNotEmpty || state.references.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          SectionCard(
+            title: 'Referencia',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 if (existingReferences.isNotEmpty)
-                  Text(
-                    'Nuevas referencias',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                  ReferenceGallery(references: existingReferences),
+                if (existingReferences.isNotEmpty &&
+                    state.references.isNotEmpty)
+                  const SizedBox(height: 12),
+                if (state.references.isNotEmpty)
+                  ReferenceGallery(
+                    references: state.references,
+                    onRemove: controller.removeReference,
                   ),
-                if (existingReferences.isNotEmpty) const SizedBox(height: 10),
-                ReferenceGallery(
-                  references: state.references,
-                  onRemove: controller.removeReference,
-                ),
               ],
-              if (existingReferences.isEmpty && state.references.isEmpty)
-                const _EmptyInlineState(
-                  icon: Icons.add_photo_alternate_outlined,
-                  label: 'Sin referencias',
-                ),
-            ],
+            ),
           ),
-        ),
+        ],
         if (canManageOperationalFields) ...[
           const SizedBox(height: 14),
           SectionCard(
@@ -695,10 +732,24 @@ class _CreateServiceOrderScreenState
     CreateServiceOrderState state,
     CreateServiceOrderController controller,
   ) async {
+    await controller.ensureTechniciansLoaded();
+    if (!mounted) return;
+    final latestState = ref.read(
+      createServiceOrderControllerProvider(widget.args),
+    );
+
+    if (latestState.technicians.isEmpty) {
+      await AppFeedback.showError(
+        context,
+        'No hay técnicos disponibles para seleccionar',
+      );
+      return;
+    }
+
     final selected = await _showEntityPicker(
       context,
       title: 'Seleccionar técnico',
-      items: state.technicians,
+      items: latestState.technicians,
       itemTitle: (user) => user.nombreCompleto,
       itemSubtitle: (user) => user.telefono,
       allowEmpty: true,
@@ -1149,20 +1200,20 @@ class SectionCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: theme.colorScheme.shadow.withValues(alpha: 0.06),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+            color: const Color(0xFF102542).withValues(alpha: 0.07),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
           ),
         ],
         border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.65),
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.55),
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1172,7 +1223,7 @@ class SectionCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     title,
-                    style: theme.textTheme.titleMedium?.copyWith(
+                    style: theme.textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -1183,8 +1234,157 @@ class SectionCard extends StatelessWidget {
                 ],
               ],
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactSelectorField extends StatelessWidget {
+  const _CompactSelectorField({
+    required this.label,
+    required this.value,
+    this.enabled = true,
+    this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final bool enabled;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(10),
+      child: Ink(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.55),
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.expand_more_rounded,
+              size: 18,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactActionIconButton extends StatelessWidget {
+  const _CompactActionIconButton({required this.icon, this.onTap});
+
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Ink(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.55),
+            ),
+          ),
+          child: Icon(icon, size: 18, color: theme.colorScheme.primary),
+        ),
+      ),
+    );
+  }
+}
+
+class _TechnicianSelectorField extends StatelessWidget {
+  const _TechnicianSelectorField({this.value, this.onTap});
+
+  final String? value;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = (value ?? '').trim().isEmpty ? 'Seleccionar técnico' : value!;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Ink(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.55),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.engineering_outlined,
+              size: 18,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Icon(
+              Icons.expand_more_rounded,
+              size: 18,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ],
         ),
       ),
@@ -1378,76 +1578,6 @@ class InputSelector extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _QuotationSummaryCard extends StatelessWidget {
-  const _QuotationSummaryCard({required this.quotation});
-
-  final CotizacionModel quotation;
-
-  @override
-  Widget build(BuildContext context) {
-    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF7FAFF),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFD7E4F4)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Resumen',
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _SummaryChip(
-                label: 'Total',
-                value: money.format(quotation.total),
-              ),
-              _SummaryChip(label: 'Items', value: '${quotation.items.length}'),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SummaryChip extends StatelessWidget {
-  const _SummaryChip({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 4),
-          Text(value, style: Theme.of(context).textTheme.titleSmall),
-        ],
       ),
     );
   }
@@ -1990,53 +2120,6 @@ class _ReferenceSheetOption extends StatelessWidget {
               color: colorScheme.onSurfaceVariant,
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _InlineCreateAction extends StatelessWidget {
-  const _InlineCreateAction({
-    required this.icon,
-    required this.label,
-    this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return TextButton.icon(
-      onPressed: onTap,
-      icon: Icon(icon, size: 18),
-      label: Text(label),
-      style: TextButton.styleFrom(
-        foregroundColor: colorScheme.primary,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        backgroundColor: colorScheme.primary.withValues(alpha: 0.08),
-      ),
-    );
-  }
-}
-
-class _InlineStatus extends StatelessWidget {
-  const _InlineStatus({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Text(
-        message,
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
       ),
     );

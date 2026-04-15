@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -10,12 +12,10 @@ import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
-import '../../core/widgets/custom_app_bar.dart';
 import '../clientes/cliente_model.dart';
 import '../cotizaciones/cotizacion_models.dart';
 import 'application/service_order_detail_controller.dart';
 import 'service_order_models.dart';
-import 'widgets/client_location_card.dart';
 import 'widgets/evidence_item_widget.dart';
 
 class ServiceOrderDetailScreen extends ConsumerStatefulWidget {
@@ -45,10 +45,7 @@ class _ServiceOrderDetailScreenState
     final payload = _buildWhatsAppReadyOrderMessage(order, state);
     await Clipboard.setData(ClipboardData(text: payload));
     if (!mounted) return;
-    await AppFeedback.showInfo(
-      context,
-      'Información copiada al portapapeles',
-    );
+    await AppFeedback.showInfo(context, 'Información copiada al portapapeles');
   }
 
   Future<void> _showQuotationPreviewDialog(CotizacionModel quotation) {
@@ -118,15 +115,21 @@ class _ServiceOrderDetailScreenState
                     ],
                   ),
                 ),
-                Expanded(
-                  child: _QuotationDialogBody(quotation: quotation),
-                ),
+                Expanded(child: _QuotationDialogBody(quotation: quotation)),
               ],
             ),
           ),
         );
       },
     );
+  }
+
+  void _handleBackNavigation() {
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
+    context.go(Routes.serviceOrders);
   }
 
   @override
@@ -144,454 +147,380 @@ class _ServiceOrderDetailScreenState
     final isAdmin = role.isAdmin;
     final canSeeTechnicalArea = role.isTechnician || role.isAdmin;
     final canEditOrder =
-      order != null && (role.isAdmin || currentUserId == order.createdById);
+        order != null && (role.isAdmin || currentUserId == order.createdById);
+    final canDeleteOrder = isAdmin && !state.loading && !state.working;
+    final canEditOrderAction = canEditOrder && !state.loading && !state.working;
+    final canCopyOrderAction =
+        order != null && !state.loading && !state.working;
+    final canRefreshAction = !state.loading && !state.working;
 
     return Scaffold(
-      appBar: CustomAppBar(
-        title: 'Detalle de orden',
-        fallbackRoute: Routes.serviceOrders,
-        showLogo: false,
-        showDepartmentLabel: false,
-        actions: [
-          if (isAdmin)
-            IconButton(
-              onPressed: state.loading || state.working || order == null
-                  ? null
-                  : () async {
-                      final confirmed = await showDialog<bool>(
-                        context: context,
-                        builder: (dialogContext) {
-                          return AlertDialog(
-                            title: const Text('Eliminar orden'),
-                            content: Text(
-                              'Esta acción eliminará la orden actual y no se puede deshacer.',
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.of(dialogContext).pop(false),
-                                child: const Text('Cancelar'),
-                              ),
-                              FilledButton(
-                                onPressed: () => Navigator.of(dialogContext).pop(true),
-                                child: const Text('Eliminar'),
-                              ),
-                            ],
-                          );
-                        },
-                      );
-                      if (confirmed != true) return;
-
-                      try {
-                        await controller.deleteOrder();
-                        if (!context.mounted) return;
-                        await AppFeedback.showInfo(
-                          context,
-                          'Orden eliminada',
-                        );
-                        if (!context.mounted) return;
-                        context.pop(true);
-                      } catch (_) {
-                        if (!context.mounted) return;
-                        await AppFeedback.showError(
-                          context,
-                          ref.read(provider).actionError ??
-                              'No se pudo eliminar la orden',
-                        );
-                      }
-                    },
-              icon: const Icon(Icons.delete_outline),
-              tooltip: 'Eliminar orden',
-            ),
-          if (canEditOrder)
-            IconButton(
-              onPressed: state.loading || state.working
-                  ? null
-                  : () async {
-                      final updated = await context.push<bool>(
-                        Routes.serviceOrderCreate,
-                        extra: ServiceOrderCreateArgs(editSource: order),
-                      );
-                      if (updated == true) {
-                        await controller.refresh();
-                        if (!context.mounted) return;
-                        await AppFeedback.showInfo(
-                          context,
-                          'Orden actualizada',
-                        );
-                      }
-                    },
-              icon: const Icon(Icons.edit_outlined),
-              tooltip: 'Editar orden',
-            ),
-          IconButton(
-            onPressed: state.loading || state.working || order == null
-                ? null
-                : () => _copyOrderInformation(order, state),
-            icon: const Icon(Icons.content_copy_rounded),
-            tooltip: 'Copiar información',
-          ),
-          IconButton(
-            onPressed: state.loading || state.working
-                ? null
-                : controller.refresh,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 280),
-          child: order == null
-              ? _DetailWarmupShell(message: state.error)
-              : RefreshIndicator(
-                  onRefresh: controller.refresh,
-                  child: ListView(
-                    key: ValueKey(order.id),
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 132),
-                    children: [
-                      _HeroHeader(
-                        order: order,
-                        clientName: state.client?.nombre,
+      backgroundColor: const Color(0xFFF9FFFC),
+      floatingActionButton: _DetailFloatingActionsButton(
+        canRefresh: canRefreshAction,
+        canCopy: canCopyOrderAction,
+        canEdit: canEditOrderAction,
+        canDelete: canDeleteOrder,
+        onRefresh: controller.refresh,
+        onCopy: canCopyOrderAction
+            ? () => _copyOrderInformation(order, state)
+            : null,
+        onEdit: canEditOrderAction
+            ? () async {
+                final updated = await context.push<bool>(
+                  Routes.serviceOrderCreate,
+                  extra: ServiceOrderCreateArgs(editSource: order),
+                );
+                if (updated == true) {
+                  await controller.refresh();
+                  if (!context.mounted) return;
+                  await AppFeedback.showInfo(context, 'Orden actualizada');
+                }
+              }
+            : null,
+        onDelete: canDeleteOrder && order != null
+            ? () async {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (dialogContext) {
+                    return AlertDialog(
+                      title: const Text('Eliminar orden'),
+                      content: const Text(
+                        'Esta acción eliminará la orden actual y no se puede deshacer.',
                       ),
-                      const SizedBox(height: 20),
-                      if (state.actionError != null) ...[
-                        _MessageBanner(message: state.actionError!),
-                        const SizedBox(height: 16),
-                      ],
-                      ExpandableSectionCard(
-                        storageKey: 'client-section',
-                        expanded: _expandedSection == 'client-section',
-                        onToggle: () => _toggleSection('client-section'),
-                        icon: Icons.person_rounded,
-                        title: 'Cliente',
-                        subtitle: 'Información del cliente vinculada a esta orden.',
-                        collapsedSummary: _buildClientSummary(state),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (_buildClientFacts(state).isNotEmpty)
-                              _AdaptiveInfoGrid(items: _buildClientFacts(state)),
-                            if (state.client != null) ...[
-                              const SizedBox(height: 16),
-                              ClientLocationCard(
-                                client: state.client,
-                                title: 'Ubicación del cliente',
-                              ),
-                            ] else if (_buildClientFacts(state).isEmpty) ...[
-                              const _EmptySectionState(
-                                icon: Icons.person_off_outlined,
-                                title: 'Sin datos adicionales del cliente',
-                                message:
-                                    'La orden no tiene más información de cliente disponible para mostrar.',
-                              ),
-                            ],
-                          ],
+                      actions: [
+                        TextButton(
+                          onPressed: () =>
+                              Navigator.of(dialogContext).pop(false),
+                          child: const Text('Cancelar'),
                         ),
-                      ),
-                      const SizedBox(height: 18),
-                      ExpandableSectionCard(
-                        storageKey: 'quotation-section',
-                        expanded: _expandedSection == 'quotation-section',
-                        onToggle: () => _toggleSection('quotation-section'),
-                        icon: Icons.request_quote_outlined,
-                        title: 'Cotización',
-                        subtitle: 'Resumen de la cotización vinculada.',
-                        collapsedSummary: _buildQuotationSummary(state.quotation),
-                        child: state.quotation == null
-                            ? const _EmptySectionState(
-                                icon: Icons.receipt_long_outlined,
-                                title: 'Sin cotización disponible',
-                                message:
-                                    'No se encontró una cotización vinculada o aún no se pudo cargar.',
-                              )
-                            : _QuotationPreviewLauncher(
-                                quotation: state.quotation!,
-                                onOpen: () => _showQuotationPreviewDialog(
-                                  state.quotation!,
+                        FilledButton(
+                          onPressed: () =>
+                              Navigator.of(dialogContext).pop(true),
+                          child: const Text('Eliminar'),
+                        ),
+                      ],
+                    );
+                  },
+                );
+                if (confirmed != true) return;
+
+                try {
+                  await controller.deleteOrder();
+                  if (!context.mounted) return;
+                  await AppFeedback.showInfo(context, 'Orden eliminada');
+                  if (!context.mounted) return;
+                  context.pop(true);
+                } catch (_) {
+                  if (!context.mounted) return;
+                  await AppFeedback.showError(
+                    context,
+                    ref.read(provider).actionError ??
+                        'No se pudo eliminar la orden',
+                  );
+                }
+              }
+            : null,
+      ),
+      body: Stack(
+        children: [
+          SafeArea(
+            top: false,
+            bottom: false,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 280),
+              child: order == null
+                  ? _DetailWarmupShell(message: state.error)
+                  : RefreshIndicator(
+                      onRefresh: controller.refresh,
+                      child: ListView(
+                        key: ValueKey(order.id),
+                        padding: const EdgeInsets.fromLTRB(10, 82, 10, 112),
+                        children: [
+                          _HeroHeader(
+                            order: order,
+                            clientName: state.client?.nombre,
+                            createdByName:
+                                (state
+                                            .usersById[order.createdById]
+                                            ?.nombreCompleto ??
+                                        order.createdById)
+                                    .trim(),
+                            technicianName: order.assignedToId == null
+                                ? null
+                                : (state
+                                              .usersById[order.assignedToId!]
+                                              ?.nombreCompleto ??
+                                          order.assignedToId)
+                                      ?.trim(),
+                          ),
+                          const SizedBox(height: 10),
+                          if (state.actionError != null) ...[
+                            _MessageBanner(message: state.actionError!),
+                            const SizedBox(height: 8),
+                          ],
+                          _InlineClientSection(state: state),
+                          const SizedBox(height: 10),
+                          ExpandableSectionCard(
+                            storageKey: 'quotation-section',
+                            expanded: _expandedSection == 'quotation-section',
+                            onToggle: () => _toggleSection('quotation-section'),
+                            icon: Icons.request_quote_outlined,
+                            title: 'Cotización',
+                            collapsedSummary: _buildQuotationSummary(
+                              state.quotation,
+                            ),
+                            child: state.quotation == null
+                                ? const Text('Sin cotización')
+                                : _CompactQuotationDetails(
+                                    quotation: state.quotation!,
+                                    onOpen: () => _showQuotationPreviewDialog(
+                                      state.quotation!,
+                                    ),
+                                  ),
+                          ),
+                          const SizedBox(height: 10),
+                          if (canSeeTechnicalArea &&
+                              (_hasContent(order.technicalNote) ||
+                                  _hasContent(order.extraRequirements))) ...[
+                            SectionCard(
+                              icon: Icons.edit_note_rounded,
+                              title: 'Notas operativas',
+                              trailing: FilledButton.tonalIcon(
+                                onPressed: state.working
+                                    ? null
+                                    : () => _editOperationalNotes(
+                                        context,
+                                        ref,
+                                        provider,
+                                      ),
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 8,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
                                 ),
+                                icon: const Icon(Icons.edit_note_rounded),
+                                label: const Text('Editar'),
                               ),
-                      ),
-                      const SizedBox(height: 18),
-                      ExpandableSectionCard(
-                        storageKey: 'order-section',
-                        expanded: _expandedSection == 'order-section',
-                        onToggle: () => _toggleSection('order-section'),
-                        icon: Icons.tune_rounded,
-                        title: 'Información de la orden',
-                        subtitle: 'Resumen operativo y detalles completos.',
-                        collapsedSummary: _buildOrderSummary(order, state),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (canSeeTechnicalArea) ...[
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: FilledButton.tonalIcon(
-                                  onPressed: state.working
-                                      ? null
-                                      : () => _editOperationalNotes(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (_hasContent(order.technicalNote))
+                                    _ReadOnlyField(
+                                      label: 'Nota técnica',
+                                      value: order.technicalNote,
+                                    ),
+                                  if (_hasContent(order.extraRequirements)) ...[
+                                    if (_hasContent(order.technicalNote))
+                                      const SizedBox(height: 8),
+                                    _ReadOnlyField(
+                                      label: 'Requisitos extra',
+                                      value: order.extraRequirements,
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                          ],
+                          SectionCard(
+                            icon: Icons.forum_rounded,
+                            title: 'Referencia',
+                            child: order.referenceItems.isEmpty
+                                ? const Text('Sin referencias')
+                                : _EvidenceCollection(
+                                    items: order.referenceItems,
+                                    variant: EvidenceCardVariant.reference,
+                                  ),
+                          ),
+                          const SizedBox(height: 10),
+                          SectionCard(
+                            icon: Icons.hardware_rounded,
+                            title: 'Evidencia técnica',
+                            trailing: canSeeTechnicalArea
+                                ? MenuAnchor(
+                                    menuChildren: [
+                                      MenuItemButton(
+                                        onPressed: () => _addTextEvidence(
                                           context,
                                           ref,
                                           provider,
                                         ),
-                                  style: FilledButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 10,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                  ),
-                                  icon: const Icon(Icons.edit_note_rounded),
-                                  label: const Text('Gestionar orden'),
-                                ),
-                              ),
-                              const SizedBox(height: 14),
-                            ],
-                            Wrap(
-                              spacing: 10,
-                              runSpacing: 10,
-                              children: [
-                                _MetaPill(
-                                  icon: Icons.flag_outlined,
-                                  text: order.status.label,
-                                ),
-                                _MetaPill(
-                                  icon: Icons.build_outlined,
-                                  text: order.serviceType.label,
-                                ),
-                                _MetaPill(
-                                  icon: Icons.category_outlined,
-                                  text: order.category.label,
-                                ),
-                              ],
-                            ),
-                            if (_buildOrderFacts(order, state).isNotEmpty) ...[
-                              const SizedBox(height: 14),
-                              _AdaptiveInfoGrid(
-                                items: _buildOrderFacts(order, state),
-                              ),
-                            ],
-                            if (_hasContent(order.technicalNote)) ...[
-                              const SizedBox(height: 12),
-                              _ReadOnlyField(
-                                label: 'Nota técnica',
-                                value: order.technicalNote,
-                              ),
-                            ],
-                            if (_hasContent(order.extraRequirements)) ...[
-                              const SizedBox(height: 12),
-                              _ReadOnlyField(
-                                label: 'Requisitos extra',
-                                value: order.extraRequirements,
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      SectionCard(
-                        icon: Icons.forum_rounded,
-                        title: 'Referencia',
-                        subtitle:
-                            'Información base y contexto compartido para preparar el trabajo.',
-                        child: order.referenceItems.isEmpty
-                            ? const _EmptySectionState(
-                                icon: Icons.chat_bubble_outline_rounded,
-                                title: 'Sin referencia aún',
-                                message:
-                                    'Todavía no se han cargado referencias para esta orden.',
-                              )
-                            : _EvidenceCollection(
-                                items: order.referenceItems,
-                                variant: EvidenceCardVariant.reference,
-                              ),
-                      ),
-                      const SizedBox(height: 18),
-                      SectionCard(
-                        icon: Icons.hardware_rounded,
-                        title: 'Evidencia técnica',
-                        subtitle:
-                            'Archivos y notas del trabajo ejecutado en campo.',
-                        trailing: canSeeTechnicalArea
-                            ? MenuAnchor(
-                                menuChildren: [
-                                  MenuItemButton(
-                                    onPressed: () => _addTextEvidence(
-                                      context,
-                                      ref,
-                                      provider,
-                                    ),
-                                    child: const Text('Agregar texto'),
-                                  ),
-                                  MenuItemButton(
-                                    onPressed: () => _addImageEvidence(
-                                      context,
-                                      ref,
-                                      provider,
-                                    ),
-                                    child: const Text('Subir imagen'),
-                                  ),
-                                  MenuItemButton(
-                                    onPressed: () => _addVideoEvidence(
-                                      context,
-                                      ref,
-                                      provider,
-                                    ),
-                                    child: const Text('Subir video'),
-                                  ),
-                                ],
-                                builder: (context, menuController, child) {
-                                  return OutlinedButton.icon(
-                                    onPressed: state.working
-                                        ? null
-                                        : () {
-                                            if (menuController.isOpen) {
-                                              menuController.close();
-                                            } else {
-                                              menuController.open();
-                                            }
-                                          },
-                                    style: OutlinedButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 12,
+                                        child: const Text('Agregar texto'),
                                       ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(14),
+                                      MenuItemButton(
+                                        onPressed: () => _addImageEvidence(
+                                          context,
+                                          ref,
+                                          provider,
+                                        ),
+                                        child: const Text('Subir imagen'),
                                       ),
-                                    ),
-                                    icon: const Icon(
-                                      Icons.add_photo_alternate_outlined,
-                                    ),
-                                    label: const Text('Nueva evidencia'),
-                                  );
-                                },
-                              )
-                            : null,
-                        child: order.technicalEvidenceItems.isEmpty
-                            ? const _EmptySectionState(
-                                icon: Icons.camera_alt_outlined,
-                                title: 'Sin evidencia técnica',
-                                message:
-                                    'Agrega archivos del trabajo cuando el técnico empiece a documentar la visita.',
-                              )
-                            : _EvidenceCollection(
-                                items: order.technicalEvidenceItems,
-                                variant: EvidenceCardVariant.technical,
-                              ),
-                      ),
-                      const SizedBox(height: 18),
-                      if (pendingUploads > 0) ...[
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: Row(
-                            children: [
-                              const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                pendingUploads == 1
-                                    ? '1 archivo subiendose en segundo plano...'
-                                    : '$pendingUploads archivos subiendose en segundo plano...',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
+                                      MenuItemButton(
+                                        onPressed: () => _addVideoEvidence(
+                                          context,
+                                          ref,
+                                          provider,
+                                        ),
+                                        child: const Text('Subir video'),
+                                      ),
+                                    ],
+                                    builder: (context, menuController, child) {
+                                      return OutlinedButton.icon(
+                                        onPressed: state.working
+                                            ? null
+                                            : () {
+                                                if (menuController.isOpen) {
+                                                  menuController.close();
+                                                } else {
+                                                  menuController.open();
+                                                }
+                                              },
+                                        style: OutlinedButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 8,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              10,
+                                            ),
+                                          ),
+                                        ),
+                                        icon: const Icon(
+                                          Icons.add_photo_alternate_outlined,
+                                        ),
+                                        label: const Text('Nueva evidencia'),
+                                      );
+                                    },
+                                  )
+                                : null,
+                            child: order.technicalEvidenceItems.isEmpty
+                                ? const Text('Sin evidencia técnica')
+                                : _EvidenceCollection(
+                                    items: order.technicalEvidenceItems,
+                                    variant: EvidenceCardVariant.technical,
+                                  ),
                           ),
-                        ),
-                      ],
-                      ExpandableSectionCard(
-                        storageKey: 'reports-section',
-                        expanded: _expandedSection == 'reports-section',
-                        onToggle: () => _toggleSection('reports-section'),
-                        icon: Icons.description_outlined,
-                        title: 'Reporte técnico',
-                        subtitle: 'Resumen final del trabajo realizado.',
-                        collapsedSummary: _buildReportsSummary(order.reports),
-                        child: order.reports.isEmpty
-                            ? Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                          const SizedBox(height: 10),
+                          if (pendingUploads > 0) ...[
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: Row(
                                 children: [
-                                  if (canSeeTechnicalArea) ...[
-                                    Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: FilledButton.tonalIcon(
-                                        onPressed: state.working
-                                            ? null
-                                            : () => _addReport(
-                                                context,
-                                                ref,
-                                                provider,
-                                              ),
-                                        style: FilledButton.styleFrom(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 14,
-                                            vertical: 10,
-                                          ),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              14,
-                                            ),
-                                          ),
-                                        ),
-                                        icon: const Icon(Icons.note_add_outlined),
-                                        label: const Text('Agregar reporte'),
-                                      ),
+                                  const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
                                     ),
-                                    const SizedBox(height: 14),
-                                  ],
-                                  const _EmptySectionState(
-                                    icon: Icons.note_alt_outlined,
-                                    title: 'Sin reporte aún',
-                                    message:
-                                        'Cuando el trabajo esté documentado, el reporte aparecerá aquí.',
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    pendingUploads == 1
+                                        ? '1 archivo subiendose en segundo plano...'
+                                        : '$pendingUploads archivos subiendose en segundo plano...',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
                                   ),
                                 ],
-                              )
-                            : Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (canSeeTechnicalArea) ...[
-                                    Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: FilledButton.tonalIcon(
-                                        onPressed: state.working
-                                            ? null
-                                            : () => _addReport(
-                                                context,
-                                                ref,
-                                                provider,
+                              ),
+                            ),
+                          ],
+                          ExpandableSectionCard(
+                            storageKey: 'reports-section',
+                            expanded: _expandedSection == 'reports-section',
+                            onToggle: () => _toggleSection('reports-section'),
+                            icon: Icons.description_outlined,
+                            title: 'Reporte técnico',
+                            collapsedSummary: _buildReportsSummary(
+                              order.reports,
+                            ),
+                            child: order.reports.isEmpty
+                                ? Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      if (canSeeTechnicalArea) ...[
+                                        Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: FilledButton.tonalIcon(
+                                            onPressed: state.working
+                                                ? null
+                                                : () => _addReport(
+                                                    context,
+                                                    ref,
+                                                    provider,
+                                                  ),
+                                            style: FilledButton.styleFrom(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 8,
+                                                  ),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
                                               ),
-                                        style: FilledButton.styleFrom(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 14,
-                                            vertical: 10,
-                                          ),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              14,
+                                            ),
+                                            icon: const Icon(
+                                              Icons.note_add_outlined,
+                                            ),
+                                            label: const Text(
+                                              'Agregar reporte',
                                             ),
                                           ),
                                         ),
-                                        icon: const Icon(Icons.note_add_outlined),
-                                        label: const Text('Agregar reporte'),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 14),
-                                  ],
-                                  ...order.reports
-                                      .asMap()
-                                      .entries
-                                      .map(
+                                        const SizedBox(height: 8),
+                                      ],
+                                      const Text('Sin reportes'),
+                                    ],
+                                  )
+                                : Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      if (canSeeTechnicalArea) ...[
+                                        Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: FilledButton.tonalIcon(
+                                            onPressed: state.working
+                                                ? null
+                                                : () => _addReport(
+                                                    context,
+                                                    ref,
+                                                    provider,
+                                                  ),
+                                            style: FilledButton.styleFrom(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 8,
+                                                  ),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                              ),
+                                            ),
+                                            icon: const Icon(
+                                              Icons.note_add_outlined,
+                                            ),
+                                            label: const Text(
+                                              'Agregar reporte',
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 8),
+                                      ],
+                                      ...order.reports.asMap().entries.map(
                                         (entry) => Padding(
                                           padding: const EdgeInsets.only(
-                                            bottom: 12,
+                                            bottom: 8,
                                           ),
                                           child: _FadeSlideIn(
                                             delayMs: 50 * entry.key,
@@ -606,13 +535,20 @@ class _ServiceOrderDetailScreenState
                                           ),
                                         ),
                                       ),
-                                ],
-                              ),
+                                    ],
+                                  ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
-        ),
+                    ),
+            ),
+          ),
+          Positioned(
+            top: MediaQuery.paddingOf(context).top,
+            left: 4,
+            child: _FloatingBackButton(onPressed: _handleBackNavigation),
+          ),
+        ],
       ),
       bottomNavigationBar: order == null || !order.isCloneSourceAllowed
           ? null
@@ -652,6 +588,190 @@ class _ServiceOrderDetailScreenState
                 ),
               ),
             ),
+    );
+  }
+}
+
+class _DetailFloatingActionsButton extends StatefulWidget {
+  const _DetailFloatingActionsButton({
+    required this.canRefresh,
+    required this.canCopy,
+    required this.canEdit,
+    required this.canDelete,
+    required this.onRefresh,
+    this.onCopy,
+    this.onEdit,
+    this.onDelete,
+  });
+
+  final bool canRefresh;
+  final bool canCopy;
+  final bool canEdit;
+  final bool canDelete;
+  final VoidCallback onRefresh;
+  final VoidCallback? onCopy;
+  final Future<void> Function()? onEdit;
+  final Future<void> Function()? onDelete;
+
+  @override
+  State<_DetailFloatingActionsButton> createState() =>
+      _DetailFloatingActionsButtonState();
+}
+
+class _DetailFloatingActionsButtonState
+    extends State<_DetailFloatingActionsButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _shakeController;
+  late final Animation<double> _shakeRotation;
+  Timer? _shakeTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _shakeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 460),
+    );
+    _shakeRotation = TweenSequence<double>(
+      [
+        TweenSequenceItem(tween: Tween(begin: 0, end: -0.06), weight: 18),
+        TweenSequenceItem(tween: Tween(begin: -0.06, end: 0.06), weight: 22),
+        TweenSequenceItem(tween: Tween(begin: 0.06, end: -0.045), weight: 20),
+        TweenSequenceItem(tween: Tween(begin: -0.045, end: 0.045), weight: 20),
+        TweenSequenceItem(tween: Tween(begin: 0.045, end: 0), weight: 20),
+      ],
+    ).animate(CurvedAnimation(parent: _shakeController, curve: Curves.easeOut));
+
+    _shakeTimer = Timer.periodic(const Duration(milliseconds: 2500), (_) {
+      if (!mounted || _shakeController.isAnimating) {
+        return;
+      }
+      _shakeController.forward(from: 0);
+    });
+  }
+
+  @override
+  void dispose() {
+    _shakeTimer?.cancel();
+    _shakeController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return MenuAnchor(
+      menuChildren: [
+        MenuItemButton(
+          onPressed: widget.canRefresh ? widget.onRefresh : null,
+          leadingIcon: const Icon(Icons.refresh_rounded),
+          child: const Text('Actualizar'),
+        ),
+        MenuItemButton(
+          onPressed: widget.canCopy ? widget.onCopy : null,
+          leadingIcon: const Icon(Icons.content_copy_rounded),
+          child: const Text('Copiar información'),
+        ),
+        MenuItemButton(
+          onPressed: widget.canEdit ? () => widget.onEdit?.call() : null,
+          leadingIcon: const Icon(Icons.edit_outlined),
+          child: const Text('Editar orden'),
+        ),
+        if (widget.onDelete != null)
+          MenuItemButton(
+            onPressed: widget.canDelete ? () => widget.onDelete?.call() : null,
+            leadingIcon: Icon(Icons.delete_outline, color: colorScheme.error),
+            child: Text(
+              'Eliminar orden',
+              style: TextStyle(color: colorScheme.error),
+            ),
+          ),
+      ],
+      builder: (context, menuController, child) {
+        return AnimatedBuilder(
+          animation: _shakeRotation,
+          builder: (context, animatedChild) {
+            return Transform.rotate(
+              angle: _shakeRotation.value,
+              child: animatedChild,
+            );
+          },
+          child: FloatingActionButton.small(
+            heroTag: 'detail-actions-fab',
+            onPressed: () {
+              if (menuController.isOpen) {
+                menuController.close();
+              } else {
+                menuController.open();
+              }
+            },
+            tooltip: 'Acciones',
+            child: const Icon(Icons.more_horiz_rounded),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _FloatingBackButton extends StatelessWidget {
+  const _FloatingBackButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Material(
+      color: colorScheme.surface,
+      shape: const CircleBorder(),
+      elevation: 3,
+      shadowColor: colorScheme.shadow.withValues(alpha: 0.22),
+      child: IconButton(
+        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+        padding: EdgeInsets.zero,
+        onPressed: onPressed,
+        tooltip: 'Regresar',
+        icon: const Icon(Icons.arrow_back_rounded, size: 18),
+      ),
+    );
+  }
+}
+
+class _InlineClientSection extends StatelessWidget {
+  const _InlineClientSection({required this.state});
+
+  final ServiceOrderDetailState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final client = state.client;
+    final values = <String>[
+      _valueOrFallback(client?.nombre),
+      _valueOrFallback(client?.telefono),
+      _valueOrFallback(client?.direccion),
+    ];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+          ),
+        ),
+      ),
+      child: Text(
+        values.join(' · '),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurface,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }
@@ -732,7 +852,8 @@ Future<void> _addImageEvidence(
             );
         uploadedCount++;
       } catch (_) {
-        lastError = ref.read(provider).actionError ??
+        lastError =
+            ref.read(provider).actionError ??
             'No se pudo subir una de las imagenes';
       }
     }
@@ -754,10 +875,7 @@ Future<void> _addImageEvidence(
     final summary = uploadedCount == totalSelected
         ? uploadedMessage
         : '$uploadedMessage ${totalSelected - uploadedCount} no se pudieron procesar.';
-    await AppFeedback.showInfo(
-      context,
-      summary,
-    );
+    await AppFeedback.showInfo(context, summary);
   } catch (_) {
     if (!context.mounted) return;
     await AppFeedback.showError(
@@ -1097,92 +1215,102 @@ Future<void> _editOperationalNotes(
 }
 
 class _HeroHeader extends StatelessWidget {
-  const _HeroHeader({required this.order, required this.clientName});
+  const _HeroHeader({
+    required this.order,
+    required this.clientName,
+    required this.createdByName,
+    this.technicianName,
+  });
 
   final ServiceOrderModel order;
   final String? clientName;
+  final String createdByName;
+  final String? technicianName;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final createdAt = _formatRelativeHeaderDateTime(order.createdAt);
+    final updatedAt = _formatRelativeHeaderDateTime(order.updatedAt);
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.8),
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.55),
         ),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x14102542),
-            blurRadius: 18,
-            offset: Offset(0, 8),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Orden de servicio',
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        color: theme.colorScheme.onSurface,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      _buildOrderHeadline(order, clientName),
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  'Orden de servicio · $createdAt',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurface,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
               StatusBadge(status: order.status),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
-            'Resumen principal de la orden para consulta rápida.',
-            style: theme.textTheme.bodyLarge?.copyWith(
+            'No. ${_shortOrderId(order.id)} · ${order.serviceType.label} · ${order.category.label}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _HeaderTag(
-                icon: Icons.confirmation_number_outlined,
-                text: _shortOrderId(order.id),
+          if ((clientName ?? '').trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                clientName!.trim(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
-              _HeaderTag(
-                icon: Icons.category_outlined,
-                text: order.category.label,
+            ),
+          const SizedBox(height: 4),
+          Text(
+            'Creada por: $createdByName',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontSize: 11,
+            ),
+          ),
+          if (_hasContent(technicianName))
+            Text(
+              'Técnico: ${technicianName!.trim()}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontSize: 11,
               ),
-              _HeaderTag(
-                icon: Icons.build_circle_outlined,
-                text: order.serviceType.label,
-              ),
-              _HeaderTag(
-                icon: Icons.schedule_rounded,
-                text: DateFormat(
-                  'dd/MM/yyyy h:mm a',
-                  'es_DO',
-                ).format(order.createdAt.toLocal()),
-              ),
-            ],
+            ),
+          Text(
+            'Actualizada: $updatedAt',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontSize: 11,
+            ),
           ),
         ],
       ),
@@ -1200,7 +1328,7 @@ class StatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
         color: inverted
             ? Colors.white.withValues(alpha: 0.16)
@@ -1217,44 +1345,8 @@ class StatusBadge extends StatelessWidget {
         style: TextStyle(
           color: inverted ? Colors.white : status.color,
           fontWeight: FontWeight.w700,
-          fontSize: 13,
+          fontSize: 11,
         ),
-      ),
-    );
-  }
-}
-
-class _HeaderTag extends StatelessWidget {
-  const _HeaderTag({required this.text, required this.icon});
-
-  final String text;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 16,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            text,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -1282,17 +1374,17 @@ class SectionCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF102542).withValues(alpha: 0.07),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1300,22 +1392,22 @@ class SectionCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: 30,
+                  height: 30,
                   decoration: BoxDecoration(
                     color: theme.colorScheme.primary.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Icon(icon, color: theme.colorScheme.primary),
+                  child: Icon(icon, size: 16, color: theme.colorScheme.primary),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         title,
-                        style: theme.textTheme.titleMedium?.copyWith(
+                        style: theme.textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -1323,7 +1415,7 @@ class SectionCard extends StatelessWidget {
                         const SizedBox(height: 4),
                         Text(
                           subtitle!,
-                          style: theme.textTheme.bodyMedium?.copyWith(
+                          style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
@@ -1331,10 +1423,10 @@ class SectionCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (trailing != null) ...[const SizedBox(width: 12), trailing!],
+                if (trailing != null) ...[const SizedBox(width: 8), trailing!],
               ],
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 10),
             child,
           ],
         ),
@@ -1372,12 +1464,12 @@ class ExpandableSectionCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF102542).withValues(alpha: 0.07),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
@@ -1386,30 +1478,36 @@ class ExpandableSectionCard extends StatelessWidget {
         child: Column(
           children: [
             InkWell(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(12),
               onTap: onToggle,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
-                      width: 40,
-                      height: 40,
+                      width: 30,
+                      height: 30,
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(12),
+                        color: theme.colorScheme.primary.withValues(
+                          alpha: 0.10,
+                        ),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      child: Icon(icon, color: theme.colorScheme.primary),
+                      child: Icon(
+                        icon,
+                        size: 16,
+                        color: theme.colorScheme.primary,
+                      ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             title,
-                            style: theme.textTheme.titleMedium?.copyWith(
+                            style: theme.textTheme.bodyMedium?.copyWith(
                               fontWeight: FontWeight.w800,
                             ),
                           ),
@@ -1417,7 +1515,7 @@ class ExpandableSectionCard extends StatelessWidget {
                             const SizedBox(height: 4),
                             Text(
                               subtitle!,
-                              style: theme.textTheme.bodyMedium?.copyWith(
+                              style: theme.textTheme.bodySmall?.copyWith(
                                 color: theme.colorScheme.onSurfaceVariant,
                               ),
                             ),
@@ -1430,7 +1528,7 @@ class ExpandableSectionCard extends StatelessWidget {
                               overflow: expanded
                                   ? TextOverflow.visible
                                   : TextOverflow.ellipsis,
-                              style: theme.textTheme.bodyMedium?.copyWith(
+                              style: theme.textTheme.bodySmall?.copyWith(
                                 color: theme.colorScheme.primary,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -1439,7 +1537,7 @@ class ExpandableSectionCard extends StatelessWidget {
                         ],
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 8),
                     AnimatedRotation(
                       turns: expanded ? 0.5 : 0,
                       duration: const Duration(milliseconds: 220),
@@ -1455,7 +1553,7 @@ class ExpandableSectionCard extends StatelessWidget {
             AnimatedCrossFade(
               firstChild: const SizedBox.shrink(),
               secondChild: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                 child: child,
               ),
               crossFadeState: expanded
@@ -1674,8 +1772,12 @@ class _EvidenceCollection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final imageItems = items.where((item) => item.type.isImage).toList(growable: false);
-    final otherItems = items.where((item) => !item.type.isImage).toList(growable: false);
+    final imageItems = items
+        .where((item) => item.type.isImage)
+        .toList(growable: false);
+    final otherItems = items
+        .where((item) => !item.type.isImage)
+        .toList(growable: false);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1925,11 +2027,7 @@ class _CompactImageEvidenceCard extends StatelessWidget {
                     color: iconColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(
-                    Icons.image_outlined,
-                    size: 18,
-                    color: iconColor,
-                  ),
+                  child: Icon(Icons.image_outlined, size: 18, color: iconColor),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -2016,128 +2114,28 @@ class _ReadOnlyField extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
+    final theme = Theme.of(context);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: Theme.of(context).textTheme.labelLarge),
-        const SizedBox(height: 6),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(16),
+        Text(
+          label,
+          style: theme.textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w800,
           ),
-          child: Text(value!.trim()),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value!.trim(),
+          style: theme.textTheme.bodySmall?.copyWith(height: 1.35),
+        ),
+        const SizedBox(height: 8),
+        Divider(
+          height: 1,
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
         ),
       ],
-    );
-  }
-}
-
-class _AdaptiveInfoGrid extends StatelessWidget {
-  const _AdaptiveInfoGrid({required this.items});
-
-  final List<_InfoItemData> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final columns = width >= 720 ? 3 : width >= 420 ? 2 : 1;
-        final gap = 10.0;
-        final itemWidth = (width - ((columns - 1) * gap)) / columns;
-
-        return Wrap(
-          spacing: gap,
-          runSpacing: gap,
-          children: items
-              .map(
-                (item) => SizedBox(
-                  width: itemWidth,
-                  child: _InfoTile(item: item),
-                ),
-              )
-              .toList(growable: false),
-        );
-      },
-    );
-  }
-}
-
-class _InfoTile extends StatelessWidget {
-  const _InfoTile({required this.item});
-
-  final _InfoItemData item;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.72),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                item.icon,
-                size: 16,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  item.label,
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            item.value,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-              height: 1.25,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MetaPill extends StatelessWidget {
-  const _MetaPill({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [Icon(icon, size: 16), const SizedBox(width: 8), Text(text)],
-      ),
     );
   }
 }
@@ -2201,87 +2199,111 @@ class _QuotationSection extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: const Color(0xFFD7E4F4)),
           ),
-          child: Table(
-            columnWidths: const {
-              0: FlexColumnWidth(4.6),
-              1: FlexColumnWidth(1.1),
-              2: FlexColumnWidth(1.6),
-              3: FlexColumnWidth(1.7),
-            },
-            defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-            children: [
-              TableRow(
-                decoration: const BoxDecoration(
-                  color: Color(0xFFEAF1FF),
-                ),
-                children: const [
-                  _QuotationTableHeaderCell(
-                    text: 'Descripción',
-                    align: TextAlign.left,
-                  ),
-                  _QuotationTableHeaderCell(
-                    text: 'Cant.',
-                    align: TextAlign.center,
-                  ),
-                  _QuotationTableHeaderCell(
-                    text: 'Unitario',
-                    align: TextAlign.right,
-                  ),
-                  _QuotationTableHeaderCell(
-                    text: 'Importe',
-                    align: TextAlign.right,
-                  ),
-                ],
-              ),
-              if (quotation.items.isEmpty)
-                TableRow(
-                  children: [
-                    _QuotationTableBodyCell(
-                      text: 'No hay items registrados en esta cotización.',
-                    ),
-                    const _QuotationTableBodyCell(
-                      text: '-',
-                      align: TextAlign.center,
-                    ),
-                    const _QuotationTableBodyCell(
-                      text: '-',
-                      align: TextAlign.right,
-                    ),
-                    _QuotationTableBodyCell(
-                      text: money.format(0),
-                      align: TextAlign.right,
-                      emphasized: true,
-                    ),
-                  ],
-                )
-              else
-                for (var index = 0; index < quotation.items.length; index++)
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 420;
+              return Table(
+                columnWidths: compact
+                    ? const {
+                        0: FlexColumnWidth(4.9),
+                        1: FlexColumnWidth(1.0),
+                        2: FlexColumnWidth(1.45),
+                        3: FlexColumnWidth(1.45),
+                      }
+                    : const {
+                        0: FlexColumnWidth(4.6),
+                        1: FlexColumnWidth(1.1),
+                        2: FlexColumnWidth(1.6),
+                        3: FlexColumnWidth(1.7),
+                      },
+                defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                children: [
                   TableRow(
-                    decoration: BoxDecoration(
-                      color: index.isEven
-                          ? Colors.white
-                          : const Color(0xFFFAFBFD),
-                    ),
+                    decoration: const BoxDecoration(color: Color(0xFFEAF1FF)),
                     children: [
-                      _QuotationTableBodyCell(
-                        text: quotation.items[index].nombre.trim(),
+                      _QuotationTableHeaderCell(
+                        text: compact ? 'Desc.' : 'Descripción',
+                        align: TextAlign.left,
+                        compact: compact,
                       ),
-                      _QuotationTableBodyCell(
-                        text: qtyFmt.format(quotation.items[index].qty),
+                      _QuotationTableHeaderCell(
+                        text: 'Cant.',
                         align: TextAlign.center,
+                        compact: compact,
                       ),
-                      _QuotationTableBodyCell(
-                        text: money.format(quotation.items[index].unitPrice),
+                      _QuotationTableHeaderCell(
+                        text: compact ? 'Unit.' : 'Unitario',
                         align: TextAlign.right,
+                        compact: compact,
                       ),
-                      _QuotationTableBodyCell(
-                        text: money.format(quotation.items[index].total),
+                      _QuotationTableHeaderCell(
+                        text: compact ? 'Imp.' : 'Importe',
                         align: TextAlign.right,
-                        emphasized: true,
+                        compact: compact,
                       ),
                     ],
                   ),
-            ],
+                  if (quotation.items.isEmpty)
+                    TableRow(
+                      children: [
+                        _QuotationTableBodyCell(
+                          text: 'No hay items registrados en esta cotización.',
+                          compact: compact,
+                        ),
+                        _QuotationTableBodyCell(
+                          text: '-',
+                          align: TextAlign.center,
+                          compact: compact,
+                        ),
+                        _QuotationTableBodyCell(
+                          text: '-',
+                          align: TextAlign.right,
+                          compact: compact,
+                        ),
+                        _QuotationTableBodyCell(
+                          text: money.format(0),
+                          align: TextAlign.right,
+                          emphasized: true,
+                          compact: compact,
+                        ),
+                      ],
+                    )
+                  else
+                    for (var index = 0; index < quotation.items.length; index++)
+                      TableRow(
+                        decoration: BoxDecoration(
+                          color: index.isEven
+                              ? Colors.white
+                              : const Color(0xFFFAFBFD),
+                        ),
+                        children: [
+                          _QuotationTableBodyCell(
+                            text: quotation.items[index].nombre.trim(),
+                            compact: compact,
+                          ),
+                          _QuotationTableBodyCell(
+                            text: qtyFmt.format(quotation.items[index].qty),
+                            align: TextAlign.center,
+                            compact: compact,
+                          ),
+                          _QuotationTableBodyCell(
+                            text: money.format(
+                              quotation.items[index].unitPrice,
+                            ),
+                            align: TextAlign.right,
+                            compact: compact,
+                          ),
+                          _QuotationTableBodyCell(
+                            text: money.format(quotation.items[index].total),
+                            align: TextAlign.right,
+                            emphasized: true,
+                            compact: compact,
+                          ),
+                        ],
+                      ),
+                ],
+              );
+            },
           ),
         ),
         if (_hasContent(quotation.note)) ...[
@@ -2334,9 +2356,7 @@ class _QuotationDialogBody extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
           decoration: const BoxDecoration(
             color: Colors.white,
-            border: Border(
-              top: BorderSide(color: Color(0xFFD7E4F4)),
-            ),
+            border: Border(top: BorderSide(color: Color(0xFFD7E4F4))),
           ),
           child: Align(
             alignment: Alignment.centerRight,
@@ -2396,8 +2416,8 @@ class _QuotationDialogBody extends StatelessWidget {
   }
 }
 
-class _QuotationPreviewLauncher extends StatelessWidget {
-  const _QuotationPreviewLauncher({
+class _CompactQuotationDetails extends StatelessWidget {
+  const _CompactQuotationDetails({
     required this.quotation,
     required this.onOpen,
   });
@@ -2409,62 +2429,45 @@ class _QuotationPreviewLauncher extends StatelessWidget {
   Widget build(BuildContext context) {
     final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
     final theme = Theme.of(context);
+    final dateText = DateFormat(
+      'dd/MM/yyyy',
+      'es_DO',
+    ).format(quotation.createdAt.toLocal());
+    final firstItem = quotation.items.isEmpty ? null : quotation.items.first;
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFCFDFE), Color(0xFFF4F8FC)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFD7E4F4)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Abrir cotización',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'No. ${_shortQuotationId(quotation.id)} · $dateText · ${quotation.items.length} items · ${money.format(quotation.total)}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontWeight: FontWeight.w800,
           ),
-          const SizedBox(height: 6),
+        ),
+        if (firstItem != null) ...[
+          const SizedBox(height: 4),
           Text(
-            'Visualiza los productos, observaciones y el total en una vista separada.',
-            style: theme.textTheme.bodyMedium?.copyWith(
+            '${firstItem.nombre.trim()} · ${firstItem.qty} x ${money.format(firstItem.unitPrice)}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _MetaPill(
-                icon: Icons.badge_outlined,
-                text: 'No. ${_shortQuotationId(quotation.id)}',
-              ),
-              _MetaPill(
-                icon: Icons.inventory_2_outlined,
-                text: '${quotation.items.length} items',
-              ),
-              _MetaPill(
-                icon: Icons.payments_outlined,
-                text: money.format(quotation.total),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          FilledButton.tonalIcon(
-            onPressed: onOpen,
-            icon: const Icon(Icons.visibility_outlined),
-            label: const Text('Ver cotización'),
-          ),
         ],
-      ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: onOpen,
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(0, 34),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          ),
+          icon: const Icon(Icons.visibility_outlined),
+          label: const Text('Ver detalle'),
+        ),
+      ],
     );
   }
 }
@@ -2508,21 +2511,43 @@ class _QuotationTableHeaderCell extends StatelessWidget {
   const _QuotationTableHeaderCell({
     required this.text,
     this.align = TextAlign.left,
+    this.compact = false,
   });
 
   final String text;
   final TextAlign align;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final horizontalPadding = compact ? 6.0 : 12.0;
+    final verticalPadding = compact ? 8.0 : 12.0;
+    final alignment = align == TextAlign.right
+        ? Alignment.centerRight
+        : align == TextAlign.center
+        ? Alignment.center
+        : Alignment.centerLeft;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      child: Text(
-        text,
-        textAlign: align,
-        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-          fontWeight: FontWeight.w800,
-          color: const Color(0xFF163A63),
+      padding: EdgeInsets.symmetric(
+        horizontal: horizontalPadding,
+        vertical: verticalPadding,
+      ),
+      child: Align(
+        alignment: alignment,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            text,
+            maxLines: 1,
+            softWrap: false,
+            textAlign: align,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF163A63),
+              fontSize: compact ? 12 : null,
+            ),
+          ),
         ),
       ),
     );
@@ -2534,27 +2559,57 @@ class _QuotationTableBodyCell extends StatelessWidget {
     required this.text,
     this.align = TextAlign.left,
     this.emphasized = false,
+    this.compact = false,
   });
 
   final String text;
   final TextAlign align;
   final bool emphasized;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final horizontalPadding = compact ? 6.0 : 12.0;
+    final verticalPadding = compact ? 8.0 : 12.0;
+    final alignment = align == TextAlign.right
+        ? Alignment.centerRight
+        : align == TextAlign.center
+        ? Alignment.center
+        : Alignment.centerLeft;
+    final style = Theme.of(context).textTheme.bodyMedium?.copyWith(
+      fontWeight: emphasized ? FontWeight.w700 : FontWeight.w500,
+      fontSize: compact ? 12 : null,
+    );
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      decoration: const BoxDecoration(
-        border: Border(
-          top: BorderSide(color: Color(0xFFD7E4F4)),
-        ),
+      padding: EdgeInsets.symmetric(
+        horizontal: horizontalPadding,
+        vertical: verticalPadding,
       ),
-      child: Text(
-        text,
-        textAlign: align,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-          fontWeight: emphasized ? FontWeight.w700 : FontWeight.w500,
-        ),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: Color(0xFFD7E4F4))),
+      ),
+      child: Align(
+        alignment: alignment,
+        child: align == TextAlign.left
+            ? Text(
+                text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                softWrap: false,
+                textAlign: align,
+                style: style,
+              )
+            : FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  text,
+                  maxLines: 1,
+                  softWrap: false,
+                  textAlign: align,
+                  style: style,
+                ),
+              ),
       ),
     );
   }
@@ -2576,12 +2631,12 @@ class _QuotationTotalRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textStyle = emphasized
-        ? Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w800,
-          )
-        : Theme.of(context).textTheme.bodyLarge?.copyWith(
-            fontWeight: FontWeight.w600,
-          );
+        ? Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)
+        : Theme.of(
+            context,
+          ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600);
 
     return Row(
       children: [
@@ -2590,23 +2645,6 @@ class _QuotationTotalRow extends StatelessWidget {
       ],
     );
   }
-}
-
-String _buildClientSummary(ServiceOrderDetailState state) {
-  final parts = <String>[];
-  if (_hasContent(state.client?.telefono)) {
-    parts.add(state.client!.telefono.trim());
-  }
-  if (_hasContent(state.client?.correo)) {
-    parts.add(state.client!.correo!.trim());
-  }
-  if (_hasContent(state.client?.direccion)) {
-    parts.add('Dirección disponible');
-  }
-  if (parts.isEmpty && state.client != null && _hasContent(state.client!.nombre)) {
-    parts.add(state.client!.nombre.trim());
-  }
-  return parts.isEmpty ? 'Toca para ver detalles del cliente.' : parts.join(' · ');
 }
 
 String _buildQuotationSummary(CotizacionModel? quotation) {
@@ -2618,20 +2656,6 @@ String _buildQuotationSummary(CotizacionModel? quotation) {
   return 'Total ${money.format(quotation.total)}';
 }
 
-String _buildOrderSummary(
-  ServiceOrderModel order,
-  ServiceOrderDetailState state,
-) {
-  final parts = <String>[order.status.label, order.serviceType.label];
-  final technicianName = order.assignedToId == null
-      ? null
-      : state.usersById[order.assignedToId!]?.nombreCompleto ?? order.assignedToId;
-  if (_hasContent(technicianName)) {
-    parts.add(technicianName!.trim());
-  }
-  return parts.join(' · ');
-}
-
 String _buildReportsSummary(List<ServiceOrderReportModel> reports) {
   if (reports.isEmpty) {
     return 'Sin reportes registrados.';
@@ -2640,100 +2664,6 @@ String _buildReportsSummary(List<ServiceOrderReportModel> reports) {
     return '1 reporte registrado';
   }
   return '${reports.length} reportes registrados';
-}
-
-class _InfoItemData {
-  const _InfoItemData({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-}
-
-List<_InfoItemData> _buildClientFacts(ServiceOrderDetailState state) {
-  final items = <_InfoItemData>[];
-
-  if (_hasContent(state.client?.telefono)) {
-    items.add(
-      _InfoItemData(
-        label: 'Teléfono',
-        value: state.client!.telefono.trim(),
-        icon: Icons.call_outlined,
-      ),
-    );
-  }
-  if (_hasContent(state.client?.correo)) {
-    items.add(
-      _InfoItemData(
-        label: 'Correo',
-        value: state.client!.correo!.trim(),
-        icon: Icons.mail_outline_rounded,
-      ),
-    );
-  }
-  if (_hasContent(state.client?.direccion)) {
-    items.add(
-      _InfoItemData(
-        label: 'Dirección',
-        value: state.client!.direccion!.trim(),
-        icon: Icons.home_outlined,
-      ),
-    );
-  }
-
-  return items;
-}
-
-List<_InfoItemData> _buildOrderFacts(
-  ServiceOrderModel order,
-  ServiceOrderDetailState state,
-) {
-  final items = <_InfoItemData>[
-    _InfoItemData(
-      label: 'Creada por',
-      value: (state.usersById[order.createdById]?.nombreCompleto ??
-              order.createdById)
-          .trim(),
-      icon: Icons.person_outline_rounded,
-    ),
-    _InfoItemData(
-      label: 'Fecha de creación',
-      value: DateFormat(
-        'dd/MM/yyyy h:mm a',
-        'es_DO',
-      ).format(order.createdAt.toLocal()),
-      icon: Icons.calendar_today_outlined,
-    ),
-    _InfoItemData(
-      label: 'Última actualización',
-      value: DateFormat(
-        'dd/MM/yyyy h:mm a',
-        'es_DO',
-      ).format(order.updatedAt.toLocal()),
-      icon: Icons.update_rounded,
-    ),
-  ];
-
-  final technicianName = order.assignedToId == null
-      ? null
-      : state.usersById[order.assignedToId!]?.nombreCompleto ??
-          order.assignedToId;
-  if (_hasContent(technicianName)) {
-    items.insert(
-      1,
-      _InfoItemData(
-        label: 'Técnico asignado',
-        value: technicianName!.trim(),
-        icon: Icons.engineering_outlined,
-      ),
-    );
-  }
-
-  return items;
 }
 
 bool _hasContent(String? value) {
@@ -2762,9 +2692,7 @@ String _buildWhatsAppReadyOrderMessage(
     _buildQuotationWhatsappSection(quotation),
   ];
 
-  return sections
-      .where((section) => section.trim().isNotEmpty)
-      .join('\n\n');
+  return sections.where((section) => section.trim().isNotEmpty).join('\n\n');
 }
 
 String _buildClientWhatsappSection(ClienteModel? client) {
@@ -2775,8 +2703,12 @@ String _buildClientWhatsappSection(ClienteModel? client) {
     return lines.join('\n');
   }
 
-  lines.add('Nombre: ${_valueOrFallback(client.nombre, fallback: 'No disponible')}');
-  lines.add('Teléfono: ${_valueOrFallback(client.telefono, fallback: 'No disponible')}');
+  lines.add(
+    'Nombre: ${_valueOrFallback(client.nombre, fallback: 'No disponible')}',
+  );
+  lines.add(
+    'Teléfono: ${_valueOrFallback(client.telefono, fallback: 'No disponible')}',
+  );
   if (_hasContent(client.locationUrl)) {
     lines.add('Ubicación: ${client.locationUrl!.trim()}');
   }
@@ -2797,7 +2729,7 @@ String _buildOrderWhatsappSection(
   final technicianName = order.assignedToId == null
       ? null
       : state.usersById[order.assignedToId!]?.nombreCompleto ??
-          order.assignedToId;
+            order.assignedToId;
   final creatorName =
       state.usersById[order.createdById]?.nombreCompleto ?? order.createdById;
   final lines = <String>[
@@ -2884,7 +2816,8 @@ String _buildReportsWhatsappSection(
   for (var index = 0; index < order.reports.length; index++) {
     final report = order.reports[index];
     final authorName =
-        state.usersById[report.createdById]?.nombreCompleto ?? report.createdById;
+        state.usersById[report.createdById]?.nombreCompleto ??
+        report.createdById;
     lines.add(
       '${index + 1}. ${report.type.label}: ${report.report.trim()} (${authorName.trim()} - ${_formatDateTime(report.createdAt)})',
     );
@@ -2945,6 +2878,23 @@ String _formatDateTime(DateTime value) {
   return DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(value.toLocal());
 }
 
+String _formatRelativeHeaderDateTime(DateTime value) {
+  final local = value.toLocal();
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final targetDay = DateTime(local.year, local.month, local.day);
+  final dayDiff = today.difference(targetDay).inDays;
+  final time = DateFormat('h:mm a', 'es_DO').format(local);
+
+  if (dayDiff == 0) {
+    return 'Hoy $time';
+  }
+  if (dayDiff == 1) {
+    return 'Ayer $time';
+  }
+  return DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(local);
+}
+
 String _valueOrFallback(String? value, {String fallback = 'No disponible'}) {
   final normalized = (value ?? '').trim();
   return normalized.isEmpty ? fallback : normalized;
@@ -2963,14 +2913,6 @@ String _shortOrderId(String id) {
   return normalized.substring(0, 10);
 }
 
-String _buildOrderHeadline(ServiceOrderModel order, String? clientName) {
-  final cleanClientName = (clientName ?? '').trim();
-  if (cleanClientName.isNotEmpty) {
-    return cleanClientName;
-  }
-  return 'Orden registrada';
-}
-
 class _ReportCard extends StatelessWidget {
   const _ReportCard({required this.report, required this.authorName});
 
@@ -2979,47 +2921,44 @@ class _ReportCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.fromLTRB(10, 0, 0, 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFF6FAF9),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFDCE9E5)),
+        border: Border(
+          left: BorderSide(
+            color: report.type.color.withValues(alpha: 0.55),
+            width: 3,
+          ),
+          bottom: BorderSide(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.38),
+          ),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: report.type.color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: report.type.color.withValues(alpha: 0.22),
-              ),
-            ),
-            child: Text(
-              report.type.label,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: report.type.color,
-                fontWeight: FontWeight.w800,
-              ),
+          Text(
+            report.type.label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: report.type.color,
+              fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
           Text(
             report.report,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            style: theme.textTheme.bodyMedium?.copyWith(
               height: 1.45,
               fontWeight: FontWeight.w500,
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           Text(
             '${authorName ?? report.createdById} · ${DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(report.createdAt.toLocal())}',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
         ],
@@ -3115,54 +3054,6 @@ class _MessageBanner extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
       ),
       child: Text(message),
-    );
-  }
-}
-
-class _EmptySectionState extends StatelessWidget {
-  const _EmptySectionState({
-    required this.icon,
-    required this.title,
-    required this.message,
-  });
-
-  final IconData icon;
-  final String title;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(
-          alpha: 0.45,
-        ),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 28, color: theme.colorScheme.onSurfaceVariant),
-          const SizedBox(height: 10),
-          Text(
-            title,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

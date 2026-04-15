@@ -528,8 +528,8 @@ export class ClientsService {
         _sum: { totalSold: true },
         _max: { saleDate: true },
       }),
-      this.prisma.service.aggregate({
-        where: { customerId: id, isDeleted: false },
+      this.prisma.serviceOrder.aggregate({
+        where: { clientId: id },
         _count: { _all: true },
         _max: { createdAt: true },
       }),
@@ -614,12 +614,29 @@ export class ClientsService {
           c."createdAt" AS "at",
           'Cotización'::text AS title,
           c.total AS amount,
-          NULL::text AS status,
+          CASE
+            WHEN qo."hasFinalizedOrder" THEN 'finalizado'
+            WHEN qo."hasOrder" THEN 'pendiente'
+            ELSE 'pendiente'
+          END::text AS status,
           u.id::text AS "userId",
                 u."nombreCompleto"::text AS "userName",
-          jsonb_build_object('note', c.note, 'includeItbis', c."includeItbis") AS meta
+          jsonb_build_object(
+            'note', c.note,
+            'includeItbis', c."includeItbis",
+            'hasOrder', COALESCE(qo."hasOrder", false),
+            'hasFinalizedOrder', COALESCE(qo."hasFinalizedOrder", false)
+          ) AS meta
         FROM "Cotizacion" c
               JOIN "users" u ON u.id = c."createdByUserId"
+              LEFT JOIN (
+                SELECT
+                  so."quotation_id" AS "quotationId",
+                  COUNT(*) > 0 AS "hasOrder",
+                  BOOL_OR(so.status = 'finalizado') AS "hasFinalizedOrder"
+                FROM service_orders so
+                GROUP BY so."quotation_id"
+              ) qo ON qo."quotationId" = c.id
         WHERE c."customerId" = ${id}::uuid
           AND c."createdAt" < ${before}
 
@@ -628,23 +645,24 @@ export class ClientsService {
         SELECT
           'service'::text AS "eventType",
           s.id::text AS "eventId",
-          s."createdAt" AS "at",
-          COALESCE(NULLIF(s."title", ''), 'Orden de servicio')::text AS title,
-          COALESCE(s."quotedAmount", s."depositAmount") AS amount,
-          s."orderState"::text AS status,
+          s."created_at" AS "at",
+          'Orden de servicio'::text AS title,
+          q.total AS amount,
+          s.status::text AS status,
           u.id::text AS "userId",
           u."nombreCompleto"::text AS "userName",
           jsonb_build_object(
-            'orderNumber', s."orderNumber",
-            'category', s."category",
-            'serviceType', s."serviceType",
-            'currentPhase', s."currentPhase"
+            'quotationId', s."quotation_id",
+            'category', s.category::text,
+            'serviceType', s."service_type"::text,
+            'scheduledFor', s."scheduled_for",
+            'finalizedAt', s."finalized_at"
           ) AS meta
-        FROM "Service" s
-              JOIN "users" u ON u.id = s."createdByUserId"
-        WHERE s."customerId" = ${id}::uuid
-          AND s."isDeleted" = false
-          AND s."createdAt" < ${before}
+        FROM service_orders s
+              JOIN "users" u ON u.id = s."created_by"
+              JOIN "Cotizacion" q ON q.id = s."quotation_id"
+        WHERE s."client_id" = ${id}::uuid
+          AND s."created_at" < ${before}
 
       ) t
       WHERE (cardinality(${types}::text[]) = 0 OR t."eventType" = ANY(${types}::text[]))

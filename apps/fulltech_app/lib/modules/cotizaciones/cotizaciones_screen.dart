@@ -2342,68 +2342,77 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
           ),
           const SizedBox(height: 10),
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  flex: 7,
-                  child: _DesktopCatalogPane(
-                    searchController: _searchCtrl,
-                    selectedCategory: _selectedCategory,
-                    visibleProducts: _visibleProducts,
-                    loadingProducts: _loadingProducts,
-                    error: _error,
-                    money: _money,
-                    onSearchChanged: () => _commitEditorChange(() {}),
-                    onPickCategory: _pickCategory,
-                    onAddProduct: _addProduct,
-                    onAddExternalItem: _openExternalItemDialog,
-                  ),
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  flex: 3,
-                  child: _DesktopQuotePanel(
-                    tickets: _desktopTickets,
-                    activeTicketId: _activeDesktopTicketId,
-                    editingId: _editingId,
-                    items: _items,
-                    selectedClientName: _selectedClientName,
-                    note: _note,
-                    includeItbis: _includeItbis,
-                    subtotalBeforeDiscount: _subtotalBeforeDiscount,
-                    discountAmount: _discountAmount,
-                    subtotal: _subtotal,
-                    itbisAmount: _itbisAmount,
-                    total: _total,
-                    money: _money,
-                    onPickClient: _openClientDialog,
-                    onEditNote: _openNoteDialog,
-                    onOpenPdf: _openPdfPreview,
-                    onOpenHistory: _openHistory,
-                    onCreateTicket: _createNewDesktopTicket,
-                    onSwitchTicket: _switchDesktopTicket,
-                    onAddExternalItem: _openExternalItemDialog,
-                    onToggleItbis: (value) =>
-                        _commitEditorChange(() => _includeItbis = value),
-                    onClear: _items.isEmpty
-                        ? null
-                        : () {
-                            _commitEditorChange(_resetEditorState);
-                          },
-                    onFinalize: _finalizeCotizacion,
-                    onMinusQty: (index) =>
-                        _setQty(index, _items[index].qty - 1),
-                    onPlusQty: (index) => _setQty(index, _items[index].qty + 1),
-                    onChangePrice: _setUnitPrice,
-                    onGeneralDiscount: _applyGeneralDiscount,
-                    onEditExternalItem: (index) =>
-                        _openExternalItemDialog(editIndex: index),
-                    onRemoveItem: (index) =>
-                        _commitEditorChange(() => _items.removeAt(index)),
-                  ),
-                ),
-              ],
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final quotePaneWidth = (constraints.maxWidth * 0.38).clamp(
+                  460.0,
+                  620.0,
+                );
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: _DesktopCatalogPane(
+                        searchController: _searchCtrl,
+                        selectedCategory: _selectedCategory,
+                        visibleProducts: _visibleProducts,
+                        loadingProducts: _loadingProducts,
+                        error: _error,
+                        money: _money,
+                        onSearchChanged: () => _commitEditorChange(() {}),
+                        onPickCategory: _pickCategory,
+                        onAddProduct: _addProduct,
+                        onAddExternalItem: _openExternalItemDialog,
+                      ),
+                    ),
+                    const SizedBox(width: 20),
+                    SizedBox(
+                      width: quotePaneWidth,
+                      child: _DesktopQuotePanel(
+                        tickets: _desktopTickets,
+                        activeTicketId: _activeDesktopTicketId,
+                        editingId: _editingId,
+                        items: _items,
+                        selectedClientName: _selectedClientName,
+                        note: _note,
+                        includeItbis: _includeItbis,
+                        subtotalBeforeDiscount: _subtotalBeforeDiscount,
+                        discountAmount: _discountAmount,
+                        subtotal: _subtotal,
+                        itbisAmount: _itbisAmount,
+                        total: _total,
+                        money: _money,
+                        onPickClient: _openClientDialog,
+                        onEditNote: _openNoteDialog,
+                        onOpenPdf: _openPdfPreview,
+                        onOpenHistory: _openHistory,
+                        onCreateTicket: _createNewDesktopTicket,
+                        onSwitchTicket: _switchDesktopTicket,
+                        onAddExternalItem: _openExternalItemDialog,
+                        onToggleItbis: (value) =>
+                            _commitEditorChange(() => _includeItbis = value),
+                        onClear: _items.isEmpty
+                            ? null
+                            : () {
+                                _commitEditorChange(_resetEditorState);
+                              },
+                        onFinalize: _finalizeCotizacion,
+                        onMinusQty: (index) =>
+                            _setQty(index, _items[index].qty - 1),
+                        onPlusQty: (index) =>
+                            _setQty(index, _items[index].qty + 1),
+                        onChangePrice: _setUnitPrice,
+                        onGeneralDiscount: _applyGeneralDiscount,
+                        onEditExternalItem: (index) =>
+                            _openExternalItemDialog(editIndex: index),
+                        onRemoveItem: (index) =>
+                            _commitEditorChange(() => _items.removeAt(index)),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -2819,150 +2828,221 @@ class _DesktopQuotePanel extends StatelessWidget {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                PopupMenuButton<String>(
-                  tooltip: 'Cambiar ticket',
-                  onSelected: onSwitchTicket,
-                  itemBuilder: (context) {
-                    return [
-                      for (var index = 0; index < tickets.length; index++)
-                        PopupMenuItem<String>(
-                          value: tickets[index].id,
-                          child: Text(tickets[index].label(index)),
-                        ),
-                    ];
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHigh,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.receipt_long_outlined, size: 16),
-                        const SizedBox(width: 6),
-                        Text(
-                          activeLabel,
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        const Icon(Icons.expand_more, size: 16),
-                      ],
-                    ),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(
+                  color: theme.colorScheme.outlineVariant.withValues(
+                    alpha: 0.55,
                   ),
                 ),
-                const SizedBox(width: 6),
-                IconButton(
-                  tooltip: 'Nuevo ticket',
-                  onPressed: onCreateTicket,
-                  icon: const Icon(Icons.add_circle_outline),
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      PopupMenuButton<String>(
+                        tooltip: 'Cambiar ticket',
+                        onSelected: onSwitchTicket,
+                        itemBuilder: (context) {
+                          return [
+                            for (var index = 0; index < tickets.length; index++)
+                              PopupMenuItem<String>(
+                                value: tickets[index].id,
+                                child: Text(tickets[index].label(index)),
+                              ),
+                          ];
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surface,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.receipt_long_outlined, size: 16),
+                              const SizedBox(width: 6),
+                              Text(
+                                activeLabel,
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(Icons.expand_more, size: 16),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        tooltip: 'Nuevo ticket',
+                        onPressed: onCreateTicket,
+                        icon: const Icon(Icons.add_circle_outline),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        tooltip: 'Cliente',
+                        onPressed: onPickClient,
+                        icon: const Icon(Icons.person_outline),
+                      ),
+                      IconButton(
+                        tooltip: 'Agregar fuera de inventario',
+                        onPressed: onAddExternalItem,
+                        icon: const Icon(Icons.add_box_outlined),
+                      ),
+                      IconButton(
+                        tooltip: note.trim().isEmpty
+                            ? 'Agregar nota'
+                            : 'Editar nota',
+                        onPressed: onEditNote,
+                        icon: Icon(
+                          note.trim().isEmpty
+                              ? Icons.sticky_note_2_outlined
+                              : Icons.sticky_note_2,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'PDF',
+                        onPressed: onOpenPdf,
+                        icon: const Icon(Icons.picture_as_pdf_outlined),
+                      ),
+                      IconButton(
+                        tooltip: 'Historial',
+                        onPressed: onOpenHistory,
+                        icon: const Icon(Icons.history),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
                     selectedClientName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(
+                    style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w900,
                     ),
                   ),
-                ),
-                IconButton(
-                  tooltip: 'Cliente',
-                  onPressed: onPickClient,
-                  icon: const Icon(Icons.person_outline),
-                ),
-                IconButton(
-                  tooltip: 'Agregar fuera de inventario',
-                  onPressed: onAddExternalItem,
-                  icon: const Icon(Icons.add_box_outlined),
-                ),
-                IconButton(
-                  tooltip: note.trim().isEmpty ? 'Agregar nota' : 'Editar nota',
-                  onPressed: onEditNote,
-                  icon: Icon(
-                    note.trim().isEmpty
-                        ? Icons.sticky_note_2_outlined
-                        : Icons.sticky_note_2,
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surface,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          editingId == null
+                              ? '${items.length} productos agregados'
+                              : 'Editando cotización · ${items.length} productos',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      if (note.trim().isNotEmpty)
+                        Container(
+                          constraints: const BoxConstraints(maxWidth: 240),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surface,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            note,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-                ),
-                IconButton(
-                  tooltip: 'PDF',
-                  onPressed: onOpenPdf,
-                  icon: const Icon(Icons.picture_as_pdf_outlined),
-                ),
-                IconButton(
-                  tooltip: 'Historial',
-                  onPressed: onOpenHistory,
-                  icon: const Icon(Icons.history),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              editingId == null
-                  ? '${items.length} productos agregados'
-                  : 'Editando cotización · ${items.length} productos',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
+                ],
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Expanded(
-              child: items.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.add_shopping_cart_outlined,
-                            size: 56,
-                            color: theme.colorScheme.outline,
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Haz clic en un producto del catálogo para agregarlo',
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    )
-                  : ListView.separated(
-                      itemCount: items.length,
-                      separatorBuilder: (context, index) =>
-                          const SizedBox(height: 8),
-                      itemBuilder: (context, index) {
-                        final item = items[index];
-                        return _DesktopTicketItem(
-                          item: item,
-                          money: money,
-                          onMinus: () => onMinusQty(index),
-                          onPlus: () => onPlusQty(index),
-                          onChangePrice: (value) => onChangePrice(index, value),
-                          onEdit: item.isExternal
-                              ? () => onEditExternalItem(index)
-                              : null,
-                          onRemove: () => onRemoveItem(index),
-                        );
-                      },
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerLowest,
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(
+                    color: theme.colorScheme.outlineVariant.withValues(
+                      alpha: 0.42,
                     ),
+                  ),
+                ),
+                child: items.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.add_shopping_cart_outlined,
+                              size: 56,
+                              color: theme.colorScheme.outline,
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Haz clic en un producto del catálogo para agregarlo',
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.all(12),
+                        itemCount: items.length,
+                        separatorBuilder: (context, index) =>
+                            const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final item = items[index];
+                          return _DesktopTicketItem(
+                            item: item,
+                            money: money,
+                            onMinus: () => onMinusQty(index),
+                            onPlus: () => onPlusQty(index),
+                            onChangePrice: (value) =>
+                                onChangePrice(index, value),
+                            onEdit: item.isExternal
+                                ? () => onEditExternalItem(index)
+                                : null,
+                            onRemove: () => onRemoveItem(index),
+                          );
+                        },
+                      ),
+              ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: theme.colorScheme.surfaceContainerLowest,
@@ -3025,28 +3105,28 @@ class _DesktopQuotePanel extends StatelessWidget {
                     hint: 'Doble clic para descuento general',
                     onDoubleTap: onGeneralDiscount,
                   ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: onClear,
+                          icon: const Icon(Icons.delete_sweep_outlined),
+                          label: const Text('Limpiar'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: onFinalize,
+                          icon: const Icon(Icons.check_circle_outline),
+                          label: const Text('Finalizar'),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onClear,
-                    icon: const Icon(Icons.delete_sweep_outlined),
-                    label: const Text('Limpiar'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: onFinalize,
-                    icon: const Icon(Icons.check_circle_outline),
-                    label: const Text('Finalizar'),
-                  ),
-                ),
-              ],
             ),
           ],
         ),
