@@ -10,13 +10,18 @@ import 'package:intl/intl.dart';
 
 import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_provider.dart';
+import '../../core/models/user_model.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
+import '../../core/utils/safe_url_launcher.dart';
 import '../clientes/cliente_model.dart';
+import '../clientes/client_location_utils.dart';
 import '../cotizaciones/cotizacion_models.dart';
 import 'application/service_order_detail_controller.dart';
 import 'service_order_models.dart';
+import 'widgets/client_location_card.dart';
 import 'widgets/evidence_item_widget.dart';
+import 'widgets/service_order_quick_actions_modal.dart';
 
 class ServiceOrderDetailScreen extends ConsumerStatefulWidget {
   const ServiceOrderDetailScreen({super.key, required this.orderId});
@@ -153,17 +158,80 @@ class _ServiceOrderDetailScreenState
     final canCopyOrderAction =
         order != null && !state.loading && !state.working;
     final canRefreshAction = !state.loading && !state.working;
+    final clientPhone = (state.client?.telefono ?? '').trim();
+    final clientPhoneUri = _buildPhoneUri(clientPhone);
+    final clientWhatsAppUri = _buildWhatsAppUri(clientPhone);
+    final clientLocationUrl =
+        (state.client?.locationUrl ?? order?.client?.locationUrl ?? '').trim();
+    final locationPreview = parseClientLocationPreview(clientLocationUrl);
+    final locationUri = buildClientNavigationUri(
+      locationPreview,
+      clientLocationUrl,
+    );
+    final sellerConversationUri = order == null
+        ? null
+        : _buildWhatsAppUri(state.usersById[order.createdById]?.telefono ?? '');
+    final supportConversationUri = _buildAssistantConversationUri(
+      state.usersById,
+    );
+    final technicianActionConfig = ServiceOrderQuickActionsConfig(
+      clientCallUri: clientPhoneUri,
+      clientWhatsAppUri: clientWhatsAppUri,
+      locationUri: locationUri,
+      sellerConversationUri: sellerConversationUri,
+      supportConversationUri: supportConversationUri,
+    );
+    final canCallClientAction =
+        clientPhoneUri != null && !state.loading && !state.working;
+    final canOpenWhatsAppAction =
+        clientWhatsAppUri != null && !state.loading && !state.working;
+    final createdByName = order == null
+        ? null
+        : (state.usersById[order.createdById]?.nombreCompleto ??
+                  order.createdById)
+              .trim();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9FFFC),
       floatingActionButton: _DetailFloatingActionsButton(
+        isTechnician: role.isTechnician && order != null,
         canRefresh: canRefreshAction,
         canCopy: canCopyOrderAction,
         canEdit: canEditOrderAction,
         canDelete: canDeleteOrder,
+        canCallClient: canCallClientAction,
+        canOpenWhatsApp: canOpenWhatsAppAction,
         onRefresh: controller.refresh,
+        onOpenTechnicianActions: role.isTechnician && order != null
+            ? () {
+                showServiceOrderQuickActionsModal(
+                  context: context,
+                  ref: ref,
+                  orderId: order.id,
+                  order: order,
+                  actionConfig: technicianActionConfig,
+                  onOrderUpdated: () {
+                    controller.refresh();
+                  },
+                );
+              }
+            : null,
         onCopy: canCopyOrderAction
             ? () => _copyOrderInformation(order, state)
+            : null,
+        onCallClient: canCallClientAction
+            ? () => safeOpenUrl(
+                context,
+                clientPhoneUri,
+                copiedMessage: 'No se pudo iniciar la llamada. Numero copiado.',
+              )
+            : null,
+        onOpenWhatsApp: canOpenWhatsAppAction
+            ? () => safeOpenUrl(
+                context,
+                clientWhatsAppUri,
+                copiedMessage: 'No se pudo abrir WhatsApp. Enlace copiado.',
+              )
             : null,
         onEdit: canEditOrderAction
             ? () async {
@@ -222,11 +290,14 @@ class _ServiceOrderDetailScreenState
               }
             : null,
       ),
-      body: Stack(
+      body: Column(
         children: [
-          SafeArea(
-            top: false,
-            bottom: false,
+          _DetailTopBar(
+            onBackPressed: _handleBackNavigation,
+            creatorName: createdByName,
+            status: order?.status,
+          ),
+          Expanded(
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 280),
               child: order == null
@@ -235,17 +306,10 @@ class _ServiceOrderDetailScreenState
                       onRefresh: controller.refresh,
                       child: ListView(
                         key: ValueKey(order.id),
-                        padding: const EdgeInsets.fromLTRB(10, 82, 10, 112),
+                        padding: const EdgeInsets.fromLTRB(10, 8, 10, 112),
                         children: [
                           _HeroHeader(
                             order: order,
-                            clientName: state.client?.nombre,
-                            createdByName:
-                                (state
-                                            .usersById[order.createdById]
-                                            ?.nombreCompleto ??
-                                        order.createdById)
-                                    .trim(),
                             technicianName: order.assignedToId == null
                                 ? null
                                 : (state
@@ -543,11 +607,6 @@ class _ServiceOrderDetailScreenState
                     ),
             ),
           ),
-          Positioned(
-            top: MediaQuery.paddingOf(context).top,
-            left: 4,
-            child: _FloatingBackButton(onPressed: _handleBackNavigation),
-          ),
         ],
       ),
       bottomNavigationBar: order == null || !order.isCloneSourceAllowed
@@ -594,22 +653,34 @@ class _ServiceOrderDetailScreenState
 
 class _DetailFloatingActionsButton extends StatefulWidget {
   const _DetailFloatingActionsButton({
+    required this.isTechnician,
     required this.canRefresh,
     required this.canCopy,
     required this.canEdit,
     required this.canDelete,
+    required this.canCallClient,
+    required this.canOpenWhatsApp,
     required this.onRefresh,
+    this.onOpenTechnicianActions,
     this.onCopy,
+    this.onCallClient,
+    this.onOpenWhatsApp,
     this.onEdit,
     this.onDelete,
   });
 
+  final bool isTechnician;
   final bool canRefresh;
   final bool canCopy;
   final bool canEdit;
   final bool canDelete;
+  final bool canCallClient;
+  final bool canOpenWhatsApp;
   final VoidCallback onRefresh;
+  final VoidCallback? onOpenTechnicianActions;
   final VoidCallback? onCopy;
+  final VoidCallback? onCallClient;
+  final VoidCallback? onOpenWhatsApp;
   final Future<void> Function()? onEdit;
   final Future<void> Function()? onDelete;
 
@@ -660,6 +731,21 @@ class _DetailFloatingActionsButtonState
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    if (widget.isTechnician) {
+      return AnimatedBuilder(
+        animation: _shakeRotation,
+        builder: (context, child) {
+          return Transform.rotate(angle: _shakeRotation.value, child: child);
+        },
+        child: FloatingActionButton.extended(
+          heroTag: 'detail-technician-actions-fab',
+          onPressed: widget.onOpenTechnicianActions,
+          tooltip: 'Gestionar',
+          icon: const Icon(Icons.tune_rounded),
+          label: const Text('Gestionar'),
+        ),
+      );
+    }
     return MenuAnchor(
       menuChildren: [
         MenuItemButton(
@@ -671,6 +757,16 @@ class _DetailFloatingActionsButtonState
           onPressed: widget.canCopy ? widget.onCopy : null,
           leadingIcon: const Icon(Icons.content_copy_rounded),
           child: const Text('Copiar información'),
+        ),
+        MenuItemButton(
+          onPressed: widget.canCallClient ? widget.onCallClient : null,
+          leadingIcon: const Icon(Icons.call_outlined),
+          child: const Text('Llamar al cliente'),
+        ),
+        MenuItemButton(
+          onPressed: widget.canOpenWhatsApp ? widget.onOpenWhatsApp : null,
+          leadingIcon: const Icon(Icons.chat_bubble_outline_rounded),
+          child: const Text('Escribir por WhatsApp'),
         ),
         MenuItemButton(
           onPressed: widget.canEdit ? () => widget.onEdit?.call() : null,
@@ -714,28 +810,110 @@ class _DetailFloatingActionsButtonState
   }
 }
 
-class _FloatingBackButton extends StatelessWidget {
-  const _FloatingBackButton({required this.onPressed});
+class _DetailTopBar extends StatelessWidget {
+  const _DetailTopBar({
+    required this.onBackPressed,
+    this.creatorName,
+    this.status,
+  });
 
-  final VoidCallback onPressed;
+  final VoidCallback onBackPressed;
+  final String? creatorName;
+  final ServiceOrderStatus? status;
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Material(
-      color: colorScheme.surface,
-      shape: const CircleBorder(),
-      elevation: 3,
-      shadowColor: colorScheme.shadow.withValues(alpha: 0.22),
-      child: IconButton(
-        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-        padding: EdgeInsets.zero,
-        onPressed: onPressed,
-        tooltip: 'Regresar',
-        icon: const Icon(Icons.arrow_back_rounded, size: 18),
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final normalizedCreator = (creatorName ?? '').trim();
+    final creatorFirstName = normalizedCreator.isEmpty
+        ? ''
+        : normalizedCreator.split(RegExp(r'\s+')).first.trim();
+    final hasCreator = creatorFirstName.isNotEmpty;
+
+    return SafeArea(
+      bottom: false,
+      child: Container(
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        decoration: BoxDecoration(
+          color: colorScheme.surface.withValues(alpha: 0.96),
+          border: Border(
+            bottom: BorderSide(
+              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            IconButton(
+              constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              onPressed: onBackPressed,
+              tooltip: 'Regresar',
+              icon: const Icon(Icons.arrow_back_rounded, size: 18),
+            ),
+            if (hasCreator) ...[
+              Container(
+                width: 1,
+                height: 16,
+                margin: const EdgeInsets.only(right: 10),
+                color: colorScheme.outlineVariant.withValues(alpha: 0.55),
+              ),
+              Expanded(
+                child: Text(
+                  'Creador: $creatorFirstName',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style:
+                      theme.textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: colorScheme.onSurface,
+                      ) ??
+                      theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: colorScheme.onSurface,
+                      ),
+                ),
+              ),
+              const SizedBox(width: 10),
+            ] else
+              const Spacer(),
+            if (status != null) StatusBadge(status: status!),
+          ],
+        ),
       ),
     );
   }
+}
+
+Uri? _buildPhoneUri(String rawPhone) {
+  final digits = rawPhone.replaceAll(RegExp(r'\D'), '');
+  if (digits.isEmpty) {
+    return null;
+  }
+  return Uri.parse('tel:$digits');
+}
+
+Uri? _buildWhatsAppUri(String rawPhone) {
+  var digits = rawPhone.replaceAll(RegExp(r'\D'), '');
+  if (digits.isEmpty) {
+    return null;
+  }
+  if (digits.length == 10) {
+    digits = '1$digits';
+  }
+  return Uri.parse('https://wa.me/$digits');
+}
+
+Uri? _buildAssistantConversationUri(Map<String, UserModel> usersById) {
+  for (final user in usersById.values) {
+    if (user.appRole == AppRole.asistente && user.telefono.trim().isNotEmpty) {
+      return _buildWhatsAppUri(user.telefono);
+    }
+  }
+  return null;
 }
 
 class _InlineClientSection extends StatelessWidget {
@@ -1215,16 +1393,9 @@ Future<void> _editOperationalNotes(
 }
 
 class _HeroHeader extends StatelessWidget {
-  const _HeroHeader({
-    required this.order,
-    required this.clientName,
-    required this.createdByName,
-    this.technicianName,
-  });
+  const _HeroHeader({required this.order, this.technicianName});
 
   final ServiceOrderModel order;
-  final String? clientName;
-  final String createdByName;
   final String? technicianName;
 
   @override
@@ -1258,7 +1429,6 @@ class _HeroHeader extends StatelessWidget {
                   ),
                 ),
               ),
-              StatusBadge(status: order.status),
             ],
           ),
           const SizedBox(height: 6),
@@ -1271,28 +1441,7 @@ class _HeroHeader extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
-          if ((clientName ?? '').trim().isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                clientName!.trim(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
           const SizedBox(height: 4),
-          Text(
-            'Creada por: $createdByName',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontSize: 11,
-            ),
-          ),
           if (_hasContent(technicianName))
             Text(
               'Técnico: ${technicianName!.trim()}',

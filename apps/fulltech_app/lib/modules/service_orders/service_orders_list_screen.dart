@@ -41,8 +41,6 @@ class _ServiceOrdersListScreenState
       TextEditingController();
   final Set<String> _busyOrderIds = <String>{};
   final Set<String> _creatingFromOrderIds = <String>{};
-  bool _desktopControlsCollapsed = false;
-  bool _mobileControlsCollapsed = true;
   bool _purgingAllDebug = false;
   StreamSubscription<OperationsRealtimeMessage>?
   _operationsRealtimeSubscription;
@@ -141,6 +139,132 @@ class _ServiceOrdersListScreenState
     });
   }
 
+  Future<void> _openControlPanelDialog({
+    required int activeCount,
+    required bool refreshing,
+    required List<_FilterUserOption> availableCreators,
+    required List<_FilterUserOption> availableTechnicians,
+  }) async {
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Panel de operaciones',
+      barrierColor: Colors.black.withValues(alpha: 0.38),
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (dialogContext, animation, secondaryAnimation) {
+        final screenSize = MediaQuery.sizeOf(dialogContext);
+        final maxWidth = screenSize.width >= 1180
+            ? 860.0
+            : screenSize.width >= 760
+            ? 700.0
+            : screenSize.width - 24;
+        final maxHeight = screenSize.height * 0.78;
+
+        return SafeArea(
+          child: StatefulBuilder(
+            builder: (context, setDialogState) {
+              Future<void> handleOpenFilters() async {
+                await _openFiltersSheet(
+                  availableCreators: availableCreators,
+                  availableTechnicians: availableTechnicians,
+                );
+                if (!dialogContext.mounted) return;
+                setDialogState(() {});
+              }
+
+              void updateFilter(ServiceOrdersFilter nextFilter) {
+                setState(() {
+                  _filter = nextFilter;
+                });
+                setDialogState(() {});
+              }
+
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 18,
+                  ),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: maxWidth,
+                      maxHeight: maxHeight,
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: SingleChildScrollView(
+                        child: _OperationsControlPanel(
+                          filter: _filter,
+                          activeCount: activeCount,
+                          refreshing: refreshing,
+                          searchController: _collapsedQuickSearchCtrl,
+                          onSearchChanged: (_) {
+                            setState(() {});
+                            setDialogState(() {});
+                          },
+                          onClearSearch: () {
+                            _collapsedQuickSearchCtrl.clear();
+                            setState(() {});
+                            setDialogState(() {});
+                          },
+                          onOpenFilters: handleOpenFilters,
+                          onCollapse: () => Navigator.of(dialogContext).pop(),
+                          collapseIcon: Icons.close_rounded,
+                          collapseTooltip: 'Cerrar panel',
+                          onReset: _filter.hasActiveFilters
+                              ? () => updateFilter(
+                                  const ServiceOrdersFilter.mainDefault(),
+                                )
+                              : null,
+                          onToggleStatus: (status) {
+                            final nextStatuses = {..._filter.statuses};
+                            if (nextStatuses.contains(status)) {
+                              nextStatuses.remove(status);
+                            } else {
+                              nextStatuses.add(status);
+                            }
+                            updateFilter(
+                              _filter.copyWith(statuses: nextStatuses),
+                            );
+                          },
+                          onToggleServiceType: (serviceType) {
+                            final nextTypes = {..._filter.serviceTypes};
+                            if (nextTypes.contains(serviceType)) {
+                              nextTypes.remove(serviceType);
+                            } else {
+                              nextTypes.add(serviceType);
+                            }
+                            updateFilter(
+                              _filter.copyWith(serviceTypes: nextTypes),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.92, end: 1).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(serviceOrdersListControllerProvider);
@@ -151,6 +275,9 @@ class _ServiceOrdersListScreenState
         currentUser?.appRole.isTechnician == true;
     final isAdmin = currentUser?.appRole.isAdmin ?? false;
     final currentUserId = currentUser?.id ?? '';
+    final supportConversationUri = _buildAssistantConversationUri(
+      state.usersById,
+    );
     final width = MediaQuery.sizeOf(context).width;
     final isDesktop = width >= kDesktopShellBreakpoint;
     final visibleOrders = _applyCollapsedQuickSearch(
@@ -343,11 +470,12 @@ class _ServiceOrdersListScreenState
                                       refreshing: state.refreshing,
                                     ),
                                     const SizedBox(height: 12),
-                                    if (!_desktopControlsCollapsed)
-                                      _OperationsControlPanel(
-                                        filter: _filter,
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: _CollapsedOperationsPanelToggle(
                                         activeCount: visibleOrders.length,
-                                        refreshing: state.refreshing,
+                                        hasActiveFilters:
+                                            _filter.hasActiveFilters,
                                         searchController:
                                             _collapsedQuickSearchCtrl,
                                         onSearchChanged: (_) {
@@ -365,148 +493,19 @@ class _ServiceOrdersListScreenState
                                                 availableTechnicians,
                                           );
                                         },
-                                        onCollapse: () {
-                                          setState(() {
-                                            _desktopControlsCollapsed = true;
-                                          });
+                                        onTap: () {
+                                          _openControlPanelDialog(
+                                            activeCount: visibleOrders.length,
+                                            refreshing: state.refreshing,
+                                            availableCreators:
+                                                availableCreators,
+                                            availableTechnicians:
+                                                availableTechnicians,
+                                          );
                                         },
-                                        onReset: _filter.hasActiveFilters
-                                            ? () {
-                                                setState(() {
-                                                  _filter =
-                                                      const ServiceOrdersFilter.mainDefault();
-                                                });
-                                              }
-                                            : null,
-                                        onToggleStatus: (status) {
-                                          setState(() {
-                                            final nextStatuses = {
-                                              ..._filter.statuses,
-                                            };
-                                            if (nextStatuses.contains(status)) {
-                                              nextStatuses.remove(status);
-                                            } else {
-                                              nextStatuses.add(status);
-                                            }
-                                            _filter = _filter.copyWith(
-                                              statuses: nextStatuses,
-                                            );
-                                          });
-                                        },
-                                        onToggleServiceType: (serviceType) {
-                                          setState(() {
-                                            final nextTypes = {
-                                              ..._filter.serviceTypes,
-                                            };
-                                            if (nextTypes.contains(
-                                              serviceType,
-                                            )) {
-                                              nextTypes.remove(serviceType);
-                                            } else {
-                                              nextTypes.add(serviceType);
-                                            }
-                                            _filter = _filter.copyWith(
-                                              serviceTypes: nextTypes,
-                                            );
-                                          });
-                                        },
-                                      )
-                                    else
-                                      Align(
-                                        alignment: Alignment.centerRight,
-                                        child: _CollapsedOperationsPanelToggle(
-                                          activeCount: visibleOrders.length,
-                                          hasActiveFilters:
-                                              _filter.hasActiveFilters,
-                                          searchController:
-                                              _collapsedQuickSearchCtrl,
-                                          onSearchChanged: (_) {
-                                            setState(() {});
-                                          },
-                                          onClearSearch: () {
-                                            _collapsedQuickSearchCtrl.clear();
-                                            setState(() {});
-                                          },
-                                          onOpenFilters: () {
-                                            _openFiltersSheet(
-                                              availableCreators:
-                                                  availableCreators,
-                                              availableTechnicians:
-                                                  availableTechnicians,
-                                            );
-                                          },
-                                          onTap: () {
-                                            setState(() {
-                                              _desktopControlsCollapsed = false;
-                                            });
-                                          },
-                                        ),
                                       ),
+                                    ),
                                   ],
-                                )
-                              : !_mobileControlsCollapsed
-                              ? _OperationsControlPanel(
-                                  filter: _filter,
-                                  activeCount: visibleOrders.length,
-                                  refreshing: state.refreshing,
-                                  searchController: _collapsedQuickSearchCtrl,
-                                  onSearchChanged: (_) {
-                                    setState(() {});
-                                  },
-                                  onClearSearch: () {
-                                    _collapsedQuickSearchCtrl.clear();
-                                    setState(() {});
-                                  },
-                                  onOpenFilters: () {
-                                    _openFiltersSheet(
-                                      availableCreators: availableCreators,
-                                      availableTechnicians:
-                                          availableTechnicians,
-                                    );
-                                  },
-                                  onCollapse: () {
-                                    setState(() {
-                                      _mobileControlsCollapsed = true;
-                                    });
-                                  },
-                                  onReset: _filter.hasActiveFilters
-                                      ? () {
-                                          setState(() {
-                                            _filter =
-                                                const ServiceOrdersFilter.mainDefault();
-                                          });
-                                        }
-                                      : null,
-                                  onToggleStatus: (status) {
-                                    setState(() {
-                                      final nextStatuses = {
-                                        ..._filter.statuses,
-                                      };
-                                      if (nextStatuses.contains(status)) {
-                                        nextStatuses.remove(status);
-                                      } else {
-                                        nextStatuses.add(status);
-                                      }
-                                      _filter = _filter.copyWith(
-                                        statuses: nextStatuses,
-                                      );
-                                    });
-                                  },
-                                  onToggleServiceType: (serviceType) {
-                                    setState(() {
-                                      final nextTypes = {
-                                        ..._filter.serviceTypes,
-                                      };
-                                      if (nextTypes.contains(serviceType)) {
-                                        nextTypes.remove(serviceType);
-                                      } else {
-                                        nextTypes.add(serviceType);
-                                      }
-                                      _filter = _filter.copyWith(
-                                        serviceTypes: nextTypes,
-                                      );
-                                    });
-                                  },
                                 )
                               : Align(
                                   alignment: Alignment.centerRight,
@@ -529,9 +528,13 @@ class _ServiceOrdersListScreenState
                                       );
                                     },
                                     onTap: () {
-                                      setState(() {
-                                        _mobileControlsCollapsed = false;
-                                      });
+                                      _openControlPanelDialog(
+                                        activeCount: visibleOrders.length,
+                                        refreshing: state.refreshing,
+                                        availableCreators: availableCreators,
+                                        availableTechnicians:
+                                            availableTechnicians,
+                                      );
                                     },
                                   ),
                                 ),
@@ -563,6 +566,9 @@ class _ServiceOrdersListScreenState
                       ? ''
                       : (state.usersById[assignedToId]?.nombreCompleto ??
                             assignedToId);
+                  final sellerConversationUri = _buildWhatsAppUri(
+                    state.usersById[order.createdById]?.telefono ?? '',
+                  );
                   return Center(
                     child: ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: contentMaxWidth),
@@ -579,6 +585,8 @@ class _ServiceOrdersListScreenState
                                   ?.nombreCompleto ??
                               order.createdById,
                           technicianName: technicianName,
+                          sellerConversationUri: sellerConversationUri,
+                          supportConversationUri: supportConversationUri,
                           statusBusy: _busyOrderIds.contains(order.id),
                           isTechnician:
                               currentUser?.appRole.isTechnician ?? false,
@@ -2171,6 +2179,8 @@ class _OperationsControlPanel extends StatelessWidget {
     required this.onToggleStatus,
     required this.onToggleServiceType,
     required this.onReset,
+    this.collapseIcon = Icons.keyboard_arrow_up_rounded,
+    this.collapseTooltip = 'Ocultar panel',
   });
 
   final ServiceOrdersFilter filter;
@@ -2184,6 +2194,8 @@ class _OperationsControlPanel extends StatelessWidget {
   final ValueChanged<ServiceOrderStatus> onToggleStatus;
   final ValueChanged<ServiceOrderType> onToggleServiceType;
   final VoidCallback? onReset;
+  final IconData collapseIcon;
+  final String collapseTooltip;
 
   @override
   Widget build(BuildContext context) {
@@ -2274,12 +2286,12 @@ class _OperationsControlPanel extends StatelessWidget {
                   ),
                 if (onCollapse != null)
                   IconButton(
-                    tooltip: 'Ocultar panel',
+                    tooltip: collapseTooltip,
                     visualDensity: VisualDensity.compact,
                     splashRadius: 18,
                     onPressed: onCollapse,
                     icon: Icon(
-                      Icons.keyboard_arrow_up_rounded,
+                      collapseIcon,
                       color: colorScheme.onSurfaceVariant,
                       size: 20,
                     ),
@@ -3020,6 +3032,8 @@ class _ServiceOrderListCard extends StatelessWidget {
     required this.clientName,
     required this.creatorName,
     required this.technicianName,
+    required this.sellerConversationUri,
+    required this.supportConversationUri,
     required this.onTap,
     required this.statusBusy,
     required this.creatingNewOrder,
@@ -3036,6 +3050,8 @@ class _ServiceOrderListCard extends StatelessWidget {
   final String clientName;
   final String creatorName;
   final String technicianName;
+  final Uri? sellerConversationUri;
+  final Uri? supportConversationUri;
   final VoidCallback onTap;
   final bool statusBusy;
   final bool creatingNewOrder;
@@ -3073,6 +3089,13 @@ class _ServiceOrderListCard extends StatelessWidget {
     );
     final callUri = _buildPhoneUri(clientPhone);
     final whatsappUri = _buildWhatsAppUri(clientPhone);
+    final technicianActionConfig = ServiceOrderQuickActionsConfig(
+      clientCallUri: callUri,
+      clientWhatsAppUri: whatsappUri,
+      locationUri: locationUri,
+      sellerConversationUri: sellerConversationUri,
+      supportConversationUri: supportConversationUri,
+    );
 
     if (isDesktop) {
       final assignedLabel = technicianName.trim().isEmpty
@@ -3341,7 +3364,10 @@ class _ServiceOrderListCard extends StatelessWidget {
                         ),
                         if (isTechnician) ...[
                           const SizedBox(height: 8),
-                          _TechnicianQuickActionButton(order: order),
+                          _TechnicianQuickActionButton(
+                            order: order,
+                            actionConfig: technicianActionConfig,
+                          ),
                         ],
                       ],
                     ),
@@ -3498,6 +3524,7 @@ class _ServiceOrderListCard extends StatelessWidget {
                       callUri: callUri,
                       whatsappUri: whatsappUri,
                       locationUri: locationUri,
+                      technicianActionConfig: technicianActionConfig,
                       onCreateNewOrder: onCreateNewOrder,
                       onChangeStatus: onChangeStatus,
                       onEdit: onEdit,
@@ -3645,6 +3672,7 @@ class _MobileOrderActionsButton extends ConsumerWidget {
     required this.callUri,
     required this.whatsappUri,
     required this.locationUri,
+    required this.technicianActionConfig,
     this.onCreateNewOrder,
     this.onChangeStatus,
     this.onEdit,
@@ -3659,6 +3687,7 @@ class _MobileOrderActionsButton extends ConsumerWidget {
   final Uri? callUri;
   final Uri? whatsappUri;
   final Uri? locationUri;
+  final ServiceOrderQuickActionsConfig technicianActionConfig;
   final VoidCallback? onCreateNewOrder;
   final ValueChanged<ServiceOrderStatus>? onChangeStatus;
   final VoidCallback? onEdit;
@@ -3670,7 +3699,22 @@ class _MobileOrderActionsButton extends ConsumerWidget {
     final buttonKey = GlobalKey();
     return OutlinedButton(
       key: buttonKey,
-      onPressed: () => _showActionsMenu(context, ref, buttonKey),
+      onPressed: () {
+        if (isTechnician) {
+          showServiceOrderQuickActionsModal(
+            context: context,
+            ref: ref,
+            orderId: order.id,
+            order: order,
+            actionConfig: technicianActionConfig,
+            onOrderUpdated: () {
+              ref.read(serviceOrdersListControllerProvider.notifier).refresh();
+            },
+          );
+          return;
+        }
+        _showActionsMenu(context, ref, buttonKey);
+      },
       style: OutlinedButton.styleFrom(
         minimumSize: const Size(92, 32),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -3681,7 +3725,7 @@ class _MobileOrderActionsButton extends ConsumerWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
       ),
       child: Text(
-        'Acciones',
+        isTechnician ? 'Gestionar' : 'Acciones',
         style: theme.textTheme.labelMedium?.copyWith(
           fontSize: 11.6,
           fontWeight: FontWeight.w800,
@@ -3753,14 +3797,6 @@ class _MobileOrderActionsButton extends ConsumerWidget {
               destructive: true,
             ),
           ),
-        if (isTechnician)
-          const PopupMenuItem<_OrderMenuAction>(
-            value: _OrderMenuAction.technical,
-            child: _OrderMenuRow(
-              icon: Icons.tune_rounded,
-              label: 'Gestión técnica',
-            ),
-          ),
       ],
     );
 
@@ -3791,16 +3827,6 @@ class _MobileOrderActionsButton extends ConsumerWidget {
         onEdit?.call();
       case _OrderMenuAction.delete:
         onDelete?.call();
-      case _OrderMenuAction.technical:
-        await showServiceOrderQuickActionsModal(
-          context: context,
-          ref: ref,
-          orderId: order.id,
-          order: order,
-          onOrderUpdated: () {
-            ref.read(serviceOrdersListControllerProvider.notifier).refresh();
-          },
-        );
     }
   }
 
@@ -3864,7 +3890,6 @@ enum _OrderMenuAction {
   location,
   edit,
   delete,
-  technical,
 }
 
 class _OrderMenuRow extends StatelessWidget {
@@ -4481,9 +4506,13 @@ class _EmptyOrdersState extends StatelessWidget {
 /// Botón de "Mini Prompt" (3 puntos) para técnicos.
 /// Solo visible para usuarios con rol técnico.
 class _TechnicianQuickActionButton extends ConsumerWidget {
-  const _TechnicianQuickActionButton({required this.order});
+  const _TechnicianQuickActionButton({
+    required this.order,
+    required this.actionConfig,
+  });
 
   final ServiceOrderModel order;
+  final ServiceOrderQuickActionsConfig actionConfig;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -4499,7 +4528,7 @@ class _TechnicianQuickActionButton extends ConsumerWidget {
       ),
       icon: const Icon(Icons.tune_rounded, size: 18),
       label: const Text(
-        'Gestión técnica',
+        'Gestionar',
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
@@ -4509,6 +4538,7 @@ class _TechnicianQuickActionButton extends ConsumerWidget {
           ref: ref,
           orderId: order.id,
           order: order,
+          actionConfig: actionConfig,
           onOrderUpdated: () {
             // Refresh the list when order is updated
             final controller = ref.read(
@@ -4520,4 +4550,13 @@ class _TechnicianQuickActionButton extends ConsumerWidget {
       },
     );
   }
+}
+
+Uri? _buildAssistantConversationUri(Map<String, UserModel> usersById) {
+  for (final user in usersById.values) {
+    if (user.appRole == AppRole.asistente && user.telefono.trim().isNotEmpty) {
+      return _buildWhatsAppUri(user.telefono);
+    }
+  }
+  return null;
 }

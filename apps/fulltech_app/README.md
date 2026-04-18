@@ -29,6 +29,13 @@ Desde `apps/fulltech_app/`:
 
 Salida: `apps/fulltech_app/build/web/` (incluye `manifest.json` y `flutter_service_worker.js`).
 
+### Comportamiento PWA reforzado
+
+- La shell web ahora muestra sugerencia de instalacion cuando el navegador expone `beforeinstallprompt`.
+- En iPhone/iPad Safari, la app muestra una guia breve para `Anadir a pantalla de inicio`, donde Apple no expone ese evento.
+- Si el service worker detecta una version nueva, la PWA avisa y permite recargar para evitar que los usuarios sigan con shell vieja.
+- `manifest.json` queda preparado con `id`, `scope`, `display_override`, colores y accesos rapidos para que la instalacion sea mas consistente.
+
 ### Hosting
 
 - La PWA requiere servir por **HTTPS** (excepto `localhost`).

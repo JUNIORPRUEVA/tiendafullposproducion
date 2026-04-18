@@ -448,49 +448,6 @@ String _formatClientDate(DateTime value) {
   return '${local.year}-$month-$day';
 }
 
-class _AppBarIconBadge extends StatelessWidget {
-  const _AppBarIconBadge({
-    required this.tooltip,
-    required this.icon,
-    required this.onPressed,
-    this.badgeCount = 0,
-  });
-
-  final String tooltip;
-  final IconData icon;
-  final VoidCallback onPressed;
-  final int badgeCount;
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        IconButton(tooltip: tooltip, onPressed: onPressed, icon: Icon(icon)),
-        if (badgeCount > 0)
-          Positioned(
-            right: 7,
-            top: 7,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                '$badgeCount',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onPrimary,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
 class _SearchFilterButton extends StatelessWidget {
   const _SearchFilterButton({
     required this.tooltip,

@@ -733,7 +733,7 @@ class _CreateServiceOrderScreenState
     CreateServiceOrderController controller,
   ) async {
     await controller.ensureTechniciansLoaded();
-    if (!mounted) return;
+    if (!mounted || !context.mounted) return;
     final latestState = ref.read(
       createServiceOrderControllerProvider(widget.args),
     );
@@ -755,7 +755,7 @@ class _CreateServiceOrderScreenState
       allowEmpty: true,
       emptyLabel: 'Sin asignar',
     );
-    if (!mounted) return;
+    if (!mounted || !context.mounted) return;
     controller.selectTechnician(selected);
   }
 

@@ -19,8 +19,8 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Aplicación empresarial FULLTECH SRL.">
-  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="Aplicacion empresarial FULLTECH SRL.">
+  <meta name="theme-color" content="#0f6a90">
   <style>
     html, body {
       margin: 0;
@@ -160,12 +160,105 @@
         font-size: 22px;
       }
     }
+
+    #pwa-banner {
+      position: fixed;
+      left: 16px;
+      right: 16px;
+      bottom: 16px;
+      z-index: 9998;
+      display: flex;
+      justify-content: center;
+      pointer-events: none;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(16px);
+      transition: opacity 180ms ease, transform 180ms ease, visibility 180ms ease;
+    }
+
+    #pwa-banner.is-visible {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0);
+    }
+
+    .pwa-banner-card {
+      width: min(100%, 560px);
+      border-radius: 22px;
+      padding: 16px 16px 14px;
+      background: rgba(9, 21, 36, 0.92);
+      color: #f8fafc;
+      box-shadow: 0 18px 48px rgba(2, 8, 23, 0.28);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(14px);
+      pointer-events: auto;
+    }
+
+    .pwa-banner-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    .pwa-banner-copy {
+      margin: 6px 0 0;
+      color: rgba(241, 245, 249, 0.86);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .pwa-banner-actions {
+      margin-top: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .pwa-banner-button {
+      appearance: none;
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 14px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 150ms ease, opacity 150ms ease, background 150ms ease;
+    }
+
+    .pwa-banner-button:hover {
+      transform: translateY(-1px);
+    }
+
+    .pwa-banner-button-primary {
+      background: linear-gradient(135deg, #1aa7a1 0%, #0f6a90 100%);
+      color: #ffffff;
+    }
+
+    .pwa-banner-button-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: #f8fafc;
+    }
+
+    @media (max-width: 640px) {
+      #pwa-banner {
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+      }
+
+      .pwa-banner-card {
+        border-radius: 18px;
+        padding: 14px;
+      }
+    }
   </style>
 
   <!-- PWA / iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="FULLTECH">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
@@ -189,6 +282,22 @@
       <div class="loader-meta">
         <div id="loader-status" class="loader-footnote">Preparando recursos iniciales...</div>
         <div id="loader-percent" class="loader-percent">12%</div>
+      </div>
+    </div>
+  </div>
+  <div id="pwa-banner" aria-live="polite">
+    <div class="pwa-banner-card">
+      <p id="pwa-banner-title" class="pwa-banner-title">FULLTECH listo para instalar</p>
+      <p id="pwa-banner-copy" class="pwa-banner-copy">
+        Instala la app para abrirla como aplicacion y mantener una experiencia mas estable.
+      </p>
+      <div class="pwa-banner-actions">
+        <button id="pwa-banner-primary" class="pwa-banner-button pwa-banner-button-primary" type="button">
+          Instalar
+        </button>
+        <button id="pwa-banner-secondary" class="pwa-banner-button pwa-banner-button-secondary" type="button">
+          Ahora no
+        </button>
       </div>
     </div>
   </div>
@@ -253,6 +362,276 @@
         loader.remove();
       }, 260);
     });
+
+    (function () {
+      var storageKeyPrefix = 'fulltech:pwa:';
+      var installDismissKey = storageKeyPrefix + 'install-dismissed-at';
+      var iosDismissKey = storageKeyPrefix + 'ios-dismissed-at';
+      var updateDismissKey = storageKeyPrefix + 'update-dismissed-at';
+      var installDismissWindowMs = 3 * 24 * 60 * 60 * 1000;
+      var iosDismissWindowMs = 3 * 24 * 60 * 60 * 1000;
+      var updateDismissWindowMs = 6 * 60 * 60 * 1000;
+      var deferredInstallPrompt = null;
+      var activeVariant = null;
+      var updatePending = false;
+      var autoReloadingForUpdate = false;
+      var banner = document.getElementById('pwa-banner');
+      var title = document.getElementById('pwa-banner-title');
+      var copy = document.getElementById('pwa-banner-copy');
+      var primaryButton = document.getElementById('pwa-banner-primary');
+      var secondaryButton = document.getElementById('pwa-banner-secondary');
+
+      if (!banner || !title || !copy || !primaryButton || !secondaryButton) {
+        return;
+      }
+
+      function canUseStorage() {
+        try {
+          var key = storageKeyPrefix + 'probe';
+          window.localStorage.setItem(key, '1');
+          window.localStorage.removeItem(key);
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+
+      var storageEnabled = canUseStorage();
+
+      function readTimestamp(key) {
+        if (!storageEnabled) return 0;
+        var value = window.localStorage.getItem(key);
+        var parsed = Number(value || '0');
+        return Number.isFinite(parsed) ? parsed : 0;
+      }
+
+      function writeTimestamp(key) {
+        if (!storageEnabled) return;
+        window.localStorage.setItem(key, String(Date.now()));
+      }
+
+      function wasRecentlyDismissed(key, windowMs) {
+        var ts = readTimestamp(key);
+        return ts > 0 && Date.now() - ts < windowMs;
+      }
+
+      function isStandalone() {
+        return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+      }
+
+      function isIosSafari() {
+        var ua = window.navigator.userAgent || '';
+        var isiOS = /iPad|iPhone|iPod/.test(ua);
+        var isWebKit = /WebKit/.test(ua);
+        var isCriOS = /CriOS/.test(ua);
+        var isFxiOS = /FxiOS/.test(ua);
+        return isiOS && isWebKit && !isCriOS && !isFxiOS;
+      }
+
+      function hideBanner() {
+        activeVariant = null;
+        banner.classList.remove('is-visible');
+      }
+
+      function applyUpdateNow(registration) {
+        if (autoReloadingForUpdate) return;
+        autoReloadingForUpdate = true;
+        hideBanner();
+
+        function reloadPage() {
+          window.location.reload();
+        }
+
+        if ('serviceWorker' in window.navigator) {
+          window.navigator.serviceWorker.addEventListener('controllerchange', reloadPage, { once: true });
+        }
+
+        if (registration && registration.waiting) {
+          registration.waiting.postMessage('skipWaiting');
+          window.setTimeout(reloadPage, 1500);
+          return;
+        }
+
+        reloadPage();
+      }
+
+      function showVariant(variant) {
+        if (isStandalone() && variant !== 'update') {
+          hideBanner();
+          return;
+        }
+
+        if (variant === 'update') {
+          title.textContent = 'Hay una nueva version de FULLTECH';
+          copy.textContent = 'Recarga la PWA para usar la version mas reciente y evitar shell desactualizado.';
+          primaryButton.textContent = 'Actualizar ahora';
+          secondaryButton.textContent = 'Luego';
+        } else if (variant === 'ios-install') {
+          title.textContent = 'Instala FULLTECH en tu inicio';
+          copy.textContent = 'En iPhone o iPad usa Compartir y luego Anadir a pantalla de inicio para abrir la app como PWA.';
+          primaryButton.textContent = 'Entendido';
+          secondaryButton.textContent = 'Ahora no';
+        } else {
+          title.textContent = 'Instala FULLTECH';
+          copy.textContent = 'Instala la app para abrirla como aplicacion, mejorar el acceso y reducir problemas de sesion en navegador.';
+          primaryButton.textContent = 'Instalar';
+          secondaryButton.textContent = 'Ahora no';
+        }
+
+        activeVariant = variant;
+        banner.classList.add('is-visible');
+      }
+
+      function maybeShowInstallPrompt() {
+        if (updatePending) {
+          showVariant('update');
+          return;
+        }
+
+        if (isStandalone()) {
+          hideBanner();
+          return;
+        }
+
+        if (deferredInstallPrompt && !wasRecentlyDismissed(installDismissKey, installDismissWindowMs)) {
+          showVariant('install');
+          return;
+        }
+
+        if (isIosSafari() && !wasRecentlyDismissed(iosDismissKey, iosDismissWindowMs)) {
+          showVariant('ios-install');
+        }
+      }
+
+      primaryButton.addEventListener('click', function () {
+        if (activeVariant === 'update') {
+          hideBanner();
+          window.location.reload();
+          return;
+        }
+
+        if (activeVariant === 'ios-install') {
+          writeTimestamp(iosDismissKey);
+          hideBanner();
+          return;
+        }
+
+        if (!deferredInstallPrompt) {
+          hideBanner();
+          return;
+        }
+
+        var promptEvent = deferredInstallPrompt;
+        deferredInstallPrompt = null;
+        promptEvent.prompt();
+        Promise.resolve(promptEvent.userChoice)
+          .then(function (choice) {
+            if (!choice || choice.outcome !== 'accepted') {
+              writeTimestamp(installDismissKey);
+            }
+          })
+          .catch(function () {
+            writeTimestamp(installDismissKey);
+          })
+          .finally(function () {
+            hideBanner();
+            window.setTimeout(maybeShowInstallPrompt, 600);
+          });
+      });
+
+      secondaryButton.addEventListener('click', function () {
+        if (activeVariant === 'update') {
+          writeTimestamp(updateDismissKey);
+        } else if (activeVariant === 'ios-install') {
+          writeTimestamp(iosDismissKey);
+        } else if (activeVariant === 'install') {
+          writeTimestamp(installDismissKey);
+        }
+        hideBanner();
+      });
+
+      window.addEventListener('beforeinstallprompt', function (event) {
+        event.preventDefault();
+        deferredInstallPrompt = event;
+        maybeShowInstallPrompt();
+      });
+
+      window.addEventListener('appinstalled', function () {
+        deferredInstallPrompt = null;
+        hideBanner();
+      });
+
+      if (window.matchMedia) {
+        var standaloneQuery = window.matchMedia('(display-mode: standalone)');
+        if (standaloneQuery && typeof standaloneQuery.addEventListener === 'function') {
+          standaloneQuery.addEventListener('change', function () {
+            if (isStandalone()) {
+              hideBanner();
+            } else {
+              maybeShowInstallPrompt();
+            }
+          });
+        }
+      }
+
+      function attachWorkerWatchers(registration) {
+        if (!registration) return;
+
+        function markUpdateAvailable() {
+          if (wasRecentlyDismissed(updateDismissKey, updateDismissWindowMs)) {
+            updatePending = true;
+            return;
+          }
+          updatePending = true;
+          applyUpdateNow(registration);
+        }
+
+        function watchInstalling(worker) {
+          if (!worker) return;
+          worker.addEventListener('statechange', function () {
+            if (worker.state === 'installed' && window.navigator.serviceWorker.controller) {
+              markUpdateAvailable();
+            }
+          });
+        }
+
+        if (registration.waiting && window.navigator.serviceWorker.controller) {
+          markUpdateAvailable();
+        }
+
+        watchInstalling(registration.installing);
+        registration.addEventListener('updatefound', function () {
+          watchInstalling(registration.installing);
+        });
+      }
+
+      if ('serviceWorker' in window.navigator) {
+        window.navigator.serviceWorker.ready
+          .then(function (registration) {
+            attachWorkerWatchers(registration);
+          })
+          .catch(function () {});
+
+        window.addEventListener('focus', function () {
+          window.navigator.serviceWorker.getRegistration().then(function (registration) {
+            if (registration && typeof registration.update === 'function') {
+              registration.update().catch(function () {});
+            }
+          }).catch(function () {});
+        });
+
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState !== 'visible') return;
+          window.navigator.serviceWorker.getRegistration().then(function (registration) {
+            if (registration && typeof registration.update === 'function') {
+              registration.update().catch(function () {});
+            }
+          }).catch(function () {});
+        });
+      }
+
+      window.setTimeout(maybeShowInstallPrompt, 1800);
+    })();
   </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>

@@ -8,6 +8,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -57,7 +58,18 @@ function inferMediaFolder(contentType: string): 'images' | 'videos' {
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller('upload')
 export class StorageController {
-  constructor(private readonly r2: R2Service) {}
+  private readonly publicBaseUrl: string;
+
+  constructor(
+    private readonly r2: R2Service,
+    config: ConfigService,
+  ) {
+    const base =
+      config.get<string>('PUBLIC_BASE_URL') ??
+      config.get<string>('API_BASE_URL') ??
+      '';
+    this.publicBaseUrl = base.trim().replace(/\/$/, '');
+  }
 
   private resolveUploadDir(): string {
     const fromEnv = (process.env.UPLOAD_DIR ?? '').trim();
@@ -75,10 +87,15 @@ export class StorageController {
   }
 
   private buildAbsoluteUrl(req: Request, relativePath: string): string {
-    const host = (req.get('host') ?? '').trim();
-    const protocol = (req.protocol ?? 'http').trim();
-    if (!host) return relativePath;
-    return `${protocol}://${host}${relativePath}`;
+    const proto = (req.get('x-forwarded-proto') ?? req.protocol ?? 'http')
+      .split(',')[0]
+      .trim();
+    const host = (req.get('x-forwarded-host') ?? req.get('host') ?? '')
+      .split(',')[0]
+      .trim();
+    const requestBase = host ? `${proto}://${host}` : '';
+    const baseUrl = this.publicBaseUrl || requestBase;
+    return baseUrl ? `${baseUrl}${relativePath}` : relativePath;
   }
 
   @Post()

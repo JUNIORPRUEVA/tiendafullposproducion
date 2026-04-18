@@ -74,6 +74,7 @@ final serviceOrderDetailControllerProvider = StateNotifierProvider.autoDispose
           .read(operationsRealtimeServiceProvider)
           .stream
           .listen((message) {
+            if (!controller.mounted) return;
             final directId = message.serviceId?.trim();
             final payloadId = message.service?['id']?.toString().trim();
             final targetId = directId != null && directId.isNotEmpty
@@ -81,7 +82,7 @@ final serviceOrderDetailControllerProvider = StateNotifierProvider.autoDispose
                 : payloadId;
             if (targetId != orderId) return;
             if (message.type == 'service.deleted') {
-              controller.refresh();
+              unawaited(controller.refresh());
               return;
             }
             controller.applyRealtimePayload(message.service);
@@ -114,8 +115,15 @@ class ServiceOrderDetailController
   }
 
   Future<void> load() async {
+    if (!mounted) return;
+    final listState = ref.read(serviceOrdersListControllerProvider);
+    final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
+    final api = ref.read(serviceOrdersApiProvider);
+    final usersRepository = ref.read(usersRepositoryProvider);
+    final quotationsRepository = ref.read(cotizacionesRepositoryProvider);
+    final clientesRepository = ref.read(clientesRepositoryProvider);
+
     if (state.order == null) {
-      final listState = ref.read(serviceOrdersListControllerProvider);
       ServiceOrderModel? seededOrder;
       for (final item in listState.items) {
         if (item.id == orderId) {
@@ -139,22 +147,18 @@ class ServiceOrderDetailController
         );
       }
 
-      final cachedOrder = await ref
-          .read(serviceOrdersLocalRepositoryProvider)
-          .readOrder(orderId);
+      final cachedOrder = await localRepository.readOrder(orderId);
+      if (!mounted) return;
       final cachedClient =
           cachedOrder?.client ??
-          await ref
-              .read(serviceOrdersLocalRepositoryProvider)
-              .readClientById(cachedOrder?.clientId ?? '');
-      final cachedUsers = await ref
-          .read(serviceOrdersLocalRepositoryProvider)
-          .readUsersById();
-        final cachedQuotation = (cachedOrder?.quotationId ?? '').trim().isEmpty
+          await localRepository.readClientById(cachedOrder?.clientId ?? '');
+      if (!mounted) return;
+      final cachedUsers = await localRepository.readUsersById();
+      if (!mounted) return;
+      final cachedQuotation = (cachedOrder?.quotationId ?? '').trim().isEmpty
           ? null
-          : await ref
-            .read(cotizacionesRepositoryProvider)
-            .getCachedById(cachedOrder!.quotationId!);
+          : await quotationsRepository.getCachedById(cachedOrder!.quotationId!);
+      if (!mounted) return;
 
       if (cachedOrder != null) {
         state = state.copyWith(
@@ -176,27 +180,25 @@ class ServiceOrderDetailController
       clearActionError: true,
     );
     try {
-      final order = await ref.read(serviceOrdersApiProvider).getOrder(orderId);
-      final usersFuture = ref
-          .read(usersRepositoryProvider)
+      final order = await api.getOrder(orderId);
+      if (!mounted) return;
+      final usersFuture = usersRepository
           .getAllUsers(skipLoader: true)
           .catchError((_) => <UserModel>[]);
       final quotationFuture = (() async {
         final quotationId = (order.quotationId ?? '').trim();
         if (quotationId.isEmpty) return null;
 
-        final repository = ref.read(cotizacionesRepositoryProvider);
-        final cached = await repository.getCachedById(quotationId);
+        final cached = await quotationsRepository.getCachedById(quotationId);
         try {
-          return await repository.getByIdAndCache(quotationId);
+          return await quotationsRepository.getByIdAndCache(quotationId);
         } catch (_) {
           return cached;
         }
       })();
       final fallbackClientFuture = order.client != null
           ? Future<ClienteModel?>.value(order.client)
-          : ref
-                .read(clientesRepositoryProvider)
+          : clientesRepository
                 .getClientById(
                   ownerId: '',
                   id: order.clientId,
@@ -209,6 +211,7 @@ class ServiceOrderDetailController
         usersFuture,
         quotationFuture,
       ]);
+      if (!mounted) return;
       final client = results[0] as ClienteModel?;
       final users = results[1] as List<UserModel>;
       final quotation = results[2] as CotizacionModel?;
@@ -221,10 +224,13 @@ class ServiceOrderDetailController
         quotation: quotation,
         usersById: usersById,
       );
-      await ref
-          .read(serviceOrdersLocalRepositoryProvider)
-          .saveOrder(order: mergedOrder, client: client, usersById: usersById);
+      await localRepository.saveOrder(
+        order: mergedOrder,
+        client: client,
+        usersById: usersById,
+      );
     } catch (error) {
+      if (!mounted) return;
       final message = _friendlyOrderMessage(
         error,
         fallback: 'No se pudo cargar la orden',
@@ -237,6 +243,7 @@ class ServiceOrderDetailController
   Future<void> refresh() => load();
 
   void applyRealtimePayload(Map<String, dynamic>? payload) {
+    if (!mounted) return;
     if (payload == null) {
       unawaited(refresh());
       return;
@@ -271,37 +278,39 @@ class ServiceOrderDetailController
     required String? technicalNote,
     required String? extraRequirements,
   }) async {
+    if (!mounted) return;
     final currentOrder = state.order;
     if (currentOrder == null) return;
+    final api = ref.read(serviceOrdersApiProvider);
+    final listController = ref.read(
+      serviceOrdersListControllerProvider.notifier,
+    );
+    final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
 
     state = state.copyWith(working: true, clearActionError: true);
     try {
-      final updated = await ref
-          .read(serviceOrdersApiProvider)
-          .updateOrder(
-            orderId,
-            UpdateServiceOrderRequest(
-              clientId: currentOrder.clientId,
-              quotationId: currentOrder.quotationId ?? '',
-              category: currentOrder.category,
-              serviceType: currentOrder.serviceType,
-              assignedToId: currentOrder.assignedToId,
-              technicalNote: technicalNote,
-              extraRequirements: extraRequirements,
-            ),
-          );
+      final updated = await api.updateOrder(
+        orderId,
+        UpdateServiceOrderRequest(
+          clientId: currentOrder.clientId,
+          quotationId: currentOrder.quotationId ?? '',
+          category: currentOrder.category,
+          serviceType: currentOrder.serviceType,
+          assignedToId: currentOrder.assignedToId,
+          technicalNote: technicalNote,
+          extraRequirements: extraRequirements,
+        ),
+      );
+      if (!mounted) return;
       state = state.copyWith(working: false, order: updated);
-      ref
-          .read(serviceOrdersListControllerProvider.notifier)
-          .upsertOrder(updated);
-      await ref
-          .read(serviceOrdersLocalRepositoryProvider)
-          .saveOrder(
-            order: updated,
-            client: updated.client ?? state.client,
-            usersById: state.usersById,
-          );
+      listController.upsertOrder(updated);
+      await localRepository.saveOrder(
+        order: updated,
+        client: updated.client ?? state.client,
+        usersById: state.usersById,
+      );
     } catch (error) {
+      if (!mounted) return;
       final message = _friendlyOrderMessage(
         error,
         fallback: 'No se pudieron guardar los cambios operativos',
@@ -314,33 +323,33 @@ class ServiceOrderDetailController
   }
 
   Future<void> updateStatus(ServiceOrderStatus status) async {
+    if (!mounted) return;
     final currentOrder = state.order;
     if (currentOrder == null) return;
+    final api = ref.read(serviceOrdersApiProvider);
+    final listController = ref.read(
+      serviceOrdersListControllerProvider.notifier,
+    );
+    final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
 
     state = state.copyWith(working: true, clearActionError: true);
     final previousOrder = currentOrder;
     final optimisticOrder = currentOrder.copyWith(status: status);
     state = state.copyWith(order: optimisticOrder);
-    ref
-        .read(serviceOrdersListControllerProvider.notifier)
-        .replaceOrderStatus(orderId: orderId, status: status);
+    listController.replaceOrderStatus(orderId: orderId, status: status);
 
     try {
-      final updated = await ref
-          .read(serviceOrdersApiProvider)
-          .updateStatus(orderId, status);
+      final updated = await api.updateStatus(orderId, status);
+      if (!mounted) return;
       state = state.copyWith(working: false, order: updated);
-      ref
-          .read(serviceOrdersListControllerProvider.notifier)
-          .upsertOrder(updated);
-      await ref
-          .read(serviceOrdersLocalRepositoryProvider)
-          .saveOrder(
-            order: updated,
-            client: updated.client ?? state.client,
-            usersById: state.usersById,
-          );
+      listController.upsertOrder(updated);
+      await localRepository.saveOrder(
+        order: updated,
+        client: updated.client ?? state.client,
+        usersById: state.usersById,
+      );
     } catch (error) {
+      if (!mounted) return;
       final message = _friendlyOrderMessage(
         error,
         fallback: 'No se pudo actualizar el estado',
@@ -352,24 +361,30 @@ class ServiceOrderDetailController
         order: previousOrder,
         actionError: message,
       );
-      ref
-          .read(serviceOrdersListControllerProvider.notifier)
-          .upsertOrder(previousOrder);
+      listController.upsertOrder(previousOrder);
       rethrow;
     }
   }
 
   Future<void> deleteOrder() async {
+    if (!mounted) return;
     final currentOrder = state.order;
     if (currentOrder == null) return;
+    final api = ref.read(serviceOrdersApiProvider);
+    final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
+    final listController = ref.read(
+      serviceOrdersListControllerProvider.notifier,
+    );
 
     state = state.copyWith(working: true, clearActionError: true);
     try {
-      await ref.read(serviceOrdersApiProvider).deleteOrder(orderId);
-      await ref.read(serviceOrdersLocalRepositoryProvider).deleteOrder(orderId);
-      await ref.read(serviceOrdersListControllerProvider.notifier).refresh();
+      await api.deleteOrder(orderId);
+      await localRepository.deleteOrder(orderId);
+      await listController.refresh();
+      if (!mounted) return;
       state = state.copyWith(working: false);
     } catch (error) {
+      if (!mounted) return;
       final message = _friendlyOrderMessage(
         error,
         fallback: 'No se pudo eliminar la orden',
@@ -381,6 +396,7 @@ class ServiceOrderDetailController
   }
 
   Future<void> addTextEvidence(String content) async {
+    if (!mounted) return;
     await _addEvidence(
       CreateServiceOrderEvidenceRequest(
         type: ServiceEvidenceType.evidenciaTexto,
@@ -394,6 +410,7 @@ class ServiceOrderDetailController
     required String fileName,
     String? path,
   }) async {
+    if (!mounted) return;
     final order = state.order;
     if (order == null) {
       throw ApiException('No hay una orden cargada para adjuntar evidencias');
@@ -407,6 +424,7 @@ class ServiceOrderDetailController
       bytes: bytes,
       sourcePath: path,
     );
+    if (!mounted) return;
     final optimistic = _buildOptimisticEvidence(
       type: ServiceEvidenceType.evidenciaImagen,
       fileName: fileName,
@@ -417,21 +435,27 @@ class ServiceOrderDetailController
 
     unawaited(
       _enqueueUpload(() async {
+        if (!mounted) return;
+        final uploadRepository = ref.read(uploadRepositoryProvider);
+        final api = ref.read(serviceOrdersApiProvider);
         try {
-          final uploaded = await ref
-              .read(uploadRepositoryProvider)
-              .uploadImage(bytes: bytes, path: path, fileName: fileName);
-          final saved = await ref
-              .read(serviceOrdersApiProvider)
-              .addEvidence(
-                orderId,
-                CreateServiceOrderEvidenceRequest(
-                  type: ServiceEvidenceType.evidenciaImagen,
-                  content: uploaded.url,
-                ),
-              );
+          final uploaded = await uploadRepository.uploadImage(
+            bytes: bytes,
+            path: path,
+            fileName: fileName,
+          );
+          if (!mounted) return;
+          final saved = await api.addEvidence(
+            orderId,
+            CreateServiceOrderEvidenceRequest(
+              type: ServiceEvidenceType.evidenciaImagen,
+              content: uploaded.url,
+            ),
+          );
+          if (!mounted) return;
           _replaceEvidence(temporaryId: optimistic.id, persisted: saved);
         } catch (error) {
+          if (!mounted) return;
           final message = error is ApiException
               ? error.message
               : 'No se pudo subir la imagen';
@@ -446,6 +470,7 @@ class ServiceOrderDetailController
     List<int>? bytes,
     String? path,
   }) async {
+    if (!mounted) return;
     final order = state.order;
     if (order == null) {
       throw ApiException('No hay una orden cargada para adjuntar evidencias');
@@ -459,6 +484,7 @@ class ServiceOrderDetailController
       bytes: bytes,
       sourcePath: path,
     );
+    if (!mounted) return;
     final optimistic = _buildOptimisticEvidence(
       type: ServiceEvidenceType.evidenciaVideo,
       fileName: fileName,
@@ -469,21 +495,27 @@ class ServiceOrderDetailController
 
     unawaited(
       _enqueueUpload(() async {
+        if (!mounted) return;
+        final uploadRepository = ref.read(uploadRepositoryProvider);
+        final api = ref.read(serviceOrdersApiProvider);
         try {
-          final uploaded = await ref
-              .read(uploadRepositoryProvider)
-              .uploadVideo(fileName: fileName, bytes: bytes, path: path);
-          final saved = await ref
-              .read(serviceOrdersApiProvider)
-              .addEvidence(
-                orderId,
-                CreateServiceOrderEvidenceRequest(
-                  type: ServiceEvidenceType.evidenciaVideo,
-                  content: uploaded.url,
-                ),
-              );
+          final uploaded = await uploadRepository.uploadVideo(
+            fileName: fileName,
+            bytes: bytes,
+            path: path,
+          );
+          if (!mounted) return;
+          final saved = await api.addEvidence(
+            orderId,
+            CreateServiceOrderEvidenceRequest(
+              type: ServiceEvidenceType.evidenciaVideo,
+              content: uploaded.url,
+            ),
+          );
+          if (!mounted) return;
           _replaceEvidence(temporaryId: optimistic.id, persisted: saved);
         } catch (error) {
+          if (!mounted) return;
           final message = error is ApiException
               ? error.message
               : 'No se pudo subir el video';
@@ -494,11 +526,15 @@ class ServiceOrderDetailController
   }
 
   Future<void> addReport(ServiceReportType type, String report) async {
+    if (!mounted) return;
+    final api = ref.read(serviceOrdersApiProvider);
     state = state.copyWith(working: true, clearActionError: true);
     try {
-      await ref.read(serviceOrdersApiProvider).addReport(orderId, type, report);
+      await api.addReport(orderId, type, report);
+      if (!mounted) return;
       await load();
     } catch (error) {
+      if (!mounted) return;
       final message = _friendlyOrderMessage(
         error,
         fallback: 'No se pudo guardar el reporte',
@@ -511,11 +547,15 @@ class ServiceOrderDetailController
   }
 
   Future<void> _addEvidence(CreateServiceOrderEvidenceRequest request) async {
+    if (!mounted) return;
+    final api = ref.read(serviceOrdersApiProvider);
     state = state.copyWith(working: true, clearActionError: true);
     try {
-      await ref.read(serviceOrdersApiProvider).addEvidence(orderId, request);
+      await api.addEvidence(orderId, request);
+      if (!mounted) return;
       await load();
     } catch (error) {
+      if (!mounted) return;
       final message = _friendlyOrderMessage(
         error,
         fallback: 'No se pudo guardar la evidencia',
@@ -554,23 +594,24 @@ class ServiceOrderDetailController
   }
 
   void _upsertOptimisticEvidence(ServiceOrderEvidenceModel item) {
+    if (!mounted) return;
     final order = state.order;
     if (order == null) return;
+    final listController = ref.read(
+      serviceOrdersListControllerProvider.notifier,
+    );
+    final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
     final next = List<ServiceOrderEvidenceModel>.from(order.evidences)
       ..add(item);
     final updatedOrder = order.copyWith(evidences: next);
     state = state.copyWith(order: updatedOrder, clearActionError: true);
-    ref
-        .read(serviceOrdersListControllerProvider.notifier)
-        .upsertOrder(updatedOrder);
+    listController.upsertOrder(updatedOrder);
     unawaited(
-      ref
-          .read(serviceOrdersLocalRepositoryProvider)
-          .saveOrder(
-            order: updatedOrder,
-            client: updatedOrder.client ?? state.client,
-            usersById: state.usersById,
-          ),
+      localRepository.saveOrder(
+        order: updatedOrder,
+        client: updatedOrder.client ?? state.client,
+        usersById: state.usersById,
+      ),
     );
   }
 
@@ -578,8 +619,13 @@ class ServiceOrderDetailController
     required String temporaryId,
     required ServiceOrderEvidenceModel persisted,
   }) {
+    if (!mounted) return;
     final order = state.order;
     if (order == null) return;
+    final listController = ref.read(
+      serviceOrdersListControllerProvider.notifier,
+    );
+    final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
     final next = <ServiceOrderEvidenceModel>[];
     final seenIds = <String>{};
     for (final evidence in order.evidences) {
@@ -598,23 +644,24 @@ class ServiceOrderDetailController
     }
     final updatedOrder = order.copyWith(evidences: next);
     state = state.copyWith(order: updatedOrder, clearActionError: true);
-    ref
-        .read(serviceOrdersListControllerProvider.notifier)
-        .upsertOrder(updatedOrder);
+    listController.upsertOrder(updatedOrder);
     unawaited(
-      ref
-          .read(serviceOrdersLocalRepositoryProvider)
-          .saveOrder(
-            order: updatedOrder,
-            client: updatedOrder.client ?? state.client,
-            usersById: state.usersById,
-          ),
+      localRepository.saveOrder(
+        order: updatedOrder,
+        client: updatedOrder.client ?? state.client,
+        usersById: state.usersById,
+      ),
     );
   }
 
   void _markEvidenceUploadFailed(String temporaryId, String message) {
+    if (!mounted) return;
     final order = state.order;
     if (order == null) return;
+    final listController = ref.read(
+      serviceOrdersListControllerProvider.notifier,
+    );
+    final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
     final next = order.evidences
         .map(
           (evidence) => evidence.id == temporaryId
@@ -624,21 +671,18 @@ class ServiceOrderDetailController
         .toList(growable: false);
     final updatedOrder = order.copyWith(evidences: next);
     state = state.copyWith(order: updatedOrder, actionError: message);
-    ref
-        .read(serviceOrdersListControllerProvider.notifier)
-        .upsertOrder(updatedOrder);
+    listController.upsertOrder(updatedOrder);
     unawaited(
-      ref
-          .read(serviceOrdersLocalRepositoryProvider)
-          .saveOrder(
-            order: updatedOrder,
-            client: updatedOrder.client ?? state.client,
-            usersById: state.usersById,
-          ),
+      localRepository.saveOrder(
+        order: updatedOrder,
+        client: updatedOrder.client ?? state.client,
+        usersById: state.usersById,
+      ),
     );
   }
 
   ServiceOrderModel _mergeRemoteOrderWithLocalState(ServiceOrderModel remote) {
+    if (!mounted) return remote;
     final localOrder = state.order;
     if (localOrder == null) return remote;
 

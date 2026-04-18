@@ -6,36 +6,52 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/app_role.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/utils/app_feedback.dart';
+import '../../../core/utils/safe_url_launcher.dart';
 import '../service_order_models.dart';
 import '../application/service_order_card_actions_controller.dart';
 
 enum _EvidencePickType { image, video }
 
-/// Modal que muestra 3 opciones de acciones rápidas para una orden.
-///
-/// 1. Cambiar estado
-/// 2. Agregar evidencia (imagen/video)
-/// 3. Agregar reporte técnico
+enum _ActionTone { primary, secondary, neutral }
+
+class ServiceOrderQuickActionsConfig {
+  const ServiceOrderQuickActionsConfig({
+    this.clientCallUri,
+    this.clientWhatsAppUri,
+    this.locationUri,
+    this.sellerConversationUri,
+    this.supportConversationUri,
+  });
+
+  final Uri? clientCallUri;
+  final Uri? clientWhatsAppUri;
+  final Uri? locationUri;
+  final Uri? sellerConversationUri;
+  final Uri? supportConversationUri;
+}
+
 Future<void> showServiceOrderQuickActionsModal({
   required BuildContext context,
   required WidgetRef ref,
   required String orderId,
   required ServiceOrderModel order,
   required VoidCallback onOrderUpdated,
+  ServiceOrderQuickActionsConfig actionConfig =
+      const ServiceOrderQuickActionsConfig(),
 }) async {
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    showDragHandle: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-    ),
+    showDragHandle: false,
+    backgroundColor: Colors.transparent,
+    elevation: 0,
     builder: (sheetContext) {
       return _ServiceOrderQuickActionsSheet(
         orderId: orderId,
         order: order,
         parentContext: context,
         onOrderUpdated: onOrderUpdated,
+        actionConfig: actionConfig,
       );
     },
   );
@@ -47,12 +63,14 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     required this.order,
     required this.parentContext,
     required this.onOrderUpdated,
+    required this.actionConfig,
   });
 
   final String orderId;
   final ServiceOrderModel order;
   final BuildContext parentContext;
   final VoidCallback onOrderUpdated;
+  final ServiceOrderQuickActionsConfig actionConfig;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -60,289 +78,282 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     final currentUser = ref.watch(authStateProvider).user;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final screenHeight = MediaQuery.sizeOf(context).height;
+    final screenSize = MediaQuery.sizeOf(context);
+    final targetWidth = screenSize.width >= 900
+        ? 336.0
+        : screenSize.width >= 600
+        ? 322.0
+        : (screenSize.width * 0.82).clamp(286.0, 332.0);
     final canConfirmOrder =
         currentUser?.appRole.isTechnician == true &&
         order.status == ServiceOrderStatus.pendiente &&
         (order.assignedToId == null || order.assignedToId == currentUser?.id);
+    final canMarkInProgress =
+        order.status != ServiceOrderStatus.enProceso &&
+        order.status
+            .nextStatusesForRole(canFinalizeDirectly: true)
+            .contains(ServiceOrderStatus.enProceso);
+    final canMarkFinalized =
+        order.status != ServiceOrderStatus.finalizado &&
+        order.status
+            .nextStatusesForRole(canFinalizeDirectly: true)
+            .contains(ServiceOrderStatus.finalizado);
     final actionCards = <Widget>[
       if (canConfirmOrder)
         _ActionButton(
           icon: Icons.check_circle_outline_rounded,
-          label: 'Confirmar servicio',
-          subtitle: 'Toma la orden en la app y avisa al creador.',
-          isHighlighted: true,
-          badgeText: 'Nuevo',
+          label: 'Confirmar',
+          tone: _ActionTone.primary,
           isLoading: state.loading,
           onTap: state.loading ? null : () => _confirmOrder(context, ref),
         ),
-      _ActionButton(
-        icon: Icons.sync_alt_rounded,
-        label: 'Cambiar estado',
-        subtitle: 'Actualiza el avance real de la orden.',
-        isHighlighted: true,
-        badgeText: 'Prioritario',
-        isLoading: state.loading,
-        onTap: state.loading ? null : () => _changeStatus(context, ref),
-      ),
-      _ActionButton(
-        icon: Icons.upload_file_outlined,
-        label: 'Subir evidencia',
-        subtitle: 'Carga fotos o videos del antes y después.',
-        isLoading: state.loading,
-        onTap: state.loading ? null : () => _addEvidence(context, ref),
-      ),
+      if (canMarkInProgress)
+        _ActionButton(
+          icon: Icons.play_circle_outline_rounded,
+          label: 'En proceso',
+          tone: _ActionTone.primary,
+          isLoading: state.loading,
+          onTap: state.loading
+              ? null
+              : () => _changeStatusDirect(
+                  context,
+                  ref,
+                  ServiceOrderStatus.enProceso,
+                  successMessage: 'Orden marcada en proceso',
+                ),
+        ),
+      if (canMarkFinalized)
+        _ActionButton(
+          icon: Icons.task_alt_rounded,
+          label: 'Finalizar',
+          tone: _ActionTone.primary,
+          isLoading: state.loading,
+          onTap: state.loading
+              ? null
+              : () => _changeStatusDirect(
+                  context,
+                  ref,
+                  ServiceOrderStatus.finalizado,
+                  successMessage: 'Orden marcada finalizada',
+                ),
+        ),
       _ActionButton(
         icon: Icons.description_outlined,
-        label: 'Reporte técnico',
-        subtitle: 'Anota observaciones y requerimientos del cliente.',
+        label: 'Reporte final',
+        tone: _ActionTone.secondary,
         isLoading: state.loading,
-        onTap: state.loading ? null : () => _addReport(context, ref),
+        onTap: state.loading ? null : () => _addFinalReport(context, ref),
       ),
+      _ActionButton(
+        icon: Icons.videocam_outlined,
+        label: 'Video',
+        tone: _ActionTone.secondary,
+        isLoading: state.loading,
+        onTap: state.loading
+            ? null
+            : () => _addEvidence(context, ref, _EvidencePickType.video),
+      ),
+      _ActionButton(
+        icon: Icons.image_outlined,
+        label: 'Imagen',
+        tone: _ActionTone.secondary,
+        isLoading: state.loading,
+        onTap: state.loading
+            ? null
+            : () => _addEvidence(context, ref, _EvidencePickType.image),
+      ),
+      if (actionConfig.clientCallUri != null)
+        _ActionButton(
+          icon: Icons.call_outlined,
+          label: 'Llamar cliente',
+          isLoading: state.loading,
+          onTap: () => _openExternalAction(
+            context,
+            actionConfig.clientCallUri!,
+            copiedMessage: 'No se pudo iniciar la llamada. Numero copiado.',
+          ),
+        ),
+      if (actionConfig.clientWhatsAppUri != null)
+        _ActionButton(
+          icon: Icons.chat_bubble_outline_rounded,
+          label: 'WhatsApp cliente',
+          isLoading: state.loading,
+          onTap: () => _openExternalAction(
+            context,
+            actionConfig.clientWhatsAppUri!,
+            copiedMessage: 'No se pudo abrir WhatsApp. Enlace copiado.',
+          ),
+        ),
+      if (actionConfig.locationUri != null)
+        _ActionButton(
+          icon: Icons.location_searching_rounded,
+          label: 'Ir al GPS',
+          isLoading: state.loading,
+          onTap: () => _openExternalAction(
+            context,
+            actionConfig.locationUri!,
+            copiedMessage: 'No se pudo abrir el GPS. Enlace copiado.',
+          ),
+        ),
+      if (actionConfig.sellerConversationUri != null)
+        _ActionButton(
+          icon: Icons.support_agent_rounded,
+          label: 'Vendedor',
+          isLoading: state.loading,
+          onTap: () => _openExternalAction(
+            context,
+            actionConfig.sellerConversationUri!,
+            copiedMessage:
+                'No se pudo abrir el contacto del vendedor. Enlace copiado.',
+          ),
+        ),
+      if (actionConfig.supportConversationUri != null)
+        _ActionButton(
+          icon: Icons.headset_mic_outlined,
+          label: 'Servicio al cliente',
+          isLoading: state.loading,
+          onTap: () => _openExternalAction(
+            context,
+            actionConfig.supportConversationUri!,
+            copiedMessage:
+                'No se pudo abrir servicio al cliente. Enlace copiado.',
+          ),
+        ),
     ];
 
     return SafeArea(
-      child: SizedBox(
-        height: screenHeight * 0.9,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(18),
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF0B1220), Color(0xFF13233A)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  border: Border.all(color: const Color(0xFF1F3A5F)),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x1F0B1220),
-                      blurRadius: 18,
-                      offset: Offset(0, 8),
-                    ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+        child: Align(
+          alignment: Alignment.bottomRight,
+          child: ConstrainedBox(
+            constraints: BoxConstraints.tightFor(width: targetWidth),
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(24),
+                gradient: LinearGradient(
+                  colors: [
+                    theme.colorScheme.surface.withValues(alpha: 0.98),
+                    const Color(0xFFF7FBFD),
                   ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
+                border: Border.all(
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.58),
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x18102542),
+                    blurRadius: 22,
+                    offset: Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            color: const Color(
-                              0xFF22D3EE,
-                            ).withValues(alpha: 0.16),
-                            border: Border.all(
-                              color: const Color(
-                                0xFF22D3EE,
-                              ).withValues(alpha: 0.5),
-                            ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Container(
+                        width: 34,
+                        height: 3,
+                        margin: const EdgeInsets.only(right: 6),
+                        decoration: BoxDecoration(
+                          color: colorScheme.outlineVariant.withValues(
+                            alpha: 0.58,
                           ),
-                          child: const Icon(
-                            Icons.verified_outlined,
-                            color: Color(0xFF67E8F9),
-                            size: 22,
-                          ),
+                          borderRadius: BorderRadius.circular(999),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Gestión técnica',
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Administra la orden, documenta la ejecución y deja constancia clara del servicio realizado.',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.86),
-                        height: 1.25,
                       ),
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              if (state.error != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    state.error!,
-                    style: TextStyle(color: colorScheme.error, fontSize: 13),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: colorScheme.outlineVariant),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 34,
-                          height: 34,
-                          decoration: BoxDecoration(
-                            color: colorScheme.primary.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(10),
+                    const SizedBox(height: 4),
+                    if (state.error != null) ...[
+                      Container(
+                        margin: const EdgeInsets.fromLTRB(6, 0, 6, 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colorScheme.errorContainer.withValues(
+                            alpha: 0.92,
                           ),
-                          child: Icon(
-                            Icons.rule_folder_outlined,
-                            color: colorScheme.primary,
-                            size: 18,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          state.error!,
+                          style: TextStyle(
+                            color: colorScheme.onErrorContainer,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Evidencia requerida',
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Sigue estas instrucciones de forma exacta para evitar confusiones.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                        height: 1.3,
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    const _InstructionBullet(
-                      text: 'Pre-instalacion: suba 1 a 2 fotos o 1 video.',
-                    ),
-                    const SizedBox(height: 6),
-                    const _InstructionBullet(
-                      text:
-                          'Post-instalacion: suba 1 a 2 videos y tambien 3 a 5 fotos.',
-                    ),
-                    const SizedBox(height: 6),
-                    const _InstructionBullet(
-                      text:
-                          'Orden obligatorio: primero pre-instalacion y luego post-instalacion.',
-                    ),
+                    ],
+                    for (
+                      var index = 0;
+                      index < actionCards.length;
+                      index++
+                    ) ...[
+                      actionCards[index],
+                      if (index < actionCards.length - 1)
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            10,
+                            (actionCards[index] as _ActionButton).tone !=
+                                    (actionCards[index + 1] as _ActionButton)
+                                        .tone
+                                ? 4
+                                : 0,
+                            10,
+                            (actionCards[index] as _ActionButton).tone !=
+                                    (actionCards[index + 1] as _ActionButton)
+                                        .tone
+                                ? 4
+                                : 0,
+                          ),
+                          child: Divider(
+                            height: 1,
+                            thickness:
+                                (actionCards[index] as _ActionButton).tone !=
+                                    (actionCards[index + 1] as _ActionButton)
+                                        .tone
+                                ? 0.95
+                                : 0.65,
+                            color:
+                                (actionCards[index] as _ActionButton).tone !=
+                                    (actionCards[index + 1] as _ActionButton)
+                                        .tone
+                                ? colorScheme.outlineVariant.withValues(
+                                    alpha: 0.54,
+                                  )
+                                : colorScheme.outlineVariant.withValues(
+                                    alpha: 0.22,
+                                  ),
+                          ),
+                        ),
+                    ],
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: ListView.separated(
-                  physics: const BouncingScrollPhysics(),
-                  itemCount: actionCards.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, index) => actionCards[index],
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Future<void> _changeStatus(BuildContext sheetContext, WidgetRef ref) async {
-    final currentUser = ref.read(authStateProvider).user;
-    final canPromoteStatus =
-        currentUser?.appRole.isAdmin == true ||
-        currentUser?.appRole.isTechnician == true;
-    final nextStatuses = canPromoteStatus
-        ? order.status.nextStatusesForRole(canFinalizeDirectly: true)
-        : order.status.allowedNextStatuses
-              .where((status) => status == ServiceOrderStatus.cancelado)
-              .toList(growable: false);
-    final statuses = [order.status, ...nextStatuses]
-        .fold<List<ServiceOrderStatus>>([], (acc, item) {
-          if (!acc.contains(item)) acc.add(item);
-          return acc;
-        });
-
-    if (!sheetContext.mounted) return;
-
-    final selected = await showModalBottomSheet<ServiceOrderStatus>(
-      context: sheetContext,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (modalContext) {
-        final theme = Theme.of(modalContext);
-        final colorScheme = theme.colorScheme;
-        final screenHeight = MediaQuery.sizeOf(modalContext).height;
-
-        return SafeArea(
-          child: SizedBox(
-            height: screenHeight * 0.9,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Cambiar estado',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Selecciona el estado que representa el avance real de esta orden.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Expanded(
-                    child: ListView.separated(
-                      itemCount: statuses.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (context, index) {
-                        final status = statuses[index];
-                        final isSelected = status == order.status;
-                        return _StatusSelectionTile(
-                          status: status,
-                          isCurrent: isSelected,
-                          onTap: () => Navigator.pop(modalContext, status),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-
-    if (selected == null || selected == order.status) {
+  Future<void> _changeStatusDirect(
+    BuildContext sheetContext,
+    WidgetRef ref,
+    ServiceOrderStatus selected, {
+    required String successMessage,
+  }) async {
+    if (selected == order.status) {
       return;
     }
 
@@ -355,7 +366,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
       Navigator.pop(sheetContext);
 
       if (!parentContext.mounted) return;
-      await AppFeedback.showInfo(parentContext, 'Estado actualizado');
+      await AppFeedback.showInfo(parentContext, successMessage);
       onOrderUpdated();
     } catch (_) {
       if (!sheetContext.mounted) return;
@@ -389,12 +400,11 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     }
   }
 
-  Future<void> _addEvidence(BuildContext sheetContext, WidgetRef ref) async {
-    final selectedType = await _pickEvidenceType(sheetContext);
-    if (selectedType == null) {
-      return;
-    }
-
+  Future<void> _addEvidence(
+    BuildContext sheetContext,
+    WidgetRef ref,
+    _EvidencePickType selectedType,
+  ) async {
     final isVideo = selectedType == _EvidencePickType.video;
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: !isVideo,
@@ -509,16 +519,13 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     }
   }
 
-  Future<void> _addReport(BuildContext sheetContext, WidgetRef ref) async {
-    final reportType = await _pickReportType(sheetContext);
-    if (reportType == null) {
-      return;
-    }
+  Future<void> _addFinalReport(BuildContext sheetContext, WidgetRef ref) async {
+    const reportType = ServiceReportType.servicioFinalizado;
     if (!sheetContext.mounted) return;
 
     final reportText = await _promptMultilineInput(
       sheetContext,
-      title: reportType.label,
+      title: 'Reporte final',
       hintText: _reportHintText(reportType),
       confirmLabel: 'Guardar reporte',
     );
@@ -536,7 +543,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
       Navigator.pop(sheetContext);
 
       if (!parentContext.mounted) return;
-      await AppFeedback.showInfo(parentContext, 'Reporte guardado');
+      await AppFeedback.showInfo(parentContext, 'Reporte final guardado');
       onOrderUpdated();
     } catch (_) {
       if (!sheetContext.mounted) return;
@@ -548,160 +555,12 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     }
   }
 
-  static Future<_EvidencePickType?> _pickEvidenceType(BuildContext context) {
-    return showModalBottomSheet<_EvidencePickType>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (modalContext) {
-        final theme = Theme.of(modalContext);
-        final colorScheme = theme.colorScheme;
-        final screenHeight = MediaQuery.sizeOf(modalContext).height;
-
-        return SafeArea(
-          child: SizedBox(
-            height: screenHeight * 0.9,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Tipo de evidencia',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Selecciona el tipo de archivo que vas a cargar y sigue estas instrucciones simples.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      height: 1.25,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: colorScheme.surfaceContainerHighest.withValues(
-                        alpha: 0.55,
-                      ),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: colorScheme.outlineVariant),
-                    ),
-                    child: const Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _InstructionBullet(
-                          text: 'Pre-instalacion: 1 a 2 fotos o 1 video.',
-                        ),
-                        SizedBox(height: 6),
-                        _InstructionBullet(
-                          text:
-                              'Post-instalacion: 1 a 2 videos y tambien 3 a 5 fotos.',
-                        ),
-                        SizedBox(height: 6),
-                        _InstructionBullet(
-                          text:
-                              'Orden obligatorio: primero pre-instalacion y luego post-instalacion.',
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  _EvidenceTypeButton(
-                    icon: Icons.image_outlined,
-                    title: 'Subir imagen',
-                    subtitle:
-                        'Usa esta opción para fotos del antes, proceso y resultado final',
-                    onTap: () =>
-                        Navigator.pop(modalContext, _EvidencePickType.image),
-                  ),
-                  const SizedBox(height: 10),
-                  _EvidenceTypeButton(
-                    icon: Icons.videocam_outlined,
-                    title: 'Subir video',
-                    subtitle:
-                        'Usa esta opción para recorridos, funcionamiento o pruebas del sistema',
-                    onTap: () =>
-                        Navigator.pop(modalContext, _EvidencePickType.video),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  static Future<ServiceReportType?> _pickReportType(BuildContext context) {
-    return showModalBottomSheet<ServiceReportType>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (modalContext) {
-        final theme = Theme.of(modalContext);
-        final colorScheme = theme.colorScheme;
-
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Tipo de reporte',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Selecciona el tipo de reporte que vas a registrar en la orden.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _EvidenceTypeButton(
-                  icon: Icons.assignment_ind_outlined,
-                  title: ServiceReportType.requerimientoCliente.label,
-                  subtitle:
-                      'Para solicitudes o requerimientos adicionales del cliente',
-                  onTap: () => Navigator.pop(
-                    modalContext,
-                    ServiceReportType.requerimientoCliente,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                _EvidenceTypeButton(
-                  icon: Icons.task_alt_outlined,
-                  title: ServiceReportType.servicioFinalizado.label,
-                  subtitle: 'Para documentar la ejecución final del servicio',
-                  onTap: () => Navigator.pop(
-                    modalContext,
-                    ServiceReportType.servicioFinalizado,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                _EvidenceTypeButton(
-                  icon: Icons.notes_outlined,
-                  title: ServiceReportType.otros.label,
-                  subtitle:
-                      'Para cualquier otra observación relevante de la orden',
-                  onTap: () =>
-                      Navigator.pop(modalContext, ServiceReportType.otros),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
+  Future<void> _openExternalAction(
+    BuildContext sheetContext,
+    Uri uri, {
+    required String copiedMessage,
+  }) {
+    return safeOpenUrl(sheetContext, uri, copiedMessage: copiedMessage);
   }
 
   static String _reportHintText(ServiceReportType type) {
@@ -858,219 +717,105 @@ class _ActionButton extends StatelessWidget {
   const _ActionButton({
     required this.icon,
     required this.label,
-    required this.subtitle,
     required this.isLoading,
     required this.onTap,
-    this.isHighlighted = false,
-    this.badgeText,
+    this.tone = _ActionTone.neutral,
   });
 
   final IconData icon;
   final String label;
-  final String subtitle;
   final bool isLoading;
   final VoidCallback? onTap;
-  final bool isHighlighted;
-  final String? badgeText;
+  final _ActionTone tone;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final enabled = onTap != null;
-    final cardColor = isHighlighted
-        ? const Color(0xFF0EA5E9).withValues(alpha: 0.09)
-        : colorScheme.primary.withValues(alpha: 0.06);
-    final borderColor = isHighlighted
-        ? const Color(0xFF0284C7).withValues(alpha: 0.45)
-        : colorScheme.primary.withValues(alpha: 0.12);
-    final iconContainerColor = isHighlighted
-        ? const Color(0xFF0369A1).withValues(alpha: 0.18)
-        : colorScheme.primary.withValues(alpha: 0.12);
-    final iconColor = isHighlighted
-        ? const Color(0xFF075985)
+    final isPrimary = tone == _ActionTone.primary;
+    final isSecondary = tone == _ActionTone.secondary;
+    final tileColor = isPrimary
+        ? const Color(0xFFF0F7FB)
+        : isSecondary
+        ? const Color(0xFFF8FBFD)
+        : colorScheme.surface.withValues(alpha: 0.01);
+    final leadingColor = isPrimary
+        ? const Color(0xFF155E82)
+        : isSecondary
+        ? const Color(0xFF4B7E98)
         : colorScheme.primary;
+    final iconContainerColor = isPrimary
+        ? const Color(0xFF155E82).withValues(alpha: 0.10)
+        : isSecondary
+        ? const Color(0xFF4B7E98).withValues(alpha: 0.08)
+        : colorScheme.primary.withValues(alpha: 0.08);
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         onTap: enabled && !isLoading ? onTap : null,
         child: Ink(
           decoration: BoxDecoration(
-            color: cardColor,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: borderColor),
-            boxShadow: isHighlighted
-                ? const [
-                    BoxShadow(
-                      color: Color(0x290EA5E9),
-                      blurRadius: 14,
-                      offset: Offset(0, 4),
-                    ),
-                  ]
-                : null,
+            color: tileColor,
+            borderRadius: BorderRadius.circular(12),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
           child: Row(
             children: [
               Container(
-                width: 38,
-                height: 38,
+                width: 2.5,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: isPrimary
+                      ? const Color(0xFF155E82)
+                      : isSecondary
+                      ? const Color(0xFFB7D0DE)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                width: 30,
+                height: 30,
                 decoration: BoxDecoration(
                   color: iconContainerColor,
-                  borderRadius: BorderRadius.circular(9),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: Center(
                   child: isLoading
                       ? SizedBox(
-                          width: 18,
-                          height: 18,
+                          width: 14,
+                          height: 14,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation(iconColor),
+                            valueColor: AlwaysStoppedAnimation(leadingColor),
                           ),
                         )
-                      : Icon(icon, color: iconColor, size: 20),
+                      : Icon(icon, color: leadingColor, size: 16),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 9),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            label,
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        if (badgeText != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 7,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(
-                                0xFF0284C7,
-                              ).withValues(alpha: 0.14),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                color: const Color(
-                                  0xFF0284C7,
-                                ).withValues(alpha: 0.32),
-                              ),
-                            ),
-                            child: Text(
-                              badgeText!,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: const Color(0xFF075985),
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                        height: 1.15,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              if (enabled)
-                Icon(
-                  Icons.arrow_forward_rounded,
-                  size: 17,
-                  color: colorScheme.onSurfaceVariant,
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _EvidenceTypeButton extends StatelessWidget {
-  const _EvidenceTypeButton({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Ink(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: colorScheme.outlineVariant),
-            color: colorScheme.surfaceContainerLow,
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: colorScheme.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(icon, color: colorScheme.primary, size: 20),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.1,
+                    color: enabled
+                        ? colorScheme.onSurface
+                        : colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
               Icon(
-                Icons.arrow_forward_ios_rounded,
+                Icons.chevron_right_rounded,
                 size: 14,
-                color: colorScheme.onSurfaceVariant,
+                color: leadingColor.withValues(alpha: enabled ? 0.72 : 0.4),
               ),
             ],
           ),
@@ -1117,116 +862,5 @@ class _InstructionBullet extends StatelessWidget {
         ),
       ],
     );
-  }
-}
-
-class _StatusSelectionTile extends StatelessWidget {
-  const _StatusSelectionTile({
-    required this.status,
-    required this.isCurrent,
-    required this.onTap,
-  });
-
-  final ServiceOrderStatus status;
-  final bool isCurrent;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Ink(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isCurrent
-                  ? status.color.withValues(alpha: 0.38)
-                  : colorScheme.outlineVariant,
-            ),
-            color: isCurrent
-                ? status.color.withValues(alpha: 0.10)
-                : colorScheme.surfaceContainerLow,
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 16,
-                height: 16,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: status.color,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      status.label,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      _statusDescription(status),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                        height: 1.25,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (isCurrent)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: status.color.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    'Actual',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: status.color,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                )
-              else
-                Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  size: 14,
-                  color: colorScheme.onSurfaceVariant,
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  static String _statusDescription(ServiceOrderStatus status) {
-    switch (status) {
-      case ServiceOrderStatus.pendiente:
-        return 'La orden fue creada y todavía no se ha iniciado el trabajo.';
-      case ServiceOrderStatus.enProceso:
-        return 'El técnico ya inició la ejecución o está trabajando en sitio.';
-      case ServiceOrderStatus.finalizado:
-        return 'El trabajo quedó completado y documentado correctamente.';
-      case ServiceOrderStatus.cancelado:
-        return 'La orden no continuará por cancelación o cierre sin ejecución.';
-    }
   }
 }
