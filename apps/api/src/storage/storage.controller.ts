@@ -99,7 +99,7 @@ export class StorageController {
   }
 
   @Post()
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),

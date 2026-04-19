@@ -66,7 +66,7 @@ export class ServiceOrdersController {
   }
 
   @Post(':id/evidences')
-  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO)
+  @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   addEvidence(@Req() req: Request, @Param('id') id: string, @Body() dto: CreateEvidenceDto) {
     return this.serviceOrders.addEvidence(req.user as JwtUser, id, dto);
   }
