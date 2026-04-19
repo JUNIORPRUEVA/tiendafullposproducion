@@ -2850,21 +2850,21 @@ class _CreateOrderFab extends StatelessWidget {
       label: 'Agregar orden de servicio',
       child: DecoratedBox(
         decoration: BoxDecoration(
+          shape: BoxShape.circle,
           gradient: LinearGradient(
             colors: [
               colorScheme.primary,
               Color.alphaBlend(
-                Colors.black.withValues(alpha: 0.16),
+                Colors.black.withValues(alpha: 0.12),
                 colorScheme.primary,
               ),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
-          borderRadius: BorderRadius.circular(22),
           boxShadow: [
             BoxShadow(
-              color: colorScheme.primary.withValues(alpha: 0.28),
+              color: colorScheme.primary.withValues(alpha: 0.30),
               blurRadius: 20,
               offset: const Offset(0, 10),
             ),
@@ -2872,56 +2872,30 @@ class _CreateOrderFab extends StatelessWidget {
         ),
         child: Material(
           color: Colors.transparent,
+          shape: const CircleBorder(),
           child: InkWell(
             onTap: onPressed,
-            borderRadius: BorderRadius.circular(22),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.16),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.18),
-                      ),
-                    ),
-                    child: const Icon(
-                      Icons.note_add_rounded,
-                      color: Colors.white,
-                      size: 19,
+            customBorder: const CircleBorder(),
+            child: SizedBox(
+              width: 62,
+              height: 62,
+              child: Center(
+                child: Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.14),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.18),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Agregar',
-                        style: Theme.of(context).textTheme.labelMedium
-                            ?.copyWith(
-                              color: Colors.white.withValues(alpha: 0.80),
-                              fontWeight: FontWeight.w600,
-                              height: 1,
-                            ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        'Orden de servicio',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          height: 1,
-                        ),
-                      ),
-                    ],
+                  child: const Icon(
+                    Icons.add_business_rounded,
+                    color: Colors.white,
+                    size: 22,
                   ),
-                ],
+                ),
               ),
             ),
           ),
