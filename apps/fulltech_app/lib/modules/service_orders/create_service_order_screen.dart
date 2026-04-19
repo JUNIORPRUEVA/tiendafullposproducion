@@ -632,17 +632,226 @@ class _CreateServiceOrderScreenState
     CreateServiceOrderState state,
     CreateServiceOrderController controller,
   ) async {
-    final selected = await _showEntityPicker<CotizacionModel>(
+    final outcome = await _showQuotationPicker(
       context,
-      title: 'Seleccionar cotización',
       items: state.quotations,
-      itemTitle: (quotation) =>
-          'Cotización ${quotation.id.substring(0, quotation.id.length >= 6 ? 6 : quotation.id.length).toUpperCase()}',
-      itemSubtitle: (quotation) =>
-          '${quotation.items.length} items · ${NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(quotation.total)}',
     );
-    if (!mounted) return;
-    controller.selectQuotation(selected);
+    if (!mounted || outcome == null) return;
+
+    if (outcome.editRequested && outcome.quotation != null) {
+      await _editQuotationInline(context, controller, outcome.quotation!);
+      return;
+    }
+
+    controller.selectQuotation(outcome.quotation);
+  }
+
+  String _normalizeText(String? value) {
+    return (value ?? '').trim().toLowerCase();
+  }
+
+  bool _canEditQuotation(CotizacionModel quotation) {
+    final user = ref.read(authStateProvider).user;
+    if (user == null) return false;
+    if (user.appRole == AppRole.admin) return true;
+
+    final userId = user.id.trim();
+    final createdByUserId = (quotation.createdByUserId ?? '').trim();
+    if (createdByUserId.isNotEmpty && createdByUserId == userId) {
+      return true;
+    }
+
+    final createdByUserName = _normalizeText(quotation.createdByUserName);
+    if (createdByUserName.isEmpty) return false;
+
+    return createdByUserName == _normalizeText(user.nombreCompleto) ||
+        createdByUserName == _normalizeText(user.email);
+  }
+
+  Future<void> _editQuotationInline(
+    BuildContext context,
+    CreateServiceOrderController controller,
+    CotizacionModel quotation,
+  ) async {
+    if (!_canEditQuotation(quotation)) return;
+
+    final updated = await Navigator.of(context).push<CotizacionModel>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => CotizacionesScreen(
+          initialQuotation: quotation,
+          returnSavedQuotation: true,
+        ),
+      ),
+    );
+    if (updated == null || !mounted) return;
+    await _runInlineFlow(() async {
+      controller.applyCreatedQuotation(updated);
+    });
+  }
+
+  Future<_QuotationPickerOutcome?> _showQuotationPicker(
+    BuildContext context, {
+    required List<CotizacionModel> items,
+  }) async {
+    final queryController = TextEditingController();
+    final isDesktop =
+        MediaQuery.sizeOf(context).width >= kDesktopShellBreakpoint;
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+
+    Future<_QuotationPickerOutcome?> showPicker(
+      Widget Function(StateSetter setState) builder,
+    ) {
+      if (isDesktop) {
+        return showDialog<_QuotationPickerOutcome?>(
+          context: context,
+          builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setState) => Dialog(
+              elevation: 0,
+              insetPadding: const EdgeInsets.all(24),
+              backgroundColor: Colors.transparent,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: 560,
+                  maxHeight: 680,
+                ),
+                child: builder(setState),
+              ),
+            ),
+          ),
+        );
+      }
+
+      return showModalBottomSheet<_QuotationPickerOutcome?>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) => SafeArea(
+          child: StatefulBuilder(
+            builder: (context, setState) => SizedBox(
+              height: MediaQuery.sizeOf(sheetContext).height * 0.82,
+              child: builder(setState),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final result = await showPicker((setState) {
+      final theme = Theme.of(context);
+      final colorScheme = theme.colorScheme;
+      final query = queryController.text.trim().toLowerCase();
+      final filtered = items
+          .where((item) {
+            final code = item.id.toLowerCase();
+            final createdBy = (item.createdByUserName ?? '').toLowerCase();
+            final summary =
+                '${item.items.length} items ${money.format(item.total)}'.toLowerCase();
+            return query.isEmpty ||
+                code.contains(query) ||
+                createdBy.contains(query) ||
+                item.customerName.toLowerCase().contains(query) ||
+                (item.customerPhone ?? '').toLowerCase().contains(query) ||
+                summary.contains(query);
+          })
+          .toList(growable: false);
+
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(isDesktop ? 24 : 20),
+          boxShadow: [
+            BoxShadow(
+              color: colorScheme.shadow.withValues(alpha: 0.10),
+              blurRadius: 24,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Seleccionar cotización',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                    style: IconButton.styleFrom(
+                      backgroundColor: colorScheme.surfaceContainerHighest,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: queryController,
+                onChanged: (_) => setState(() {}),
+                decoration: _inputDecoration(context).copyWith(
+                  hintText: 'Buscar cotización',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Expanded(
+                child: filtered.isEmpty
+                    ? const _EmptyInlineState(
+                        icon: Icons.search_off_rounded,
+                        label: 'No hay cotizaciones',
+                      )
+                    : ListView.separated(
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final quotation = filtered[index];
+                          final quoteCode = quotation.id.substring(
+                            0,
+                            quotation.id.length >= 6 ? 6 : quotation.id.length,
+                          );
+                          final createdBy =
+                              (quotation.createdByUserName ?? '').trim();
+                          final subtitleParts = <String>[
+                            '${quotation.items.length} items',
+                            money.format(quotation.total),
+                            if (createdBy.isNotEmpty) 'Creada por $createdBy',
+                          ];
+
+                          return _PickerListTile(
+                            title: 'Cotización ${quoteCode.toUpperCase()}',
+                            subtitle: subtitleParts.join(' · '),
+                            icon: Icons.receipt_long_outlined,
+                            onTap: () => Navigator.of(context).pop(
+                              _QuotationPickerOutcome.select(quotation),
+                            ),
+                            trailing: _canEditQuotation(quotation)
+                                ? IconButton(
+                                    tooltip: 'Editar cotización',
+                                    onPressed: () => Navigator.of(context).pop(
+                                      _QuotationPickerOutcome.edit(quotation),
+                                    ),
+                                    icon: const Icon(Icons.edit_outlined),
+                                  )
+                                : null,
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      );
+    });
+
+    queryController.dispose();
+    return result;
   }
 
   Future<void> _createClientInline(
@@ -1112,11 +1321,13 @@ class _PickerListTile extends StatelessWidget {
     required this.onTap,
     this.subtitle,
     this.icon,
+    this.trailing,
   });
 
   final String title;
   final String? subtitle;
   final IconData? icon;
+  final Widget? trailing;
   final VoidCallback onTap;
 
   @override
@@ -1169,12 +1380,29 @@ class _PickerListTile extends StatelessWidget {
                       ),
                     ),
                 ],
+                  if (trailing != null) ...[
+                    const SizedBox(width: 8),
+                    trailing!,
+                  ],
               ),
             ),
             Icon(
               Icons.chevron_right_rounded,
               color: colorScheme.onSurfaceVariant,
             ),
+
+      class _QuotationPickerOutcome {
+        const _QuotationPickerOutcome._({this.quotation, required this.editRequested});
+
+        const _QuotationPickerOutcome.select(CotizacionModel quotation)
+          : this._(quotation: quotation, editRequested: false);
+
+        const _QuotationPickerOutcome.edit(CotizacionModel quotation)
+          : this._(quotation: quotation, editRequested: true);
+
+        final CotizacionModel? quotation;
+        final bool editRequested;
+      }
           ],
         ),
       ),
