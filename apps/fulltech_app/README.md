@@ -81,6 +81,8 @@ Configura en EasyPanel (PWA container):
 
 Esto hace que la app llame a `https://TU_PWA_DOMINIO/api/...` y Nginx lo redirija al backend.
 
+El proxy web tambien debe aceptar archivos grandes y reenviar `/uploads/*` al backend para que las evidencias subidas desde la PWA se vean correctamente con URLs same-origin.
+
 Nota:
 - `API_BASE_URL=/api` es solo para **Web/PWA** detrás del Nginx del contenedor. En Android/iOS debe ser una URL absoluta (ej: `https://tu-api.tudominio.com`).
 

@@ -11,10 +11,7 @@ class ApiClient {
             connectTimeout: Duration(milliseconds: Env.apiTimeoutMs),
             sendTimeout: Duration(milliseconds: Env.apiTimeoutMs),
             receiveTimeout: Duration(milliseconds: Env.apiTimeoutMs),
-            headers: {
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-            },
+            headers: {'Accept': 'application/json'},
           ),
         );
 }
