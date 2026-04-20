@@ -140,6 +140,7 @@ class ApiRoutes {
   static const payrollTotals = '/payroll/totals';
   static const payrollMyHistory = '/payroll/my-history';
   static const payrollMyGoal = '/payroll/my-goal';
+  static const payrollSendWhatsapp = '/payroll/send-whatsapp';
 
   // Manual interno
   static const companyManualEntries = '/company-manual';

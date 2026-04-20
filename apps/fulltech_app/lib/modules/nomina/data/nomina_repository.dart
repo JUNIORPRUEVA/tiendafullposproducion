@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -188,6 +189,23 @@ class NominaRepository {
       'cantidad': entry.cantidad,
     });
     return PayrollEntry.fromMap(data);
+  }
+
+  Future<void> sendPayrollToWhatsApp({
+    required String employeeId,
+    required String periodId,
+    required Uint8List bytes,
+    String? fileName,
+    String? messageText,
+  }) async {
+    await _postMap(ApiRoutes.payrollSendWhatsapp, {
+      'employeeId': employeeId,
+      'periodId': periodId,
+      'pdfBase64': base64Encode(bytes),
+      if ((fileName ?? '').trim().isNotEmpty) 'fileName': fileName!.trim(),
+      if ((messageText ?? '').trim().isNotEmpty)
+        'messageText': messageText!.trim(),
+    });
   }
 
   Future<List<PayrollServiceCommissionRequest>>

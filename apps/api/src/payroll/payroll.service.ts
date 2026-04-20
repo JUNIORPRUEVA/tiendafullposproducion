@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   PayrollEntryType,
   PayrollPeriodStatus,
@@ -7,14 +7,21 @@ import {
   Role,
   ServiceOrderType,
 } from '@prisma/client';
+import { EvolutionWhatsAppService } from '../notifications/evolution-whatsapp.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AddPayrollEntryDto } from './dto/payroll-entry.dto';
+import { SendPayrollWhatsappDto } from './dto/send-payroll-whatsapp.dto';
 import { UpsertPayrollConfigDto } from './dto/upsert-payroll-config.dto';
 import { UpsertPayrollEmployeeDto } from './dto/upsert-payroll-employee.dto';
 
 @Injectable()
 export class PayrollService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(PayrollService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly evolutionWhatsApp: EvolutionWhatsAppService,
+  ) {}
 
   async resolveCompanyOwnerId(fallbackUserId: string) {
     const admin = await this.prisma.user.findFirst({
@@ -277,7 +284,7 @@ export class PayrollService {
   }
 
   async addEntry(ownerId: string, dto: AddPayrollEntryDto) {
-    return this.prisma.payrollEntry.create({
+    const entry = await this.prisma.payrollEntry.create({
       data: {
         ownerId,
         periodId: dto.periodId,
@@ -289,6 +296,65 @@ export class PayrollService {
         cantidad: dto.cantidad == null ? null : new Prisma.Decimal(dto.cantidad),
       },
     });
+
+    await this.notifyPayrollEntryIfNeeded(ownerId, entry.id);
+    return entry;
+  }
+
+  async sendPayrollWhatsapp(ownerId: string, dto: SendPayrollWhatsappDto) {
+    const [employee, period] = await Promise.all([
+      this.prisma.payrollEmployee.findFirst({
+        where: { ownerId, id: dto.employeeId },
+        include: {
+          user: {
+            select: { id: true, telefono: true, nombreCompleto: true },
+          },
+        },
+      }),
+      this.prisma.payrollPeriod.findFirst({
+        where: { ownerId, id: dto.periodId },
+        select: { id: true, title: true, startDate: true, endDate: true },
+      }),
+    ]);
+
+    if (!employee) {
+      throw new NotFoundException('Empleado de nómina no encontrado');
+    }
+    if (!period) {
+      throw new NotFoundException('Quincena no encontrada');
+    }
+
+    const phone = this.resolveEmployeePhone(employee);
+    if (!phone) {
+      throw new BadRequestException('El empleado no tiene un teléfono personal válido para WhatsApp');
+    }
+
+    const bytes = this.parsePdfBase64(dto.pdfBase64);
+    const fileName = (dto.fileName ?? '').trim() || this.buildPayrollPdfFileName(employee.nombre, period.title);
+    const customMessage = (dto.messageText ?? '').trim();
+    const message = customMessage || this.buildPayrollPdfMessage(employee.nombre, period.title);
+
+    await this.evolutionWhatsApp.sendTextMessage({
+      toNumber: phone,
+      message,
+    });
+    await this.evolutionWhatsApp.sendPdfDocument({
+      toNumber: phone,
+      bytes,
+      fileName,
+      caption: `Nomina correspondiente a ${period.title}.`,
+    });
+
+    const normalizedPhone = this.evolutionWhatsApp.normalizeWhatsAppNumber(phone);
+    this.logger.log(
+      `Payroll PDF WhatsApp sent employee=${employee.id} period=${period.id} to=${normalizedPhone || phone}`,
+    );
+
+    return {
+      ok: true,
+      normalizedPhone,
+      sentAt: new Date().toISOString(),
+    };
   }
 
   async listPendingServiceCommissionRequests(ownerId: string) {
@@ -1082,6 +1148,182 @@ export class PayrollService {
         activo: true,
       },
     });
+  }
+
+  private async notifyPayrollEntryIfNeeded(ownerId: string, entryId: string) {
+    const entry = await this.prisma.payrollEntry.findFirst({
+      where: { ownerId, id: entryId },
+      include: {
+        employee: {
+          include: {
+            user: {
+              select: { id: true, telefono: true, nombreCompleto: true },
+            },
+          },
+        },
+        period: {
+          select: { id: true, title: true },
+        },
+      },
+    });
+
+    if (!entry) {
+      return;
+    }
+
+    if (!this.shouldNotifyEntryType(entry.type)) {
+      return;
+    }
+
+    const phone = this.resolveEmployeePhone(entry.employee);
+    if (!phone) {
+      this.logger.warn(
+        `Payroll entry notification skipped employee=${entry.employeeId} entry=${entry.id} reason=no_phone`,
+      );
+      return;
+    }
+
+    const message = this.buildPayrollEntryMessage({
+      employeeName: entry.employee.nombre,
+      periodTitle: entry.period?.title ?? '',
+      type: entry.type,
+      concept: entry.concept,
+      amount: this.toNumber(entry.amount),
+      quantity: this.toNumber(entry.cantidad),
+    });
+
+    try {
+      await this.evolutionWhatsApp.sendTextMessage({
+        toNumber: phone,
+        message,
+      });
+      const normalizedPhone = this.evolutionWhatsApp.normalizeWhatsAppNumber(phone);
+      this.logger.log(
+        `Payroll entry WhatsApp sent entry=${entry.id} employee=${entry.employeeId} type=${entry.type} to=${normalizedPhone || phone}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Payroll entry notification failed entry=${entry.id} employee=${entry.employeeId} type=${entry.type}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+  }
+
+  private shouldNotifyEntryType(type: PayrollEntryType) {
+    return (
+      type === PayrollEntryType.ADELANTO ||
+      type === PayrollEntryType.BONIFICACION ||
+      type === PayrollEntryType.AUSENCIA
+    );
+  }
+
+  private resolveEmployeePhone(employee: {
+    telefono?: string | null;
+    user?: { telefono?: string | null } | null;
+  }) {
+    const direct = (employee.telefono ?? '').trim();
+    if (direct) return direct;
+    const linked = (employee.user?.telefono ?? '').trim();
+    return linked || '';
+  }
+
+  private buildPayrollEntryMessage(params: {
+    employeeName: string;
+    periodTitle: string;
+    type: PayrollEntryType;
+    concept: string;
+    amount: number;
+    quantity: number;
+  }) {
+    const employeeName = params.employeeName.trim() || 'colaborador';
+    const concept = params.concept.trim();
+    const periodTitle = params.periodTitle.trim();
+    const quantity = params.quantity > 0 ? params.quantity : 0;
+    const amountLabel = this.formatMoney(Math.abs(params.amount));
+
+    switch (params.type) {
+      case PayrollEntryType.ADELANTO:
+        return [
+          `Hola ${employeeName},`,
+          `se registró un adelanto en tu nómina por ${amountLabel}.`,
+          if (concept.isNotEmpty) `Concepto: ${concept}.`,
+          if (periodTitle.isNotEmpty) `Quincena: ${periodTitle}.`,
+        ].join('\n');
+      case PayrollEntryType.BONIFICACION:
+        return [
+          `Hola ${employeeName},`,
+          `se registró una bonificación en tu nómina por ${amountLabel}.`,
+          if (concept.isNotEmpty) `Concepto: ${concept}.`,
+          if (periodTitle.isNotEmpty) `Quincena: ${periodTitle}.`,
+        ].join('\n');
+      case PayrollEntryType.AUSENCIA:
+        return [
+          `Hola ${employeeName},`,
+          `se registró una ausencia en tu nómina${quantity > 0 ? ` (${this.formatQuantity(quantity)}).` : '.'}`,
+          `Monto aplicado: ${amountLabel}.`,
+          if (concept.isNotEmpty) `Concepto: ${concept}.`,
+          if (periodTitle.isNotEmpty) `Quincena: ${periodTitle}.`,
+        ].join('\n');
+      default:
+        return '';
+    }
+  }
+
+  private buildPayrollPdfMessage(employeeName: string, periodTitle: string) {
+    const safeName = employeeName.trim() || 'colaborador';
+    const safePeriod = periodTitle.trim();
+    return [
+      `Hola ${safeName},`,
+      safePeriod.isEmpty
+        ? 'te compartimos tu comprobante de nómina en PDF.'
+        : `te compartimos tu comprobante de nómina correspondiente a ${safePeriod}.`,
+    ].join('\n');
+  }
+
+  private buildPayrollPdfFileName(employeeName: string, periodTitle: string) {
+    const employeeSlug = this.slugify(employeeName) || 'empleado';
+    const periodSlug = this.slugify(periodTitle) || 'quincena';
+    return `nomina_${employeeSlug}_${periodSlug}.pdf`;
+  }
+
+  private parsePdfBase64(raw: string) {
+    const value = (raw ?? '').trim();
+    if (!value) {
+      throw new BadRequestException('El PDF es obligatorio para enviarlo por WhatsApp');
+    }
+
+    const normalized = value.startsWith('data:') ? value.split(',').pop() ?? '' : value;
+
+    try {
+      return Uint8Array.from(Buffer.from(normalized, 'base64'));
+    } catch {
+      throw new BadRequestException('El PDF enviado no tiene un Base64 válido');
+    }
+  }
+
+  private formatMoney(value: number) {
+    return new Intl.NumberFormat('es-DO', {
+      style: 'currency',
+      currency: 'DOP',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(Number.isFinite(value) ? value : 0);
+  }
+
+  private formatQuantity(value: number) {
+    if (Number.isInteger(value)) {
+      return `${value} dia${value == 1 ? '' : 's'}`;
+    }
+    return `${value.toFixed(2)} dias`;
+  }
+
+  private slugify(value: string) {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
   }
 
   private round2(value: number) {

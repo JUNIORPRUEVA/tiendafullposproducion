@@ -9,6 +9,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../core/auth/auth_provider.dart';
+import '../../core/company/company_settings_repository.dart';
 import '../../core/debug/trace_log.dart';
 import '../../core/models/user_model.dart';
 import '../../core/routing/routes.dart';
@@ -28,6 +29,7 @@ class NominaScreen extends ConsumerStatefulWidget {
   @override
   ConsumerState<NominaScreen> createState() => _NominaScreenState();
 }
+
 class _NominaScreenState extends ConsumerState<NominaScreen> {
   bool _showEmployeesSection = false;
 
@@ -38,14 +40,15 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
   ) {
     final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
     final openPeriod = state.openPeriod;
-    final activeEmployees = state.employees
+    final activePayrollEmployees = state.employees
         .where((employee) => employee.activo)
-        .length;
-    final payrollBase = state.employees.fold<double>(
+        .toList(growable: false);
+    final activeEmployees = activePayrollEmployees.length;
+    final payrollBase = activePayrollEmployees.fold<double>(
       0,
       (sum, employee) => sum + employee.salarioBaseQuincenal,
     );
-    final payrollQuota = state.employees.fold<double>(
+    final payrollQuota = activePayrollEmployees.fold<double>(
       0,
       (sum, employee) => sum + employee.cuotaMinima,
     );
@@ -82,7 +85,8 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                         : () => _openPayrollHistoryDialog(context, ref, state),
                     onTotals: state.loading
                         ? null
-                        : () => _openOpenPeriodTotalsDialog(context, ref, state),
+                        : () =>
+                              _openOpenPeriodTotalsDialog(context, ref, state),
                     onPdf: state.loading
                         ? null
                         : () => _exportOpenPeriodPdf(context, ref, state),
@@ -110,11 +114,12 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                   const SizedBox(height: 10),
                   _NominaUsersSectionCard(
                     expanded: _showEmployeesSection,
-                    employees: state.employees,
-                    onToggle: () =>
-                        setState(() => _showEmployeesSection = !_showEmployeesSection),
+                    employees: activePayrollEmployees,
+                    onToggle: () => setState(
+                      () => _showEmployeesSection = !_showEmployeesSection,
+                    ),
                     onAdd: () => _showEmployeeDialog(context, ref),
-                    child: state.employees.isEmpty
+                    child: activePayrollEmployees.isEmpty
                         ? _NominaEmptyState(
                             icon: Icons.groups_outlined,
                             title: 'No hay usuarios en nomina',
@@ -123,7 +128,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                             onAction: () => _showEmployeeDialog(context, ref),
                           )
                         : Column(
-                            children: state.employees
+                            children: activePayrollEmployees
                                 .map(
                                   (employee) => _EmployeeCard(
                                     employee: employee,
@@ -163,14 +168,15 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
   ) {
     final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
     final openPeriod = state.openPeriod;
-    final activeEmployees = state.employees
+    final activePayrollEmployees = state.employees
         .where((employee) => employee.activo)
-        .length;
-    final payrollBase = state.employees.fold<double>(
+        .toList(growable: false);
+    final activeEmployees = activePayrollEmployees.length;
+    final payrollBase = activePayrollEmployees.fold<double>(
       0,
       (sum, employee) => sum + employee.salarioBaseQuincenal,
     );
-    final payrollQuota = state.employees.fold<double>(
+    final payrollQuota = activePayrollEmployees.fold<double>(
       0,
       (sum, employee) => sum + employee.cuotaMinima,
     );
@@ -196,7 +202,8 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                     padding: const EdgeInsets.fromLTRB(14, 12, 14, 22),
                     children: [
                       _NominaPremiumHeroCard(
-                        title: openPeriod?.title ?? 'Nomina sin quincena abierta',
+                        title:
+                            openPeriod?.title ?? 'Nomina sin quincena abierta',
                         range: openPeriod == null
                             ? 'Abre una quincena para comenzar'
                             : '${DateFormat('dd/MM/yyyy').format(openPeriod.startDate)} - ${DateFormat('dd/MM/yyyy').format(openPeriod.endDate)}',
@@ -204,17 +211,26 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                         activeEmployees: activeEmployees,
                         onHistory: state.loading
                             ? null
-                            : () => _openPayrollHistoryDialog(context, ref, state),
+                            : () => _openPayrollHistoryDialog(
+                                context,
+                                ref,
+                                state,
+                              ),
                         onTotals: state.loading
                             ? null
-                            : () => _openOpenPeriodTotalsDialog(context, ref, state),
+                            : () => _openOpenPeriodTotalsDialog(
+                                context,
+                                ref,
+                                state,
+                              ),
                         onPdf: state.loading
                             ? null
                             : () => _exportOpenPeriodPdf(context, ref, state),
                         onAddEmployee: () => _showEmployeeDialog(context, ref),
                         onClosePeriod: openPeriod == null
                             ? null
-                            : () => _confirmClosePeriod(context, ref, openPeriod),
+                            : () =>
+                                  _confirmClosePeriod(context, ref, openPeriod),
                         onCreatePeriod: openPeriod == null
                             ? () => _showCreatePeriodDialog(context, ref)
                             : null,
@@ -237,28 +253,32 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                       const SizedBox(height: 10),
                       _NominaUsersSectionCard(
                         expanded: _showEmployeesSection,
-                        employees: state.employees,
-                        onToggle: () =>
-                            setState(() => _showEmployeesSection = !_showEmployeesSection),
+                        employees: activePayrollEmployees,
+                        onToggle: () => setState(
+                          () => _showEmployeesSection = !_showEmployeesSection,
+                        ),
                         onAdd: () => _showEmployeeDialog(context, ref),
-                        child: state.employees.isEmpty
+                        child: activePayrollEmployees.isEmpty
                             ? _NominaEmptyState(
                                 icon: Icons.groups_outlined,
                                 title: 'No hay usuarios en nomina',
-                                message: 'Agrega un usuario nuevo cuando lo necesites.',
+                                message:
+                                    'Agrega un usuario nuevo cuando lo necesites.',
                                 actionLabel: 'Agregar usuario',
-                                onAction: () => _showEmployeeDialog(context, ref),
+                                onAction: () =>
+                                    _showEmployeeDialog(context, ref),
                               )
                             : Column(
-                                children: state.employees
+                                children: activePayrollEmployees
                                     .map(
                                       (employee) => _EmployeeCard(
                                         employee: employee,
-                                        onManage: () => _showEmployeePayrollDialog(
-                                          context,
-                                          ref,
-                                          employee,
-                                        ),
+                                        onManage: () =>
+                                            _showEmployeePayrollDialog(
+                                              context,
+                                              ref,
+                                              employee,
+                                            ),
                                         onEdit: () => _showEmployeeDialog(
                                           context,
                                           ref,
@@ -434,8 +454,11 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     if (open == null) return const [];
 
     final repo = ref.read(nominaRepositoryProvider);
-    final employees = [...state.employees]
-      ..sort((a, b) => a.nombre.compareTo(b.nombre));
+    final employees =
+        state.employees
+            .where((employee) => employee.activo)
+            .toList(growable: false)
+          ..sort((a, b) => a.nombre.compareTo(b.nombre));
 
     final rows = <({PayrollEmployee employee, PayrollTotals totals})>[];
     for (final employee in employees) {
@@ -481,7 +504,9 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     final historyItems = <_PayrollHistoryPeriodSummary>[];
     for (final period in pastPeriods) {
       final total = await repo.computePeriodTotalAllEmployees(period.id);
-      historyItems.add(_PayrollHistoryPeriodSummary(period: period, total: total));
+      historyItems.add(
+        _PayrollHistoryPeriodSummary(period: period, total: total),
+      );
     }
     if (!context.mounted) return;
 
@@ -519,10 +544,14 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
           period: period,
           rows: rows,
           totalPagar: totalPagar,
-          onOpenPdf: () => _openOpenPeriodPdfPreviewDialog(
+          onOpenPdf: () =>
+              _openOpenPeriodPdfPreviewDialog(routeContext, period, rows),
+          onSendPayroll: (row) => _sendPayrollToWhatsApp(
             routeContext,
-            period,
-            rows,
+            ref,
+            period: period,
+            employee: row.employee,
+            totals: row.totals,
           ),
           money: money,
         ),
@@ -738,6 +767,153 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     return doc.save();
   }
 
+  Future<Uint8List> _buildEmployeePayrollPdfBytes({
+    required WidgetRef ref,
+    required PayrollPeriod period,
+    required PayrollEmployee employee,
+    required PayrollTotals totals,
+  }) async {
+    final settings = await ref.read(companySettingsRepositoryProvider).getSettings();
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final companyName = settings.companyName.trim().isEmpty
+        ? 'FULLTECH'
+        : settings.companyName.trim();
+    final companyRnc = settings.rnc.trim();
+    final companyPhone = settings.phone.trim();
+    final range =
+        '${DateFormat('dd/MM/yyyy').format(period.startDate)} - ${DateFormat('dd/MM/yyyy').format(period.endDate)}';
+    final extras = totals.bonuses + totals.otherAdditions;
+    final roleLabel = (employee.puesto ?? '').trim().isEmpty
+        ? 'Empleado'
+        : employee.puesto!.trim();
+
+    final doc = pw.Document(title: 'Nomina ${employee.nombre}', author: companyName);
+    doc.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        build: (context) => pw.Padding(
+          padding: const pw.EdgeInsets.all(24),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Center(
+                child: pw.Column(
+                  children: [
+                    pw.Text(
+                      companyName,
+                      style: pw.TextStyle(
+                        fontSize: 17,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    if (companyRnc.isNotEmpty) ...[
+                      pw.SizedBox(height: 2),
+                      pw.Text('RNC: $companyRnc'),
+                    ],
+                    if (companyPhone.isNotEmpty) pw.Text('Tel: $companyPhone'),
+                    pw.SizedBox(height: 8),
+                    pw.Text(
+                      'COMPROBANTE DE PAGO DE NÓMINA',
+                      style: pw.TextStyle(
+                        fontSize: 12,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 12),
+              pw.Divider(),
+              pw.SizedBox(height: 6),
+              pw.Text('Empleado: ${employee.nombre}'),
+              pw.Text('Cargo: $roleLabel'),
+              pw.Text('Quincena: ${period.title}'),
+              pw.Text('Rango: $range'),
+              pw.SizedBox(height: 16),
+              pw.Text('Salario quincenal: ${money.format(totals.baseSalary)}'),
+              pw.Text('Comisión: ${money.format(totals.commissions)}'),
+              pw.Text('Extras: ${money.format(extras)}'),
+              pw.Text(
+                'Beneficios: ${money.format(totals.commissions + extras)}',
+              ),
+              pw.Text('Deducciones: ${money.format(totals.deductions)}'),
+              if (totals.absences > 0)
+                pw.Text('Ausencias: ${money.format(totals.absences)}'),
+              if (totals.advances > 0)
+                pw.Text('Adelantos: ${money.format(totals.advances)}'),
+              if (totals.otherDeductions > 0)
+                pw.Text(
+                  'Otras deducciones: ${money.format(totals.otherDeductions)}',
+                ),
+              pw.Divider(),
+              pw.Text(
+                'Neto a pagar: ${money.format(totals.total)}',
+                style: pw.TextStyle(
+                  fontSize: 14,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return doc.save();
+  }
+
+  String _buildEmployeePayrollPdfFileName(
+    PayrollEmployee employee,
+    PayrollPeriod period,
+  ) {
+    String sanitize(String value) {
+      return value
+          .trim()
+          .toLowerCase()
+          .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+          .replaceAll(RegExp(r'^_+|_+$'), '');
+    }
+
+    final employeeSlug = sanitize(employee.nombre).isEmpty
+        ? 'empleado'
+        : sanitize(employee.nombre);
+    final periodSlug = sanitize(period.title).isEmpty
+        ? 'quincena'
+        : sanitize(period.title);
+    return 'nomina_${employeeSlug}_$periodSlug.pdf';
+  }
+
+  Future<void> _sendPayrollToWhatsApp(
+    BuildContext context,
+    WidgetRef ref, {
+    required PayrollPeriod period,
+    required PayrollEmployee employee,
+    required PayrollTotals totals,
+  }) async {
+    final repo = ref.read(nominaRepositoryProvider);
+    final bytes = await _buildEmployeePayrollPdfBytes(
+      ref: ref,
+      period: period,
+      employee: employee,
+      totals: totals,
+    );
+
+    await repo.sendPayrollToWhatsApp(
+      employeeId: employee.id,
+      periodId: period.id,
+      bytes: bytes,
+      fileName: _buildEmployeePayrollPdfFileName(employee, period),
+    );
+
+    if (!context.mounted) return;
+    await AppFeedback.showInfo(
+      context,
+      'Nómina enviada por WhatsApp a ${employee.nombre}',
+      fallbackContext: context,
+      scope: 'NominaSendPayroll',
+    );
+  }
+
   pw.Widget _pdfTotalLine(
     String label,
     String value, {
@@ -856,6 +1032,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
       final existingUserIds = ref
           .read(nominaHomeControllerProvider)
           .employees
+          .where((item) => item.activo)
           .map((item) => item.id)
           .toSet();
       selectedUser = await showDialog<UserModel>(
@@ -924,6 +1101,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     final qtyCtrl = TextEditingController(text: '1');
     PayrollEntryType selectedType = PayrollEntryType.descuento;
     var isSavingEntry = false;
+    var isSendingPayroll = false;
 
     Future<void> reload(StateSetter setStateDialog) async {
       entries = await repo.listEntries(open.id, employee.id);
@@ -984,8 +1162,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                       initialValue: selectedType,
                       items: PayrollEntryType.values
                           .where(
-                            (type) =>
-                                type != PayrollEntryType.pagoCombustible,
+                            (type) => type != PayrollEntryType.pagoCombustible,
                           )
                           .map(
                             (type) => DropdownMenuItem(
@@ -1222,6 +1399,50 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
               ),
             ),
             actions: [
+              TextButton.icon(
+                onPressed: isSendingPayroll
+                    ? null
+                    : () async {
+                        setStateDialog(() => isSendingPayroll = true);
+                        try {
+                          await _sendPayrollToWhatsApp(
+                            scaffoldContext,
+                            ref,
+                            period: open,
+                            employee: employee,
+                            totals: totals,
+                          );
+                        } catch (e, st) {
+                          TraceLog.log(
+                            'NominaEmployeePayrollDialog',
+                            'send payroll whatsapp error',
+                            seq: flowSeq,
+                            error: e,
+                            stackTrace: st,
+                          );
+                          if (!context.mounted) return;
+                          if (!scaffoldContext.mounted) return;
+                          await AppFeedback.showError(
+                            scaffoldContext,
+                            'No se pudo enviar la nómina: $e',
+                            fallbackContext: context,
+                            scope: 'NominaEmployeePayrollDialog',
+                          );
+                        } finally {
+                          if (context.mounted) {
+                            setStateDialog(() => isSendingPayroll = false);
+                          }
+                        }
+                      },
+                icon: isSendingPayroll
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send_to_mobile_outlined),
+                label: const Text('Enviar nómina'),
+              ),
               TextButton(
                 onPressed: () => Navigator.pop(context),
                 child: const Text('Cerrar'),
@@ -1972,44 +2193,6 @@ class _EmployeeCard extends StatelessWidget {
   }
 }
 
-class _NominaTag extends StatelessWidget {
-  const _NominaTag({
-    required this.icon,
-    required this.label,
-  });
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: scheme.surface.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: scheme.primary),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: theme.textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _NominaPremiumHeroCard extends StatelessWidget {
   const _NominaPremiumHeroCard({
     required this.title,
@@ -2096,10 +2279,7 @@ class _NominaPremiumHeroCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              _NominaTopBadge(
-                icon: Icons.payments_outlined,
-                label: totalLabel,
-              ),
+              _NominaTopBadge(icon: Icons.payments_outlined, label: totalLabel),
               const SizedBox(width: 8),
               _NominaTopBadge(
                 icon: Icons.groups_2_outlined,
@@ -2163,10 +2343,7 @@ class _NominaPremiumHeroCard extends StatelessWidget {
 }
 
 class _NominaTopBadge extends StatelessWidget {
-  const _NominaTopBadge({
-    required this.icon,
-    required this.label,
-  });
+  const _NominaTopBadge({required this.icon, required this.label});
 
   final IconData icon;
   final String label;
@@ -2252,23 +2429,20 @@ class _NominaHeroActionButton extends StatelessWidget {
                   ),
           )
         : solid
-            ? FilledButton.icon(
-                onPressed: onPressed,
-                icon: Icon(icon, size: 16),
-                label: Text(label),
-                style: style,
-              )
-            : OutlinedButton.icon(
-                onPressed: onPressed,
-                icon: Icon(icon, size: 16),
-                label: Text(label),
-                style: style,
-              );
+        ? FilledButton.icon(
+            onPressed: onPressed,
+            icon: Icon(icon, size: 16),
+            label: Text(label),
+            style: style,
+          )
+        : OutlinedButton.icon(
+            onPressed: onPressed,
+            icon: Icon(icon, size: 16),
+            label: Text(label),
+            style: style,
+          );
 
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: child,
-    );
+    return Padding(padding: const EdgeInsets.only(right: 8), child: child);
   }
 }
 
@@ -2302,7 +2476,9 @@ class _NominaPrimaryBoard extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.68)),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.68),
+        ),
         boxShadow: const [
           BoxShadow(
             color: Color(0x10061523),
@@ -2328,7 +2504,9 @@ class _NominaPrimaryBoard extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      openPeriod == null ? 'Sin periodo abierto' : openPeriod!.title,
+                      openPeriod == null
+                          ? 'Sin periodo abierto'
+                          : openPeriod!.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -2340,7 +2518,10 @@ class _NominaPrimaryBoard extends StatelessWidget {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
                 decoration: BoxDecoration(
                   color: openPeriod == null
                       ? scheme.surfaceContainerHigh
@@ -2414,7 +2595,9 @@ class _NominaMiniStatTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: scheme.surfaceContainerLowest,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.65)),
+          border: Border.all(
+            color: scheme.outlineVariant.withValues(alpha: 0.65),
+          ),
         ),
         child: Row(
           children: [
@@ -2482,7 +2665,9 @@ class _NominaUsersSectionCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.68)),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.68),
+        ),
         boxShadow: const [
           BoxShadow(
             color: Color(0x10061523),
@@ -2533,10 +2718,7 @@ class _NominaUsersSectionCard extends StatelessWidget {
               ),
             ],
           ),
-          if (expanded) ...[
-            const SizedBox(height: 10),
-            child,
-          ],
+          if (expanded) ...[const SizedBox(height: 10), child],
         ],
       ),
     );
@@ -2670,33 +2852,36 @@ class _PayrollHistoryFullScreenState extends State<_PayrollHistoryFullScreen> {
   List<_PayrollHistoryPeriodSummary> get _filteredItems {
     final query = _searchController.text.trim().toLowerCase();
     final now = DateTime.now();
-    return widget.items.where((item) {
-      if (query.isNotEmpty && !item.period.title.toLowerCase().contains(query)) {
-        return false;
-      }
+    return widget.items
+        .where((item) {
+          if (query.isNotEmpty &&
+              !item.period.title.toLowerCase().contains(query)) {
+            return false;
+          }
 
-      if (_quickFilter == _PayrollHistoryQuickFilter.last90Days) {
-        final pivot = now.subtract(const Duration(days: 90));
-        if (item.period.endDate.isBefore(pivot)) return false;
-      }
+          if (_quickFilter == _PayrollHistoryQuickFilter.last90Days) {
+            final pivot = now.subtract(const Duration(days: 90));
+            if (item.period.endDate.isBefore(pivot)) return false;
+          }
 
-      if (_quickFilter == _PayrollHistoryQuickFilter.currentYear &&
-          item.period.endDate.year != now.year) {
-        return false;
-      }
+          if (_quickFilter == _PayrollHistoryQuickFilter.currentYear &&
+              item.period.endDate.year != now.year) {
+            return false;
+          }
 
-      if (_from != null) {
-        final from = DateTime(_from!.year, _from!.month, _from!.day);
-        if (item.period.endDate.isBefore(from)) return false;
-      }
+          if (_from != null) {
+            final from = DateTime(_from!.year, _from!.month, _from!.day);
+            if (item.period.endDate.isBefore(from)) return false;
+          }
 
-      if (_to != null) {
-        final to = DateTime(_to!.year, _to!.month, _to!.day, 23, 59, 59);
-        if (item.period.startDate.isAfter(to)) return false;
-      }
+          if (_to != null) {
+            final to = DateTime(_to!.year, _to!.month, _to!.day, 23, 59, 59);
+            if (item.period.startDate.isAfter(to)) return false;
+          }
 
-      return true;
-    }).toList(growable: false)
+          return true;
+        })
+        .toList(growable: false)
       ..sort((a, b) => b.period.endDate.compareTo(a.period.endDate));
   }
 
@@ -2711,35 +2896,86 @@ class _PayrollHistoryFullScreenState extends State<_PayrollHistoryFullScreen> {
       if (_to != null) 1,
       if (_quickFilter != _PayrollHistoryQuickFilter.all) 1,
     ].length;
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final visibleTotal = filtered.fold<double>(
+      0,
+      (sum, item) => sum + item.total,
+    );
+    final latestClose = filtered.isEmpty
+        ? null
+        : DateFormat('dd/MM/yyyy').format(filtered.first.period.endDate);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Historial de nominas'),
         actions: [
           if (activeFilters > 0)
-            TextButton(
-              onPressed: _resetFilters,
-              child: const Text('Limpiar'),
-            ),
+            TextButton(onPressed: _resetFilters, child: const Text('Limpiar')),
         ],
       ),
       body: Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerLowest,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: scheme.outlineVariant.withValues(alpha: 0.8),
-                ),
-              ),
+            child: _PayrollSurface(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Quincenas cerradas',
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              filtered.isEmpty
+                                  ? 'No hay quincenas visibles con los filtros actuales.'
+                                  : '${filtered.length} resultados visibles.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (activeFilters > 0)
+                        TextButton.icon(
+                          onPressed: _resetFilters,
+                          icon: const Icon(Icons.restart_alt_rounded),
+                          label: const Text('Limpiar'),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 18,
+                    runSpacing: 12,
+                    children: [
+                      _PayrollHeaderMetric(
+                        icon: Icons.receipt_long_outlined,
+                        label: 'Quincenas',
+                        value: '${filtered.length}',
+                      ),
+                      _PayrollHeaderMetric(
+                        icon: Icons.payments_outlined,
+                        label: 'Total visible',
+                        value: money.format(visibleTotal),
+                      ),
+                      _PayrollHeaderMetric(
+                        icon: Icons.event_available_outlined,
+                        label: 'Ultimo cierre',
+                        value: latestClose ?? 'Sin datos',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
                   TextField(
                     controller: _searchController,
                     decoration: InputDecoration(
@@ -2750,31 +2986,32 @@ class _PayrollHistoryFullScreenState extends State<_PayrollHistoryFullScreen> {
                       fillColor: scheme.surface,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide(
-                          color: scheme.outlineVariant,
-                        ),
+                        borderSide: BorderSide(color: scheme.outlineVariant),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide(
-                          color: scheme.outlineVariant,
-                        ),
+                        borderSide: BorderSide(color: scheme.outlineVariant),
                       ),
                     ),
                   ),
                   const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _PayrollHistoryQuickFilter.values
-                        .map(
-                          (filter) => _PayrollFilterChip(
-                            label: filter.label,
-                            selected: _quickFilter == filter,
-                            onTap: () => setState(() => _quickFilter = filter),
-                          ),
-                        )
-                        .toList(growable: false),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: _PayrollHistoryQuickFilter.values
+                          .map(
+                            (filter) => Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: _PayrollFilterChip(
+                                label: filter.label,
+                                selected: _quickFilter == filter,
+                                onTap: () =>
+                                    setState(() => _quickFilter = filter),
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                    ),
                   ),
                   const SizedBox(height: 10),
                   Row(
@@ -2846,6 +3083,7 @@ class _PayrollPeriodDetailsScreen extends StatefulWidget {
     required this.rows,
     required this.totalPagar,
     required this.onOpenPdf,
+    required this.onSendPayroll,
     required this.money,
   });
 
@@ -2853,6 +3091,7 @@ class _PayrollPeriodDetailsScreen extends StatefulWidget {
   final List<_PayrollPeriodRow> rows;
   final double totalPagar;
   final Future<void> Function() onOpenPdf;
+  final Future<void> Function(_PayrollPeriodRow row) onSendPayroll;
   final NumberFormat money;
 
   @override
@@ -2880,20 +3119,22 @@ class _PayrollPeriodDetailsScreenState
 
   List<_PayrollPeriodRow> get _filteredRows {
     final query = _searchController.text.trim().toLowerCase();
-    return widget.rows.where((row) {
-      if (query.isNotEmpty &&
-          !row.employee.nombre.toLowerCase().contains(query)) {
-        return false;
-      }
-      switch (_filter) {
-        case _PayrollDetailEmployeeFilter.withCommission:
-          return row.totals.commissions > 0;
-        case _PayrollDetailEmployeeFilter.withDeductions:
-          return row.totals.deductions > 0;
-        case _PayrollDetailEmployeeFilter.all:
-          return true;
-      }
-    }).toList(growable: false)
+    return widget.rows
+        .where((row) {
+          if (query.isNotEmpty &&
+              !row.employee.nombre.toLowerCase().contains(query)) {
+            return false;
+          }
+          switch (_filter) {
+            case _PayrollDetailEmployeeFilter.withCommission:
+              return row.totals.commissions > 0;
+            case _PayrollDetailEmployeeFilter.withDeductions:
+              return row.totals.deductions > 0;
+            case _PayrollDetailEmployeeFilter.all:
+              return true;
+          }
+        })
+        .toList(growable: false)
       ..sort((a, b) => b.totals.total.compareTo(a.totals.total));
   }
 
@@ -2901,7 +3142,12 @@ class _PayrollPeriodDetailsScreenState
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final isCompact = MediaQuery.sizeOf(context).width < 420;
     final filtered = _filteredRows;
+    final activeFilters = [
+      if (_searchController.text.trim().isNotEmpty) 1,
+      if (_filter != _PayrollDetailEmployeeFilter.all) 1,
+    ].length;
     final totalBase = filtered.fold<double>(
       0,
       (sum, row) => sum + row.totals.baseSalary,
@@ -2914,10 +3160,29 @@ class _PayrollPeriodDetailsScreenState
       0,
       (sum, row) => sum + row.totals.deductions,
     );
+    final totalExtras = filtered.fold<double>(
+      0,
+      (sum, row) => sum + row.totals.bonuses + row.totals.otherAdditions,
+    );
+    final totalVisible = filtered.fold<double>(
+      0,
+      (sum, row) => sum + row.totals.total,
+    );
+    final range =
+        '${DateFormat('dd/MM/yyyy').format(widget.period.startDate)} - ${DateFormat('dd/MM/yyyy').format(widget.period.endDate)}';
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.period.title),
+        toolbarHeight: 58,
+        titleSpacing: 0,
+        title: Text(
+          widget.period.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
         actions: [
           IconButton(
             tooltip: 'Exportar PDF',
@@ -2929,125 +3194,166 @@ class _PayrollPeriodDetailsScreenState
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            child: Column(
-              children: [
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: scheme.surfaceContainerLowest,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: scheme.outlineVariant.withValues(alpha: 0.8),
-                    ),
-                  ),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+            padding: EdgeInsets.fromLTRB(12, isCompact ? 10 : 12, 12, 0),
+            child: _PayrollSurface(
+              padding: EdgeInsets.all(isCompact ? 10 : 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      _NominaTag(
-                        icon: Icons.calendar_today_outlined,
-                        label:
-                            '${DateFormat('dd/MM/yyyy').format(widget.period.startDate)} - ${DateFormat('dd/MM/yyyy').format(widget.period.endDate)}',
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Detalle premium de quincena',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                color: scheme.primary,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              range,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              widget.money.format(widget.totalPagar),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                height: 1,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              'Total general de la quincena',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      _NominaTag(
+                      const SizedBox(width: 10),
+                      _PayrollMiniPill(
                         icon: Icons.groups_outlined,
-                        label: 'Empleados: ${widget.rows.length}',
-                      ),
-                      _NominaTag(
-                        icon: Icons.payments_outlined,
-                        label: 'Total quincena: ${widget.money.format(widget.totalPagar)}',
+                        label: '${filtered.length} empleados',
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _PayrollHistoryMetricCard(
-                      title: 'Base filtrada',
-                      value: widget.money.format(totalBase),
-                      subtitle: 'Salario base visible en pantalla',
-                      icon: Icons.badge_outlined,
-                    ),
-                    _PayrollHistoryMetricCard(
-                      title: 'Comisiones',
-                      value: widget.money.format(totalCommissions),
-                      subtitle: 'Comisiones del detalle filtrado',
-                      icon: Icons.auto_graph_outlined,
-                    ),
-                    _PayrollHistoryMetricCard(
-                      title: 'Deducciones',
-                      value: widget.money.format(totalDeductions),
-                      subtitle: 'Descuentos visibles en el listado',
-                      icon: Icons.remove_circle_outline,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: scheme.surfaceContainerLowest,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: scheme.outlineVariant.withValues(alpha: 0.8),
+                  const SizedBox(height: 10),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _PayrollInlineMetric(
+                          label: 'Base',
+                          value: widget.money.format(totalBase),
+                        ),
+                        _PayrollInlineMetric(
+                          label: 'Comision',
+                          value: widget.money.format(totalCommissions),
+                        ),
+                        _PayrollInlineMetric(
+                          label: 'Extras',
+                          value: widget.money.format(totalExtras),
+                        ),
+                        _PayrollInlineMetric(
+                          label: 'Deducciones',
+                          value: widget.money.format(totalDeductions),
+                        ),
+                        _PayrollInlineMetric(
+                          label: 'Neto visible',
+                          value: widget.money.format(totalVisible),
+                        ),
+                      ],
                     ),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  Padding(
+                    padding: EdgeInsets.symmetric(
+                      vertical: isCompact ? 10 : 12,
+                    ),
+                    child: Divider(
+                      height: 1,
+                      color: scheme.outlineVariant.withValues(alpha: 0.7),
+                    ),
+                  ),
+                  Row(
                     children: [
-                      Text(
-                        'Filtros del detalle',
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: _searchController,
-                        decoration: InputDecoration(
-                          hintText: 'Buscar por nombre del empleado',
-                          prefixIcon: const Icon(Icons.search_rounded),
-                          isDense: true,
-                          filled: true,
-                          fillColor: scheme.surface,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(
-                              color: scheme.outlineVariant,
-                            ),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(
-                              color: scheme.outlineVariant,
-                            ),
+                      Expanded(
+                        child: Text(
+                          'Filtros del detalle',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: _PayrollDetailEmployeeFilter.values
-                            .map(
-                              (filter) => _PayrollFilterChip(
+                      if (activeFilters > 0)
+                        TextButton.icon(
+                          onPressed: () => setState(() {
+                            _searchController.clear();
+                            _filter = _PayrollDetailEmployeeFilter.all;
+                          }),
+                          icon: const Icon(Icons.restart_alt_rounded),
+                          label: const Text('Mostrar todo'),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Buscar por nombre del empleado',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                      filled: true,
+                      fillColor: scheme.surface,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: scheme.outlineVariant),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: scheme.outlineVariant),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: _PayrollDetailEmployeeFilter.values
+                          .map(
+                            (filter) => Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: _PayrollFilterChip(
                                 label: filter.label,
                                 selected: _filter == filter,
                                 onTap: () => setState(() => _filter = filter),
                               ),
-                            )
-                            .toList(growable: false),
-                      ),
-                    ],
+                            ),
+                          )
+                          .toList(growable: false),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
           Expanded(
@@ -3069,14 +3375,15 @@ class _PayrollPeriodDetailsScreenState
                     ),
                   )
                 : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+                    padding: EdgeInsets.fromLTRB(12, isCompact ? 6 : 8, 12, 24),
                     itemCount: filtered.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 4),
+                    separatorBuilder: (_, __) => const SizedBox(height: 6),
                     itemBuilder: (context, index) {
                       final row = filtered[index];
                       return _PayrollPeriodEmployeeCard(
                         row: row,
                         money: widget.money,
+                        onSendPayroll: () => widget.onSendPayroll(row),
                       );
                     },
                   ),
@@ -3087,75 +3394,233 @@ class _PayrollPeriodDetailsScreenState
   }
 }
 
-class _PayrollHistoryMetricCard extends StatelessWidget {
-  const _PayrollHistoryMetricCard({
-    required this.title,
-    required this.value,
-    required this.subtitle,
-    required this.icon,
+class _PayrollSurface extends StatelessWidget {
+  const _PayrollSurface({
+    required this.child,
+    this.padding = const EdgeInsets.all(12),
   });
 
-  final String title;
-  final String value;
-  final String subtitle;
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: padding,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [scheme.surface, scheme.surfaceContainerLowest],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.8)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 16,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+class _PayrollMiniPill extends StatelessWidget {
+  const _PayrollMiniPill({required this.icon, required this.label});
+
   final IconData icon;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 220, maxWidth: 360),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerLowest,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: scheme.outlineVariant.withValues(alpha: 0.8),
-          ),
-        ),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: scheme.primaryContainer,
-              child: Icon(icon, size: 18, color: scheme.primary),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    value,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            scheme.primary.withValues(alpha: 0.12),
+            scheme.primary.withValues(alpha: 0.06),
           ],
         ),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.16)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: scheme.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: scheme.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PayrollInlineMetric extends StatelessWidget {
+  const _PayrollInlineMetric({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.6)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 10,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PayrollHeaderMetric extends StatelessWidget {
+  const _PayrollHeaderMetric({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.65)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: scheme.primary),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PayrollAmountBadge extends StatelessWidget {
+  const _PayrollAmountBadge({
+    required this.label,
+    required this.value,
+    this.backgroundColor,
+    this.textColor,
+    this.borderColor,
+  });
+
+  final String label;
+  final String value;
+  final Color? backgroundColor;
+  final Color? textColor;
+  final Color? borderColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final bg = backgroundColor ?? scheme.surfaceContainerLowest;
+    final fg = textColor ?? scheme.onSurface;
+    final bd = borderColor ?? scheme.outlineVariant.withValues(alpha: 0.7);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: bd),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: fg.withValues(alpha: 0.78),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: fg,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -3180,13 +3645,30 @@ class _PayrollFilterChip extends StatelessWidget {
       borderRadius: BorderRadius.circular(999),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? scheme.primary : scheme.surface,
+          gradient: selected
+              ? LinearGradient(
+                  colors: [
+                    scheme.primary,
+                    scheme.primary.withValues(alpha: 0.82),
+                  ],
+                )
+              : null,
+          color: selected ? null : scheme.surface,
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
             color: selected ? scheme.primary : scheme.outlineVariant,
           ),
+          boxShadow: selected
+              ? const [
+                  BoxShadow(
+                    color: Color(0x22000000),
+                    blurRadius: 12,
+                    offset: Offset(0, 4),
+                  ),
+                ]
+              : null,
         ),
         child: Text(
           label,
@@ -3262,10 +3744,7 @@ class _PayrollFilterButton extends StatelessWidget {
 }
 
 class _PayrollHistoryPeriodCard extends StatelessWidget {
-  const _PayrollHistoryPeriodCard({
-    required this.item,
-    required this.onTap,
-  });
+  const _PayrollHistoryPeriodCard({required this.item, required this.onTap});
 
   final _PayrollHistoryPeriodSummary item;
   final VoidCallback onTap;
@@ -3278,87 +3757,86 @@ class _PayrollHistoryPeriodCard extends StatelessWidget {
     final range =
         '${DateFormat('dd/MM/yyyy').format(item.period.startDate)} - ${DateFormat('dd/MM/yyyy').format(item.period.endDate)}';
 
-    return Card(
-      elevation: 0,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: scheme.outlineVariant.withValues(alpha: 0.55),
-          width: 0.8,
-        ),
-      ),
+    return Material(
+      color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: scheme.primaryContainer,
-                child: Text(
-                  _compactInitials(item.period.title),
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: scheme.onPrimaryContainer,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.period.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        height: 1.2,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      '$range · Cerrada',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    money.format(item.total),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: scheme.outlineVariant.withValues(alpha: 0.6),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: scheme.primaryContainer,
+                  child: Text(
+                    _compactInitials(item.period.title),
                     style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w800,
+                      color: scheme.onPrimaryContainer,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Total pagado',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.period.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          height: 1.15,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        range,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _PayrollAmountBadge(
+                            label: 'Total pagado',
+                            value: money.format(item.total),
+                            backgroundColor: scheme.primaryContainer,
+                            textColor: scheme.onPrimaryContainer,
+                            borderColor: scheme.primary.withValues(alpha: 0.18),
+                          ),
+                          _PayrollAmountBadge(
+                            label: 'Estado',
+                            value: 'Cerrada',
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              const SizedBox(width: 8),
-              _CompactIconActionButton(
-                tooltip: 'Ver detalle',
-                icon: Icons.visibility_outlined,
-                color: scheme.primary,
-                onPressed: onTap,
-              ),
-            ],
+                ),
+                const SizedBox(width: 8),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -3370,87 +3848,156 @@ class _PayrollPeriodEmployeeCard extends StatelessWidget {
   const _PayrollPeriodEmployeeCard({
     required this.row,
     required this.money,
+    required this.onSendPayroll,
   });
 
   final _PayrollPeriodRow row;
   final NumberFormat money;
+  final Future<void> Function() onSendPayroll;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final subtitle =
-        'Base ${money.format(row.totals.baseSalary)} · Comision ${money.format(row.totals.commissions)} · Deducciones ${money.format(row.totals.deductions)}';
+    final isCompact = MediaQuery.sizeOf(context).width < 420;
+    final extras = row.totals.bonuses + row.totals.otherAdditions;
+    final breakdownParts = <String>[
+      'Base ${money.format(row.totals.baseSalary)}',
+      'Comision ${money.format(row.totals.commissions)}',
+      if (extras > 0) 'Extras ${money.format(extras)}',
+      'Deducciones ${money.format(row.totals.deductions)}',
+    ];
 
-    return Card(
-      elevation: 0,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: scheme.outlineVariant.withValues(alpha: 0.55),
-          width: 0.8,
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [scheme.surface, scheme.surfaceContainerLowest],
         ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.6)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x10000000),
+            blurRadius: 14,
+            offset: Offset(0, 5),
+          ),
+        ],
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
+        padding: EdgeInsets.symmetric(
+          horizontal: isCompact ? 10 : 12,
+          vertical: isCompact ? 9 : 11,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: scheme.secondaryContainer,
-              child: Text(
-                _compactInitials(row.employee.nombre),
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: scheme.onSecondaryContainer,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    row.employee.nombre,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      height: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Text(
-                  money.format(row.totals.total),
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w900,
+                Container(
+                  width: 4,
+                  height: isCompact ? 42 : 46,
+                  decoration: BoxDecoration(
+                    color: row.totals.total < 0
+                        ? scheme.error
+                        : scheme.primary.withValues(alpha: 0.85),
+                    borderRadius: BorderRadius.circular(999),
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  'Neto',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
+                const SizedBox(width: 10),
+                CircleAvatar(
+                  radius: isCompact ? 17 : 18,
+                  backgroundColor: scheme.secondaryContainer,
+                  child: Text(
+                    _compactInitials(row.employee.nombre),
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: scheme.onSecondaryContainer,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        row.employee.nombre,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          height: 1.05,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        breakdownParts.join(' · '),
+                        maxLines: isCompact ? 2 : 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          height: 1.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: row.totals.total < 0
+                        ? scheme.errorContainer
+                        : scheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: row.totals.total < 0
+                          ? scheme.error.withValues(alpha: 0.18)
+                          : scheme.primary.withValues(alpha: 0.18),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        money.format(row.totals.total),
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: row.totals.total < 0
+                              ? scheme.onErrorContainer
+                              : scheme.onPrimaryContainer,
+                        ),
+                      ),
+                      Text(
+                        'Neto',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: row.totals.total < 0
+                              ? scheme.onErrorContainer.withValues(alpha: 0.78)
+                              : scheme.onPrimaryContainer.withValues(alpha: 0.78),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                onPressed: onSendPayroll,
+                icon: const Icon(Icons.send_to_mobile_outlined, size: 18),
+                label: const Text('Enviar nómina'),
+              ),
             ),
           ],
         ),

@@ -9,6 +9,7 @@ import { AddPayrollEntryDto, PayrollEntriesQueryDto } from './dto/payroll-entry.
 import { PayrollTotalsQueryDto } from './dto/payroll-query.dto';
 import { OverlapPeriodQueryDto } from './dto/overlap-period-query.dto';
 import { ReviewServiceCommissionDto } from './dto/review-service-commission.dto';
+import { SendPayrollWhatsappDto } from './dto/send-payroll-whatsapp.dto';
 import { UpsertPayrollConfigDto } from './dto/upsert-payroll-config.dto';
 import { UpsertPayrollEmployeeDto } from './dto/upsert-payroll-employee.dto';
 import { PayrollService } from './payroll.service';
@@ -189,6 +190,13 @@ export class PayrollController {
     const ownerId = await this.ownerIdFrom(req);
     await this.payroll.deleteEntry(ownerId, id);
     return { ok: true };
+  }
+
+  @Post('send-whatsapp')
+  @Roles(Role.ADMIN)
+  async sendPayrollWhatsapp(@Req() req: Request, @Body() dto: SendPayrollWhatsappDto) {
+    const ownerId = await this.ownerIdFrom(req);
+    return this.payroll.sendPayrollWhatsapp(ownerId, dto);
   }
 
   @Get('totals')
