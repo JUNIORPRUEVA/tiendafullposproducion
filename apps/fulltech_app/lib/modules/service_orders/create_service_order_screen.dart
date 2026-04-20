@@ -746,7 +746,8 @@ class _CreateServiceOrderScreenState
             final code = item.id.toLowerCase();
             final createdBy = (item.createdByUserName ?? '').toLowerCase();
             final summary =
-                '${item.items.length} items ${money.format(item.total)}'.toLowerCase();
+                '${item.items.length} items ${money.format(item.total)}'
+                    .toLowerCase();
             return query.isEmpty ||
                 code.contains(query) ||
                 createdBy.contains(query) ||
@@ -816,8 +817,8 @@ class _CreateServiceOrderScreenState
                             0,
                             quotation.id.length >= 6 ? 6 : quotation.id.length,
                           );
-                          final createdBy =
-                              (quotation.createdByUserName ?? '').trim();
+                          final createdBy = (quotation.createdByUserName ?? '')
+                              .trim();
                           final subtitleParts = <String>[
                             '${quotation.items.length} items',
                             money.format(quotation.total),
@@ -828,9 +829,9 @@ class _CreateServiceOrderScreenState
                             title: 'Cotización ${quoteCode.toUpperCase()}',
                             subtitle: subtitleParts.join(' · '),
                             icon: Icons.receipt_long_outlined,
-                            onTap: () => Navigator.of(context).pop(
-                              _QuotationPickerOutcome.select(quotation),
-                            ),
+                            onTap: () => Navigator.of(
+                              context,
+                            ).pop(_QuotationPickerOutcome.select(quotation)),
                             trailing: _canEditQuotation(quotation)
                                 ? IconButton(
                                     tooltip: 'Editar cotización',
@@ -1380,34 +1381,34 @@ class _PickerListTile extends StatelessWidget {
                       ),
                     ),
                 ],
-                  if (trailing != null) ...[
-                    const SizedBox(width: 8),
-                    trailing!,
-                  ],
               ),
             ),
+            if (trailing != null) ...[const SizedBox(width: 8), trailing!],
             Icon(
               Icons.chevron_right_rounded,
               color: colorScheme.onSurfaceVariant,
             ),
-
-      class _QuotationPickerOutcome {
-        const _QuotationPickerOutcome._({this.quotation, required this.editRequested});
-
-        const _QuotationPickerOutcome.select(CotizacionModel quotation)
-          : this._(quotation: quotation, editRequested: false);
-
-        const _QuotationPickerOutcome.edit(CotizacionModel quotation)
-          : this._(quotation: quotation, editRequested: true);
-
-        final CotizacionModel? quotation;
-        final bool editRequested;
-      }
           ],
         ),
       ),
     );
   }
+}
+
+class _QuotationPickerOutcome {
+  const _QuotationPickerOutcome._({
+    this.quotation,
+    required this.editRequested,
+  });
+
+  const _QuotationPickerOutcome.select(CotizacionModel quotation)
+    : this._(quotation: quotation, editRequested: false);
+
+  const _QuotationPickerOutcome.edit(CotizacionModel quotation)
+    : this._(quotation: quotation, editRequested: true);
+
+  final CotizacionModel? quotation;
+  final bool editRequested;
 }
 
 class SectionCard extends StatelessWidget {

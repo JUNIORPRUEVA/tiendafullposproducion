@@ -113,6 +113,14 @@ export class PayrollController {
     return this.mapEmployee(employee);
   }
 
+  @Delete('employees/:id')
+  @Roles(Role.ADMIN)
+  async deleteEmployee(@Req() req: Request, @Param('id') id: string) {
+    const ownerId = await this.ownerIdFrom(req);
+    await this.payroll.deleteEmployee(ownerId, id);
+    return { ok: true };
+  }
+
   @Get('config')
   @Roles(Role.ADMIN)
   async getEmployeeConfig(@Req() req: Request, @Query('periodId') periodId: string, @Query('employeeId') employeeId: string) {

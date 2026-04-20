@@ -17,7 +17,8 @@ class DocumentFlowsScreen extends ConsumerStatefulWidget {
   const DocumentFlowsScreen({super.key});
 
   @override
-  ConsumerState<DocumentFlowsScreen> createState() => _DocumentFlowsScreenState();
+  ConsumerState<DocumentFlowsScreen> createState() =>
+      _DocumentFlowsScreenState();
 }
 
 class _DocumentFlowsScreenState extends ConsumerState<DocumentFlowsScreen> {
@@ -26,6 +27,7 @@ class _DocumentFlowsScreenState extends ConsumerState<DocumentFlowsScreen> {
   bool _loading = true;
   String? _error;
   List<OrderDocumentFlowModel> _flows = const [];
+  _PrimaryDocumentFilter? _activePrimaryFilter = _PrimaryDocumentFilter.unsent;
   DocumentFlowStatus? _selectedStatus;
 
   @override
@@ -83,7 +85,8 @@ class _DocumentFlowsScreenState extends ConsumerState<DocumentFlowsScreen> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(_dialogClearSentinel),
+                  onPressed: () =>
+                      Navigator.of(dialogContext).pop(_dialogClearSentinel),
                   child: const Text('Limpiar'),
                 ),
                 TextButton(
@@ -170,13 +173,12 @@ class _DocumentFlowsScreenState extends ConsumerState<DocumentFlowsScreen> {
     final filtered = _filteredFlows();
     final grouped = <DocumentFlowStatus, List<OrderDocumentFlowModel>>{};
     for (final flow in filtered) {
-      grouped.putIfAbsent(flow.status, () => <OrderDocumentFlowModel>[]).add(flow);
+      grouped
+          .putIfAbsent(flow.status, () => <OrderDocumentFlowModel>[])
+          .add(flow);
     }
 
     final isDesktop = MediaQuery.of(context).size.width >= 920;
-    final sentCount = filtered.where((flow) => flow.sentAt != null).length;
-    final pendingSendCount = filtered.length - sentCount;
-
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: auth.user),
       appBar: CustomAppBar(
@@ -197,67 +199,90 @@ class _DocumentFlowsScreenState extends ConsumerState<DocumentFlowsScreen> {
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.all(24),
-                      children: [
-                        const SizedBox(height: 72),
-                        _FeedbackPanel(
-                          icon: Icons.error_outline,
-                          title: 'No se pudo cargar el flujo documental',
-                          message: _error!,
-                        ),
-                      ],
-                    )
-                  : ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: EdgeInsets.fromLTRB(
-                        isDesktop ? 24 : 14,
-                        12,
-                        isDesktop ? 24 : 14,
-                        18,
-                      ),
-                      children: [
-                        _DocumentFlowsHero(
-                          total: filtered.length,
-                          sent: sentCount,
-                          pending: pendingSendCount,
-                        ),
-                        const SizedBox(height: 10),
-                        _FiltersPanel(
-                          controller: _searchController,
-                          selectedStatus: _selectedStatus,
-                          onOpenMobileFilter: _openMobileFilterDialog,
-                          onStatusChanged: (value) {
-                            setState(() {
-                              _selectedStatus = value;
-                            });
-                          },
-                          onClear: () {
-                            setState(() {
-                              _selectedStatus = null;
-                              _searchController.clear();
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        if (filtered.isEmpty)
-                          const _FeedbackPanel(
-                            icon: Icons.inbox_outlined,
-                            title: 'No hay resultados para mostrar',
-                            message: 'Ajusta el buscador o el filtro para encontrar otro cliente.',
-                          )
-                        else
-                          ...DocumentFlowStatus.values
-                              .where((status) => grouped[status]?.isNotEmpty ?? false)
-                              .map(
-                                (status) => _DocumentFlowSection(
-                                  status: status,
-                                  flows: grouped[status]!,
-                                ),
-                              ),
-                      ],
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(24),
+                  children: [
+                    const SizedBox(height: 72),
+                    _FeedbackPanel(
+                      icon: Icons.error_outline,
+                      title: 'No se pudo cargar el flujo documental',
+                      message: _error!,
                     ),
+                  ],
+                )
+              : ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(
+                    isDesktop ? 24 : 14,
+                    12,
+                    isDesktop ? 24 : 14,
+                    18,
+                  ),
+                  children: [
+                    Align(
+                      alignment: Alignment.topCenter,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: isDesktop ? 1060 : double.infinity,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _FiltersPanel(
+                              controller: _searchController,
+                              filterLabel:
+                                  _selectedStatus?.label ?? 'Más filtros',
+                              filterActive: _selectedStatus != null,
+                              onOpenMobileFilter: _openMobileFilterDialog,
+                              onClear: () {
+                                setState(() {
+                                  _activePrimaryFilter =
+                                      _PrimaryDocumentFilter.unsent;
+                                  _selectedStatus = null;
+                                  _searchController.clear();
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                            _PrimaryFiltersRow(
+                              selectedFilter:
+                                  _activePrimaryFilter ??
+                                  _PrimaryDocumentFilter.unsent,
+                              onChanged: (value) {
+                                setState(() {
+                                  _activePrimaryFilter = value;
+                                  _selectedStatus = null;
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 14),
+                            if (filtered.isEmpty)
+                              _FeedbackPanel(
+                                icon: Icons.inbox_outlined,
+                                title: 'No hay resultados para mostrar',
+                                message: _selectedStatus == null
+                                    ? 'La vista principal muestra por defecto todas las órdenes con documentación no enviada al cliente. Ajusta la búsqueda o cambia los filtros para ver otros documentos.'
+                                    : 'No hay resultados para el filtro avanzado seleccionado. Ajusta la búsqueda o limpia el filtro.',
+                              )
+                            else
+                              ...DocumentFlowStatus.values
+                                  .where(
+                                    (status) =>
+                                        grouped[status]?.isNotEmpty ?? false,
+                                  )
+                                  .map(
+                                    (status) => _DocumentFlowSection(
+                                      status: status,
+                                      flows: grouped[status]!,
+                                    ),
+                                  ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
         ),
       ),
     );
@@ -265,199 +290,163 @@ class _DocumentFlowsScreenState extends ConsumerState<DocumentFlowsScreen> {
 
   List<OrderDocumentFlowModel> _filteredFlows() {
     final query = _normalizeSearch(_searchController.text);
-    return _flows.where((flow) {
-      if (_selectedStatus != null && flow.status != _selectedStatus) {
-        return false;
-      }
+    final activePrimaryFilter =
+        _activePrimaryFilter ?? _PrimaryDocumentFilter.unsent;
+    final visibleStatuses = _selectedStatus != null
+        ? <DocumentFlowStatus>{_selectedStatus!}
+        : activePrimaryFilter.statuses;
 
-      if (query.isEmpty) return true;
+    return _flows
+        .where((flow) {
+          if (!visibleStatuses.contains(flow.status)) {
+            return false;
+          }
 
-      final clientName = _normalizeSearch(flow.order.client.nombre);
-      final orderId = _normalizeSearch(flow.order.id);
-      return clientName.contains(query) || orderId.contains(query);
-    }).toList(growable: false);
+          if (query.isEmpty) return true;
+
+          final clientName = _normalizeSearch(flow.order.client.nombre);
+          final orderId = _normalizeSearch(flow.order.id);
+          return clientName.contains(query) || orderId.contains(query);
+        })
+        .toList(growable: false);
   }
 }
 
-class _DocumentFlowsHero extends StatelessWidget {
-  const _DocumentFlowsHero({
-    required this.total,
-    required this.sent,
-    required this.pending,
+enum _PrimaryDocumentFilter { unsent, finalization, sent }
+
+extension _PrimaryDocumentFilterX on _PrimaryDocumentFilter {
+  String get label {
+    switch (this) {
+      case _PrimaryDocumentFilter.unsent:
+        return 'No enviadas';
+      case _PrimaryDocumentFilter.finalization:
+        return 'Finalización';
+      case _PrimaryDocumentFilter.sent:
+        return 'Enviadas';
+    }
+  }
+
+  Set<DocumentFlowStatus> get statuses {
+    switch (this) {
+      case _PrimaryDocumentFilter.unsent:
+        return {
+          DocumentFlowStatus.pendingPreparation,
+          DocumentFlowStatus.readyForReview,
+          DocumentFlowStatus.readyForFinalization,
+          DocumentFlowStatus.approved,
+          DocumentFlowStatus.rejected,
+        };
+      case _PrimaryDocumentFilter.finalization:
+        return {DocumentFlowStatus.readyForFinalization};
+      case _PrimaryDocumentFilter.sent:
+        return {DocumentFlowStatus.sent};
+    }
+  }
+
+  Color get color {
+    switch (this) {
+      case _PrimaryDocumentFilter.unsent:
+        return const Color(0xFF0F5D73);
+      case _PrimaryDocumentFilter.finalization:
+        return const Color(0xFF6D28D9);
+      case _PrimaryDocumentFilter.sent:
+        return const Color(0xFF1D4ED8);
+    }
+  }
+}
+
+class _PrimaryFiltersRow extends StatelessWidget {
+  const _PrimaryFiltersRow({
+    required this.selectedFilter,
+    required this.onChanged,
   });
 
-  final int total;
-  final int sent;
-  final int pending;
+  final _PrimaryDocumentFilter selectedFilter;
+  final ValueChanged<_PrimaryDocumentFilter> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final isDesktop = MediaQuery.of(context).size.width >= 760;
-    final isMobile = !isDesktop;
-    final metrics = [
-      _HeroMetric(
-        title: 'Flujos visibles',
-        value: '$total',
-        subtitle: 'Seguimiento documental activo',
-        color: const Color(0xFF0E5A6A),
-        compact: isMobile,
-      ),
-      _HeroMetric(
-        title: 'Enviados',
-        value: '$sent',
-        subtitle: 'Clientes con documentación enviada',
-        color: const Color(0xFF18794E),
-        compact: isMobile,
-      ),
-      _HeroMetric(
-        title: 'Pendientes',
-        value: '$pending',
-        subtitle: 'Casos aún no despachados',
-        color: const Color(0xFFB26B00),
-        compact: isMobile,
-      ),
-    ];
-
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 10 : 14,
-        vertical: isMobile ? 8 : 10,
-      ),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF0E5A6A), Color(0xFF1B7283)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(isMobile ? 16 : 18),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x160A2430),
-            blurRadius: 16,
-            offset: Offset(0, 6),
-          ),
-        ],
-      ),
-      child: isDesktop
-          ? Row(
-              children: metrics
-                  .map(
-                    (metric) => Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: metric,
-                      ),
-                    ),
-                  )
-                  .toList(growable: false),
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: _PrimaryDocumentFilter.values
+            .map(
+              (filter) => Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: _PrimaryFilterChip(
+                  filter: filter,
+                  selected: filter == selectedFilter,
+                  onTap: () => onChanged(filter),
+                ),
+              ),
             )
-          : Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: metrics,
-            ),
+            .toList(growable: false),
+      ),
     );
   }
 }
 
-class _HeroMetric extends StatelessWidget {
-  const _HeroMetric({
-    required this.title,
-    required this.value,
-    required this.subtitle,
-    required this.color,
-    this.compact = false,
+class _PrimaryFilterChip extends StatelessWidget {
+  const _PrimaryFilterChip({
+    required this.filter,
+    required this.selected,
+    required this.onTap,
   });
 
-  final String title;
-  final String value;
-  final String subtitle;
-  final Color color;
-  final bool compact;
+  final _PrimaryDocumentFilter filter;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 10 : 12,
-        vertical: compact ? 7 : 10,
-      ),
-      constraints: compact ? null : const BoxConstraints(minHeight: 0),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(compact ? 999 : 14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
-      ),
-      child: compact
-          ? Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 7,
-                  height: 7,
-                  decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 10.2,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      value,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 10.2,
-                    height: 1.3,
-                  ),
-                ),
-              ],
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(13),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected
+                ? filter.color.withValues(alpha: 0.12)
+                : Colors.white,
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(
+              color: selected
+                  ? filter.color.withValues(alpha: 0.30)
+                  : const Color(0xFFD8E2EB),
             ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: filter.color,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    filter.label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: selected ? filter.color : const Color(0xFF24303F),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -465,154 +454,69 @@ class _HeroMetric extends StatelessWidget {
 class _FiltersPanel extends StatelessWidget {
   const _FiltersPanel({
     required this.controller,
-    required this.selectedStatus,
+    required this.filterLabel,
+    required this.filterActive,
     required this.onOpenMobileFilter,
-    required this.onStatusChanged,
     required this.onClear,
   });
 
   final TextEditingController controller;
-  final DocumentFlowStatus? selectedStatus;
+  final String filterLabel;
+  final bool filterActive;
   final VoidCallback onOpenMobileFilter;
-  final ValueChanged<DocumentFlowStatus?> onStatusChanged;
   final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) {
-    final isDesktop = MediaQuery.of(context).size.width >= 760;
-    final filterField = DropdownButtonFormField<DocumentFlowStatus?>(
-      initialValue: selectedStatus,
-      decoration: InputDecoration(
-        labelText: 'Filtrar por estado',
-        filled: true,
-        fillColor: Colors.white,
-        prefixIcon: const Icon(Icons.tune),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFFD6DEE8)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFFD6DEE8)),
-        ),
-      ),
-      items: [
-        const DropdownMenuItem<DocumentFlowStatus?>(
-          value: null,
-          child: Text('Todos los estados'),
-        ),
-        ...DocumentFlowStatus.values.map(
-          (status) => DropdownMenuItem<DocumentFlowStatus?>(
-            value: status,
-            child: Text(status.label),
-          ),
-        ),
-      ],
-      onChanged: onStatusChanged,
-    );
+    final width = MediaQuery.of(context).size.width;
+    final compact = width < 760;
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFDEE5EC)),
       ),
-      child: isDesktop
-          ? Row(
-              children: [
-                Expanded(
-                  flex: 5,
-                  child: TextField(
-                    controller: controller,
-                    decoration: InputDecoration(
-                        hintText: 'Buscar por cliente u orden',
-                      prefixIcon: const Icon(Icons.search),
-                      filled: true,
-                      fillColor: const Color(0xFFF7F9FC),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(flex: 3, child: filterField),
-                const SizedBox(width: 10),
-                OutlinedButton.icon(
-                  onPressed: onClear,
-                  icon: const Icon(Icons.close),
-                  label: const Text('Limpiar'),
-                ),
-              ],
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: controller,
-                        decoration: InputDecoration(
-                          hintText: 'Buscar por cliente u orden',
-                          prefixIcon: const Icon(Icons.search),
-                          suffixIcon: controller.text.trim().isEmpty
-                              ? null
-                              : IconButton(
-                                  onPressed: () => controller.clear(),
-                                  icon: const Icon(Icons.close),
-                                ),
-                          contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                          filled: true,
-                          fillColor: const Color(0xFFF7F9FC),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    _MobileFilterButton(
-                      active: selectedStatus != null,
-                      onTap: onOpenMobileFilter,
-                    ),
-                  ],
-                ),
-                if (selectedStatus != null) ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF7F9FC),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFD6DEE8)),
-                          ),
-                          child: Text(
-                            'Filtro: ${selectedStatus!.label}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF425466),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      TextButton(
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: controller,
+              decoration: InputDecoration(
+                hintText: 'Buscar por cliente u orden',
+                prefixIcon: const Icon(Icons.search, size: 18),
+                suffixIcon: controller.text.trim().isEmpty && !filterActive
+                    ? null
+                    : IconButton(
                         onPressed: onClear,
-                        child: const Text('Limpiar'),
+                        icon: const Icon(Icons.close, size: 18),
+                        tooltip: 'Limpiar búsqueda y filtro',
                       ),
-                    ],
-                  ),
-                ],
-              ],
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                filled: true,
+                fillColor: const Color(0xFFF7F9FC),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
+                hintStyle: const TextStyle(
+                  fontSize: 12.6,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ),
+          ),
+          const SizedBox(width: 8),
+          _MobileFilterButton(
+            active: filterActive,
+            compact: compact,
+            label: compact ? null : filterLabel,
+            onTap: onOpenMobileFilter,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -621,31 +525,60 @@ class _MobileFilterButton extends StatelessWidget {
   const _MobileFilterButton({
     required this.active,
     required this.onTap,
+    this.compact = true,
+    this.label,
   });
 
   final bool active;
   final VoidCallback onTap;
+  final bool compact;
+  final String? label;
 
   @override
   Widget build(BuildContext context) {
     return Material(
       color: active ? const Color(0xFFEAF1FF) : const Color(0xFFF7F9FC),
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(14),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         child: Container(
-          width: 52,
-          height: 52,
+          width: compact ? 46 : null,
+          height: 46,
+          padding: EdgeInsets.symmetric(horizontal: compact ? 0 : 12),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: active ? const Color(0xFF315EFB) : const Color(0xFFD6DEE8),
             ),
           ),
-          child: Icon(
-            Icons.tune,
-            color: active ? const Color(0xFF315EFB) : const Color(0xFF425466),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.tune,
+                size: 16,
+                color: active
+                    ? const Color(0xFF315EFB)
+                    : const Color(0xFF425466),
+              ),
+              if (!compact && label != null) ...[
+                const SizedBox(width: 8),
+                Text(
+                  label!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: active
+                        ? const Color(0xFF315EFB)
+                        : const Color(0xFF425466),
+                    fontSize: 11.8,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
       ),
@@ -654,10 +587,7 @@ class _MobileFilterButton extends StatelessWidget {
 }
 
 class _DocumentFlowSection extends StatelessWidget {
-  const _DocumentFlowSection({
-    required this.status,
-    required this.flows,
-  });
+  const _DocumentFlowSection({required this.status, required this.flows});
 
   final DocumentFlowStatus status;
   final List<OrderDocumentFlowModel> flows;
@@ -676,16 +606,19 @@ class _DocumentFlowSection extends StatelessWidget {
               Container(
                 width: 12,
                 height: 12,
-                decoration: BoxDecoration(color: tone.color, shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                  color: tone.color,
+                  shape: BoxShape.circle,
+                ),
               ),
               const SizedBox(width: 8),
               Text(
                 status.label,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                      color: const Color(0xFF24303F),
-                    ),
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                  color: const Color(0xFF24303F),
+                ),
               ),
               const SizedBox(width: 8),
               Container(
@@ -705,30 +638,15 @@ class _DocumentFlowSection extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final isWideDesktop = constraints.maxWidth >= 1220;
-              final isDesktop = constraints.maxWidth >= 920;
-              final isTablet = constraints.maxWidth >= 620;
-              final spacing = 10.0;
-              final columns = isWideDesktop ? 3 : (isDesktop ? 2 : (isTablet ? 2 : 1));
-              final cardWidth = columns == 1
-                  ? constraints.maxWidth
-                  : (constraints.maxWidth - (spacing * (columns - 1))) / columns;
-
-              return Wrap(
-                spacing: spacing,
-                runSpacing: spacing,
-                children: flows
-                    .map(
-                      (flow) => SizedBox(
-                        width: cardWidth,
-                        child: _DocumentFlowCard(flow: flow),
-                      ),
-                    )
-                    .toList(growable: false),
-              );
-            },
+          Column(
+            children: flows
+                .map(
+                  (flow) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _DocumentFlowCard(flow: flow),
+                  ),
+                )
+                .toList(growable: false),
           ),
         ],
       ),
@@ -744,6 +662,7 @@ class _DocumentFlowCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tone = _statusTone(flow.status);
+    final isCompact = MediaQuery.of(context).size.width < 760;
     final orderCode = flow.order.id.length >= 8
         ? flow.order.id.substring(0, 8).toUpperCase()
         : flow.order.id.toUpperCase();
@@ -752,133 +671,134 @@ class _DocumentFlowCard extends StatelessWidget {
     final warrantyReady = (flow.warrantyFinalUrl ?? '').trim().isNotEmpty;
     final dateFmt = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
     final lastEvent = flow.sentAt ?? flow.updatedAt ?? flow.createdAt;
+    final detailParts = <String>[
+      'Orden $orderCode',
+      flow.order.serviceType,
+      flow.order.category,
+      if (flow.order.client.telefono.trim().isNotEmpty)
+        flow.order.client.telefono.trim(),
+      sent
+          ? 'Enviado'
+          : invoiceReady && warrantyReady
+          ? 'Listo para envío'
+          : 'En proceso',
+      if (lastEvent != null) dateFmt.format(lastEvent),
+    ].where((value) => value.trim().isNotEmpty).toList(growable: false);
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(18),
         onTap: () => context.go(Routes.documentFlowByOrderId(flow.orderId)),
         child: Ink(
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFDDE5ED)),
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(color: const Color(0xFFD8E2EB)),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x120A2430),
-                blurRadius: 12,
-                offset: Offset(0, 5),
+                color: Color(0x0F0A2430),
+                blurRadius: 10,
+                offset: Offset(0, 4),
               ),
             ],
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
             children: [
               Container(
-                height: 4,
+                width: 4,
+                height: isCompact ? 72 : 76,
                 decoration: BoxDecoration(
                   color: tone.color,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                  borderRadius: const BorderRadius.horizontal(
+                    left: Radius.circular(15),
+                  ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                flow.order.client.nombre,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 14.2,
-                                  fontWeight: FontWeight.w800,
-                                  color: Color(0xFF1F2A37),
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    isCompact ? 10 : 12,
+                    isCompact ? 9 : 10,
+                    isCompact ? 10 : 12,
+                    isCompact ? 9 : 10,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    flow.order.client.nombre,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: isCompact ? 13.2 : 13.8,
+                                      fontWeight: FontWeight.w800,
+                                      color: const Color(0xFF1F2A37),
+                                      letterSpacing: -0.1,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Orden $orderCode · ${flow.order.serviceType} · ${flow.order.category}',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 11.2,
-                                  height: 1.2,
-                                  color: Color(0xFF667085),
+                                const SizedBox(width: 8),
+                                _StatusPill(
+                                  label: flow.status.label,
+                                  tone: tone,
                                 ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              detailParts.join('   ·   '),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: isCompact ? 10.5 : 10.9,
+                                height: 1.1,
+                                color: const Color(0xFF667085),
+                                fontWeight: FontWeight.w600,
                               ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        _StatusPill(label: flow.status.label, tone: tone),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        _MiniBadge(
-                          icon: sent ? Icons.mark_email_read_outlined : Icons.schedule_send_outlined,
-                          label: sent ? 'Documentos enviados' : 'Pendiente de envío',
-                          background: sent ? const Color(0xFFE9F8EF) : const Color(0xFFFFF4E5),
-                          foreground: sent ? const Color(0xFF18794E) : const Color(0xFFB26B00),
-                        ),
-                        _MiniBadge(
-                          icon: invoiceReady ? Icons.receipt_long_outlined : Icons.receipt_outlined,
-                          label: invoiceReady ? 'Factura lista' : 'Factura pendiente',
-                          background: invoiceReady ? const Color(0xFFEAF1FF) : const Color(0xFFF4F6F8),
-                          foreground: invoiceReady ? const Color(0xFF315EFB) : const Color(0xFF667085),
-                        ),
-                        _MiniBadge(
-                          icon: warrantyReady ? Icons.verified_outlined : Icons.shield_outlined,
-                          label: warrantyReady ? 'Garantía lista' : 'Garantía pendiente',
-                          background: warrantyReady ? const Color(0xFFE8F7F7) : const Color(0xFFF4F6F8),
-                          foreground: warrantyReady ? const Color(0xFF0F766E) : const Color(0xFF667085),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFE5EAF0)),
-                      ),
-                      child: Column(
-                        children: [
-                          _MetaLine(
-                            label: 'Cliente',
-                            value: flow.order.client.telefono.trim().isEmpty
-                                ? flow.order.client.nombre
-                                : '${flow.order.client.nombre} · ${flow.order.client.telefono}',
-                          ),
-                          const SizedBox(height: 6),
-                          _MetaLine(
-                            label: 'Estado de envío',
-                            value: sent ? 'Enviado al cliente' : 'Aún no enviado',
-                            valueColor: sent ? const Color(0xFF18794E) : const Color(0xFFB26B00),
-                          ),
-                          if (lastEvent != null) ...[
-                            const SizedBox(height: 6),
-                            _MetaLine(
-                              label: sent ? 'Enviado el' : 'Actualizado el',
-                              value: dateFmt.format(lastEvent),
                             ),
                           ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _CompactFlag(
+                            label: 'FAC',
+                            active: invoiceReady,
+                            activeColor: const Color(0xFF315EFB),
+                          ),
+                          const SizedBox(width: 6),
+                          _CompactFlag(
+                            label: 'GAR',
+                            active: warrantyReady,
+                            activeColor: const Color(0xFF0F766E),
+                          ),
+                          const SizedBox(width: 6),
+                          _CompactFlag(
+                            label: 'ENV',
+                            active: sent,
+                            activeColor: const Color(0xFF18794E),
+                          ),
+                          const SizedBox(width: 6),
+                          const Icon(
+                            Icons.chevron_right_rounded,
+                            size: 18,
+                            color: Color(0xFF8A94A6),
+                          ),
                         ],
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -898,7 +818,7 @@ class _StatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: tone.soft,
         borderRadius: BorderRadius.circular(999),
@@ -909,92 +829,48 @@ class _StatusPill extends StatelessWidget {
         style: TextStyle(
           color: tone.color,
           fontWeight: FontWeight.w700,
-          fontSize: 10.8,
+          fontSize: 10.1,
         ),
       ),
     );
   }
 }
 
-class _MiniBadge extends StatelessWidget {
-  const _MiniBadge({
-    required this.icon,
+class _CompactFlag extends StatelessWidget {
+  const _CompactFlag({
     required this.label,
-    required this.background,
-    required this.foreground,
+    required this.active,
+    required this.activeColor,
   });
 
-  final IconData icon;
   final String label;
-  final Color background;
-  final Color foreground;
+  final bool active;
+  final Color activeColor;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
       decoration: BoxDecoration(
-        color: background,
+        color: active
+            ? activeColor.withValues(alpha: 0.12)
+            : const Color(0xFFF4F6F8),
         borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: foreground),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: TextStyle(
-              color: foreground,
-              fontWeight: FontWeight.w700,
-              fontSize: 10.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MetaLine extends StatelessWidget {
-  const _MetaLine({
-    required this.label,
-    required this.value,
-    this.valueColor,
-  });
-
-  final String label;
-  final String value;
-  final Color? valueColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 92,
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF667085),
-            ),
-          ),
+        border: Border.all(
+          color: active
+              ? activeColor.withValues(alpha: 0.26)
+              : const Color(0xFFE2E8F0),
         ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            value,
-            style: TextStyle(
-              fontSize: 11.4,
-              fontWeight: FontWeight.w600,
-              color: valueColor ?? const Color(0xFF24303F),
-            ),
-          ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: active ? activeColor : const Color(0xFF7B8794),
+          fontWeight: FontWeight.w800,
+          fontSize: 9.4,
+          letterSpacing: 0.25,
         ),
-      ],
+      ),
     );
   }
 }
@@ -1044,10 +920,7 @@ class _FeedbackPanel extends StatelessWidget {
               color: Color(0xFF667085),
             ),
           ),
-          if (action != null) ...[
-            const SizedBox(height: 14),
-            action!,
-          ],
+          if (action != null) ...[const SizedBox(height: 14), action!],
         ],
       ),
     );
@@ -1069,7 +942,8 @@ class _AccessDeniedState extends StatelessWidget {
           child: _FeedbackPanel(
             icon: Icons.lock_outline,
             title: 'Acceso restringido',
-            message: 'Esta pantalla solo está disponible para administradores y asistentes.',
+            message:
+                'Esta pantalla solo está disponible para administradores y asistentes.',
             action: ElevatedButton.icon(
               onPressed: onGoHome,
               icon: const Icon(Icons.arrow_back),

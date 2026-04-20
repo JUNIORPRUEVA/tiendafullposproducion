@@ -3,11 +3,13 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:printing/printing.dart';
 
 import '../../core/company/company_settings_model.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../../core/errors/api_exception.dart';
+import '../../core/routing/routes.dart';
 import '../../core/utils/pdf_file_actions.dart';
 import '../../core/utils/safe_url_launcher.dart';
 import '../clientes/cliente_model.dart';
@@ -48,7 +50,6 @@ class _DocumentFlowDetailScreenState
   List<_InvoiceItemEditor> _itemEditors = const [];
   List<_WarrantyItemEditor> _warrantyItemEditors = const [];
   String _warrantyTitle = 'CARTA DE GARANTIA';
-  _DocumentEditorSection _selectedSection = _DocumentEditorSection.warranty;
   bool? _approvalDecision;
 
   @override
@@ -785,85 +786,120 @@ class _DocumentFlowDetailScreenState
     final currency = _currencyController.text.trim().isEmpty
         ? baseCurrency
         : _currencyController.text.trim();
-    final hasGeneratedDocuments =
-        (flow?.invoiceFinalUrl?.trim().isNotEmpty ?? false) ||
-        (flow?.warrantyFinalUrl?.trim().isNotEmpty ?? false);
     final companySettings = ref.watch(companySettingsProvider).valueOrNull;
+    void handleBackTap() {
+      final navigator = Navigator.of(context);
+      if (navigator.canPop()) {
+        navigator.pop();
+        return;
+      }
+      context.go(Routes.documentFlows);
+    }
+
+    final body = _loading
+        ? const Center(child: CircularProgressIndicator())
+        : _error != null
+        ? Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(_error!, textAlign: TextAlign.center),
+            ),
+          )
+        : flow == null
+        ? const Center(child: Text('No hay datos del flujo documental'))
+        : Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1080),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(10, 10, 10, 124),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _SummaryCard(flow: flow),
+                    const SizedBox(height: 12),
+                    _buildApprovalCard(flow),
+                    const SizedBox(height: 12),
+                    _buildInvoiceCard(flow, companySettings),
+                    const SizedBox(height: 12),
+                    _buildWarrantyCard(flow, companySettings),
+                    if (_lastSendPreview != null &&
+                        _lastSendPreview!.trim().isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _SectionCard(
+                        icon: Icons.message_outlined,
+                        title: 'Mensaje enviado',
+                        subtitle: 'Vista previa del texto enviado por WhatsApp',
+                        child: SelectableText(_lastSendPreview!),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          );
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Detalle documental'),
-        actions: [
-          IconButton(
-            onPressed: _loading || _saving ? null : _load,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(_error!, textAlign: TextAlign.center),
-              ),
-            )
-          : flow == null
-          ? const Center(child: Text('No hay datos del flujo documental'))
-          : Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1080),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 124),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _SummaryCard(flow: flow),
-                      const SizedBox(height: 12),
-                      _buildApprovalCard(flow),
-                      const SizedBox(height: 12),
-                      _buildSectionSelector(),
-                      const SizedBox(height: 12),
-                      if (_selectedSection == _DocumentEditorSection.warranty)
-                        _buildWarrantyCard(flow)
-                      else
-                        _buildInvoiceCard(flow, companySettings),
-                      if (hasGeneratedDocuments) ...[
-                        const SizedBox(height: 12),
-                        _buildGeneratedFilesCard(flow, companySettings),
-                      ],
-                      if (_lastSendPreview != null &&
-                          _lastSendPreview!.trim().isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Payload WhatsApp',
-                                  style: Theme.of(context).textTheme.titleSmall,
-                                ),
-                                const SizedBox(height: 8),
-                                SelectableText(_lastSendPreview!),
-                              ],
-                            ),
-                          ),
+      body: Stack(
+        children: [
+          body,
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: Material(
+                  color: Colors.white.withValues(alpha: 0.62),
+                  elevation: 0,
+                  shadowColor: Colors.transparent,
+                  borderRadius: BorderRadius.circular(16),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: const Color(0xFFCAD5E2).withValues(alpha: 0.72),
+                      ),
+                    ),
+                    child: InkWell(
+                      onTap: handleBackTap,
+                      borderRadius: BorderRadius.circular(16),
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
                         ),
-                      ],
-                    ],
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.arrow_back_rounded,
+                              size: 20,
+                              color: Color(0xE024303F),
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Ir atrás',
+                              style: TextStyle(
+                                fontSize: 12.8,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xE024303F),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
             ),
+          ),
+        ],
+      ),
       bottomNavigationBar: flow == null || _loading || _error != null
           ? null
           : _BottomActionBar(
               saving: _saving,
-              selectedSection: _selectedSection,
               currency: currency,
               subtotal: subtotal,
               tax: tax,
@@ -876,98 +912,43 @@ class _DocumentFlowDetailScreenState
   }
 
   Widget _buildApprovalCard(OrderDocumentFlowModel flow) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Aprobación', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Text(
-              'Estado actual: ${flow.status.label}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                ChoiceChip(
-                  label: const Text('Aprobar'),
-                  selected: _approvalDecision == true,
-                  onSelected: (_) {
-                    setState(() {
-                      _approvalDecision = true;
-                    });
-                  },
-                ),
-                ChoiceChip(
-                  label: const Text('No aprobar'),
-                  selected: _approvalDecision == false,
-                  onSelected: (_) {
-                    setState(() {
-                      _approvalDecision = false;
-                    });
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectionSelector() {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Documento activo',
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _SectionOptionCard(
-                    title: 'Carta',
-                    subtitle: 'Garantía',
-                    icon: Icons.verified_user_outlined,
-                    selected:
-                        _selectedSection == _DocumentEditorSection.warranty,
-                    onTap: () {
-                      setState(() {
-                        _selectedSection = _DocumentEditorSection.warranty;
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _SectionOptionCard(
-                    title: 'Factura',
-                    subtitle: 'Comercial',
-                    icon: Icons.receipt_long_outlined,
-                    selected:
-                        _selectedSection == _DocumentEditorSection.invoice,
-                    onTap: () {
-                      setState(() {
-                        _selectedSection = _DocumentEditorSection.invoice;
-                      });
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+    return _SectionCard(
+      icon: Icons.fact_check_outlined,
+      title: 'Aprobación',
+      subtitle: 'Validación interna del flujo documental',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Estado actual: ${flow.status.label}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ChoiceChip(
+                label: const Text('Aprobar'),
+                selected: _approvalDecision == true,
+                onSelected: (_) {
+                  setState(() {
+                    _approvalDecision = true;
+                  });
+                },
+              ),
+              ChoiceChip(
+                label: const Text('No aprobar'),
+                selected: _approvalDecision == false,
+                onSelected: (_) {
+                  setState(() {
+                    _approvalDecision = false;
+                  });
+                },
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -982,358 +963,324 @@ class _DocumentFlowDetailScreenState
         : _draftTax;
     final total = subtotal + tax;
     final scheme = Theme.of(context).colorScheme;
+    final invoiceUrl = flow.invoiceFinalUrl?.trim() ?? '';
 
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Factura', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Text(
-              'Diseño compacto para editar más líneas sin perder visibilidad.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 8),
-            _InvoicePreviewHeader(
-              companySettings: companySettings,
-              flow: flow,
-              currency: _currencyController.text.trim().isEmpty
-                  ? flow.invoiceDraft.currency
-                  : _currencyController.text.trim(),
-            ),
-            const SizedBox(height: 10),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final compact = constraints.maxWidth < 760;
-                if (compact) {
-                  return Column(
-                    children: [
-                      TextField(
-                        controller: _currencyController,
-                        decoration: _compactFieldDecoration(label: 'Moneda'),
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: _taxController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: _compactFieldDecoration(label: 'Impuesto'),
-                      ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: _saving ? null : _editLinkedQuotation,
-                          icon: const Icon(Icons.edit_note_outlined),
-                          label: const Text('Editar cotización vinculada'),
-                        ),
-                      ),
-                    ],
-                  );
-                }
-                return Row(
+    return _SectionCard(
+      icon: Icons.receipt_long_outlined,
+      title: 'Factura',
+      subtitle: 'Datos comerciales y líneas facturables',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _InvoicePreviewHeader(
+            companySettings: companySettings,
+            flow: flow,
+            currency: _currencyController.text.trim().isEmpty
+                ? flow.invoiceDraft.currency
+                : _currencyController.text.trim(),
+          ),
+          const SizedBox(height: 10),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 760;
+              if (compact) {
+                return Column(
                   children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _currencyController,
-                        decoration: _compactFieldDecoration(label: 'Moneda'),
-                      ),
+                    TextField(
+                      controller: _currencyController,
+                      decoration: _compactFieldDecoration(label: 'Moneda'),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: _taxController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: _compactFieldDecoration(label: 'Impuesto'),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _taxController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
                       ),
+                      decoration: _compactFieldDecoration(label: 'Impuesto'),
                     ),
-                    const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                      onPressed: _saving ? null : _editLinkedQuotation,
-                      icon: const Icon(Icons.edit_note_outlined),
-                      label: const Text('Editar cotización'),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _saving ? null : _editLinkedQuotation,
+                        icon: const Icon(Icons.edit_note_outlined),
+                        label: const Text('Editar cotización vinculada'),
+                      ),
                     ),
                   ],
                 );
-              },
-            ),
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: const [
-                  Expanded(flex: 5, child: Text('Descripción')),
-                  SizedBox(
-                    width: 72,
-                    child: Text('Cant.', textAlign: TextAlign.center),
+              }
+              return Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _currencyController,
+                      decoration: _compactFieldDecoration(label: 'Moneda'),
+                    ),
                   ),
-                  SizedBox(
-                    width: 92,
-                    child: Text('Precio', textAlign: TextAlign.center),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _taxController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: _compactFieldDecoration(label: 'Impuesto'),
+                    ),
                   ),
-                  SizedBox(
-                    width: 108,
-                    child: Text('Importe', textAlign: TextAlign.center),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: _saving ? null : _editLinkedQuotation,
+                    icon: const Icon(Icons.edit_note_outlined),
+                    label: const Text('Editar cotización'),
                   ),
-                  SizedBox(width: 36),
                 ],
-              ),
-            ),
-            const SizedBox(height: 6),
-            ..._itemEditors.asMap().entries.map((entry) {
-              final index = entry.key;
-              final editor = entry.value;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _InvoiceItemEditorCard(
-                  editor: editor,
-                  canRemove: _itemEditors.length > 1,
-                  onRemove: () {
-                    setState(() {
-                      final removed = _itemEditors.removeAt(index);
-                      removed.removeListener(_handleDraftValueChanged);
-                      removed.dispose();
-                    });
-                  },
-                ),
               );
-            }),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: () {
+            },
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: const [
+                Expanded(flex: 5, child: Text('Descripción')),
+                SizedBox(
+                  width: 72,
+                  child: Text('Cant.', textAlign: TextAlign.center),
+                ),
+                SizedBox(
+                  width: 92,
+                  child: Text('Precio', textAlign: TextAlign.center),
+                ),
+                SizedBox(
+                  width: 108,
+                  child: Text('Importe', textAlign: TextAlign.center),
+                ),
+                SizedBox(width: 36),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          ..._itemEditors.asMap().entries.map((entry) {
+            final index = entry.key;
+            final editor = entry.value;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _InvoiceItemEditorCard(
+                editor: editor,
+                canRemove: _itemEditors.length > 1,
+                onRemove: () {
                   setState(() {
-                    final newEditor = _InvoiceItemEditor.empty();
-                    newEditor.addListener(_handleDraftValueChanged);
-                    _itemEditors = List<_InvoiceItemEditor>.from(_itemEditors)
-                      ..add(newEditor);
+                    final removed = _itemEditors.removeAt(index);
+                    removed.removeListener(_handleDraftValueChanged);
+                    removed.dispose();
                   });
                 },
-                icon: const Icon(Icons.add),
-                label: const Text('Agregar línea'),
               ),
+            );
+          }),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () {
+                setState(() {
+                  final newEditor = _InvoiceItemEditor.empty();
+                  newEditor.addListener(_handleDraftValueChanged);
+                  _itemEditors = List<_InvoiceItemEditor>.from(_itemEditors)
+                    ..add(newEditor);
+                });
+              },
+              icon: const Icon(Icons.add),
+              label: const Text('Agregar línea'),
             ),
-            const SizedBox(height: 4),
-            TextField(
-              controller: _notesController,
-              maxLines: 3,
-              decoration: _compactFieldDecoration(
-                label: 'Notas',
-                hintText: 'Observaciones internas o detalles para la factura',
-              ),
+          ),
+          const SizedBox(height: 4),
+          TextField(
+            controller: _notesController,
+            maxLines: 3,
+            decoration: _compactFieldDecoration(
+              label: 'Notas',
+              hintText: 'Observaciones internas o detalles para la factura',
             ),
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                color: scheme.surfaceContainerLow,
-              ),
-              child: Text(
-                'Resumen actual: subtotal ${subtotal.toStringAsFixed(2)} • impuesto ${tax.toStringAsFixed(2)} • total ${total.toStringAsFixed(2)}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: scheme.surfaceContainerLow,
             ),
-          ],
-        ),
+            child: Text(
+              'Resumen actual: subtotal ${subtotal.toStringAsFixed(2)} • impuesto ${tax.toStringAsFixed(2)} • total ${total.toStringAsFixed(2)}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _buildGeneratedFileRow(
+            label: 'PDF de factura',
+            rawUrl: invoiceUrl,
+            previewTitle: 'Factura final',
+            onPreview: () =>
+                _openGeneratedInvoicePreview(flow, companySettings),
+            onDownload: () =>
+                _downloadGeneratedInvoicePdf(flow, companySettings),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildWarrantyCard(OrderDocumentFlowModel flow) {
+  Widget _buildWarrantyCard(
+    OrderDocumentFlowModel flow,
+    CompanySettings? companySettings,
+  ) {
     final policyLines = _buildWarrantyPolicyLines(
       _conditionsController.text,
       _exclusionsController.text,
     );
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Carta de garantía',
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Define servicio y tiempos. La tabla inferior indica qué productos o servicios quedan cubiertos y por cuánto tiempo.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _warrantyServiceTypeController,
-                    decoration: _compactFieldDecoration(label: 'Servicio'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _serviceWarrantyDurationController,
-                    decoration: _compactFieldDecoration(
-                      label: 'Tiempo servicio',
-                      hintText: '3 meses',
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _productWarrantyDurationController,
-                    decoration: _compactFieldDecoration(
-                      label: 'Tiempo productos',
-                      hintText: '6 meses',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: InputDecorator(
-                    decoration: _compactFieldDecoration(label: 'Categoría'),
-                    child: Text(flow.order.category),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Productos y tiempo de garantía',
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            const SizedBox(height: 6),
-            ..._warrantyItemEditors.asMap().entries.map((entry) {
-              final index = entry.key;
-              final editor = entry.value;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _WarrantyItemEditorCard(
-                  editor: editor,
-                  canRemove: _warrantyItemEditors.length > 1,
-                  onRemove: () {
-                    setState(() {
-                      final removed = _warrantyItemEditors.removeAt(index);
-                      removed.removeListener(_handleDraftValueChanged);
-                      removed.dispose();
-                    });
-                  },
-                ),
-              );
-            }),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: () {
-                  setState(() {
-                    final duration =
-                        _productWarrantyDurationController.text.trim().isEmpty
-                        ? '6 meses'
-                        : _productWarrantyDurationController.text.trim();
-                    final newEditor = _WarrantyItemEditor.empty(
-                      duration: duration,
-                    );
-                    newEditor.addListener(_handleDraftValueChanged);
-                    _warrantyItemEditors = List<_WarrantyItemEditor>.from(
-                      _warrantyItemEditors,
-                    )..add(newEditor);
-                  });
-                },
-                icon: const Icon(Icons.add),
-                label: const Text('Agregar producto en garantía'),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Resumen de cobertura',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(_coverageController.text.trim()),
-                  const SizedBox(height: 8),
-                  ...policyLines.map(
-                    (line) => Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('• '),
-                          Expanded(child: Text(line)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGeneratedFilesCard(
-    OrderDocumentFlowModel flow,
-    CompanySettings? companySettings,
-  ) {
-    final invoiceUrl = flow.invoiceFinalUrl?.trim() ?? '';
     final warrantyUrl = flow.warrantyFinalUrl?.trim() ?? '';
-    final isInvoiceSelected =
-        _selectedSection == _DocumentEditorSection.invoice;
-    final selectedLabel = isInvoiceSelected ? 'Factura PDF' : 'Carta PDF';
-    final selectedUrl = isInvoiceSelected ? invoiceUrl : warrantyUrl;
-    final selectedPreviewTitle = isInvoiceSelected
-        ? 'Factura final'
-        : 'Carta de garantía';
-    final selectedSubtitle = isInvoiceSelected
-        ? 'Se muestra el PDF de la factura porque esa es la sección seleccionada'
-        : 'Se muestra el PDF de la carta porque esa es la sección seleccionada';
 
     return _SectionCard(
-      icon: Icons.folder_open_outlined,
-      title: 'PDF seleccionado',
-      subtitle: selectedSubtitle,
-      initiallyExpanded: true,
+      icon: Icons.verified_user_outlined,
+      title: 'Carta de garantía',
+      subtitle: 'Cobertura, tiempos y productos incluidos',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _warrantyServiceTypeController,
+                  decoration: _compactFieldDecoration(label: 'Servicio'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _serviceWarrantyDurationController,
+                  decoration: _compactFieldDecoration(
+                    label: 'Tiempo servicio',
+                    hintText: '3 meses',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _productWarrantyDurationController,
+                  decoration: _compactFieldDecoration(
+                    label: 'Tiempo productos',
+                    hintText: '6 meses',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: InputDecorator(
+                  decoration: _compactFieldDecoration(label: 'Categoría'),
+                  child: Text(flow.order.category),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Productos y tiempo de garantía',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 6),
+          ..._warrantyItemEditors.asMap().entries.map((entry) {
+            final index = entry.key;
+            final editor = entry.value;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _WarrantyItemEditorCard(
+                editor: editor,
+                canRemove: _warrantyItemEditors.length > 1,
+                onRemove: () {
+                  setState(() {
+                    final removed = _warrantyItemEditors.removeAt(index);
+                    removed.removeListener(_handleDraftValueChanged);
+                    removed.dispose();
+                  });
+                },
+              ),
+            );
+          }),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () {
+                setState(() {
+                  final duration =
+                      _productWarrantyDurationController.text.trim().isEmpty
+                      ? '6 meses'
+                      : _productWarrantyDurationController.text.trim();
+                  final newEditor = _WarrantyItemEditor.empty(
+                    duration: duration,
+                  );
+                  newEditor.addListener(_handleDraftValueChanged);
+                  _warrantyItemEditors = List<_WarrantyItemEditor>.from(
+                    _warrantyItemEditors,
+                  )..add(newEditor);
+                });
+              },
+              icon: const Icon(Icons.add),
+              label: const Text('Agregar producto en garantía'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Cobertura y condiciones',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 8),
+                Text(_coverageController.text.trim()),
+                const SizedBox(height: 8),
+                ...policyLines.map(
+                  (line) => Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('• '),
+                        Expanded(child: Text(line)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
           _buildGeneratedFileRow(
-            label: selectedLabel,
-            rawUrl: selectedUrl,
-            previewTitle: selectedPreviewTitle,
-            onPreview: isInvoiceSelected
-                ? () => _openGeneratedInvoicePreview(flow, companySettings)
-                : () => _openGeneratedWarrantyPreview(flow, companySettings),
-            onDownload: isInvoiceSelected
-                ? () => _downloadGeneratedInvoicePdf(flow, companySettings)
-                : () => _downloadGeneratedWarrantyPdf(flow, companySettings),
+            label: 'PDF de carta de garantía',
+            rawUrl: warrantyUrl,
+            previewTitle: 'Carta de garantía',
+            onPreview: () =>
+                _openGeneratedWarrantyPreview(flow, companySettings),
+            onDownload: () =>
+                _downloadGeneratedWarrantyPdf(flow, companySettings),
           ),
         ],
       ),
@@ -1400,67 +1347,81 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Text(
-                  flow.order.client.nombre,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                _StatusChip(status: flow.status),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                _SummaryInfoTag(
-                  icon: Icons.tag_outlined,
-                  label: 'Orden',
-                  value: flow.order.id,
-                  color: scheme.surfaceContainerHighest,
-                ),
-                _SummaryInfoTag(
-                  icon: Icons.pending_actions_outlined,
-                  label: 'Flujo',
-                  value: flow.status.label,
-                  color: scheme.surfaceContainerHighest,
-                ),
-                _SummaryInfoTag(
-                  icon: Icons.build_circle_outlined,
-                  label: 'Estado',
-                  value: flow.order.status,
-                  color: scheme.surfaceContainerHighest,
-                ),
-                _SummaryInfoTag(
-                  icon: Icons.phone_outlined,
-                  label: 'Teléfono',
-                  value: flow.order.client.telefono,
-                  color: scheme.surfaceContainerHighest,
-                ),
-              ],
-            ),
-            if ((flow.order.client.direccion ?? '').trim().isNotEmpty) ...[
-              const SizedBox(height: 6),
+    return _SectionCard(
+      icon: Icons.description_outlined,
+      title: 'Resumen general',
+      subtitle: 'Datos principales del cliente y de la orden',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
               Text(
-                'Dirección: ${flow.order.client.direccion}',
-                style: Theme.of(context).textTheme.bodySmall,
+                flow.order.client.nombre,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              _StatusChip(status: flow.status),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _SummaryInfoTag(
+                icon: Icons.tag_outlined,
+                label: 'Orden',
+                value: flow.order.id,
+                color: scheme.surfaceContainerHighest,
+              ),
+              if ((flow.order.quotationId ?? '').trim().isNotEmpty)
+                _SummaryInfoTag(
+                  icon: Icons.request_quote_outlined,
+                  label: 'Cotización',
+                  value: flow.order.quotationId!,
+                  color: scheme.surfaceContainerHighest,
+                ),
+              _SummaryInfoTag(
+                icon: Icons.build_circle_outlined,
+                label: 'Estado técnico',
+                value: flow.order.status,
+                color: scheme.surfaceContainerHighest,
+              ),
+              _SummaryInfoTag(
+                icon: Icons.handyman_outlined,
+                label: 'Servicio',
+                value: flow.order.serviceType,
+                color: scheme.surfaceContainerHighest,
+              ),
+              _SummaryInfoTag(
+                icon: Icons.category_outlined,
+                label: 'Categoría',
+                value: flow.order.category,
+                color: scheme.surfaceContainerHighest,
+              ),
+              _SummaryInfoTag(
+                icon: Icons.phone_outlined,
+                label: 'Teléfono',
+                value: flow.order.client.telefono,
+                color: scheme.surfaceContainerHighest,
               ),
             ],
+          ),
+          if ((flow.order.client.direccion ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text('Dirección', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Text(
+              flow.order.client.direccion!,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -1516,8 +1477,6 @@ class _InvoicePreviewHeader extends StatelessWidget {
                       Text('RNC: ${company.rnc.trim()}'),
                     if (company.phone.trim().isNotEmpty)
                       Text('Tel: ${company.phone.trim()}'),
-                    if (company.address.trim().isNotEmpty)
-                      Text(company.address.trim()),
                   ],
                 ),
               ),
@@ -1527,51 +1486,13 @@ class _InvoicePreviewHeader extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Datos de factura',
+                      'Referencia de factura',
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                     const SizedBox(height: 6),
                     Text('Factura No.: $invoiceNumber'),
-                    Text('Orden: ${flow.order.id}'),
-                    Text('Moneda: $currency'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Divider(color: scheme.outlineVariant),
-          const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Datos del cliente',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(flow.order.client.nombre),
-                    Text(flow.order.client.telefono),
-                    if ((flow.order.client.direccion ?? '').trim().isNotEmpty)
-                      Text(flow.order.client.direccion!.trim()),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Referencia',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 6),
                     Text('Fecha: $dateText'),
+                    Text('Moneda: $currency'),
                     Text(
                       'Cotización: ${(flow.order.quotationId ?? '').trim().isEmpty ? 'No vinculada' : flow.order.quotationId!.substring(0, flow.order.quotationId!.length >= 8 ? 8 : flow.order.quotationId!.length).toUpperCase()}',
                     ),
@@ -1647,85 +1568,58 @@ class _SectionCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.child,
-    this.initiallyExpanded = false,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final Widget child;
-  final bool initiallyExpanded;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          initiallyExpanded: initiallyExpanded,
-          tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-          leading: Icon(icon),
-          title: Text(title, style: Theme.of(context).textTheme.titleSmall),
-          subtitle: Text(subtitle),
-          children: [child],
-        ),
-      ),
-    );
-  }
-}
-
-enum _DocumentEditorSection { warranty, invoice }
-
-class _SectionOptionCard extends StatelessWidget {
-  const _SectionOptionCard({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: selected ? scheme.primaryContainer : scheme.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected ? scheme.primary : scheme.outlineVariant,
-            width: selected ? 1.4 : 1,
-          ),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: Theme.of(context).textTheme.titleSmall),
-                  const SizedBox(height: 2),
-                  Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-                ],
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, size: 20),
               ),
-            ),
-          ],
-        ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
       ),
     );
   }
@@ -1815,7 +1709,6 @@ class _InfoChip extends StatelessWidget {
 class _BottomActionBar extends StatelessWidget {
   const _BottomActionBar({
     required this.saving,
-    required this.selectedSection,
     required this.currency,
     required this.subtotal,
     required this.tax,
@@ -1826,7 +1719,6 @@ class _BottomActionBar extends StatelessWidget {
   });
 
   final bool saving;
-  final _DocumentEditorSection selectedSection;
   final String currency;
   final double subtotal;
   final double tax;
@@ -1851,8 +1743,6 @@ class _BottomActionBar extends StatelessWidget {
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final showTotals =
-                selectedSection == _DocumentEditorSection.invoice;
             final compact = constraints.maxWidth < 980;
             final actions = Wrap(
               spacing: 6,
@@ -1876,24 +1766,20 @@ class _BottomActionBar extends StatelessWidget {
                 ),
               ],
             );
-            final totalsPanel = showTotals
-                ? _FooterTotalsPanel(
-                    currency: currency,
-                    subtotal: subtotal,
-                    tax: tax,
-                    total: total,
-                  )
-                : null;
+            final totalsPanel = _FooterTotalsPanel(
+              currency: currency,
+              subtotal: subtotal,
+              tax: tax,
+              total: total,
+            );
 
-            if (compact || totalsPanel == null) {
+            if (compact) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (totalsPanel != null) ...[
-                    totalsPanel,
-                    const SizedBox(height: 8),
-                  ],
+                  totalsPanel,
+                  const SizedBox(height: 8),
                   Align(alignment: Alignment.centerRight, child: actions),
                 ],
               );

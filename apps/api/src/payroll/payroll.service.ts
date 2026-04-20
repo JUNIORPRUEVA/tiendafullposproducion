@@ -218,6 +218,26 @@ export class PayrollService {
     return this.prisma.payrollEmployee.create({ data: payload });
   }
 
+  async deleteEmployee(ownerId: string, employeeId: string) {
+    const employee = await this.prisma.payrollEmployee.findFirst({
+      where: { ownerId, id: employeeId },
+      select: { id: true, activo: true },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('Empleado de nómina no encontrado');
+    }
+
+    if (!employee.activo) {
+      return;
+    }
+
+    await this.prisma.payrollEmployee.update({
+      where: { id: employeeId },
+      data: { activo: false },
+    });
+  }
+
   async getEmployeeConfig(ownerId: string, periodId: string, employeeId: string) {
     return this.prisma.payrollEmployeeConfig.findFirst({
       where: { ownerId, periodId, employeeId },
