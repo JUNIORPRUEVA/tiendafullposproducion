@@ -170,6 +170,179 @@
 			],
 			"isBackground": true,
 			"group": "build"
+		},
+		{
+			"label": "reword-bad-commit-via-scripts-2",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && set GIT_SEQUENCE_EDITOR=powershell -ExecutionPolicy Bypass -File .git\\reword-sequence.ps1 && set GIT_EDITOR=powershell -ExecutionPolicy Bypass -File .git\\reword-message.ps1 && git rebase -i b28ab73^"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-status-before-reword-retry",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git status --short"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-stash-list-check",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git stash list -3"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "create-clean-worktree-reword",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && if exist ..\\FULLTECH_commitfix rmdir /s /q ..\\FULLTECH_commitfix && git worktree add ..\\FULLTECH_commitfix HEAD"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-worktree-list",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git worktree list"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "create-clean-worktree-reword-2",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && if exist ..\\FULLTECH_commitfix2 rmdir /s /q ..\\FULLTECH_commitfix2 && git worktree add ..\\FULLTECH_commitfix2 HEAD && git worktree list"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "rewrite-manual-commit-direct",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\rewrite_manual_commit.ps1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-log-after-direct-rewrite",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git log --oneline -3"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-push-force-lease-manual-fix",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git push --force-with-lease origin main"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "drop-temp-stash-if-present",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && for /f \"tokens=*\" %i in ('git stash list ^| findstr /c:\"temp-tasks-before-reword\"') do git stash drop stash@{0}"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-final-log-status-manual-fix",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git log --oneline -3 && echo ---STATUS--- && git status --short"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-stash-list-after-force",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git stash list -3"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "drop-temp-stash-clean",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git stash drop stash@{0}"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-final-clean-status-manual-fix",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git log --oneline -3 && echo ---STATUS--- && git status --short && echo ---STASH--- && git stash list -2"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-status-before-final-commit",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git status --short && echo ---BRANCH--- && git branch --show-current"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-diff-tasks-json-only",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git diff -- .vscode/tasks.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-commit-tasks-json",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git add .vscode/tasks.json && git commit -F .git\\COPILOT_COMMIT_MSG_3.txt"
+			],
+			"isBackground": false
 		}
 	]
 }
