@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -23,6 +24,20 @@ import 'nomina_models.dart';
 
 typedef _PayrollPeriodRow = ({PayrollEmployee employee, PayrollTotals totals});
 
+class _PayrollBulkSendProgress {
+  const _PayrollBulkSendProgress({
+    required this.processed,
+    required this.total,
+    required this.currentEmployee,
+  });
+
+  final int processed;
+  final int total;
+  final String currentEmployee;
+
+  double get value => total <= 0 ? 0 : processed / total;
+}
+
 class NominaScreen extends ConsumerStatefulWidget {
   const NominaScreen({super.key});
 
@@ -32,6 +47,7 @@ class NominaScreen extends ConsumerStatefulWidget {
 
 class _NominaScreenState extends ConsumerState<NominaScreen> {
   bool _showEmployeesSection = false;
+  bool _sendingPayrollToAll = false;
 
   Widget _buildDesktopAdminBody(
     BuildContext context,
@@ -90,6 +106,10 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                     onPdf: state.loading
                         ? null
                         : () => _exportOpenPeriodPdf(context, ref, state),
+                    onSendAllPayroll:
+                      state.loading || _sendingPayrollToAll || openPeriod == null
+                      ? null
+                      : () => _sendOpenPeriodPayrollToAll(context, ref, state),
                     onAddEmployee: () => _showEmployeeDialog(context, ref),
                     onClosePeriod: openPeriod == null
                         ? null
@@ -226,6 +246,11 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                         onPdf: state.loading
                             ? null
                             : () => _exportOpenPeriodPdf(context, ref, state),
+                        onSendAllPayroll:
+                          state.loading || _sendingPayrollToAll || openPeriod == null
+                          ? null
+                          : () =>
+                              _sendOpenPeriodPayrollToAll(context, ref, state),
                         onAddEmployee: () => _showEmployeeDialog(context, ref),
                         onClosePeriod: openPeriod == null
                             ? null
@@ -889,6 +914,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     required PayrollPeriod period,
     required PayrollEmployee employee,
     required PayrollTotals totals,
+    bool showSuccessFeedback = true,
   }) async {
     final repo = ref.read(nominaRepositoryProvider);
     final bytes = await _buildEmployeePayrollPdfBytes(
@@ -905,12 +931,160 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
       fileName: _buildEmployeePayrollPdfFileName(employee, period),
     );
 
-    if (!context.mounted) return;
+    if (!showSuccessFeedback || !context.mounted) return;
     await AppFeedback.showInfo(
       context,
       'Nómina enviada por WhatsApp a ${employee.nombre}',
       fallbackContext: context,
       scope: 'NominaSendPayroll',
+    );
+  }
+
+  Future<void> _sendOpenPeriodPayrollToAll(
+    BuildContext context,
+    WidgetRef ref,
+    NominaHomeState state,
+  ) async {
+    final open = state.openPeriod;
+    if (open == null) {
+      await AppFeedback.showError(
+        context,
+        'No hay quincena abierta para enviar.',
+        fallbackContext: context,
+        scope: 'NominaSendPayrollAll',
+      );
+      return;
+    }
+
+    final rows = await _loadOpenPeriodRows(ref, state);
+    if (!context.mounted) return;
+
+    if (rows.isEmpty) {
+      await AppFeedback.showError(
+        context,
+        'No hay empleados activos en nómina para enviar.',
+        fallbackContext: context,
+        scope: 'NominaSendPayrollAll',
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Enviar nómina a todo'),
+        content: Text(
+          'Se enviará la nómina de ${open.title} a ${rows.length} usuario(s) de forma automática por WhatsApp. ¿Deseas continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Enviar a todos'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    setState(() => _sendingPayrollToAll = true);
+
+    final progress = ValueNotifier<_PayrollBulkSendProgress>(
+      _PayrollBulkSendProgress(
+        processed: 0,
+        total: rows.length,
+        currentEmployee: rows.first.employee.nombre,
+      ),
+    );
+    final failures = <String>[];
+
+    unawaited(showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => PopScope(
+          canPop: false,
+          child: ValueListenableBuilder<_PayrollBulkSendProgress>(
+            valueListenable: progress,
+            builder: (dialogContext, value, _) => AlertDialog(
+              title: const Text('Enviando nómina a todos'),
+              content: SizedBox(
+                width: 360,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Procesando: ${value.currentEmployee}'),
+                    const SizedBox(height: 12),
+                    LinearProgressIndicator(value: value.value),
+                    const SizedBox(height: 10),
+                    Text('Enviados: ${value.processed} de ${value.total}'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+    ));
+
+    try {
+      for (final row in rows) {
+        progress.value = _PayrollBulkSendProgress(
+          processed: progress.value.processed,
+          total: progress.value.total,
+          currentEmployee: row.employee.nombre,
+        );
+
+        try {
+          await _sendPayrollToWhatsApp(
+            context,
+            ref,
+            period: open,
+            employee: row.employee,
+            totals: row.totals,
+            showSuccessFeedback: false,
+          );
+        } catch (error) {
+          failures.add('${row.employee.nombre}: $error');
+        } finally {
+          progress.value = _PayrollBulkSendProgress(
+            processed: progress.value.processed + 1,
+            total: progress.value.total,
+            currentEmployee: row.employee.nombre,
+          );
+        }
+      }
+    } finally {
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      progress.dispose();
+      if (mounted) {
+        setState(() => _sendingPayrollToAll = false);
+      }
+    }
+
+    if (!context.mounted) return;
+
+    if (failures.isEmpty) {
+      await AppFeedback.showInfo(
+        context,
+        'Se enviaron ${rows.length} nóminas por WhatsApp correctamente.',
+        fallbackContext: context,
+        scope: 'NominaSendPayrollAll',
+      );
+      return;
+    }
+
+    final successCount = rows.length - failures.length;
+    await AppFeedback.showError(
+      context,
+      'Se enviaron $successCount de ${rows.length} nóminas. Fallaron ${failures.length}: ${failures.join(' | ')}',
+      fallbackContext: context,
+      scope: 'NominaSendPayrollAll',
     );
   }
 
@@ -2202,6 +2376,7 @@ class _NominaPremiumHeroCard extends StatelessWidget {
     required this.onHistory,
     required this.onTotals,
     required this.onPdf,
+    required this.onSendAllPayroll,
     required this.onAddEmployee,
     this.onCreatePeriod,
     this.onClosePeriod,
@@ -2215,6 +2390,7 @@ class _NominaPremiumHeroCard extends StatelessWidget {
   final VoidCallback? onHistory;
   final VoidCallback? onTotals;
   final VoidCallback? onPdf;
+  final VoidCallback? onSendAllPayroll;
   final VoidCallback onAddEmployee;
   final VoidCallback? onCreatePeriod;
   final VoidCallback? onClosePeriod;
@@ -2317,6 +2493,11 @@ class _NominaPremiumHeroCard extends StatelessWidget {
                         label: 'PDF',
                         icon: Icons.picture_as_pdf_outlined,
                         onPressed: onPdf,
+                      ),
+                      _NominaHeroActionButton(
+                        label: 'Enviar a todos',
+                        icon: Icons.mark_chat_unread_outlined,
+                        onPressed: onSendAllPayroll,
                       ),
                       if (onClosePeriod != null)
                         _NominaHeroActionButton(
