@@ -297,7 +297,12 @@ export class PayrollService {
       },
     });
 
-    await this.notifyPayrollEntryIfNeeded(ownerId, entry.id);
+    void this.notifyPayrollEntryIfNeeded(ownerId, entry.id).catch((error) => {
+      this.logger.error(
+        `Payroll entry notification dispatch failed entry=${entry.id} employee=${entry.employeeId}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    });
     return entry;
   }
 

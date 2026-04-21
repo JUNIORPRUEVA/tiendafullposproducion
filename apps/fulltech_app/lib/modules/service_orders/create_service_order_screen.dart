@@ -636,7 +636,7 @@ class _CreateServiceOrderScreenState
       context,
       items: state.quotations,
     );
-    if (!mounted || outcome == null) return;
+    if (!context.mounted || outcome == null) return;
 
     if (outcome.editRequested && outcome.quotation != null) {
       await _editQuotationInline(context, controller, outcome.quotation!);

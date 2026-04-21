@@ -24,6 +24,7 @@ export class EvolutionWhatsAppService {
   constructor(private readonly prisma: PrismaService) {}
 
   private cachedConfig: { value: EvolutionRuntimeConfig; atMs: number } | null = null;
+  private readonly requestTimeoutMs = 8_000;
 
   private normalizeBaseUrl(raw: string) {
     const trimmed = raw.trim();
@@ -151,7 +152,7 @@ export class EvolutionWhatsAppService {
     init: RequestInit,
     label?: string,
   ): Promise<EvolutionAttemptResult> {
-    const res = await fetch(endpoint, init);
+    const res = await this.fetchWithTimeout(endpoint, init, this.requestTimeoutMs);
     const bodyPreview = res.ok ? '' : await this.readResponseBodySafe(res);
     if (res.ok) {
       return { ok: true, status: res.status, bodyPreview };
@@ -162,6 +163,29 @@ export class EvolutionWhatsAppService {
       status: res.status,
       bodyPreview: label ? `${label}${bodyPreview ? ` · ${bodyPreview}` : ''}` : bodyPreview,
     };
+  }
+
+  private async fetchWithTimeout(
+    endpoint: string,
+    init: RequestInit,
+    timeoutMs: number,
+  ) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      return await fetch(endpoint, {
+        ...init,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if ((error as { name?: string })?.name === 'AbortError') {
+        throw new Error(`Evolution API timeout after ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async sendTextMessage(params: { toNumber: string; message: string }) {
@@ -189,14 +213,14 @@ export class EvolutionWhatsAppService {
 
     const endpoint = `${config.baseUrl}/message/sendText/${encodeURIComponent(config.instanceName)}`;
 
-    const res = await fetch(endpoint, {
+    const res = await this.fetchWithTimeout(endpoint, {
       method: 'POST',
       headers: {
         apikey: config.apiKey,
         'content-type': 'application/json',
       },
       body: JSON.stringify({ number, text: message }),
-    });
+    }, this.requestTimeoutMs);
 
     if (res.ok) return;
 
