@@ -329,35 +329,38 @@ export class PayrollService {
       throw new NotFoundException('Quincena no encontrada');
     }
 
-    const phone = this.resolveEmployeePhone(employee);
-    if (!phone) {
-      throw new BadRequestException('El empleado no tiene un teléfono personal válido para WhatsApp');
+    const notificationConfig = await this.getPayrollNotificationConfig();
+    const targets = this.buildPayrollNotificationTargets(employee, notificationConfig.companyPhone);
+    if (targets.length === 0) {
+      throw new BadRequestException('No hay un teléfono válido para enviar la nómina por WhatsApp');
     }
 
     const bytes = this.parsePdfBase64(dto.pdfBase64);
     const fileName = (dto.fileName ?? '').trim() || this.buildPayrollPdfFileName(employee.nombre, period.title);
     const customMessage = (dto.messageText ?? '').trim();
-    const message = customMessage || this.buildPayrollPdfMessage(employee.nombre, period.title);
-
-    await this.evolutionWhatsApp.sendTextMessage({
-      toNumber: phone,
+    const message = customMessage || this.buildPayrollPdfMessage(
+      employee.nombre,
+      period.title,
+      notificationConfig.companyName,
+    );
+    const delivery = await this.sendPayrollWhatsappWithFallback({
+      targets,
+      employeeId: employee.id,
+      periodId: period.id,
       message,
-    });
-    await this.evolutionWhatsApp.sendPdfDocument({
-      toNumber: phone,
       bytes,
       fileName,
       caption: `Nomina correspondiente a ${period.title}.`,
     });
 
-    const normalizedPhone = this.evolutionWhatsApp.normalizeWhatsAppNumber(phone);
     this.logger.log(
-      `Payroll PDF WhatsApp sent employee=${employee.id} period=${period.id} to=${normalizedPhone || phone}`,
+      `Payroll PDF WhatsApp sent employee=${employee.id} period=${period.id} to=${delivery.normalizedPhone || delivery.rawPhone} target=${delivery.label}`,
     );
 
     return {
       ok: true,
-      normalizedPhone,
+      normalizedPhone: delivery.normalizedPhone,
+      target: delivery.label,
       sentAt: new Date().toISOString(),
     };
   }
@@ -1180,10 +1183,11 @@ export class PayrollService {
       return;
     }
 
-    const phone = this.resolveEmployeePhone(entry.employee);
-    if (!phone) {
+    const notificationConfig = await this.getPayrollNotificationConfig();
+    const targets = this.buildPayrollNotificationTargets(entry.employee, notificationConfig.companyPhone);
+    if (targets.length === 0) {
       this.logger.warn(
-        `Payroll entry notification skipped employee=${entry.employeeId} entry=${entry.id} reason=no_phone`,
+        `Payroll entry notification skipped employee=${entry.employeeId} entry=${entry.id} reason=no_target_phone`,
       );
       return;
     }
@@ -1195,16 +1199,18 @@ export class PayrollService {
       concept: entry.concept,
       amount: this.toNumber(entry.amount),
       quantity: this.toNumber(entry.cantidad),
+      companyName: notificationConfig.companyName,
     });
 
     try {
-      await this.evolutionWhatsApp.sendTextMessage({
-        toNumber: phone,
+      const delivery = await this.sendTextPayrollNotificationWithFallback({
+        targets,
+        employeeId: entry.employeeId,
+        entryId: entry.id,
         message,
       });
-      const normalizedPhone = this.evolutionWhatsApp.normalizeWhatsAppNumber(phone);
       this.logger.log(
-        `Payroll entry WhatsApp sent entry=${entry.id} employee=${entry.employeeId} type=${entry.type} to=${normalizedPhone || phone}`,
+        `Payroll entry WhatsApp sent entry=${entry.id} employee=${entry.employeeId} type=${entry.type} to=${delivery.normalizedPhone || delivery.rawPhone} target=${delivery.label}`,
       );
     } catch (error) {
       this.logger.error(
@@ -1222,14 +1228,40 @@ export class PayrollService {
     );
   }
 
-  private resolveEmployeePhone(employee: {
+  private buildPayrollNotificationTargets(employee: {
     telefono?: string | null;
     user?: { telefono?: string | null } | null;
-  }) {
-    const direct = (employee.telefono ?? '').trim();
-    if (direct) return direct;
-    const linked = (employee.user?.telefono ?? '').trim();
-    return linked || '';
+  }, companyPhone?: string | null) {
+    const candidates = [
+      {
+        label: 'employee_personal',
+        phone: (employee.telefono ?? '').trim(),
+      },
+      {
+        label: 'linked_user',
+        phone: (employee.user?.telefono ?? '').trim(),
+      },
+      {
+        label: 'company_config',
+        phone: (companyPhone ?? '').trim(),
+      },
+    ];
+
+    const seen = new Set<string>();
+    const targets: Array<{ label: string; rawPhone: string; normalizedPhone: string }> = [];
+    for (const candidate of candidates) {
+      if (!candidate.phone) continue;
+      const normalizedPhone = this.evolutionWhatsApp.normalizeWhatsAppNumber(candidate.phone);
+      if (!normalizedPhone || seen.has(normalizedPhone)) continue;
+      seen.add(normalizedPhone);
+      targets.push({
+        label: candidate.label,
+        rawPhone: candidate.phone,
+        normalizedPhone,
+      });
+    }
+
+    return targets;
   }
 
   private buildPayrollEntryMessage(params: {
@@ -1239,50 +1271,142 @@ export class PayrollService {
     concept: string;
     amount: number;
     quantity: number;
+    companyName?: string;
   }) {
     const employeeName = params.employeeName.trim() || 'colaborador';
     const concept = params.concept.trim();
     const periodTitle = params.periodTitle.trim();
     const quantity = params.quantity > 0 ? params.quantity : 0;
     const amountLabel = this.formatMoney(Math.abs(params.amount));
+    const companyName = (params.companyName ?? '').trim();
+    const signature = companyName.length > 0 ? `${companyName}
+Administración de nómina` : 'Administración de nómina';
+    const joinLines = (...lines: Array<string | null>) =>
+      lines.filter((line): line is string => Boolean(line && line.trim())).join('\n');
 
     switch (params.type) {
       case PayrollEntryType.ADELANTO:
-        return [
+        return joinLines(
           `Hola ${employeeName},`,
-          `se registró un adelanto en tu nómina por ${amountLabel}.`,
-          if (concept.isNotEmpty) `Concepto: ${concept}.`,
-          if (periodTitle.isNotEmpty) `Quincena: ${periodTitle}.`,
-        ].join('\n');
+          `Te informamos que se registró un adelanto de nómina por ${amountLabel}.`,
+          concept.length > 0 ? `Concepto registrado: ${concept}.` : null,
+          periodTitle.length > 0 ? `Quincena aplicada: ${periodTitle}.` : null,
+          'Si tienes alguna duda, por favor comunícate con administración.',
+          signature,
+        );
       case PayrollEntryType.BONIFICACION:
-        return [
+        return joinLines(
           `Hola ${employeeName},`,
-          `se registró una bonificación en tu nómina por ${amountLabel}.`,
-          if (concept.isNotEmpty) `Concepto: ${concept}.`,
-          if (periodTitle.isNotEmpty) `Quincena: ${periodTitle}.`,
-        ].join('\n');
+          `Te informamos que se registró una bonificación de nómina por ${amountLabel}.`,
+          concept.length > 0 ? `Concepto registrado: ${concept}.` : null,
+          periodTitle.length > 0 ? `Quincena aplicada: ${periodTitle}.` : null,
+          'Si tienes alguna duda, por favor comunícate con administración.',
+          signature,
+        );
       case PayrollEntryType.AUSENCIA:
-        return [
+        return joinLines(
           `Hola ${employeeName},`,
-          `se registró una ausencia en tu nómina${quantity > 0 ? ` (${this.formatQuantity(quantity)}).` : '.'}`,
+          `Te informamos que se registró una ausencia en tu nómina${quantity > 0 ? ` (${this.formatQuantity(quantity)}).` : '.'}`,
           `Monto aplicado: ${amountLabel}.`,
-          if (concept.isNotEmpty) `Concepto: ${concept}.`,
-          if (periodTitle.isNotEmpty) `Quincena: ${periodTitle}.`,
-        ].join('\n');
+          concept.length > 0 ? `Concepto registrado: ${concept}.` : null,
+          periodTitle.length > 0 ? `Quincena aplicada: ${periodTitle}.` : null,
+          'Si tienes alguna duda, por favor comunícate con administración.',
+          signature,
+        );
       default:
         return '';
     }
   }
 
-  private buildPayrollPdfMessage(employeeName: string, periodTitle: string) {
+  private buildPayrollPdfMessage(employeeName: string, periodTitle: string, companyName?: string) {
     const safeName = employeeName.trim() || 'colaborador';
     const safePeriod = periodTitle.trim();
+    const safeCompany = (companyName ?? '').trim();
     return [
       `Hola ${safeName},`,
-      safePeriod.isEmpty
-        ? 'te compartimos tu comprobante de nómina en PDF.'
-        : `te compartimos tu comprobante de nómina correspondiente a ${safePeriod}.`,
-    ].join('\n');
+      safePeriod.length === 0
+        ? 'Adjuntamos tu comprobante formal de nómina en PDF.'
+        : `Adjuntamos tu comprobante formal de nómina correspondiente a ${safePeriod}.`,
+      'Si tienes alguna duda, por favor comunícate con administración.',
+      safeCompany.length > 0 ? safeCompany : null,
+    ].filter((line): line is string => Boolean(line && line.trim())).join('\n');
+  }
+
+  private async getPayrollNotificationConfig() {
+    const config = await this.prisma.appConfig.findUnique({
+      where: { id: 'global' },
+      select: { companyName: true, phone: true },
+    });
+
+    return {
+      companyName: (config?.companyName ?? '').trim(),
+      companyPhone: (config?.phone ?? '').trim(),
+    };
+  }
+
+  private async sendTextPayrollNotificationWithFallback(params: {
+    targets: Array<{ label: string; rawPhone: string; normalizedPhone: string }>;
+    employeeId: string;
+    entryId: string;
+    message: string;
+  }) {
+    let lastError: unknown = null;
+
+    for (const target of params.targets) {
+      try {
+        await this.evolutionWhatsApp.sendTextMessage({
+          toNumber: target.rawPhone,
+          message: params.message,
+        });
+        return target;
+      } catch (error) {
+        lastError = error;
+        this.logger.warn(
+          `Payroll entry WhatsApp target failed entry=${params.entryId} employee=${params.employeeId} target=${target.label} to=${target.normalizedPhone}`,
+        );
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('No se pudo enviar la notificación de nómina por WhatsApp');
+  }
+
+  private async sendPayrollWhatsappWithFallback(params: {
+    targets: Array<{ label: string; rawPhone: string; normalizedPhone: string }>;
+    employeeId: string;
+    periodId: string;
+    message: string;
+    bytes: Uint8Array;
+    fileName: string;
+    caption: string;
+  }) {
+    let lastError: unknown = null;
+
+    for (const target of params.targets) {
+      try {
+        await this.evolutionWhatsApp.sendTextMessage({
+          toNumber: target.rawPhone,
+          message: params.message,
+        });
+        await this.evolutionWhatsApp.sendPdfDocument({
+          toNumber: target.rawPhone,
+          bytes: params.bytes,
+          fileName: params.fileName,
+          caption: params.caption,
+        });
+        return target;
+      } catch (error) {
+        lastError = error;
+        this.logger.warn(
+          `Payroll PDF WhatsApp target failed employee=${params.employeeId} period=${params.periodId} target=${target.label} to=${target.normalizedPhone}`,
+        );
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('No se pudo enviar la nómina por WhatsApp');
   }
 
   private buildPayrollPdfFileName(employeeName: string, periodTitle: string) {
