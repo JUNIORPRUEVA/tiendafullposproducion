@@ -252,10 +252,16 @@ class ServiceOrdersListController
   void replaceOrderStatus({
     required String orderId,
     required ServiceOrderStatus status,
+    DateTime? scheduledFor,
   }) {
     final items = state.items
         .map(
-          (item) => item.id == orderId ? item.copyWith(status: status) : item,
+          (item) => item.id == orderId
+              ? item.copyWith(
+                  status: status,
+                  scheduledFor: scheduledFor ?? item.scheduledFor,
+                )
+              : item,
         )
         .toList(growable: false);
     state = state.copyWith(items: items);

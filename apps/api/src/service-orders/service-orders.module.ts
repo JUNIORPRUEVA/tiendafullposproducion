@@ -6,12 +6,13 @@ import { PayrollModule } from '../payroll/payroll.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ProductsModule } from '../products/products.module';
 import { ServiceOrdersController } from './service-orders.controller';
+import { ServiceOrderPostponedResetScheduler } from './service-order-postponed-reset.scheduler';
 import { ServiceOrdersService } from './service-orders.service';
 
 @Module({
   imports: [PrismaModule, RedisModule, ProductsModule, PayrollModule, NotificationsModule, OrderDocumentFlowModule],
   controllers: [ServiceOrdersController],
-  providers: [ServiceOrdersService],
+  providers: [ServiceOrdersService, ServiceOrderPostponedResetScheduler],
   exports: [ServiceOrdersService],
 })
 export class ServiceOrdersModule {}

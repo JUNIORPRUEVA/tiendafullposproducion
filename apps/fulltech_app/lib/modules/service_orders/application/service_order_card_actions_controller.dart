@@ -43,11 +43,18 @@ class ServiceOrderCardActionsController
     : super(const ServiceOrderCardActionState());
 
   /// Change the order status and return the updated order.
-  Future<ServiceOrderModel> changeStatus(ServiceOrderStatus newStatus) async {
+  Future<ServiceOrderModel> changeStatus(
+    ServiceOrderStatus newStatus, {
+    DateTime? scheduledAt,
+  }) async {
     state = state.copyWith(loading: true, clearError: true);
     try {
       final api = ref.read(serviceOrdersApiProvider);
-      final updated = await api.updateStatus(orderId, newStatus);
+      final updated = await api.updateStatus(
+        orderId,
+        newStatus,
+        scheduledAt: scheduledAt,
+      );
       state = state.copyWith(loading: false);
       return updated;
     } catch (error) {

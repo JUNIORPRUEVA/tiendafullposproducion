@@ -176,11 +176,17 @@ class ServiceOrdersApi {
   Future<ServiceOrderModel> updateStatus(
     String id,
     ServiceOrderStatus status,
+    {
+      DateTime? scheduledAt,
+    }
   ) async {
     try {
       final res = await _dio.patch(
         ApiRoutes.serviceOrderStatus(id),
-        data: {'status': status.apiValue},
+        data: {
+          'status': status.apiValue,
+          if (scheduledAt != null) 'scheduledAt': scheduledAt.toIso8601String(),
+        },
         options: _backgroundOptions,
       );
       return ServiceOrderModel.fromJson(

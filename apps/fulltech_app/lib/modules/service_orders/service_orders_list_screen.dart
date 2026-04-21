@@ -25,6 +25,7 @@ import 'data/service_orders_api.dart';
 import 'service_order_models.dart';
 import 'widgets/client_location_card.dart';
 import 'widgets/service_order_quick_actions_modal.dart';
+import 'widgets/service_order_status_confirmation_dialog.dart';
 
 class ServiceOrdersListScreen extends ConsumerStatefulWidget {
   const ServiceOrdersListScreen({super.key});
@@ -735,27 +736,47 @@ class _ServiceOrdersListScreenState
       return;
     }
 
-    final previousOrder = order;
-    setState(() {
-      _busyOrderIds.add(order.id);
-    });
-    ref
-        .read(serviceOrdersListControllerProvider.notifier)
-        .replaceOrderStatus(orderId: order.id, status: status);
-
     try {
-      final updated = await ref
-          .read(serviceOrdersApiProvider)
-          .updateStatus(order.id, status);
-      ref
-          .read(serviceOrdersListControllerProvider.notifier)
-          .upsertOrder(updated);
-      if (!mounted) return;
+      final didUpdate = await showServiceOrderStatusConfirmationDialog(
+        context: context,
+        status: status,
+        onConfirm: () async {
+          final previousOrder = order;
+          setState(() {
+            _busyOrderIds.add(order.id);
+          });
+          ref
+              .read(serviceOrdersListControllerProvider.notifier)
+              .replaceOrderStatus(orderId: order.id, status: status);
+
+          try {
+            final updated = await ref
+                .read(serviceOrdersApiProvider)
+                .updateStatus(order.id, status);
+            ref
+                .read(serviceOrdersListControllerProvider.notifier)
+                .upsertOrder(updated);
+          } catch (error) {
+            ref
+                .read(serviceOrdersListControllerProvider.notifier)
+                .upsertOrder(previousOrder);
+            rethrow;
+          } finally {
+            if (mounted) {
+              setState(() {
+                _busyOrderIds.remove(order.id);
+              });
+            }
+          }
+        },
+      );
+
+      if (didUpdate != true || !mounted) {
+        return;
+      }
+
       await AppFeedback.showInfo(context, 'Estado actualizado');
     } catch (error) {
-      ref
-          .read(serviceOrdersListControllerProvider.notifier)
-          .upsertOrder(previousOrder);
       if (!mounted) return;
       await AppFeedback.showError(
         context,
@@ -763,12 +784,6 @@ class _ServiceOrdersListScreenState
             ? error.message
             : 'No se pudo actualizar el estado',
       );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _busyOrderIds.remove(order.id);
-        });
-      }
     }
   }
 
@@ -872,6 +887,7 @@ class ServiceOrdersFilter {
       statuses = const <ServiceOrderStatus>{
         ServiceOrderStatus.pendiente,
         ServiceOrderStatus.enProceso,
+        ServiceOrderStatus.pospuesta,
       },
       serviceTypes = const <ServiceOrderType>{},
       creatorIds = const <String>{},
@@ -892,9 +908,10 @@ class ServiceOrdersFilter {
         serviceTypes.isEmpty &&
         creatorIds.isEmpty &&
         technicianIds.isEmpty &&
-        statuses.length == 2 &&
+        statuses.length == 3 &&
         statuses.contains(ServiceOrderStatus.pendiente) &&
-        statuses.contains(ServiceOrderStatus.enProceso);
+        statuses.contains(ServiceOrderStatus.enProceso) &&
+        statuses.contains(ServiceOrderStatus.pospuesta);
   }
 
   ServiceOrdersFilter copyWith({
@@ -3459,8 +3476,8 @@ class _ServiceOrderListCard extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: theme.textTheme.labelSmall?.copyWith(
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.w400,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
                                     color: theme.colorScheme.onSurfaceVariant,
                                     letterSpacing: 0.12,
                                     height: 1,
@@ -4406,8 +4423,8 @@ class _StatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 8 : 10,
-        vertical: compact ? 4 : 6,
+        horizontal: compact ? 9 : 10,
+        vertical: compact ? 5 : 6,
       ),
       decoration: BoxDecoration(
         color: status.color.withValues(alpha: 0.12),
@@ -4428,7 +4445,7 @@ class _StatusBadge extends StatelessWidget {
         style: TextStyle(
           color: status.color,
           fontWeight: FontWeight.w700,
-          fontSize: compact ? 11 : 12,
+          fontSize: compact ? 12 : 12,
         ),
       ),
     );

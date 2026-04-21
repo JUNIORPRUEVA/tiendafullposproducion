@@ -16,7 +16,13 @@ enum ServiceOrderCategory {
 
 enum ServiceOrderType { instalacion, mantenimiento, levantamiento, garantia }
 
-enum ServiceOrderStatus { pendiente, enProceso, finalizado, cancelado }
+enum ServiceOrderStatus {
+  pendiente,
+  enProceso,
+  pospuesta,
+  finalizado,
+  cancelado,
+}
 
 enum ServiceEvidenceType {
   referenciaTexto,
@@ -69,6 +75,8 @@ ServiceOrderStatus serviceOrderStatusFromApi(String value) {
       return ServiceOrderStatus.pendiente;
     case 'en_proceso':
       return ServiceOrderStatus.enProceso;
+    case 'pospuesta':
+      return ServiceOrderStatus.pospuesta;
     case 'finalizado':
       return ServiceOrderStatus.finalizado;
     case 'cancelado':
@@ -174,12 +182,41 @@ extension ServiceOrderTypeX on ServiceOrderType {
 }
 
 extension ServiceOrderStatusX on ServiceOrderStatus {
+  bool get requiresUpdateConfirmation {
+    switch (this) {
+      case ServiceOrderStatus.enProceso:
+      case ServiceOrderStatus.finalizado:
+        return true;
+      case ServiceOrderStatus.pospuesta:
+      case ServiceOrderStatus.pendiente:
+      case ServiceOrderStatus.cancelado:
+        return false;
+    }
+  }
+
+  String get confirmationLabel {
+    switch (this) {
+      case ServiceOrderStatus.enProceso:
+        return 'en proceso';
+      case ServiceOrderStatus.pospuesta:
+        return 'pospuesta';
+      case ServiceOrderStatus.finalizado:
+        return 'finalizado';
+      case ServiceOrderStatus.pendiente:
+        return 'pendiente';
+      case ServiceOrderStatus.cancelado:
+        return 'cancelado';
+    }
+  }
+
   String get apiValue {
     switch (this) {
       case ServiceOrderStatus.pendiente:
         return 'pendiente';
       case ServiceOrderStatus.enProceso:
         return 'en_proceso';
+      case ServiceOrderStatus.pospuesta:
+        return 'pospuesta';
       case ServiceOrderStatus.finalizado:
         return 'finalizado';
       case ServiceOrderStatus.cancelado:
@@ -193,6 +230,8 @@ extension ServiceOrderStatusX on ServiceOrderStatus {
         return 'Pendiente';
       case ServiceOrderStatus.enProceso:
         return 'En proceso';
+      case ServiceOrderStatus.pospuesta:
+        return 'Pospuesta';
       case ServiceOrderStatus.finalizado:
         return 'Finalizado';
       case ServiceOrderStatus.cancelado:
@@ -206,6 +245,8 @@ extension ServiceOrderStatusX on ServiceOrderStatus {
         return const Color(0xFFD98324);
       case ServiceOrderStatus.enProceso:
         return const Color(0xFF1D5D9B);
+      case ServiceOrderStatus.pospuesta:
+        return const Color(0xFF8A6D3B);
       case ServiceOrderStatus.finalizado:
         return const Color(0xFF2E8B57);
       case ServiceOrderStatus.cancelado:
@@ -218,11 +259,18 @@ extension ServiceOrderStatusX on ServiceOrderStatus {
       case ServiceOrderStatus.pendiente:
         return const [
           ServiceOrderStatus.enProceso,
+          ServiceOrderStatus.pospuesta,
           ServiceOrderStatus.cancelado,
         ];
       case ServiceOrderStatus.enProceso:
         return const [
+          ServiceOrderStatus.pospuesta,
           ServiceOrderStatus.finalizado,
+          ServiceOrderStatus.cancelado,
+        ];
+      case ServiceOrderStatus.pospuesta:
+        return const [
+          ServiceOrderStatus.pendiente,
           ServiceOrderStatus.cancelado,
         ];
       case ServiceOrderStatus.finalizado:
@@ -237,6 +285,7 @@ extension ServiceOrderStatusX on ServiceOrderStatus {
     if (this == ServiceOrderStatus.pendiente && canFinalizeDirectly) {
       return const [
         ServiceOrderStatus.enProceso,
+        ServiceOrderStatus.pospuesta,
         ServiceOrderStatus.finalizado,
         ServiceOrderStatus.cancelado,
       ];

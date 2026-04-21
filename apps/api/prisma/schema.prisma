@@ -310,6 +310,7 @@ enum ServiceOrderType {
 enum ServiceOrderStatus {
   PENDIENTE  @map("pendiente")
   EN_PROCESO @map("en_proceso")
+  POSPUESTA  @map("pospuesta")
   FINALIZADO @map("finalizado")
   CANCELADO  @map("cancelado")
 

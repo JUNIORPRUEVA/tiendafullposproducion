@@ -50,6 +50,8 @@ class MediaGalleryItem {
         return 'Pendiente';
       case ServiceOrderStatus.enProceso:
         return 'En proceso';
+      case ServiceOrderStatus.pospuesta:
+        return 'Pospuesta';
       case ServiceOrderStatus.finalizado:
         return 'Finalizado';
       case ServiceOrderStatus.cancelado:

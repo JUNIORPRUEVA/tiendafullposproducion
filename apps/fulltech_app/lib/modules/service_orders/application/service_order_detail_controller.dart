@@ -322,7 +322,10 @@ class ServiceOrderDetailController
     }
   }
 
-  Future<void> updateStatus(ServiceOrderStatus status) async {
+  Future<void> updateStatus(
+    ServiceOrderStatus status, {
+    DateTime? scheduledAt,
+  }) async {
     if (!mounted) return;
     final currentOrder = state.order;
     if (currentOrder == null) return;
@@ -334,12 +337,23 @@ class ServiceOrderDetailController
 
     state = state.copyWith(working: true, clearActionError: true);
     final previousOrder = currentOrder;
-    final optimisticOrder = currentOrder.copyWith(status: status);
+    final optimisticOrder = currentOrder.copyWith(
+      status: status,
+      scheduledFor: scheduledAt ?? currentOrder.scheduledFor,
+    );
     state = state.copyWith(order: optimisticOrder);
-    listController.replaceOrderStatus(orderId: orderId, status: status);
+    listController.replaceOrderStatus(
+      orderId: orderId,
+      status: status,
+      scheduledFor: scheduledAt ?? currentOrder.scheduledFor,
+    );
 
     try {
-      final updated = await api.updateStatus(orderId, status);
+      final updated = await api.updateStatus(
+        orderId,
+        status,
+        scheduledAt: scheduledAt,
+      );
       if (!mounted) return;
       state = state.copyWith(working: false, order: updated);
       listController.upsertOrder(updated);

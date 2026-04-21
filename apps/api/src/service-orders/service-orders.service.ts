@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -398,7 +399,7 @@ export class ServiceOrdersService {
     const technicalNote = this.cleanOptionalText(dto.technicalNote, dto.technical_note);
     const extraRequirements = this.cleanOptionalText(dto.extraRequirements, dto.extra_requirements);
     const scheduledFor = this.hasScheduledForInput(dto)
-      ? this.parseOptionalDate(dto.scheduledFor, dto.scheduled_for, 'scheduled_for')
+      ? this.parseScheduledDateAlias(dto, 'scheduled_for')
       : current.scheduledFor;
     const assignedToId = this.hasAssignedToInput(dto)
       ? await this.resolveAssignedToId(dto.assignedToId, dto.assigned_to)
@@ -406,6 +407,9 @@ export class ServiceOrdersService {
 
     await this.assertClientExists(clientId);
     await this.assertQuotationMatchesClient(quotationId, clientId);
+    if (current.status !== PrismaServiceOrderStatus.FINALIZADO && clientId !== current.clientId) {
+      await this.assertClientHasNoOpenOrder(clientId, current.id);
+    }
 
     try {
       const updated = await this.prisma.serviceOrder.update({
@@ -448,7 +452,13 @@ export class ServiceOrdersService {
 
     const previousStatus = this.toApiStatus(item.status);
     const nextStatus = dto.status as ApiServiceOrderStatus;
-    this.assertCanChangeOrderStatus(user, nextStatus);
+    const nextScheduledFor = this.parseScheduledDateAlias(dto, 'scheduled_at');
+    if (nextStatus === 'pospuesta') {
+      this.assertCanPostponeOrder(user, item);
+      this.assertScheduledDateInFuture(nextScheduledFor, 'scheduled_at');
+    } else {
+      this.assertCanChangeOrderStatus(user, item, nextStatus);
+    }
     if (!this.canFinalizePendingDirectly(user, previousStatus, nextStatus)) {
       this.assertValidStatusTransition(previousStatus, nextStatus);
     }
@@ -463,6 +473,7 @@ export class ServiceOrdersService {
         include: { client: true },
         data: {
           status: SERVICE_ORDER_STATUS_TO_DB[nextStatus],
+          scheduledFor: nextStatus === 'pospuesta' ? nextScheduledFor : item.scheduledFor,
           assignedToId: resolvedAssignedToId,
           finalizedAt: nextStatus === 'finalizado' ? new Date() : item.finalizedAt,
         },
@@ -474,13 +485,58 @@ export class ServiceOrdersService {
       await this.invalidateCachesForOrder(updated.id);
       this.emitOrderEvent('service.status_changed', updated.id, mapped);
       await this.runNotificationHook(`service.status_changed:${updated.id}:${previousStatus}->${nextStatus}`, () =>
-        this.orderNotifications.handleStatusChanged(updated.id, previousStatus, nextStatus),
+        this.orderNotifications.handleStatusChanged(updated.id, previousStatus, nextStatus, user.id),
       );
       await this.runDocumentFlowHook(updated.id, updated.status);
       return mapped;
     } catch (error) {
       this.rethrowWriteError(error);
     }
+  }
+
+  async restoreDuePostponedOrders() {
+    const now = new Date();
+    const dueOrders = await this.prisma.serviceOrder.findMany({
+      where: {
+        status: PrismaServiceOrderStatus.POSPUESTA,
+        scheduledFor: {
+          not: null,
+          lte: now,
+        },
+      },
+      select: { id: true },
+      orderBy: [{ scheduledFor: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    if (!dueOrders.length) {
+      return { processed: 0 };
+    }
+
+    let processed = 0;
+    for (const dueOrder of dueOrders) {
+      try {
+        const updated = await this.prisma.serviceOrder.update({
+          where: { id: dueOrder.id },
+          include: { client: true },
+          data: {
+            status: PrismaServiceOrderStatus.PENDIENTE,
+          },
+        });
+        const mapped = this.mapOrder(updated);
+        await this.invalidateCachesForOrder(updated.id);
+        this.emitOrderEvent('service.status_changed', updated.id, mapped);
+        await this.runNotificationHook(`service.status_changed:${updated.id}:pospuesta->pendiente`, () =>
+          this.orderNotifications.handleStatusChanged(updated.id, 'pospuesta', 'pendiente'),
+        );
+        await this.runDocumentFlowHook(updated.id, updated.status);
+        processed += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Failed to restore postponed service order ${dueOrder.id}: ${message}`);
+      }
+    }
+
+    return { processed };
   }
 
   async confirm(user: AuthUser, id: string) {
@@ -588,6 +644,8 @@ export class ServiceOrdersService {
     const technicalNote = this.cleanOptionalText(dto.technicalNote, dto.technical_note) ?? original.technicalNote;
     const extraRequirements =
       this.cleanOptionalText(dto.extraRequirements, dto.extra_requirements) ?? original.extraRequirements;
+
+    await this.assertClientHasNoOpenOrder(original.clientId);
 
     try {
       const cloned = await this.prisma.serviceOrder.create({
@@ -1044,13 +1102,14 @@ export class ServiceOrdersService {
     const quotationId = this.requireAliasValue(dto.quotationId, dto.quotation_id, 'quotation_id');
     const category = this.requireDirectValue(dto.category, 'category') as ApiServiceOrderCategory;
     const serviceType = this.requireAliasValue(dto.serviceType, dto.service_type, 'service_type') as ApiServiceOrderType;
-    const scheduledFor = this.parseOptionalDate(dto.scheduledFor, dto.scheduled_for, 'scheduled_for');
+    const scheduledFor = this.parseScheduledDateAlias(dto, 'scheduled_for');
     const technicalNote = this.cleanOptionalText(dto.technicalNote, dto.technical_note);
     const extraRequirements = this.cleanOptionalText(dto.extraRequirements, dto.extra_requirements);
     const assignedToId = await this.resolveAssignedToId(dto.assignedToId, dto.assigned_to);
 
     await this.assertClientExists(clientId);
     await this.assertQuotationMatchesClient(quotationId, clientId);
+    await this.assertClientHasNoOpenOrder(clientId);
 
     return {
       clientId,
@@ -1316,7 +1375,9 @@ export class ServiceOrdersService {
 
   private hasScheduledForInput(dto: UpdateServiceOrderDto) {
     return Object.prototype.hasOwnProperty.call(dto, 'scheduledFor') ||
-      Object.prototype.hasOwnProperty.call(dto, 'scheduled_for');
+      Object.prototype.hasOwnProperty.call(dto, 'scheduled_for') ||
+      Object.prototype.hasOwnProperty.call(dto, 'scheduledAt') ||
+      Object.prototype.hasOwnProperty.call(dto, 'scheduled_at');
   }
 
   private assertCanFullyEditOrder(
@@ -1356,8 +1417,14 @@ export class ServiceOrdersService {
 
   private assertCanChangeOrderStatus(
     user: AuthUser,
+    item: { createdById: string },
     nextStatus: ApiServiceOrderStatus,
   ) {
+    if (nextStatus === 'pospuesta') {
+      this.assertCanPostponeOrder(user, item);
+      return;
+    }
+
     if (user.role === Role.ADMIN || user.role === Role.TECNICO) {
       return;
     }
@@ -1367,6 +1434,17 @@ export class ServiceOrdersService {
     throw new ForbiddenException(
       'Solo administradores y técnicos pueden marcar una orden en proceso o finalizada. Para otros roles solo se permite cancelarla.',
     );
+  }
+
+  private assertCanPostponeOrder(
+    user: AuthUser,
+    item: { createdById: string },
+  ) {
+    if (user.role === Role.ADMIN || item.createdById === user.id) {
+      return;
+    }
+
+    throw new ForbiddenException('Solo un administrador o el creador de la orden puede marcarla como pospuesta');
   }
 
   private assertTechnicalOutputAccess(user: AuthUser) {
@@ -1441,8 +1519,13 @@ export class ServiceOrdersService {
       throw new ForbiddenException('Not authorized to modify this order');
     }
 
-    if (dto.scheduledFor !== undefined || dto.scheduled_for !== undefined) {
-      const nextScheduledFor = this.parseOptionalDate(dto.scheduledFor, dto.scheduled_for, 'scheduled_for');
+    if (
+      dto.scheduledFor !== undefined ||
+      dto.scheduled_for !== undefined ||
+      dto.scheduledAt !== undefined ||
+      dto.scheduled_at !== undefined
+    ) {
+      const nextScheduledFor = this.parseScheduledDateAlias(dto, 'scheduled_for');
       const currentIso = current.scheduledFor?.toISOString() ?? null;
       const nextIso = nextScheduledFor?.toISOString() ?? null;
       if (currentIso !== nextIso) {
@@ -1484,6 +1567,34 @@ export class ServiceOrdersService {
     if (quotation.customerId && quotation.customerId !== clientId) {
       throw new BadRequestException('La cotización indicada no pertenece al cliente seleccionado');
     }
+  }
+
+  private async assertClientHasNoOpenOrder(clientId: string, excludeOrderId?: string) {
+    const existingOrder = await this.prisma.serviceOrder.findFirst({
+      where: {
+        clientId,
+        status: {
+          not: PrismaServiceOrderStatus.FINALIZADO,
+        },
+        ...(excludeOrderId ? { id: { not: excludeOrderId } } : {}),
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    if (!existingOrder) {
+      return;
+    }
+
+    const status = SERVICE_ORDER_STATUS_FROM_DB[existingOrder.status];
+    throw new ConflictException(
+      `El cliente ya tiene una orden sin finalizar en estado ${status}. Debes finalizarla antes de crear otra.`,
+    );
   }
 
   private async resolveAssignedToId(value?: string | null, alias?: string | null) {
@@ -1580,6 +1691,27 @@ export class ServiceOrdersService {
     }
 
     return null;
+  }
+
+  private parseScheduledDateAlias(
+    dto: CreateServiceOrderDto | UpdateServiceOrderDto | UpdateStatusDto,
+    fieldName = 'scheduled_at',
+  ) {
+    return this.parseOptionalDate(
+      dto.scheduledAt,
+      dto.scheduled_at ?? dto.scheduledFor ?? dto.scheduled_for,
+      fieldName,
+    );
+  }
+
+  private assertScheduledDateInFuture(value: Date | null, fieldName: string) {
+    if (!value) {
+      throw new BadRequestException(`El campo ${fieldName} es obligatorio cuando el estado es pospuesta`);
+    }
+
+    if (value.getTime() <= Date.now()) {
+      throw new BadRequestException(`El campo ${fieldName} debe ser una fecha futura`);
+    }
   }
 
   private async runNotificationHook(label: string, action: () => Promise<void>) {

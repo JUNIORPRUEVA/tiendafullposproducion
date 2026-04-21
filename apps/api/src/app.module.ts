@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { join } from 'path';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './common/redis/redis.module';
@@ -35,6 +36,7 @@ import { WarrantyConfigsModule } from './warranty-configs/warranty-configs.modul
         join(process.cwd(), '..', '..', '.env'),
       ]
     }),
+    ScheduleModule.forRoot(),
     RedisModule,
     PrismaModule,
     HealthModule,

@@ -443,6 +443,294 @@
 				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git add .vscode/tasks.json && git commit -F .git\\COPILOT_COMMIT_MSG_6.txt && git push origin main"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "git-log-after-final-tasks-push",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git log --oneline -2"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-flutter-current-workspace",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\fulltech_app && flutter --version"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "build-fulltech-windows-release-current",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\fulltech_app && flutter build windows --release"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "repair-fulltech-windows-build-state",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\fulltech_app && flutter clean && flutter pub get"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "build-fulltech-windows-release-current-2",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\fulltech_app && flutter build windows --release"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "build-fulltech-installer-current",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\installer && \"C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe\" setup.iss"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "build-fulltech-apk-current",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\fulltech_app && flutter build apk --release"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "build-fulltech-installer-current-ps",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				"Set-Location 'c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\installer'; & 'C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe' 'setup.iss'"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "rebuild-fulltech-installer-safe",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\installer && call \"%ProgramFiles(x86)%\\Inno Setup 6\\ISCC.exe\" setup.iss && dir output"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "show-installer-output-dir",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\installer && dir output"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "find-iscc-exe",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"where /r \"C:\\Program Files (x86)\" ISCC.exe"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "find-iscc-exe-programfiles",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"where /r \"C:\\Program Files\" ISCC.exe"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "copy-setup-to-installer-root",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\installer && copy /Y output\\setup.exe setup.exe && if exist iscc-compile.log del /q iscc-compile.log && dir"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "find-inno-registry",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\" /s /f \"Inno Setup\""
+			],
+			"isBackground": false
+		},
+		{
+			"label": "find-iscc-common-paths",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"if exist \"C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe\" (echo C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe) else if exist \"C:\\Program Files\\Inno Setup 6\\ISCC.exe\" (echo C:\\Program Files\\Inno Setup 6\\ISCC.exe) else (echo NOT_FOUND)"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "find-inno-registry-ps",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like '*Inno*' } | Select-Object DisplayName,InstallLocation,DisplayIcon | Format-List"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "find-and-build-inno-script",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\installer\\find_and_build_inno.ps1"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "build-installer-with-local-inno",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\installer && \"c:\\Users\\pc\\AppData\\Local\\Programs\\Inno Setup 6\\ISCC.exe\" setup.iss"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "build-installer-via-cmd-file",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\installer\\run_inno_build.cmd"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "inspect-setup-timestamp",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"for %I in (c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\installer\\output\\setup.exe) do @echo FULL=%%~fI && echo SIZE=%%~zI && echo MOD=%%~tI"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "build-installer-via-cmd-file-log",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\installer\\run_inno_build.cmd"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "read-inno-report-unicode",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Get-Content -LiteralPath 'c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\installer\\inno-build-report.txt' -Encoding Unicode | Select-Object -First 220"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "build-inno-smoke-test",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\installer\\run_inno_build.cmd"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "build-inno-fulltech-smoke",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\installer\\run_inno_build.cmd"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "build-inno-fulltech-smoke-ps",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\installer\\run_inno_build.ps1",
+				"smoke_fulltech_files.iss",
+				"inno-fulltech-smoke.log"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "promote-inno-installer-to-setup",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\installer && copy /Y output\\smoke-fulltech-files.exe output\\setup.exe && copy /Y output\\smoke-fulltech-files.exe setup.exe && if exist output\\smoke-setup.exe del /q output\\smoke-setup.exe && dir output && echo ---ROOT--- && dir setup.exe"
+			],
+			"isBackground": false,
+			"group": "build"
 		}
 	]
 }

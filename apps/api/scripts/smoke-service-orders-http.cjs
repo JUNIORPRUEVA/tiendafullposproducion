@@ -217,6 +217,42 @@ async function main() {
   assert(createdOrder.status === 'pendiente', 'POST /service-orders returned wrong status');
   recordPass('POST /service-orders', createdOrder.id);
 
+  const duplicateCreate = await http(
+    'POST',
+    '/service-orders',
+    {
+      client_id: fixture.client.id,
+      quotation_id: fixture.quotation.id,
+      category: 'camara',
+      service_type: 'mantenimiento',
+      status: 'pendiente',
+    },
+    token,
+    409,
+  );
+  assert(
+    String(duplicateCreate.body?.message ?? '').includes('finalizarla antes de crear otra'),
+    'Duplicate open order did not return the expected business message',
+  );
+  recordPass('POST /service-orders duplicate open order blocked', '409 esperado');
+
+  const blockedClone = await http(
+    'POST',
+    `/service-orders/${createdOrder.id}/clone`,
+    {
+      service_type: 'garantia',
+      technical_note: 'Clon HTTP QA bloqueado',
+      assigned_to: fixture.technician.id,
+    },
+    token,
+    409,
+  );
+  assert(
+    String(blockedClone.body?.message ?? '').includes('finalizarla antes de crear otra'),
+    'Clone while an open order exists did not return the expected business message',
+  );
+  recordPass('POST /service-orders/:id/clone blocked while open', '409 esperado');
+
   const listResponse = await http('GET', '/service-orders', undefined, token, 200);
   assert(Array.isArray(listResponse.body?.items), 'GET /service-orders did not return items array');
   assert(listResponse.body.items.some((item) => item.id === createdOrder.id), 'Created order missing from GET /service-orders');

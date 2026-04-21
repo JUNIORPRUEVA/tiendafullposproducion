@@ -52,18 +52,31 @@ type InternalRecipient = {
   numbers: string[];
 };
 
+type InProgressReminderRecipient = {
+  userId: string;
+  name: string;
+  number: string;
+};
+
 @Injectable()
 export class ServiceOrderNotificationsListener {
   private readonly logger = new Logger(ServiceOrderNotificationsListener.name);
   private static readonly SCHEDULED_TECHNICIAN_REMINDER_MINUTES = 20;
   private static readonly PENDING_TECHNICIAN_REMINDER_INTERVAL_MINUTES = 60;
+  private static readonly IN_PROGRESS_REMINDER_INTERVAL_MINUTES = 120;
   private static readonly MAX_TECHNICIAN_REMINDERS_PER_RECIPIENT = 5;
+  private static readonly IN_PROGRESS_REMINDER_KINDS = [
+    'service_order_in_progress_started',
+    'service_order_in_progress_reminder',
+  ] as const;
   private static readonly TECHNICIAN_REMINDER_KINDS = [
     'service_order_thirty_minutes_before',
     'service_order_twenty_minutes_before',
     'service_order_fifteen_minutes_pending',
     'service_order_hourly_pending',
   ] as const;
+  private static readonly IN_PROGRESS_REMINDER_MESSAGE =
+    'Recuerda: tienes una orden en proceso. Finalizala en la app al terminar.';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -128,15 +141,36 @@ export class ServiceOrderNotificationsListener {
     }
   }
 
-  async handleStatusChanged(orderId: string, previousStatus: string, nextStatus: string) {
-    if (nextStatus === 'en_proceso' || nextStatus === 'finalizado' || nextStatus === 'cancelado') {
+  async handleStatusChanged(
+    orderId: string,
+    previousStatus: string,
+    nextStatus: string,
+    actorUserId?: string | null,
+  ) {
+    if (nextStatus !== 'en_proceso') {
+      await this.cancelPendingInProgressReminderOutbox(orderId, `Estado actualizado a ${nextStatus}`);
+    }
+
+    if (
+      nextStatus === 'en_proceso' ||
+      nextStatus === 'finalizado' ||
+      nextStatus === 'cancelado' ||
+      nextStatus === 'pospuesta'
+    ) {
       await this.cancelPendingReminderJobs(orderId, `Estado actualizado a ${nextStatus}`);
       await this.cancelPendingTechnicianReminderJobs(orderId, `Estado actualizado a ${nextStatus}`);
       await this.cancelPendingTechnicianReminderOutbox(orderId, `Estado actualizado a ${nextStatus}`);
     }
 
+    if (previousStatus === 'pospuesta' && nextStatus === 'pendiente') {
+      await this.notifyPostponedOrderReady(orderId);
+      await this.syncPendingTechnicianReminders(orderId);
+      return;
+    }
+
     if (nextStatus === 'en_proceso') {
       await this.notifyServiceStarted(orderId);
+      await this.notifyInProgressActor(orderId, actorUserId);
       return;
     }
 
@@ -146,6 +180,54 @@ export class ServiceOrderNotificationsListener {
     }
 
     this.logger.debug(`No notification flow for service-order status change ${previousStatus} -> ${nextStatus} order=${orderId}`);
+  }
+
+  async processDueInProgressReminders(limit = 25) {
+    const now = new Date();
+    const orders = await this.prisma.serviceOrder.findMany({
+      where: {
+        status: ServiceOrderStatus.EN_PROCESO,
+      },
+      select: {
+        id: true,
+      },
+      orderBy: [{ updatedAt: 'asc' }, { createdAt: 'asc' }],
+      take: limit,
+    });
+
+    let processed = 0;
+
+    for (const order of orders) {
+      const latestReminder = await this.findLatestInProgressReminderEvent(order.id);
+      if (!latestReminder) {
+        continue;
+      }
+
+      const actorUserId = this.extractActorUserId(latestReminder.payload);
+      if (!actorUserId) {
+        continue;
+      }
+
+      const lastAttemptAt = latestReminder.sentAt ?? latestReminder.createdAt;
+      const dueAt = new Date(
+        lastAttemptAt.getTime() +
+          ServiceOrderNotificationsListener.IN_PROGRESS_REMINDER_INTERVAL_MINUTES * 60_000,
+      );
+
+      if (dueAt.getTime() > now.getTime()) {
+        continue;
+      }
+
+      const recipient = await this.resolveInProgressReminderRecipient(actorUserId);
+      if (!recipient) {
+        continue;
+      }
+
+      await this.enqueueInProgressReminder(order.id, recipient, 'service_order_in_progress_reminder', dueAt);
+      processed += 1;
+    }
+
+    return processed;
   }
 
   async dispatchThirtyMinuteReminder(jobId: string) {
@@ -163,7 +245,11 @@ export class ServiceOrderNotificationsListener {
       return;
     }
 
-    if (order.status === ServiceOrderStatus.CANCELADO || order.status === ServiceOrderStatus.FINALIZADO) {
+    if (
+      order.status === ServiceOrderStatus.CANCELADO ||
+      order.status === ServiceOrderStatus.FINALIZADO ||
+      order.status === ServiceOrderStatus.POSPUESTA
+    ) {
       await this.markJobCancelled(job.id, `La orden ya no es notificable (${order.status})`);
       return;
     }
@@ -248,6 +334,7 @@ export class ServiceOrderNotificationsListener {
     if (
       order.status === ServiceOrderStatus.CANCELADO ||
       order.status === ServiceOrderStatus.FINALIZADO ||
+      order.status === ServiceOrderStatus.POSPUESTA ||
       order.technicianConfirmedById
     ) {
       return;
@@ -533,6 +620,25 @@ export class ServiceOrderNotificationsListener {
     }
   }
 
+  private async notifyInProgressActor(orderId: string, actorUserId?: string | null) {
+    if (!actorUserId) {
+      this.logger.warn(`No actor user id found for in-progress reminder order=${orderId}`);
+      return;
+    }
+
+    const recipient = await this.resolveInProgressReminderRecipient(actorUserId);
+    if (!recipient) {
+      return;
+    }
+
+    await this.enqueueInProgressReminder(
+      orderId,
+      recipient,
+      'service_order_in_progress_started',
+      new Date(),
+    );
+  }
+
   private async notifyServiceFinalized(orderId: string) {
     const order = await this.loadContext(orderId);
     const isInvoiceFlow = this.requiresAssistantInvoiceFlow(order.serviceType);
@@ -584,6 +690,38 @@ export class ServiceOrderNotificationsListener {
           kind: 'service_order_finalized_invoice_flow',
           orderId: order.id,
           recipient: recipient,
+        },
+      });
+    }
+  }
+
+  private async notifyPostponedOrderReady(orderId: string) {
+    const order = await this.loadContext(orderId);
+    const recipients = this.collectCreatorRecipients(order);
+    if (!recipients.length) {
+      this.logger.warn(`No creator recipients found for postponed reset order=${order.id}`);
+      return;
+    }
+
+    const scheduleLabel = order.scheduledFor
+      ? order.scheduledFor.toLocaleString('es-DO')
+      : 'Hoy';
+    const message = [
+      'Tienes una orden programada para hoy. Por favor contacta al cliente para el servicio.',
+      `Cliente: ${order.client.nombre}`,
+      `Servicio: ${this.formatServiceLabel(order)}`,
+      `Fecha: ${scheduleLabel}`,
+    ].join('\n');
+
+    for (const recipient of recipients) {
+      await this.notifications.enqueueWhatsAppRawText({
+        toNumber: recipient,
+        messageText: message,
+        dedupeKey: `service-order:postponed-ready:${order.id}:${recipient}:${order.scheduledFor?.toISOString() ?? 'no-date'}`,
+        payload: {
+          kind: 'service_order_postponed_ready',
+          orderId: order.id,
+          recipient,
         },
       });
     }
@@ -686,6 +824,67 @@ export class ServiceOrderNotificationsListener {
     return [...new Set(values)];
   }
 
+  private async resolveInProgressReminderRecipient(actorUserId: string) {
+    const actor = await this.prisma.user.findUnique({
+      where: { id: actorUserId },
+      select: {
+        id: true,
+        nombreCompleto: true,
+        numeroFlota: true,
+        blocked: true,
+      },
+    });
+
+    if (!actor) {
+      this.logger.warn(`Actor user not found for in-progress reminder user=${actorUserId}`);
+      return null;
+    }
+
+    if (actor.blocked) {
+      this.logger.warn(`Blocked actor user skipped for in-progress reminder user=${actorUserId}`);
+      return null;
+    }
+
+    const number = (actor.numeroFlota ?? '').trim();
+    if (!number) {
+      this.logger.warn(`Actor user has no fleet number for in-progress reminder user=${actorUserId}`);
+      return null;
+    }
+
+    return {
+      userId: actor.id,
+      name: actor.nombreCompleto,
+      number,
+    } satisfies InProgressReminderRecipient;
+  }
+
+  private async enqueueInProgressReminder(
+    orderId: string,
+    recipient: InProgressReminderRecipient,
+    kind: (typeof ServiceOrderNotificationsListener.IN_PROGRESS_REMINDER_KINDS)[number],
+    sequenceAt: Date,
+  ) {
+    await this.notifications.enqueueWhatsAppRawText({
+      toNumber: recipient.number,
+      messageText: ServiceOrderNotificationsListener.IN_PROGRESS_REMINDER_MESSAGE,
+      dedupeKey: `service-order:in-progress:${kind}:${orderId}:${recipient.userId}:${sequenceAt.toISOString()}`,
+      payload: {
+        kind,
+        orderId,
+        actorUserId: recipient.userId,
+      },
+    });
+  }
+
+  private extractActorUserId(payload: Prisma.JsonValue | null) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return null;
+    }
+
+    const raw = (payload as Record<string, unknown>).actorUserId;
+    return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
+  }
+
   private extractScheduledFor(payload: Prisma.JsonValue | null) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       return null;
@@ -746,6 +945,53 @@ export class ServiceOrderNotificationsListener {
         lockedAt: null,
         lockedBy: null,
         lastError: reason,
+      },
+    });
+  }
+
+  private async cancelPendingInProgressReminderOutbox(orderId: string, reason: string) {
+    await this.prisma.notificationOutbox.updateMany({
+      where: {
+        status: { in: [NotificationStatus.PENDING, NotificationStatus.SENDING] },
+        payload: {
+          path: ['orderId'],
+          equals: orderId,
+        },
+        OR: ServiceOrderNotificationsListener.IN_PROGRESS_REMINDER_KINDS.map((kind) => ({
+          payload: {
+            path: ['kind'],
+            equals: kind,
+          },
+        })),
+      },
+      data: {
+        status: 'FAILED',
+        lockedAt: null,
+        lockedBy: null,
+        lastError: reason,
+      },
+    });
+  }
+
+  private async findLatestInProgressReminderEvent(orderId: string) {
+    return this.prisma.notificationOutbox.findFirst({
+      where: {
+        payload: {
+          path: ['orderId'],
+          equals: orderId,
+        },
+        OR: ServiceOrderNotificationsListener.IN_PROGRESS_REMINDER_KINDS.map((kind) => ({
+          payload: {
+            path: ['kind'],
+            equals: kind,
+          },
+        })),
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      select: {
+        createdAt: true,
+        sentAt: true,
+        payload: true,
       },
     });
   }

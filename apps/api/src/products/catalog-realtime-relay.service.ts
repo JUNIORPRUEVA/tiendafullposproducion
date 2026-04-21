@@ -4,9 +4,19 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import jwt from 'jsonwebtoken';
 import { Server } from 'socket.io';
-import { io as createClient, Socket as ClientSocket } from 'socket.io-client';
 
 import { normalizeJwtSecret } from '../auth/jwt.util';
+
+type ClientSocket = {
+  on(event: string, listener: (...args: any[]) => void): ClientSocket;
+  connect(): void;
+  disconnect(): void;
+};
+
+const createClient = ((require('socket.io-client') as { io: unknown }).io) as (
+  url: string,
+  options?: Record<string, unknown>,
+) => ClientSocket;
 
 const FULLTECH_ALLOWED_FULLPOS_COMPANY_ID = 2;
 
@@ -42,7 +52,7 @@ export class CatalogRealtimeRelayService implements OnModuleDestroy {
         credentials: true,
       },
       transports: ['websocket', 'polling'],
-    });
+    } as any);
 
     this.io.use((socket, next) => {
       try {

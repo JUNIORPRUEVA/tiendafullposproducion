@@ -9,6 +9,7 @@ import '../../../core/utils/app_feedback.dart';
 import '../../../core/utils/safe_url_launcher.dart';
 import '../service_order_models.dart';
 import '../application/service_order_card_actions_controller.dart';
+import 'service_order_status_confirmation_dialog.dart';
 
 enum _EvidencePickType { image, video }
 
@@ -358,9 +359,17 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     }
 
     try {
-      await ref
-          .read(serviceOrderCardActionsProvider(orderId).notifier)
-          .changeStatus(selected);
+      final didChange = await showServiceOrderStatusConfirmationDialog(
+        context: sheetContext,
+        status: selected,
+        onConfirm: () => ref
+            .read(serviceOrderCardActionsProvider(orderId).notifier)
+            .changeStatus(selected),
+      );
+
+      if (!didChange) {
+        return;
+      }
 
       if (!sheetContext.mounted) return;
       Navigator.pop(sheetContext);

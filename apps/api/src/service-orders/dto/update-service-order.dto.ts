@@ -64,4 +64,12 @@ export class UpdateServiceOrderDto {
   @IsOptional()
   @IsDateString()
   scheduled_for?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  scheduledAt?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  scheduled_at?: string | null;
 }

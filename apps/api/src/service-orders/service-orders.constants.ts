@@ -25,6 +25,7 @@ export const SERVICE_ORDER_TYPE_VALUES = [
 export const SERVICE_ORDER_STATUS_VALUES = [
   'pendiente',
   'en_proceso',
+  'pospuesta',
   'finalizado',
   'cancelado',
 ] as const;
@@ -93,6 +94,7 @@ export const SERVICE_ORDER_TYPE_FROM_DB: Record<ServiceOrderType, ApiServiceOrde
 export const SERVICE_ORDER_STATUS_TO_DB: Record<ApiServiceOrderStatus, ServiceOrderStatus> = {
   pendiente: ServiceOrderStatus.PENDIENTE,
   en_proceso: ServiceOrderStatus.EN_PROCESO,
+  pospuesta: ServiceOrderStatus.POSPUESTA,
   finalizado: ServiceOrderStatus.FINALIZADO,
   cancelado: ServiceOrderStatus.CANCELADO,
 };
@@ -100,6 +102,7 @@ export const SERVICE_ORDER_STATUS_TO_DB: Record<ApiServiceOrderStatus, ServiceOr
 export const SERVICE_ORDER_STATUS_FROM_DB: Record<ServiceOrderStatus, ApiServiceOrderStatus> = {
   [ServiceOrderStatus.PENDIENTE]: 'pendiente',
   [ServiceOrderStatus.EN_PROCESO]: 'en_proceso',
+  [ServiceOrderStatus.POSPUESTA]: 'pospuesta',
   [ServiceOrderStatus.FINALIZADO]: 'finalizado',
   [ServiceOrderStatus.CANCELADO]: 'cancelado',
 };
@@ -138,8 +141,9 @@ export const SERVICE_ORDER_ALLOWED_STATUS_TRANSITIONS: Record<
   ApiServiceOrderStatus,
   ApiServiceOrderStatus[]
 > = {
-  pendiente: ['en_proceso', 'cancelado'],
-  en_proceso: ['finalizado', 'cancelado'],
+  pendiente: ['en_proceso', 'pospuesta', 'cancelado'],
+  en_proceso: ['finalizado', 'pospuesta', 'cancelado'],
+  pospuesta: ['pendiente', 'cancelado'],
   finalizado: [],
   cancelado: [],
 };
