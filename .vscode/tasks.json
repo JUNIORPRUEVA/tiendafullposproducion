@@ -315,17 +315,17 @@
 			"isBackground": false
 		},
 		{
-			"label": "git-status-before-final-commit",
+			"label": "git-status-final-tasks-check",
 			"type": "shell",
 			"command": "cmd",
 			"args": [
 				"/c",
-				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git status --short && echo ---BRANCH--- && git branch --show-current"
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git status --short && git diff --stat -- .vscode/tasks.json"
 			],
 			"isBackground": false
 		},
 		{
-			"label": "git-diff-tasks-json-only",
+			"label": "git-diff-final-tasks-check",
 			"type": "shell",
 			"command": "cmd",
 			"args": [
@@ -335,12 +335,112 @@
 			"isBackground": false
 		},
 		{
-			"label": "git-commit-tasks-json",
+			"label": "analyze-nomina-screen-bulk-send",
 			"type": "shell",
 			"command": "cmd",
 			"args": [
 				"/c",
-				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git add .vscode/tasks.json && git commit -F .git\\COPILOT_COMMIT_MSG_3.txt"
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\fulltech_app && dart analyze lib\\modules\\nomina\\nomina_screen.dart"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "analyze-nomina-screen-bulk-send-2",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\fulltech_app && dart analyze lib\\modules\\nomina\\nomina_screen.dart"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-status-before-nomina-bulk-commit",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git status --short && echo ---BRANCH--- && git branch --show-current && echo ---LAST2--- && git log --oneline -2"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-diff-nomina-and-tasks",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git diff --stat -- apps/fulltech_app/lib/modules/nomina/nomina_screen.dart .vscode/tasks.json && echo ---TASKS--- && git diff -- .vscode/tasks.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-commit-bulk-nomina-send",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git add apps/fulltech_app/lib/modules/nomina/nomina_screen.dart && git commit -F .git\\COPILOT_COMMIT_MSG_5.txt"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "delete-temp-commit-msg-5",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && if exist .git\\COPILOT_COMMIT_MSG_5.txt del /q .git\\COPILOT_COMMIT_MSG_5.txt"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-push-bulk-nomina-send",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git push origin main"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-status-after-bulk-nomina-push",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git status --short && git rev-parse --short HEAD"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-status-before-last-push",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git status --short && echo ---BRANCH--- && git branch --show-current && echo ---LAST2--- && git log --oneline -2"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-log-after-last-push",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git log --oneline -2"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-commit-push-final-tasks",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH && git add .vscode/tasks.json && git commit -F .git\\COPILOT_COMMIT_MSG_6.txt && git push origin main"
 			],
 			"isBackground": false
 		}
