@@ -274,8 +274,9 @@ extension ServiceOrderStatusX on ServiceOrderStatus {
           ServiceOrderStatus.cancelado,
         ];
       case ServiceOrderStatus.finalizado:
-      case ServiceOrderStatus.cancelado:
         return const [];
+      case ServiceOrderStatus.cancelado:
+        return const [ServiceOrderStatus.pospuesta];
     }
   }
 

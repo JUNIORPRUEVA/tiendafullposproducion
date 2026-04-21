@@ -740,19 +740,24 @@ class _ServiceOrdersListScreenState
       final didUpdate = await showServiceOrderStatusConfirmationDialog(
         context: context,
         status: status,
-        onConfirm: () async {
+        initialScheduledAt: order.scheduledFor,
+        onConfirm: (scheduledAt) async {
           final previousOrder = order;
           setState(() {
             _busyOrderIds.add(order.id);
           });
           ref
               .read(serviceOrdersListControllerProvider.notifier)
-              .replaceOrderStatus(orderId: order.id, status: status);
+              .replaceOrderStatus(
+                orderId: order.id,
+                status: status,
+                scheduledFor: scheduledAt ?? order.scheduledFor,
+              );
 
           try {
             final updated = await ref
                 .read(serviceOrdersApiProvider)
-                .updateStatus(order.id, status);
+                .updateStatus(order.id, status, scheduledAt: scheduledAt);
             ref
                 .read(serviceOrdersListControllerProvider.notifier)
                 .upsertOrder(updated);
@@ -887,7 +892,6 @@ class ServiceOrdersFilter {
       statuses = const <ServiceOrderStatus>{
         ServiceOrderStatus.pendiente,
         ServiceOrderStatus.enProceso,
-        ServiceOrderStatus.pospuesta,
       },
       serviceTypes = const <ServiceOrderType>{},
       creatorIds = const <String>{},
@@ -908,10 +912,9 @@ class ServiceOrdersFilter {
         serviceTypes.isEmpty &&
         creatorIds.isEmpty &&
         technicianIds.isEmpty &&
-        statuses.length == 3 &&
+        statuses.length == 2 &&
         statuses.contains(ServiceOrderStatus.pendiente) &&
-        statuses.contains(ServiceOrderStatus.enProceso) &&
-        statuses.contains(ServiceOrderStatus.pospuesta);
+        statuses.contains(ServiceOrderStatus.enProceso);
   }
 
   ServiceOrdersFilter copyWith({

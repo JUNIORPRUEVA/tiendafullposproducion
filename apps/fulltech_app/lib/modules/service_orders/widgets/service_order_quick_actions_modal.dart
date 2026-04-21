@@ -362,9 +362,10 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
       final didChange = await showServiceOrderStatusConfirmationDialog(
         context: sheetContext,
         status: selected,
-        onConfirm: () => ref
+        initialScheduledAt: order.scheduledFor,
+        onConfirm: (scheduledAt) => ref
             .read(serviceOrderCardActionsProvider(orderId).notifier)
-            .changeStatus(selected),
+            .changeStatus(selected, scheduledAt: scheduledAt),
       );
 
       if (!didChange) {

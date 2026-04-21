@@ -49,7 +49,7 @@
 			"command": "cmd",
 			"args": [
 				"/c",
-				"cd /d c:\\Users\\PC\\Desktop\\FULLTECH\\apps\\fulltech_app && dart analyze"
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\fulltech_app && dart analyze"
 			],
 			"isBackground": false
 		},

@@ -145,5 +145,5 @@ export const SERVICE_ORDER_ALLOWED_STATUS_TRANSITIONS: Record<
   en_proceso: ['finalizado', 'pospuesta', 'cancelado'],
   pospuesta: ['pendiente', 'cancelado'],
   finalizado: [],
-  cancelado: [],
+  cancelado: ['pospuesta'],
 };
