@@ -8,7 +8,7 @@ import {
   type ServiceOrderType,
 } from '@prisma/client';
 import PDFDocument from 'pdfkit';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { EvolutionWhatsAppService } from '../notifications/evolution-whatsapp.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -287,6 +287,23 @@ export class OrderDocumentFlowService {
     };
   }
 
+  async remove(user: AuthUser, id: string) {
+    this.assertAssistantOrAdmin(user);
+    const flow = await this.findFlowById(id);
+
+    await this.prisma.orderDocumentFlow.delete({
+      where: { id },
+    });
+
+    this.deleteGeneratedArtifacts(flow.id);
+
+    return {
+      ok: true,
+      id: flow.id,
+      orderId: flow.orderId,
+    };
+  }
+
   async syncFromServiceOrderStatus(orderId: string, status: ServiceOrderStatus) {
     if (status === ServiceOrderStatus.EN_PROCESO) {
       await this.ensureFlowCreatedForOrder(orderId);
@@ -362,6 +379,19 @@ export class OrderDocumentFlowService {
       throw new NotFoundException('Orden de servicio no encontrada');
     }
     return order;
+  }
+
+  private deleteGeneratedArtifacts(flowId: string) {
+    const relativeDir = join('document-flows', flowId).replace(/\\/g, '/');
+    const absoluteDir = this.buildAbsoluteUploadPath(relativeDir);
+
+    try {
+      if (existsSync(absoluteDir)) {
+        rmSync(absoluteDir, { recursive: true, force: true });
+      }
+    } catch (error) {
+      this.logger.warn(`No se pudieron limpiar archivos del flujo documental ${flowId}: ${error}`);
+    }
   }
 
   private assertAssistantOrAdmin(user: AuthUser) {

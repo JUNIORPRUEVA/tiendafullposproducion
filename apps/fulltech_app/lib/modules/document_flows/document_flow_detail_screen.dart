@@ -636,6 +636,63 @@ class _DocumentFlowDetailScreenState
     }
   }
 
+  Future<void> _deleteFlow() async {
+    final flow = _flow;
+    if (flow == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Eliminar flujo documental'),
+        content: Text(
+          'Se eliminará el flujo documental de la orden ${flow.order.id.substring(0, 8)} y sus PDFs generados. Esta acción no elimina la orden ni la cotización. ¿Deseas continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(dialogContext).colorScheme.error,
+              foregroundColor: Theme.of(dialogContext).colorScheme.onError,
+            ),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+    });
+
+    try {
+      await ref.read(documentFlowsRepositoryProvider).deleteFlow(flow.id);
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('Flujo documental eliminado')),
+      );
+      context.go(Routes.documentFlows);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
+    }
+  }
+
   void _applyQuotationToInvoice(CotizacionModel quotation) {
     _disposeEditors();
     _itemEditors = quotation.items
@@ -818,6 +875,8 @@ class _DocumentFlowDetailScreenState
                   children: [
                     _SummaryCard(flow: flow),
                     const SizedBox(height: 12),
+                    _buildManagementCard(flow),
+                    const SizedBox(height: 12),
                     _buildApprovalCard(flow),
                     const SizedBox(height: 12),
                     _buildInvoiceCard(flow, companySettings),
@@ -949,6 +1008,52 @@ class _DocumentFlowDetailScreenState
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildManagementCard(OrderDocumentFlowModel flow) {
+    return _SectionCard(
+      icon: Icons.settings_outlined,
+      title: 'Gestión del flujo',
+      subtitle: 'Acciones administrativas sobre el flujo documental y su cotización vinculada',
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 760;
+          final children = [
+            OutlinedButton.icon(
+              onPressed: _saving ? null : _editLinkedQuotation,
+              icon: const Icon(Icons.edit_note_outlined),
+              label: const Text('Editar cotización vinculada'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _saving ? null : _deleteFlow,
+              icon: const Icon(Icons.delete_outline),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
+              ),
+              label: const Text('Eliminar flujo documental'),
+            ),
+          ];
+
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var index = 0; index < children.length; index++) ...[
+                  children[index],
+                  if (index != children.length - 1) const SizedBox(height: 8),
+                ],
+              ],
+            );
+          }
+
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: children,
+          );
+        },
       ),
     );
   }

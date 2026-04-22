@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Patch, Post, Body, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client';
 import { Request } from 'express';
@@ -52,5 +52,11 @@ export class OrderDocumentFlowController {
     @Body() dto: SendOrderDocumentFlowDto,
   ) {
     return this.documentFlows.send(req.user as JwtUser, id, dto);
+  }
+
+  @Delete(':id')
+  @Roles(Role.ADMIN, Role.ASISTENTE)
+  remove(@Req() req: Request, @Param('id') id: string) {
+    return this.documentFlows.remove(req.user as JwtUser, id);
   }
 }

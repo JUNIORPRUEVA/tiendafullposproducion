@@ -180,6 +180,7 @@ class ApiRoutes {
   static String documentFlowGenerate(String id) =>
       '/document-flows/$id/generate';
   static String documentFlowSend(String id) => '/document-flows/$id/send';
+    static String documentFlowDelete(String id) => '/document-flows/$id';
 
   // Asistente IA (global)
   static const aiChat = '/ai/chat';

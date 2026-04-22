@@ -128,7 +128,12 @@ class ClienteProfileMetrics {
   final num? salesTotal;
   final DateTime? lastSaleAt;
   final int servicesCount;
+  final int serviceOrdersCount;
+  final int legacyServicesCount;
+  final int serviceReferencesCount;
+  final num? legacyServicesTotal;
   final DateTime? lastServiceAt;
+  final DateTime? lastReferenceAt;
   final int cotizacionesCount;
   final num? cotizacionesTotal;
   final DateTime? lastCotizacionAt;
@@ -139,7 +144,12 @@ class ClienteProfileMetrics {
     required this.salesTotal,
     required this.lastSaleAt,
     required this.servicesCount,
+    required this.serviceOrdersCount,
+    required this.legacyServicesCount,
+    required this.serviceReferencesCount,
+    required this.legacyServicesTotal,
     required this.lastServiceAt,
+    required this.lastReferenceAt,
     required this.cotizacionesCount,
     required this.cotizacionesTotal,
     required this.lastCotizacionAt,
@@ -154,8 +164,16 @@ class ClienteProfileMetrics {
           ? DateTime.tryParse(json['lastSaleAt'].toString())
           : null,
       servicesCount: (json['servicesCount'] as num?)?.toInt() ?? 0,
+      serviceOrdersCount: (json['serviceOrdersCount'] as num?)?.toInt() ?? 0,
+      legacyServicesCount: (json['legacyServicesCount'] as num?)?.toInt() ?? 0,
+      serviceReferencesCount:
+          (json['serviceReferencesCount'] as num?)?.toInt() ?? 0,
+      legacyServicesTotal: json['legacyServicesTotal'] as num?,
       lastServiceAt: json['lastServiceAt'] != null
           ? DateTime.tryParse(json['lastServiceAt'].toString())
+          : null,
+      lastReferenceAt: json['lastReferenceAt'] != null
+          ? DateTime.tryParse(json['lastReferenceAt'].toString())
           : null,
       cotizacionesCount: (json['cotizacionesCount'] as num?)?.toInt() ?? 0,
       cotizacionesTotal: json['cotizacionesTotal'] as num?,

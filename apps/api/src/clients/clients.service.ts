@@ -119,6 +119,21 @@ export class ClientsService {
     return Number.isFinite(numeric) ? numeric : null;
   }
 
+  private latestDate(...values: Array<Date | string | null | undefined>) {
+    let latest: Date | null = null;
+
+    for (const value of values) {
+      if (!value) continue;
+      const date = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(date.getTime())) continue;
+      if (!latest || date.getTime() > latest.getTime()) {
+        latest = date;
+      }
+    }
+
+    return latest;
+  }
+
   private normalizeLocationUrl(value: string | null | undefined): string | null {
     const normalized = value?.trim();
     return normalized ? normalized : null;
@@ -492,32 +507,9 @@ export class ClientsService {
   }
 
   async getProfile(user: AuthUser, id: string) {
-    const client = await this.prisma.client.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        nombre: true,
-        telefono: true,
-        phoneNormalized: true,
-        email: true,
-        direccion: true,
-        notas: true,
-        latitude: true,
-        longitude: true,
-        locationUrl: true,
-        ownerId: true,
-        lastActivityAt: true,
-        isDeleted: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    const client = await this.findAccessibleClientOrThrow(user, id);
 
-    if (!client) {
-      throw new NotFoundException('Client not found');
-    }
-
-    const [createdBy, salesAgg, servicesAgg, cotizacionesAgg] = await this.prisma.$transaction([
+    const [createdBy, salesAgg, serviceOrdersAgg, legacyServicesAgg, serviceEvidenceAgg, serviceReportsAgg, cotizacionesAgg] = await this.prisma.$transaction([
       this.prisma.user.findUnique({
         where: { id: client.ownerId },
         select: { id: true, nombreCompleto: true, email: true, role: true },
@@ -531,6 +523,22 @@ export class ClientsService {
       this.prisma.serviceOrder.aggregate({
         where: { clientId: id },
         _count: { _all: true },
+        _max: { createdAt: true, updatedAt: true, finalizedAt: true },
+      }),
+      this.prisma.service.aggregate({
+        where: { customerId: id, isDeleted: false },
+        _count: { _all: true },
+        _sum: { quotedAmount: true },
+        _max: { createdAt: true, updatedAt: true, completedAt: true },
+      }),
+      this.prisma.serviceEvidence.aggregate({
+        where: { serviceOrder: { clientId: id } },
+        _count: { _all: true },
+        _max: { createdAt: true },
+      }),
+      this.prisma.serviceReport.aggregate({
+        where: { serviceOrder: { clientId: id } },
+        _count: { _all: true },
         _max: { createdAt: true },
       }),
       this.prisma.cotizacion.aggregate({
@@ -541,6 +549,29 @@ export class ClientsService {
       }),
     ]);
 
+    const servicesCount = serviceOrdersAgg._count._all + legacyServicesAgg._count._all;
+    const serviceReferencesCount =
+      serviceEvidenceAgg._count._all + serviceReportsAgg._count._all;
+    const lastServiceAt = this.latestDate(
+      serviceOrdersAgg._max.finalizedAt,
+      serviceOrdersAgg._max.updatedAt,
+      serviceOrdersAgg._max.createdAt,
+      legacyServicesAgg._max.completedAt,
+      legacyServicesAgg._max.updatedAt,
+      legacyServicesAgg._max.createdAt,
+    );
+    const lastReferenceAt = this.latestDate(
+      serviceEvidenceAgg._max.createdAt,
+      serviceReportsAgg._max.createdAt,
+    );
+    const lastActivityAt = this.latestDate(
+      client.lastActivityAt,
+      salesAgg._max.saleDate,
+      lastServiceAt,
+      lastReferenceAt,
+      cotizacionesAgg._max.updatedAt,
+    );
+
     return {
       client: this.serializeClient(client),
       createdBy,
@@ -548,12 +579,17 @@ export class ClientsService {
         salesCount: salesAgg._count._all,
         salesTotal: salesAgg._sum.totalSold,
         lastSaleAt: salesAgg._max.saleDate,
-        servicesCount: servicesAgg._count._all,
-        lastServiceAt: servicesAgg._max.createdAt,
+        servicesCount,
+        serviceOrdersCount: serviceOrdersAgg._count._all,
+        legacyServicesCount: legacyServicesAgg._count._all,
+        serviceReferencesCount,
+        legacyServicesTotal: legacyServicesAgg._sum.quotedAmount,
+        lastServiceAt,
+        lastReferenceAt,
         cotizacionesCount: cotizacionesAgg._count._all,
         cotizacionesTotal: cotizacionesAgg._sum.total,
         lastCotizacionAt: cotizacionesAgg._max.updatedAt,
-        lastActivityAt: client.lastActivityAt,
+        lastActivityAt,
       },
     };
   }
@@ -563,7 +599,7 @@ export class ClientsService {
     id: string,
     options: { take?: number; before?: string; types?: string },
   ) {
-    await this.findClientOrThrow(id);
+    await this.findAccessibleClientOrThrow(user, id);
 
     const take = Math.min(Math.max(options.take ?? 100, 1), 300);
     const before = options.before ? new Date(options.before) : new Date();
@@ -645,24 +681,125 @@ export class ClientsService {
         SELECT
           'service'::text AS "eventType",
           s.id::text AS "eventId",
-          s."created_at" AS "at",
+          COALESCE(s."finalized_at", s."updated_at", s."created_at") AS "at",
           'Orden de servicio'::text AS title,
           q.total AS amount,
           s.status::text AS status,
           u.id::text AS "userId",
           u."nombreCompleto"::text AS "userName",
           jsonb_build_object(
+            'source', 'service_order',
+            'serviceOrderId', s.id,
             'quotationId', s."quotation_id",
             'category', s.category::text,
             'serviceType', s."service_type"::text,
             'scheduledFor', s."scheduled_for",
-            'finalizedAt', s."finalized_at"
+            'finalizedAt', s."finalized_at",
+            'technicalNote', s."technical_note",
+            'extraRequirements', s."extra_requirements",
+            'assignedToName', a."nombreCompleto"
           ) AS meta
         FROM service_orders s
               JOIN "users" u ON u.id = s."created_by"
+              LEFT JOIN "users" a ON a.id = s."assigned_to"
               JOIN "Cotizacion" q ON q.id = s."quotation_id"
         WHERE s."client_id" = ${id}::uuid
           AND s."created_at" < ${before}
+
+        UNION ALL
+
+        SELECT
+          'service'::text AS "eventType",
+          e.id::text AS "eventId",
+          e."created_at" AS "at",
+          CASE
+            WHEN e.type::text LIKE 'referencia_%' THEN 'Referencia de servicio'
+            ELSE 'Evidencia de servicio'
+          END::text AS title,
+          NULL::numeric AS amount,
+          so.status::text AS status,
+          u.id::text AS "userId",
+          u."nombreCompleto"::text AS "userName",
+          jsonb_build_object(
+            'source', 'service_evidence',
+            'serviceOrderId', so.id,
+            'quotationId', so."quotation_id",
+            'category', so.category::text,
+            'serviceType', so."service_type"::text,
+            'evidenceType', e.type::text,
+            'contentPreview', NULLIF(LEFT(TRIM(COALESCE(e.content, '')), 180), ''),
+            'assignedToName', a."nombreCompleto"
+          ) AS meta
+        FROM service_evidences e
+              JOIN service_orders so ON so.id = e."service_order_id"
+              JOIN "users" u ON u.id = e."created_by"
+              LEFT JOIN "users" a ON a.id = so."assigned_to"
+        WHERE so."client_id" = ${id}::uuid
+          AND e."created_at" < ${before}
+
+        UNION ALL
+
+        SELECT
+          'service'::text AS "eventType",
+          r.id::text AS "eventId",
+          r."created_at" AS "at",
+          CASE
+            WHEN r.type = 'servicio_finalizado' THEN 'Reporte de cierre'
+            WHEN r.type = 'requerimiento_cliente' THEN 'Requerimiento del cliente'
+            ELSE 'Reporte de servicio'
+          END::text AS title,
+          NULL::numeric AS amount,
+          so.status::text AS status,
+          u.id::text AS "userId",
+          u."nombreCompleto"::text AS "userName",
+          jsonb_build_object(
+            'source', 'service_report',
+            'serviceOrderId', so.id,
+            'quotationId', so."quotation_id",
+            'category', so.category::text,
+            'serviceType', so."service_type"::text,
+            'reportType', r.type::text,
+            'contentPreview', NULLIF(LEFT(TRIM(COALESCE(r.report, '')), 180), ''),
+            'assignedToName', a."nombreCompleto"
+          ) AS meta
+        FROM service_reports r
+              JOIN service_orders so ON so.id = r."service_order_id"
+              JOIN "users" u ON u.id = r."created_by"
+              LEFT JOIN "users" a ON a.id = so."assigned_to"
+        WHERE so."client_id" = ${id}::uuid
+          AND r."created_at" < ${before}
+
+        UNION ALL
+
+        SELECT
+          'service'::text AS "eventType",
+          s.id::text AS "eventId",
+          COALESCE(s."completedAt", s."updatedAt", s."createdAt") AS "at",
+          CASE
+            WHEN s."completedAt" IS NOT NULL THEN 'Servicio completado'
+            ELSE 'Servicio registrado'
+          END::text AS title,
+          s."quotedAmount" AS amount,
+          s.status::text AS status,
+          u.id::text AS "userId",
+          u."nombreCompleto"::text AS "userName",
+          jsonb_build_object(
+            'source', 'legacy_service',
+            'serviceType', s."serviceType"::text,
+            'category', s.category,
+            'currentPhase', s."currentPhase"::text,
+            'paymentStatus', s."paymentStatus",
+            'orderNumber', s."orderNumber",
+            'titleSnapshot', s.title,
+            'contentPreview', NULLIF(LEFT(TRIM(COALESCE(s.description, '')), 180), ''),
+            'technicianName', t."nombreCompleto"
+          ) AS meta
+        FROM "Service" s
+              JOIN "users" u ON u.id = s."createdByUserId"
+              LEFT JOIN "users" t ON t.id = s."technicianId"
+        WHERE s."customerId" = ${id}::uuid
+          AND s."isDeleted" = false
+          AND s."createdAt" < ${before}
 
       ) t
       WHERE (cardinality(${types}::text[]) = 0 OR t."eventType" = ANY(${types}::text[]))

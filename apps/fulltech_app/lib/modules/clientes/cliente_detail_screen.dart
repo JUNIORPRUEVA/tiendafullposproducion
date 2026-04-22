@@ -216,6 +216,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
     final clienteId = widget.clienteId.trim();
     final clienteNombre = (_cliente?.nombre ?? _profile?.client.nombre ?? '')
         .trim();
+    final source = (event.meta['source'] ?? '').toString().trim();
     if (event.eventType == 'cotizacion' && event.eventId.trim().isNotEmpty) {
       context.go(
         '${Routes.cotizaciones}?quotationId=${Uri.encodeQueryComponent(event.eventId)}',
@@ -239,8 +240,30 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
       return;
     }
     if (event.eventType == 'service' && event.eventId.trim().isNotEmpty) {
-      context.go(Routes.serviceOrderById(event.eventId));
+      if (source == 'legacy_service') {
+        return;
+      }
+      final serviceOrderId = (event.meta['serviceOrderId'] ?? event.eventId)
+          .toString()
+          .trim();
+      if (serviceOrderId.isNotEmpty) {
+        context.go(Routes.serviceOrderById(serviceOrderId));
+      }
     }
+  }
+
+  bool _canOpenEvent(ClienteTimelineEvent event) {
+    if (event.eventType == 'sale') return true;
+    if (event.eventType == 'cotizacion') return event.eventId.trim().isNotEmpty;
+    if (event.eventType != 'service') return false;
+
+    final source = (event.meta['source'] ?? '').toString().trim();
+    if (source == 'legacy_service') return false;
+
+    final serviceOrderId = (event.meta['serviceOrderId'] ?? event.eventId)
+        .toString()
+        .trim();
+    return serviceOrderId.isNotEmpty;
   }
 
   bool _hasText(String? value) => value != null && value.trim().isNotEmpty;
@@ -252,7 +275,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
       case 'cotizacion':
         return 'Cotizaciones';
       case 'service':
-        return 'Ordenes de servicio';
+        return 'Servicios y referencias';
       default:
         return 'Otros procesos';
     }
@@ -273,12 +296,79 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
 
   String _timelineSummary(ClienteTimelineEvent event) {
     final parts = <String>[];
+    final source = (event.meta['source'] ?? '').toString().trim();
     final category = (event.meta['category'] ?? '').toString().trim();
     final orderNumber = (event.meta['orderNumber'] ?? '').toString().trim();
     final phase = (event.meta['currentPhase'] ?? '').toString().trim();
     final serviceType = (event.meta['serviceType'] ?? '').toString().trim();
     final note = (event.meta['note'] ?? '').toString().trim();
     final userName = (event.userName ?? '').trim();
+    final assignedToName = (event.meta['assignedToName'] ?? '')
+        .toString()
+        .trim();
+    final technicianName = (event.meta['technicianName'] ?? '')
+        .toString()
+        .trim();
+    final contentPreview = (event.meta['contentPreview'] ?? '')
+        .toString()
+        .trim();
+    final technicalNote = (event.meta['technicalNote'] ?? '').toString().trim();
+    final extraRequirements = (event.meta['extraRequirements'] ?? '')
+        .toString()
+        .trim();
+    final titleSnapshot = (event.meta['titleSnapshot'] ?? '').toString().trim();
+    final evidenceType = _humanizeCode(
+      (event.meta['evidenceType'] ?? '').toString(),
+    );
+    final reportType = _humanizeCode(
+      (event.meta['reportType'] ?? '').toString(),
+    );
+    final paymentStatus = _humanizeCode(
+      (event.meta['paymentStatus'] ?? '').toString(),
+    );
+
+    if (source == 'service_order') {
+      if (serviceType.isNotEmpty) parts.add(_humanizeCode(serviceType));
+      if (category.isNotEmpty) parts.add(category);
+      if (assignedToName.isNotEmpty) parts.add('Asignado a $assignedToName');
+      if (technicalNote.isNotEmpty) parts.add(technicalNote);
+      if (extraRequirements.isNotEmpty) parts.add(extraRequirements);
+      if (userName.isNotEmpty) parts.add('Creado por $userName');
+      return parts.join(' • ');
+    }
+
+    if (source == 'service_evidence') {
+      if (evidenceType.isNotEmpty) parts.add(evidenceType);
+      if (serviceType.isNotEmpty) parts.add(_humanizeCode(serviceType));
+      if (category.isNotEmpty) parts.add(category);
+      if (contentPreview.isNotEmpty) parts.add(contentPreview);
+      if (assignedToName.isNotEmpty) parts.add('Tecnico $assignedToName');
+      if (userName.isNotEmpty) parts.add('Registrado por $userName');
+      return parts.join(' • ');
+    }
+
+    if (source == 'service_report') {
+      if (reportType.isNotEmpty) parts.add(reportType);
+      if (serviceType.isNotEmpty) parts.add(_humanizeCode(serviceType));
+      if (category.isNotEmpty) parts.add(category);
+      if (contentPreview.isNotEmpty) parts.add(contentPreview);
+      if (assignedToName.isNotEmpty) parts.add('Tecnico $assignedToName');
+      if (userName.isNotEmpty) parts.add('Registrado por $userName');
+      return parts.join(' • ');
+    }
+
+    if (source == 'legacy_service') {
+      if (orderNumber.isNotEmpty) parts.add('Orden $orderNumber');
+      if (titleSnapshot.isNotEmpty) parts.add(titleSnapshot);
+      if (serviceType.isNotEmpty) parts.add(_humanizeCode(serviceType));
+      if (category.isNotEmpty) parts.add(category);
+      if (phase.isNotEmpty) parts.add(_humanizeCode(phase));
+      if (paymentStatus.isNotEmpty) parts.add('Pago $paymentStatus');
+      if (contentPreview.isNotEmpty) parts.add(contentPreview);
+      if (technicianName.isNotEmpty) parts.add('Tecnico $technicianName');
+      if (userName.isNotEmpty) parts.add('Creado por $userName');
+      return parts.join(' • ');
+    }
 
     if (orderNumber.isNotEmpty) parts.add('Orden $orderNumber');
     if (serviceType.isNotEmpty) parts.add(serviceType.replaceAll('_', ' '));
@@ -292,25 +382,38 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
 
   String _timelineStatusLabel(ClienteTimelineEvent event) {
     final raw = (event.status ?? '').trim().toLowerCase();
+    final source = (event.meta['source'] ?? '').toString().trim();
     if (raw.isEmpty) {
+      if (source == 'service_evidence' || source == 'service_report') {
+        return 'Registrado';
+      }
       return event.eventType == 'sale' ? 'Finalizado' : 'Pendiente';
     }
 
     switch (raw) {
       case 'finalized':
       case 'finalizado':
+      case 'completed':
         return 'Finalizado';
       case 'cancelled':
       case 'cancelado':
         return 'Cancelado';
+      case 'in_process':
       case 'en_proceso':
       case 'en proceso':
       case 'in_progress':
       case 'in progress':
-      case 'pending':
-      case 'pendiente':
+        return 'En proceso';
+      case 'reserved':
+      case 'reserva':
+        return 'Reservado';
+      case 'pospuesta':
+      case 'postponed':
+        return 'Pospuesta';
       default:
-        return 'Pendiente';
+        return raw == 'pending' || raw == 'pendiente'
+            ? 'Pendiente'
+            : _humanizeCode(raw);
     }
   }
 
@@ -321,10 +424,61 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
         return const Color(0xFF2E8B57);
       case 'Cancelado':
         return Theme.of(context).colorScheme.error;
+      case 'Registrado':
+        return const Color(0xFF2B6CB0);
+      case 'En proceso':
+        return const Color(0xFFD98324);
+      case 'Reservado':
+        return const Color(0xFF8C6A03);
+      case 'Pospuesta':
+        return const Color(0xFFA05A2C);
       case 'Pendiente':
       default:
         return const Color(0xFFD98324);
     }
+  }
+
+  String _humanizeCode(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) return '';
+
+    return normalized
+        .replaceAll('-', '_')
+        .split('_')
+        .where((part) => part.trim().isNotEmpty)
+        .map((part) {
+          final lower = part.toLowerCase();
+          return '${lower[0].toUpperCase()}${lower.substring(1)}';
+        })
+        .join(' ');
+  }
+
+  List<_ClientMetricData> _buildMetricItems(ClienteProfileResponse? profile) {
+    final metrics = profile?.metrics;
+
+    return [
+      _ClientMetricData(
+        label: 'Ventas',
+        value: '${metrics?.salesCount ?? 0}',
+        helper: _formatMoney(metrics?.salesTotal),
+      ),
+      _ClientMetricData(
+        label: 'Servicios',
+        value: '${metrics?.servicesCount ?? 0}',
+        helper:
+            'OT ${metrics?.serviceOrdersCount ?? 0} • Legacy ${metrics?.legacyServicesCount ?? 0}',
+      ),
+      _ClientMetricData(
+        label: 'Referencias',
+        value: '${metrics?.serviceReferencesCount ?? 0}',
+        helper: _formatDate(metrics?.lastReferenceAt),
+      ),
+      _ClientMetricData(
+        label: 'Cotizaciones',
+        value: '${metrics?.cotizacionesCount ?? 0}',
+        helper: _formatMoney(metrics?.cotizacionesTotal),
+      ),
+    ];
   }
 
   List<_TimelineGroupData> _buildTimelineGroups() {
@@ -384,7 +538,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
           ),
           _ClientFactData(
             label: 'Creado por',
-            value: createdBy?.displayName ?? '',
+            value: createdBy?.label ?? '',
             icon: Icons.person_outline_rounded,
           ),
           _ClientFactData(
@@ -400,6 +554,17 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
               profile?.metrics.lastActivityAt ?? client?.lastActivityAt,
             ),
             icon: Icons.schedule_rounded,
+          ),
+          _ClientFactData(
+            label: 'Referencias de servicio',
+            value: '${profile?.metrics.serviceReferencesCount ?? 0}',
+            icon: Icons.link_rounded,
+          ),
+          _ClientFactData(
+            label: 'Cobertura de servicios',
+            value:
+                'OT ${profile?.metrics.serviceOrdersCount ?? 0} • Legacy ${profile?.metrics.legacyServicesCount ?? 0}',
+            icon: Icons.build_circle_outlined,
           ),
         ]
         .where(
@@ -474,36 +639,8 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                   ),
                   const SizedBox(height: 12),
                   _SectionCard(
-                    title: 'Resumen comercial',
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _MetricCard(
-                            label: 'Ventas',
-                            value: '${profile?.metrics.salesCount ?? 0}',
-                            helper: _formatMoney(profile?.metrics.salesTotal),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _MetricCard(
-                            label: 'Servicios',
-                            value: '${profile?.metrics.servicesCount ?? 0}',
-                            helper: _formatDate(profile?.metrics.lastServiceAt),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _MetricCard(
-                            label: 'Cotizaciones',
-                            value: '${profile?.metrics.cotizacionesCount ?? 0}',
-                            helper: _formatMoney(
-                              profile?.metrics.cotizacionesTotal,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                    title: 'Resumen del cliente',
+                    child: _MetricGrid(items: _buildMetricItems(profile)),
                   ),
                   const SizedBox(height: 12),
                   _SectionCard(
@@ -530,7 +667,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Procesos del cliente',
+                    'Historial completo del cliente',
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -547,7 +684,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                         ),
                       ),
                       child: const Text(
-                        'No hay procesos disponibles para este cliente.',
+                        'No hay ventas, cotizaciones, servicios ni referencias registradas para este cliente.',
                       ),
                     )
                   else
@@ -573,6 +710,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                                     context,
                                     event,
                                   ),
+                                  enabled: _canOpenEvent(event),
                                   onTap: () => _openEvent(event),
                                 ),
                               )
@@ -790,6 +928,52 @@ class _MetricCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ClientMetricData {
+  const _ClientMetricData({
+    required this.label,
+    required this.value,
+    required this.helper,
+  });
+
+  final String label;
+  final String value;
+  final String helper;
+}
+
+class _MetricGrid extends StatelessWidget {
+  const _MetricGrid({required this.items});
+
+  final List<_ClientMetricData> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final itemWidth = constraints.maxWidth < 700
+            ? constraints.maxWidth
+            : (constraints.maxWidth - 12) / 2;
+
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: items
+              .map(
+                (item) => SizedBox(
+                  width: itemWidth,
+                  child: _MetricCard(
+                    label: item.label,
+                    value: item.value,
+                    helper: item.helper,
+                  ),
+                ),
+              )
+              .toList(growable: false),
+        );
+      },
     );
   }
 }
@@ -1120,6 +1304,7 @@ class _TimelineEventCard extends StatelessWidget {
     required this.amount,
     required this.statusLabel,
     required this.statusColor,
+    required this.enabled,
     required this.onTap,
   });
 
@@ -1130,6 +1315,7 @@ class _TimelineEventCard extends StatelessWidget {
   final String? amount;
   final String statusLabel;
   final Color statusColor;
+  final bool enabled;
   final VoidCallback onTap;
 
   @override
@@ -1138,7 +1324,7 @@ class _TimelineEventCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
+        onTap: enabled ? onTap : null,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
@@ -1224,11 +1410,20 @@ class _TimelineEventCard extends StatelessWidget {
                           ),
                         ),
                         const Spacer(),
-                        Icon(
-                          Icons.chevron_right_rounded,
-                          size: 18,
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
+                        if (enabled)
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            size: 18,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          )
+                        else
+                          Text(
+                            'Solo lectura',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                       ],
                     ),
                   ],

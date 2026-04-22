@@ -259,85 +259,130 @@ class _ClienteCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final subtitle = _buildCompactSubtitle(client);
+    final contactLine = _buildClientContactLine(client);
+    final badges = _buildClientBadges(client);
 
     return Card(
       margin: EdgeInsets.zero,
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         side: BorderSide(
           color: theme.colorScheme.outlineVariant.withValues(alpha: 0.55),
           width: 0.8,
         ),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         onTap: () => context.push(Routes.clienteDetail(client.id)),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 38,
-                height: 38,
+                width: 42,
+                height: 42,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest.withValues(
-                    alpha: 0.55,
+                  color: theme.colorScheme.primaryContainer.withValues(
+                    alpha: 0.72,
                   ),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: theme.colorScheme.outlineVariant.withValues(
-                      alpha: 0.55,
-                    ),
-                  ),
+                  borderRadius: BorderRadius.circular(14),
                 ),
                 alignment: Alignment.center,
-                child: Icon(
-                  Icons.person_outline_rounded,
-                  size: 18,
-                  color: theme.colorScheme.primary,
+                child: Text(
+                  client.nombre.trim().isEmpty
+                      ? '?'
+                      : client.nombre.trim().substring(0, 1).toUpperCase(),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: theme.colorScheme.onPrimaryContainer,
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      client.nombre,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w500,
-                        height: 1.2,
-                        letterSpacing: 0.1,
-                      ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            client.nombre,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              height: 1.15,
+                            ),
+                          ),
+                        ),
+                        if (client.isDeleted)
+                          _ClientStatusPill(
+                            label: 'Eliminado',
+                            color: theme.colorScheme.error,
+                          ),
+                      ],
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                        height: 1.2,
+                    if (contactLine.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        contactLine,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          height: 1.2,
+                        ),
                       ),
-                    ),
+                    ],
+                    if (badges.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Wrap(spacing: 6, runSpacing: 6, children: badges),
+                    ],
                   ],
                 ),
               ),
-              const SizedBox(width: 2),
-              _InlineIconBtn(
-                icon: Icons.edit_outlined,
-                color: theme.colorScheme.primary,
-                onPressed: () => context.push(Routes.clienteEdit(client.id)),
-              ),
-              _InlineIconBtn(
-                icon: Icons.delete_outline_rounded,
-                color: theme.colorScheme.error.withValues(alpha: 0.75),
-                onPressed: () => _confirmDelete(context, ref, client),
+              const SizedBox(width: 6),
+              PopupMenuButton<_ClientCardAction>(
+                tooltip: 'Acciones',
+                onSelected: (action) async {
+                  switch (action) {
+                    case _ClientCardAction.edit:
+                      context.push(Routes.clienteEdit(client.id));
+                      break;
+                    case _ClientCardAction.delete:
+                      await _confirmDelete(context, ref, client);
+                      break;
+                  }
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem<_ClientCardAction>(
+                    value: _ClientCardAction.edit,
+                    child: Text('Editar'),
+                  ),
+                  PopupMenuItem<_ClientCardAction>(
+                    value: _ClientCardAction.delete,
+                    child: Text('Eliminar'),
+                  ),
+                ],
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(
+                      alpha: 0.42,
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    Icons.more_horiz_rounded,
+                    size: 18,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ),
             ],
           ),
@@ -347,55 +392,117 @@ class _ClienteCard extends ConsumerWidget {
   }
 }
 
-class _InlineIconBtn extends StatelessWidget {
-  const _InlineIconBtn({
-    required this.icon,
-    required this.color,
-    required this.onPressed,
-  });
+enum _ClientCardAction { edit, delete }
+
+String _buildClientContactLine(ClienteModel client) {
+  final parts = <String>[];
+  if (client.telefono.trim().isNotEmpty) {
+    parts.add(client.telefono.trim());
+  }
+  final correo = (client.correo ?? '').trim();
+  if (correo.isNotEmpty) {
+    parts.add(correo);
+  }
+  return parts.join(' • ');
+}
+
+List<Widget> _buildClientBadges(ClienteModel client) {
+  final badges = <Widget>[];
+
+  if (client.createdAt != null) {
+    badges.add(
+      _ClientMetaPill(
+        icon: Icons.schedule_rounded,
+        label: 'Creado ${_formatClientDate(client.createdAt!)}',
+      ),
+    );
+  }
+
+  if (client.updatedLocal) {
+    badges.add(
+      const _ClientMetaPill(
+        icon: Icons.sync_problem_rounded,
+        label: 'Pendiente de sincronizar',
+      ),
+    );
+  } else if ((client.syncStatus ?? '').trim().isNotEmpty) {
+    badges.add(
+      _ClientMetaPill(
+        icon: Icons.cloud_done_outlined,
+        label: client.syncStatus!.trim(),
+      ),
+    );
+  }
+
+  if ((client.correo ?? '').trim().isEmpty) {
+    badges.add(
+      const _ClientMetaPill(
+        icon: Icons.alternate_email_rounded,
+        label: 'Sin correo',
+      ),
+    );
+  }
+
+  return badges;
+}
+
+class _ClientMetaPill extends StatelessWidget {
+  const _ClientMetaPill({required this.icon, required this.label});
 
   final IconData icon;
-  final Color color;
-  final VoidCallback onPressed;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return SizedBox(
-      width: 34,
-      height: 34,
-      child: Material(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(
-          alpha: 0.38,
-        ),
-        borderRadius: BorderRadius.circular(10),
-        child: IconButton(
-          visualDensity: VisualDensity.compact,
-          padding: EdgeInsets.zero,
-          icon: Icon(icon, size: 17, color: color),
-          onPressed: onPressed,
-        ),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-String _buildCompactSubtitle(ClienteModel client) {
-  final parts = <String>[client.telefono.trim()];
+class _ClientStatusPill extends StatelessWidget {
+  const _ClientStatusPill({required this.label, required this.color});
 
-  if (client.createdAt != null) {
-    parts.add('Creado ${_formatClientDate(client.createdAt!)}');
-  }
-  if (client.updatedLocal) {
-    parts.add('Pendiente de sincronizar');
-  } else if ((client.syncStatus ?? '').trim().isNotEmpty) {
-    parts.add(client.syncStatus!.trim());
-  }
-  if (client.isDeleted) {
-    parts.add('Eliminado');
-  }
+  final String label;
+  final Color color;
 
-  return parts.where((item) => item.isNotEmpty).join(' • ');
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
 }
 
 Future<void> _confirmDelete(

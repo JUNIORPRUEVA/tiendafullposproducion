@@ -163,6 +163,20 @@ class DocumentFlowsRepository {
     }
   }
 
+  Future<void> deleteFlow(String id) async {
+    try {
+      await _dio.delete(ApiRoutes.documentFlowDelete(id));
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(
+          e.response?.data,
+          'No se pudo eliminar el flujo documental',
+        ),
+        e.response?.statusCode,
+      );
+    }
+  }
+
   String resolveDocumentUrl(String rawUrl) {
     final value = rawUrl.trim();
     if (value.isEmpty) return '';
