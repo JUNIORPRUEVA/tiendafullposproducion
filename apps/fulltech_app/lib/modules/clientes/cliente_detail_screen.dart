@@ -1,12 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:latlong2/latlong.dart';
-
 import '../../core/auth/auth_provider.dart';
 import '../../core/auth/auth_repository.dart';
 import '../../core/realtime/operations_realtime_service.dart';
@@ -19,6 +16,7 @@ import 'client_location_utils.dart';
 import 'cliente_model.dart';
 import 'cliente_profile_model.dart';
 import 'cliente_timeline_model.dart';
+import 'data/cliente_detail_local_repository.dart';
 import 'data/clientes_repository.dart';
 
 class ClienteDetailScreen extends ConsumerStatefulWidget {
@@ -33,11 +31,15 @@ class ClienteDetailScreen extends ConsumerStatefulWidget {
 
 class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
   bool _loading = true;
+  bool _refreshing = false;
   bool _deleting = false;
   String? _error;
   ClienteModel? _cliente;
   ClienteProfileResponse? _profile;
   List<ClienteTimelineEvent> _timeline = const [];
+  List<_TimelineGroupData> _timelineGroups = const [];
+  Future<ClientLocationPreview>? _locationPreviewFuture;
+  String _locationPreviewCacheKey = '';
   StreamSubscription<ClientsRealtimeMessage>? _clientsRealtimeSubscription;
 
   static const Duration _detailTimeout = Duration(seconds: 12);
@@ -84,37 +86,80 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    final hadRenderableData =
+        _cliente != null || _profile != null || _timeline.isNotEmpty;
+    if (mounted) {
+      setState(() {
+        _loading = !hadRenderableData;
+        _refreshing = hadRenderableData;
+        _error = null;
+      });
+    }
+
+    final detailLocalRepository = ref.read(
+      clienteDetailLocalRepositoryProvider,
+    );
 
     ClienteModel? cachedClient;
+    ClienteDetailLocalSnapshot localSnapshot =
+        const ClienteDetailLocalSnapshot();
+
     try {
-      cachedClient = await ref
-          .read(clientesControllerProvider.notifier)
-          .getById(widget.clienteId);
+      final results = await Future.wait<dynamic>([
+        ref.read(clientesControllerProvider.notifier).getById(widget.clienteId),
+        detailLocalRepository.read(widget.clienteId),
+      ]);
+      cachedClient = results[0] as ClienteModel?;
+      localSnapshot = results[1] as ClienteDetailLocalSnapshot;
     } catch (_) {
-      cachedClient = null;
+      try {
+        cachedClient = await ref
+            .read(clientesControllerProvider.notifier)
+            .getById(widget.clienteId);
+      } catch (_) {
+        cachedClient = null;
+      }
+      try {
+        localSnapshot = await detailLocalRepository.read(widget.clienteId);
+      } catch (_) {
+        localSnapshot = const ClienteDetailLocalSnapshot();
+      }
     }
 
     if (!mounted) return;
-    if (cachedClient != null) {
-      setState(() => _cliente = cachedClient);
+    final effectiveLocalClient =
+        localSnapshot.profile == null
+            ? cachedClient
+            : _profileToClient(localSnapshot.profile!, fallback: cachedClient);
+
+    if (effectiveLocalClient != null || localSnapshot.hasData) {
+      setState(() {
+        _cliente = effectiveLocalClient ?? _cliente;
+        _profile = localSnapshot.profile ?? _profile;
+        _timeline = localSnapshot.timeline.isNotEmpty
+            ? localSnapshot.timeline
+            : _timeline;
+        _timelineGroups = _computeTimelineGroups(_timeline);
+        _syncLocationPreview();
+        _loading = false;
+        _refreshing = !widget.clienteId.startsWith('local_');
+      });
     }
 
     if (widget.clienteId.startsWith('local_')) {
       setState(() {
         _profile = null;
         _timeline = const [];
+        _timelineGroups = const [];
         _loading = false;
+        _refreshing = false;
       });
       return;
     }
 
     try {
       final repo = ref.read(clientesRepositoryProvider);
-      final results = await Future.wait([
+      final results = await Future.wait<dynamic>([
         repo.getClientProfile(id: widget.clienteId).timeout(_detailTimeout),
         repo
             .getClientTimeline(id: widget.clienteId, take: 120)
@@ -125,33 +170,132 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
 
       final profile = results[0] as ClienteProfileResponse;
       final timeline = results[1] as ClienteTimelineResponse?;
+      final mergedClient = _profileToClient(profile, fallback: cachedClient);
+
+      await detailLocalRepository.write(
+        clientId: widget.clienteId,
+        profile: profile,
+        timeline: timeline?.items.toList(growable: false) ?? const [],
+      );
 
       if (!mounted) return;
       setState(() {
         _profile = profile;
         _timeline = timeline?.items.toList(growable: false) ?? const [];
-        _cliente = ClienteModel.fromJson({
-          'id': profile.client.id,
-          'nombre': profile.client.nombre,
-          'telefono': profile.client.telefono,
-          'direccion': profile.client.direccion,
-          'location_url': profile.client.locationUrl,
-          'email': profile.client.email,
-          'isDeleted': profile.client.isDeleted,
-          'createdAt': profile.client.createdAt?.toIso8601String(),
-          'updatedAt': profile.client.updatedAt?.toIso8601String(),
-        });
+        _timelineGroups = _computeTimelineGroups(_timeline);
+        _cliente = mergedClient;
+        _syncLocationPreview();
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _error = _cliente == null ? 'No se pudo cargar el cliente' : null;
-        _profile = null;
-        _timeline = const [];
+        final hasFallbackData =
+            _cliente != null || _profile != null || _timeline.isNotEmpty;
+        _error = hasFallbackData ? null : 'No se pudo cargar el cliente';
+        if (!hasFallbackData) {
+          _profile = null;
+          _timeline = const [];
+          _timelineGroups = const [];
+        }
       });
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _refreshing = false;
+        });
+      }
     }
+  }
+
+  ClienteModel _profileToClient(
+    ClienteProfileResponse profile, {
+    ClienteModel? fallback,
+  }) {
+    return ClienteModel.fromJson({
+      'id': profile.client.id,
+      'ownerId': profile.client.ownerId ?? fallback?.ownerId ?? '',
+      'nombre': profile.client.nombre,
+      'telefono': profile.client.telefono,
+      'direccion': profile.client.direccion,
+      'location_url': profile.client.locationUrl,
+      'latitude': profile.client.latitude ?? fallback?.latitude,
+      'longitude': profile.client.longitude ?? fallback?.longitude,
+      'email': profile.client.email,
+      'isDeleted': profile.client.isDeleted,
+      'createdAt': profile.client.createdAt?.toIso8601String(),
+      'updatedAt': profile.client.updatedAt?.toIso8601String(),
+    });
+  }
+
+  List<_TimelineGroupData> _computeTimelineGroups(
+    List<ClienteTimelineEvent> timeline,
+  ) {
+    if (timeline.isEmpty) {
+      return const [];
+    }
+
+    final grouped = <String, List<ClienteTimelineEvent>>{};
+    for (final event in timeline) {
+      grouped
+          .putIfAbsent(event.eventType, () => <ClienteTimelineEvent>[])
+          .add(event);
+    }
+
+    const order = ['service', 'cotizacion', 'sale'];
+    final items = <_TimelineGroupData>[];
+    for (final type in order) {
+      final rows = grouped.remove(type);
+      if (rows == null || rows.isEmpty) continue;
+      items.add(
+        _TimelineGroupData(
+          type: type,
+          label: _timelineTypeLabel(type),
+          items: rows,
+        ),
+      );
+    }
+
+    for (final entry in grouped.entries) {
+      if (entry.value.isEmpty) continue;
+      items.add(
+        _TimelineGroupData(
+          type: entry.key,
+          label: _timelineTypeLabel(entry.key),
+          items: entry.value,
+        ),
+      );
+    }
+    return items;
+  }
+
+  void _syncLocationPreview() {
+    final normalizedUrl = normalizeClientLocationUrl(
+      _profile?.client.locationUrl ?? _cliente?.locationUrl,
+    );
+    final latitude = _profile?.client.latitude ?? _cliente?.latitude;
+    final longitude = _profile?.client.longitude ?? _cliente?.longitude;
+    final nextKey = '$normalizedUrl|$latitude|$longitude';
+    if (_locationPreviewCacheKey == nextKey) {
+      return;
+    }
+
+    _locationPreviewCacheKey = nextKey;
+    final directPreview = ClientLocationPreview(
+      latitude: latitude,
+      longitude: longitude,
+      resolvedUrl: normalizedUrl.isEmpty ? null : normalizedUrl,
+    );
+    _locationPreviewFuture = Future.value(directPreview);
+
+    if (normalizedUrl.isEmpty) {
+      return;
+    }
+
+    _locationPreviewFuture = resolveClientLocationPreview(
+      normalizedUrl,
+      dio: ref.read(dioProvider),
+    );
   }
 
   Future<void> _deleteClient() async {
@@ -481,41 +625,6 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
     ];
   }
 
-  List<_TimelineGroupData> _buildTimelineGroups() {
-    final grouped = <String, List<ClienteTimelineEvent>>{};
-    for (final event in _timeline) {
-      grouped
-          .putIfAbsent(event.eventType, () => <ClienteTimelineEvent>[])
-          .add(event);
-    }
-
-    const order = ['service', 'cotizacion', 'sale'];
-    final items = <_TimelineGroupData>[];
-    for (final type in order) {
-      final rows = grouped.remove(type);
-      if (rows == null || rows.isEmpty) continue;
-      items.add(
-        _TimelineGroupData(
-          type: type,
-          label: _timelineTypeLabel(type),
-          items: rows,
-        ),
-      );
-    }
-
-    for (final entry in grouped.entries) {
-      if (entry.value.isEmpty) continue;
-      items.add(
-        _TimelineGroupData(
-          type: entry.key,
-          label: _timelineTypeLabel(entry.key),
-          items: entry.value,
-        ),
-      );
-    }
-    return items;
-  }
-
   List<_ClientFactData> _buildClientFacts(ClienteProfileResponse? profile) {
     final client = profile?.client;
     final createdBy = profile?.createdBy;
@@ -579,6 +688,8 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
     final profile = _profile;
     final theme = Theme.of(context);
     final fallbackLocation = parseClientLocationPreview(_cliente?.locationUrl);
+    final locationPreviewFuture =
+      _locationPreviewFuture ?? Future.value(fallbackLocation);
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
@@ -608,8 +719,14 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
           ),
           IconButton(
             tooltip: 'Actualizar',
-            onPressed: _loading ? null : _load,
-            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _loading || _refreshing ? null : _load,
+            icon: _refreshing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
@@ -659,6 +776,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                           longitude:
                               profile?.client.longitude ??
                               fallbackLocation.longitude,
+                            previewFuture: locationPreviewFuture,
                         ),
                         if (_hasText(profile?.client.notas))
                           _InlineNoteCard(note: profile!.client.notas!.trim()),
@@ -688,7 +806,7 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
                       ),
                     )
                   else
-                    ..._buildTimelineGroups().map(
+                    ..._timelineGroups.map(
                       (group) => Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: _TimelineSection(
@@ -728,11 +846,13 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
 class _LocationDetailCard extends ConsumerWidget {
   const _LocationDetailCard({
     required this.locationUrl,
+    required this.previewFuture,
     this.latitude,
     this.longitude,
   });
 
   final String? locationUrl;
+  final Future<ClientLocationPreview> previewFuture;
   final double? latitude;
   final double? longitude;
 
@@ -764,105 +884,88 @@ class _LocationDetailCard extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Card(
-            margin: EdgeInsets.zero,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  FutureBuilder<ClientLocationPreview>(
-                    future: resolveClientLocationPreview(
-                      normalizedUrl,
-                      dio: ref.read(dioProvider),
-                    ),
-                    initialData: directPreview,
-                    builder: (context, snapshot) {
-                      final preview = snapshot.data ?? directPreview;
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerLowest,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+              ),
+            ),
+            child: FutureBuilder<ClientLocationPreview>(
+              future: previewFuture,
+              initialData: directPreview,
+              builder: (context, snapshot) {
+                final preview = snapshot.data ?? directPreview;
 
-                      if (preview.hasCoordinates) {
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: SizedBox(
-                                height: 220,
-                                child: FlutterMap(
-                                  options: MapOptions(
-                                    initialCenter: LatLng(
-                                      preview.latitude!,
-                                      preview.longitude!,
-                                    ),
-                                    initialZoom: 15,
-                                  ),
-                                  children: [
-                                    TileLayer(
-                                      urlTemplate:
-                                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                      userAgentPackageName: 'com.fulltech.app',
-                                    ),
-                                    MarkerLayer(
-                                      markers: [
-                                        Marker(
-                                          point: LatLng(
-                                            preview.latitude!,
-                                            preview.longitude!,
-                                          ),
-                                          width: 40,
-                                          height: 40,
-                                          child: Icon(
-                                            Icons.location_pin,
-                                            color: theme.colorScheme.error,
-                                            size: 40,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !preview.hasCoordinates) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: LinearProgressIndicator(),
+                  );
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        Icons.location_on_outlined,
+                        color: theme.colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            preview.hasCoordinates
+                                ? 'Ubicacion vinculada correctamente'
+                                : 'Ubicacion vinculada sin coordenadas resueltas',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            preview.hasCoordinates
+                                ? '${preview.latitude!.toStringAsFixed(6)}, ${preview.longitude!.toStringAsFixed(6)}'
+                                : 'Puedes abrir el enlace externo para revisar la ubicacion.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          if (uri != null) ...[
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: () => safeOpenUrl(context, uri),
+                              icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                              label: const Text('Abrir en mapa'),
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                minimumSize: const Size(0, 0),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                alignment: Alignment.centerLeft,
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              '${preview.latitude!.toStringAsFixed(6)}, ${preview.longitude!.toStringAsFixed(6)}',
-                              style: theme.textTheme.bodySmall,
-                            ),
                           ],
-                        );
-                      }
-
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 12),
-                          child: LinearProgressIndicator(),
-                        );
-                      }
-
-                      return Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          'No se pudieron resolver coordenadas del enlace, pero la ubicacion sigue vinculada al cliente.',
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                      );
-                    },
-                  ),
-                  if (uri != null) ...[
-                    const SizedBox(height: 8),
-                    FilledButton.tonalIcon(
-                      onPressed: () => safeOpenUrl(context, uri),
-                      icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                      label: const Text('Abrir en mapa'),
+                        ],
+                      ),
                     ),
                   ],
-                ],
-              ),
+                );
+              },
             ),
           ),
         ],
@@ -887,18 +990,27 @@ class _MetricCard extends StatelessWidget {
     final theme = Theme.of(context);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
+            Container(
+              width: 34,
+              height: 3,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            const SizedBox(height: 8),
             Text(
               label,
               maxLines: 1,
@@ -987,31 +1099,28 @@ class _SectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-          width: 0.8,
+    return Container(
+      padding: const EdgeInsets.fromLTRB(0, 0, 0, 12),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+          ),
         ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.2,
-              ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.2,
             ),
-            const SizedBox(height: 10),
-            child,
-          ],
-        ),
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
       ),
     );
   }
@@ -1042,87 +1151,96 @@ class _ClientHeroCard extends StatelessWidget {
       if ((email ?? '').trim().isNotEmpty) email!.trim(),
     ].join(' • ');
 
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-          width: 0.8,
+    return Container(
+      padding: const EdgeInsets.fromLTRB(0, 0, 0, 14),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+          ),
         ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: theme.colorScheme.primaryContainer,
-                  foregroundColor: theme.colorScheme.onPrimaryContainer,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: theme.colorScheme.primaryContainer,
+                foregroundColor: theme.colorScheme.onPrimaryContainer,
+                child: Text(
+                  name.isEmpty ? '?' : name.trim().substring(0, 1).toUpperCase(),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        height: 1.15,
+                      ),
+                    ),
+                    if (contactLine.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        contactLine,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (deleted)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                   child: Text(
-                    name.isEmpty
-                        ? '?'
-                        : name.trim().substring(0, 1).toUpperCase(),
-                    style: theme.textTheme.titleMedium?.copyWith(
+                    'Eliminado',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onErrorContainer,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          height: 1.2,
-                        ),
-                      ),
-                      if (contactLine.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          contactLine,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _InfoBadge(
+                  label: 'Total comprado',
+                  value: totalPurchased,
                 ),
-                if (deleted) const Chip(label: Text('Eliminado')),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _InfoBadge(
-                    label: 'Total comprado',
-                    value: totalPurchased,
-                  ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _InfoBadge(
+                  label: 'Ultima actividad',
+                  value: lastActivity,
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _InfoBadge(
-                    label: 'Ultima actividad',
-                    value: lastActivity,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1138,28 +1256,49 @@ class _InfoBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.30),
+        ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+          Container(
+            width: 3,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.45),
+              borderRadius: const BorderRadius.horizontal(
+                left: Radius.circular(10),
+              ),
             ),
           ),
-          const SizedBox(height: 1),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w700,
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 7, 10, 7),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -1221,15 +1360,27 @@ class _ClientFactTile extends StatelessWidget {
     final theme = Theme.of(context);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.30),
+        ),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Icon(item.icon, size: 16, color: theme.colorScheme.primary),
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              alignment: Alignment.center,
+              child: Icon(item.icon, size: 15, color: theme.colorScheme.primary),
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Column(

@@ -1037,9 +1037,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   Future<_DiscountInput?> _openDiscountDialog({
     required String title,
     required String subtitle,
+    _DiscountType initialType = _DiscountType.percent,
+    bool allowTypeChange = true,
   }) async {
     final amountCtrl = TextEditingController();
-    var type = _DiscountType.percent;
+    var type = initialType;
 
     final result = await showDialog<_DiscountInput>(
       context: context,
@@ -1054,24 +1056,50 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
               children: [
                 Text(subtitle),
                 const SizedBox(height: 14),
-                SegmentedButton<_DiscountType>(
-                  segments: const [
-                    ButtonSegment<_DiscountType>(
-                      value: _DiscountType.percent,
-                      label: Text('%'),
-                      icon: Icon(Icons.percent),
+                if (allowTypeChange)
+                  SegmentedButton<_DiscountType>(
+                    segments: const [
+                      ButtonSegment<_DiscountType>(
+                        value: _DiscountType.percent,
+                        label: Text('%'),
+                        icon: Icon(Icons.percent),
+                      ),
+                      ButtonSegment<_DiscountType>(
+                        value: _DiscountType.fixed,
+                        label: Text('Monto'),
+                        icon: Icon(Icons.attach_money),
+                      ),
+                    ],
+                    selected: <_DiscountType>{type},
+                    onSelectionChanged: (selection) {
+                      setDialogState(() => type = selection.first);
+                    },
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Theme.of(dialogContext).colorScheme.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    ButtonSegment<_DiscountType>(
-                      value: _DiscountType.fixed,
-                      label: Text('Monto'),
-                      icon: Icon(Icons.attach_money),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          type == _DiscountType.percent
+                              ? Icons.percent
+                              : Icons.attach_money,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          type == _DiscountType.percent
+                              ? 'Descuento porcentual'
+                              : 'Descuento por monto',
+                        ),
+                      ],
                     ),
-                  ],
-                  selected: <_DiscountType>{type},
-                  onSelectionChanged: (selection) {
-                    setDialogState(() => type = selection.first);
-                  },
-                ),
+                  ),
                 const SizedBox(height: 14),
                 TextField(
                   controller: amountCtrl,
@@ -1131,6 +1159,91 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
     _commitEditorChange(() {
       _generalDiscountAmount = boundedDiscount;
+    });
+  }
+
+  Future<void> _openItemDiscountMenu(int index, Offset globalPosition) async {
+    if (index < 0 || index >= _items.length) return;
+    final item = _items[index];
+    final overlayState = Overlay.maybeOf(context, rootOverlay: true);
+    final overlayObject = overlayState?.context.findRenderObject();
+    if (overlayObject is! RenderBox) return;
+    final overlay = overlayObject;
+
+    final selected = await showMenu<_ItemDiscountAction>(
+      context: context,
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(globalPosition.dx, globalPosition.dy, 1, 1),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        const PopupMenuItem<_ItemDiscountAction>(
+          value: _ItemDiscountAction.percent,
+          child: ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.percent),
+            title: Text('Descuento %'),
+          ),
+        ),
+        const PopupMenuItem<_ItemDiscountAction>(
+          value: _ItemDiscountAction.fixed,
+          child: ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.attach_money),
+            title: Text('Descuento monto'),
+          ),
+        ),
+        if (item.hasDiscount)
+          const PopupMenuItem<_ItemDiscountAction>(
+            value: _ItemDiscountAction.clear,
+            child: ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.undo_rounded),
+              title: Text('Quitar descuento'),
+            ),
+          ),
+      ],
+    );
+
+    if (selected == null || !mounted) return;
+
+    if (selected == _ItemDiscountAction.clear) {
+      final basePrice = item.effectiveOriginalUnitPrice;
+      _commitEditorChange(() {
+        _items[index] = item.copyWith(
+          originalUnitPrice: basePrice,
+          unitPrice: basePrice,
+        );
+      });
+      return;
+    }
+
+    final forcedType = selected == _ItemDiscountAction.percent
+        ? _DiscountType.percent
+        : _DiscountType.fixed;
+    final input = await _openDiscountDialog(
+      title: 'Descuento en ${item.nombre}',
+      subtitle: 'Se aplicará solo a esta línea de la cotización.',
+      initialType: forcedType,
+      allowTypeChange: false,
+    );
+    if (input == null || !mounted) return;
+
+    final basePrice = item.effectiveOriginalUnitPrice;
+    final nextDiscount = input.type == _DiscountType.percent
+        ? basePrice * (input.amount / 100)
+        : input.amount;
+    final boundedDiscount = nextDiscount.clamp(0, basePrice).toDouble();
+    final nextUnitPrice = (basePrice - boundedDiscount).clamp(0, basePrice).toDouble();
+
+    _commitEditorChange(() {
+      _items[index] = item.copyWith(
+        originalUnitPrice: basePrice,
+        unitPrice: nextUnitPrice,
+      );
     });
   }
 
@@ -1764,7 +1877,17 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                         ),
                       ),
                       const SizedBox(width: 8),
-                      FilledButton.tonalIcon(
+                      IconButton.filledTonal(
+                        onPressed: openFilterSheet,
+                        tooltip: 'Filtrar clientes',
+                        icon: Icon(
+                          hasActiveFilters
+                              ? Icons.filter_alt
+                              : Icons.filter_alt_outlined,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filledTonal(
                         onPressed: () async {
                           final created = await Navigator.of(
                             context,
@@ -1784,18 +1907,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                           });
                           Navigator.pop(context);
                         },
+                        tooltip: 'Agregar cliente',
                         icon: const Icon(Icons.person_add_alt_1_outlined),
-                        label: const Text('Agregar'),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton.filledTonal(
-                        onPressed: openFilterSheet,
-                        tooltip: 'Filtrar clientes',
-                        icon: Icon(
-                          hasActiveFilters
-                              ? Icons.filter_alt
-                              : Icons.filter_alt_outlined,
-                        ),
                       ),
                     ],
                   ),
@@ -2540,6 +2653,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                         item: item,
                         money: _money,
                         showCost: isAdmin,
+                        onRequestDiscount: (position) =>
+                            _openItemDiscountMenu(index, position),
                         onMinus: () => _setQty(index, item.qty - 1),
                         onPlus: () => _setQty(index, item.qty + 1),
                         onChangeQty: (value) => _setQty(index, value),
@@ -4468,6 +4583,7 @@ class _TicketCompactItem extends StatefulWidget {
     required this.item,
     required this.money,
     required this.showCost,
+    required this.onRequestDiscount,
     required this.onMinus,
     required this.onPlus,
     required this.onChangeQty,
@@ -4479,6 +4595,7 @@ class _TicketCompactItem extends StatefulWidget {
   final CotizacionItem item;
   final String Function(double) money;
   final bool showCost;
+  final ValueChanged<Offset> onRequestDiscount;
   final VoidCallback onMinus;
   final VoidCallback onPlus;
   final ValueChanged<double> onChangeQty;
@@ -4493,6 +4610,7 @@ class _TicketCompactItem extends StatefulWidget {
 class _TicketCompactItemState extends State<_TicketCompactItem> {
   late final TextEditingController _priceCtrl;
   late final TextEditingController _qtyCtrl;
+  Offset? _lastDoubleTapGlobalPosition;
 
   @override
   void initState() {
@@ -4537,13 +4655,24 @@ class _TicketCompactItemState extends State<_TicketCompactItem> {
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 0.5),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minWidth: 670),
-          child: SizedBox(
-            height: 34,
-            child: Row(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onDoubleTapDown: (details) {
+          _lastDoubleTapGlobalPosition = details.globalPosition;
+        },
+        onDoubleTap: () {
+          final position = _lastDoubleTapGlobalPosition;
+          if (position != null) {
+            widget.onRequestDiscount(position);
+          }
+        },
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 670),
+            child: SizedBox(
+              height: 34,
+              child: Row(
               children: [
                 SizedBox(
                   width: 24,
@@ -4710,12 +4839,15 @@ class _TicketCompactItemState extends State<_TicketCompactItem> {
                 ),
               ],
             ),
+            ),
           ),
         ),
       ),
     );
   }
 }
+
+enum _ItemDiscountAction { percent, fixed, clear }
 
 class _TicketInlineMeta extends StatelessWidget {
   const _TicketInlineMeta({

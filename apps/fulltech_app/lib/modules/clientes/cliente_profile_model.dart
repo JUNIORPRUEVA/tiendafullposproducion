@@ -78,6 +78,26 @@ class ClienteProfileClient {
           : null,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'nombre': nombre,
+      'telefono': telefono,
+      'phoneNormalized': phoneNormalized,
+      'email': email,
+      'direccion': direccion,
+      'locationUrl': locationUrl,
+      'latitude': latitude,
+      'longitude': longitude,
+      'notas': notas,
+      'ownerId': ownerId,
+      'lastActivityAt': lastActivityAt?.toIso8601String(),
+      'isDeleted': isDeleted,
+      'createdAt': createdAt?.toIso8601String(),
+      'updatedAt': updatedAt?.toIso8601String(),
+    };
+  }
 }
 
 class ClienteProfileCreatedBy {
@@ -120,6 +140,15 @@ class ClienteProfileCreatedBy {
           ? null
           : json['role'] as String?,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'nombreCompleto': nombreCompleto,
+      'email': email,
+      'role': role,
+    };
   }
 }
 
@@ -185,6 +214,25 @@ class ClienteProfileMetrics {
           : null,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'salesCount': salesCount,
+      'salesTotal': salesTotal,
+      'lastSaleAt': lastSaleAt?.toIso8601String(),
+      'servicesCount': servicesCount,
+      'serviceOrdersCount': serviceOrdersCount,
+      'legacyServicesCount': legacyServicesCount,
+      'serviceReferencesCount': serviceReferencesCount,
+      'legacyServicesTotal': legacyServicesTotal,
+      'lastServiceAt': lastServiceAt?.toIso8601String(),
+      'lastReferenceAt': lastReferenceAt?.toIso8601String(),
+      'cotizacionesCount': cotizacionesCount,
+      'cotizacionesTotal': cotizacionesTotal,
+      'lastCotizacionAt': lastCotizacionAt?.toIso8601String(),
+      'lastActivityAt': lastActivityAt?.toIso8601String(),
+    };
+  }
 }
 
 class ClienteProfileResponse {
@@ -214,5 +262,13 @@ class ClienteProfileResponse {
           ? null
           : ClienteProfileCreatedBy.fromJson(createdByRaw),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'client': client.toJson(),
+      'metrics': metrics.toJson(),
+      'createdBy': createdBy?.toJson(),
+    };
   }
 }

@@ -44,6 +44,20 @@ class ClienteTimelineEvent {
       meta: metaRaw is Map ? metaRaw.cast<String, dynamic>() : const {},
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'eventType': eventType,
+      'eventId': eventId,
+      'at': at.toIso8601String(),
+      'title': title,
+      'amount': amount,
+      'status': status,
+      'userId': userId,
+      'userName': userName,
+      'meta': meta,
+    };
+  }
 }
 
 class ClienteTimelineResponse {
@@ -70,5 +84,13 @@ class ClienteTimelineResponse {
       before: (json['before'] ?? '').toString(),
       take: (json['take'] as num?)?.toInt() ?? mapped.length,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'items': items.map((item) => item.toJson()).toList(growable: false),
+      'before': before,
+      'take': take,
+    };
   }
 }
