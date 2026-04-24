@@ -12,6 +12,11 @@ import { SalesService } from './sales.service';
 export class SalesAdminController {
   constructor(private readonly sales: SalesService) {}
 
+  @Get()
+  listByUser(@Query() query: SalesRangeQueryDto) {
+    return this.sales.listByUser(query.userId ?? '', query.from, query.to, query.customerId);
+  }
+
   @Get('summary')
   summaryByUser(@Query() query: SalesRangeQueryDto) {
     return this.sales.summaryByUser(query.from, query.to, query.userId);

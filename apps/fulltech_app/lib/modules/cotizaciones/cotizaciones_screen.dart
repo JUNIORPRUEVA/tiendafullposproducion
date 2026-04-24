@@ -771,84 +771,203 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   }
 
   Future<void> _openMobileTicketSheet() async {
-    await showModalBottomSheet<void>(
+    await showGeneralDialog<void>(
       context: context,
-      showDragHandle: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      builder: (sheetContext) {
+      barrierLabel: 'Tickets abiertos',
+      barrierDismissible: true,
+      barrierColor: Colors.black.withValues(alpha: 0.24),
+      transitionDuration: const Duration(milliseconds: 240),
+      pageBuilder: (dialogContext, animation, secondaryAnimation) {
+        final theme = Theme.of(dialogContext);
+        final media = MediaQuery.of(dialogContext);
+        final panelWidth = media.size.width * 0.88 > 360
+            ? 360.0
+            : media.size.width * 0.88;
+
         return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                child: Row(
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: panelWidth,
+                height: media.size.height,
+                margin: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.16),
+                      blurRadius: 28,
+                      offset: const Offset(-8, 12),
+                    ),
+                  ],
+                  border: Border.all(
+                    color: theme.colorScheme.outlineVariant.withValues(
+                      alpha: 0.45,
+                    ),
+                  ),
+                ),
+                child: Column(
                   children: [
-                    const Expanded(
-                      child: Text(
-                        'Tickets abiertos',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 16, 12, 12),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Tickets abiertos',
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Cambia de ticket o crea uno nuevo sin salir del editor.',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
                       ),
                     ),
-                    FilledButton.icon(
-                      onPressed: () {
-                        Navigator.of(sheetContext).pop();
-                        _createNewDesktopTicket();
-                      },
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Nuevo'),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            Navigator.of(dialogContext).pop();
+                            _createNewDesktopTicket();
+                          },
+                          icon: const Icon(Icons.add, size: 18),
+                          label: const Text('Nuevo ticket'),
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                        itemCount: _desktopTickets.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (itemContext, index) {
+                          final ticket = _desktopTickets[index];
+                          final selected = ticket.id == _activeDesktopTicketId;
+                          final lines = ticket.items.length;
+                          final clientName = ticket.selectedClientName.trim();
+                          final subtitle = [
+                            '$lines líneas',
+                            if (clientName.isNotEmpty && clientName != 'Sin cliente')
+                              clientName,
+                          ].join(' · ');
+
+                          return Material(
+                            color: selected
+                                ? theme.colorScheme.primary.withValues(alpha: 0.10)
+                                : theme.colorScheme.surfaceContainerLowest,
+                            borderRadius: BorderRadius.circular(18),
+                            child: InkWell(
+                              onTap: () {
+                                Navigator.of(dialogContext).pop();
+                                _switchDesktopTicket(ticket.id);
+                              },
+                              borderRadius: BorderRadius.circular(18),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 12,
+                                ),
+                                child: Row(
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 18,
+                                      backgroundColor: selected
+                                          ? theme.colorScheme.primary
+                                          : theme.colorScheme.surface,
+                                      child: Text(
+                                        '${index + 1}',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w900,
+                                          color: selected
+                                              ? theme.colorScheme.onPrimary
+                                              : theme.colorScheme.onSurface,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            ticket.label(index),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: theme.textTheme.bodyLarge?.copyWith(
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            subtitle,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: theme.textTheme.bodySmall?.copyWith(
+                                              color: theme.colorScheme.onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Icon(
+                                      selected
+                                          ? Icons.check_circle_rounded
+                                          : Icons.chevron_right_rounded,
+                                      color: selected
+                                          ? theme.colorScheme.primary
+                                          : theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ],
                 ),
               ),
-              Flexible(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: _desktopTickets.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final ticket = _desktopTickets[index];
-                    final selected = ticket.id == _activeDesktopTicketId;
-                    final lines = ticket.items.length;
-                    return ListTile(
-                      selected: selected,
-                      leading: CircleAvatar(
-                        radius: 16,
-                        backgroundColor: selected
-                            ? Theme.of(context).colorScheme.primary
-                            : Theme.of(context).colorScheme.surfaceContainerHighest,
-                        child: Text(
-                          '${index + 1}',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: selected
-                                ? Theme.of(context).colorScheme.onPrimary
-                                : Theme.of(context).colorScheme.onSurface,
-                          ),
-                        ),
-                      ),
-                      title: Text(
-                        ticket.label(index),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text(
-                        '$lines líneas',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: selected ? const Icon(Icons.check_circle) : null,
-                      onTap: () {
-                        Navigator.of(sheetContext).pop();
-                        _switchDesktopTicket(ticket.id);
-                      },
-                    );
-                  },
-                ),
-              ),
-            ],
+            ),
           ),
+        );
+      },
+      transitionBuilder: (dialogContext, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(1, 0),
+            end: Offset.zero,
+          ).animate(curved),
+          child: FadeTransition(opacity: curved, child: child),
         );
       },
     );
@@ -1695,6 +1814,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     int requestId = 0;
     bool loading = true;
     bool dialogOpen = true;
+    bool initialLoadQueued = false;
     String? error;
     var ownerFilter = _ClientOwnerFilter.all;
     var ageFilter = _ClientAgeFilter.all;
@@ -1926,7 +2046,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
             searchDebounce = Timer(const Duration(milliseconds: 220), loadClients);
           }
 
-          if (loading && clients.isEmpty && error == null) {
+          if (!initialLoadQueued && loading && clients.isEmpty && error == null) {
+            initialLoadQueued = true;
             WidgetsBinding.instance.addPostFrameCallback((_) => loadClients());
           }
 
@@ -2961,6 +3082,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   }
 
   Widget _buildMobileTopBar(UserModel? currentUser) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
       child: Row(
@@ -3018,97 +3140,102 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
           const SizedBox(width: 8),
           PopupMenuButton<_MobileQuickAction>(
             tooltip: 'Más opciones',
+            color: theme.colorScheme.surface,
+            surfaceTintColor: theme.colorScheme.surface,
+            elevation: 14,
+            shadowColor: Colors.black.withValues(alpha: 0.14),
+            position: PopupMenuPosition.under,
+            offset: const Offset(0, 8),
+            constraints: const BoxConstraints(minWidth: 250),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+              side: BorderSide(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+              ),
+            ),
             onSelected: _handleMobileQuickAction,
             itemBuilder: (context) => [
               const PopupMenuItem(
+                height: 52,
                 value: _MobileQuickAction.client,
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.person_outline),
-                  title: Text('Cliente'),
+                child: _MobileQuickMenuEntry(
+                  icon: Icons.person_outline,
+                  label: 'Cliente',
                 ),
               ),
               const PopupMenuItem(
+                height: 52,
                 value: _MobileQuickAction.note,
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.sticky_note_2_outlined),
-                  title: Text('Nota'),
+                child: _MobileQuickMenuEntry(
+                  icon: Icons.sticky_note_2_outlined,
+                  label: 'Nota',
                 ),
               ),
               const PopupMenuItem(
+                height: 52,
                 value: _MobileQuickAction.externalItem,
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.add_box_outlined),
-                  title: Text('Fuera inventario'),
+                child: _MobileQuickMenuEntry(
+                  icon: Icons.add_box_outlined,
+                  label: 'Fuera inventario',
                 ),
               ),
               const PopupMenuItem(
+                height: 52,
                 value: _MobileQuickAction.tickets,
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.receipt_long_outlined),
-                  title: Text('Cambiar ticket'),
+                child: _MobileQuickMenuEntry(
+                  icon: Icons.receipt_long_outlined,
+                  label: 'Cambiar ticket',
                 ),
               ),
               const PopupMenuItem(
+                height: 52,
                 value: _MobileQuickAction.newTicket,
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.add_circle_outline),
-                  title: Text('Nuevo ticket'),
+                child: _MobileQuickMenuEntry(
+                  icon: Icons.add_circle_outline,
+                  label: 'Nuevo ticket',
                 ),
               ),
               const PopupMenuItem(
+                height: 52,
                 value: _MobileQuickAction.pdf,
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.picture_as_pdf_outlined),
-                  title: Text('PDF'),
+                child: _MobileQuickMenuEntry(
+                  icon: Icons.picture_as_pdf_outlined,
+                  label: 'PDF',
                 ),
               ),
               const PopupMenuItem(
+                height: 52,
                 value: _MobileQuickAction.history,
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.history),
-                  title: Text('Historial'),
+                child: _MobileQuickMenuEntry(
+                  icon: Icons.history,
+                  label: 'Historial',
                 ),
               ),
               const PopupMenuItem(
+                height: 52,
                 value: _MobileQuickAction.serviceOrder,
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.assignment_turned_in_outlined),
-                  title: Text('Pasar a orden de servicio'),
+                child: _MobileQuickMenuEntry(
+                  icon: Icons.assignment_turned_in_outlined,
+                  label: 'Pasar a orden de servicio',
                 ),
               ),
-              const PopupMenuItem(
+              PopupMenuItem(
+                height: 52,
                 value: _MobileQuickAction.clear,
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.delete_sweep_outlined),
-                  title: Text('Limpiar editor'),
+                child: _MobileQuickMenuEntry(
+                  icon: Icons.delete_sweep_outlined,
+                  label: 'Limpiar editor',
+                  accentColor: theme.colorScheme.error,
                 ),
               ),
               if (currentUser?.appRole == AppRole.admin)
-                const PopupMenuItem(
+                PopupMenuItem(
+                  height: 52,
                   value: _MobileQuickAction.debugPurge,
-                  child: ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.cleaning_services_outlined),
-                    title: Text('Purge debug'),
+                  child: _MobileQuickMenuEntry(
+                    icon: Icons.cleaning_services_outlined,
+                    label: 'Purge debug',
+                    accentColor: theme.colorScheme.error,
                   ),
                 ),
             ],
@@ -3118,7 +3245,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                 borderRadius: BorderRadius.circular(14),
               ),
               padding: const EdgeInsets.all(10),
-              child: const Icon(Icons.more_horiz_rounded, size: 20),
+              child: const Icon(Icons.more_vert_rounded, size: 20),
             ),
           ),
         ],
@@ -3374,6 +3501,47 @@ class _ClientFilterChip extends StatelessWidget {
           color: theme.colorScheme.primary,
         ),
       ),
+    );
+  }
+}
+
+class _MobileQuickMenuEntry extends StatelessWidget {
+  const _MobileQuickMenuEntry({
+    required this.icon,
+    required this.label,
+    this.accentColor,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color? accentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = accentColor ?? theme.colorScheme.onSurface;
+
+    return Row(
+      children: [
+        SizedBox(
+          width: 24,
+          child: Icon(icon, size: 20, color: color),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: color,
+              letterSpacing: 0.1,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

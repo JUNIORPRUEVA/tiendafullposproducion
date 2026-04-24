@@ -34,6 +34,83 @@ class SalesSummaryModel {
   }
 }
 
+class AdminSalesUserSummary {
+  final String userId;
+  final String userName;
+  final String userEmail;
+  final int totalSales;
+  final double totalSold;
+  final double totalProfit;
+  final double totalCommission;
+
+  const AdminSalesUserSummary({
+    required this.userId,
+    required this.userName,
+    required this.userEmail,
+    required this.totalSales,
+    required this.totalSold,
+    required this.totalProfit,
+    required this.totalCommission,
+  });
+
+  String get displayName {
+    final normalizedName = userName.trim();
+    if (normalizedName.isNotEmpty) return normalizedName;
+    final normalizedEmail = userEmail.trim();
+    if (normalizedEmail.isNotEmpty) return normalizedEmail;
+    return userId;
+  }
+
+  factory AdminSalesUserSummary.fromJson(Map<String, dynamic> json) {
+    return AdminSalesUserSummary(
+      userId: (json['userId'] ?? '').toString(),
+      userName: (json['userName'] ?? '').toString(),
+      userEmail: (json['userEmail'] ?? '').toString(),
+      totalSales: (json['totalSales'] as num?)?.toInt() ?? 0,
+      totalSold: _toDouble(json['totalSold']),
+      totalProfit: _toDouble(json['totalProfit']),
+      totalCommission: _toDouble(json['totalCommission']),
+    );
+  }
+}
+
+class AdminSalesUsersSummary {
+  final List<AdminSalesUserSummary> items;
+  final SalesSummaryModel totals;
+  final double commissionRate;
+
+  const AdminSalesUsersSummary({
+    required this.items,
+    required this.totals,
+    required this.commissionRate,
+  });
+
+  factory AdminSalesUsersSummary.empty() => AdminSalesUsersSummary(
+    items: const <AdminSalesUserSummary>[],
+    totals: SalesSummaryModel.empty(),
+    commissionRate: 0,
+  );
+
+  factory AdminSalesUsersSummary.fromJson(Map<String, dynamic> json) {
+    final rawItems = (json['items'] as List?) ?? const [];
+    return AdminSalesUsersSummary(
+      items: rawItems
+          .whereType<Map>()
+          .map(
+            (item) => AdminSalesUserSummary.fromJson(
+              item.cast<String, dynamic>(),
+            ),
+          )
+          .toList(growable: false),
+      totals: SalesSummaryModel.fromJson(
+        ((json['totals'] as Map?) ?? const <String, dynamic>{})
+            .cast<String, dynamic>(),
+      ),
+      commissionRate: _toDouble(json['commissionRate']),
+    );
+  }
+}
+
 class SaleItemModel {
   final String id;
   final String? productId;

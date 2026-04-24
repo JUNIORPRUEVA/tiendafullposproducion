@@ -27,6 +27,7 @@ class ApiRoutes {
   static const punchAdmin = '/admin/punch';
   static const punchAttendanceSummary = '/admin/attendance/summary';
   static String punchAttendanceUser(String id) => '/admin/attendance/user/$id';
+    static const adminSales = '/admin/sales';
   static const adminSalesSummary = '/admin/sales/summary';
   static const adminPanelOverview = '/admin/panel/overview';
   static const adminPanelAiInsights = '/admin/panel/ai-insights';

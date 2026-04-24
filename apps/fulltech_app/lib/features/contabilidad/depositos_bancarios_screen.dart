@@ -18,6 +18,7 @@ import 'data/contabilidad_repository.dart';
 import 'deposit_bank_catalog.dart';
 import 'models/deposit_order_model.dart';
 import 'utils/deposit_order_pdf_service.dart';
+import 'widgets/date_range_picker_field.dart';
 
 class DepositosBancariosScreen extends ConsumerStatefulWidget {
   const DepositosBancariosScreen({super.key});
@@ -41,6 +42,7 @@ class _DepositosBancariosScreenState
   String? _error;
   List<DepositOrderModel> _orders = const [];
   List<String> _collaborators = const [];
+  DateTimeRange? _dateRange;
 
   @override
   void initState() {
@@ -54,7 +56,15 @@ class _DepositosBancariosScreenState
       _error = null;
     });
     try {
-      final rows = await ref.read(contabilidadRepositoryProvider).listDepositOrders();
+      final rows = await ref.read(contabilidadRepositoryProvider).listDepositOrders(
+            from: _dateRange?.start,
+            to: _dateRange?.end,
+          );
+      rows.sort((left, right) {
+        final byWindow = right.windowFrom.compareTo(left.windowFrom);
+        if (byWindow != 0) return byWindow;
+        return right.createdAt.compareTo(left.createdAt);
+      });
       if (!mounted) return;
       setState(() {
         _orders = rows;
@@ -95,6 +105,15 @@ class _DepositosBancariosScreenState
   }
 
   bool get _isAdmin => ref.read(authStateProvider).user?.appRole.isAdmin ?? false;
+
+  Future<void> _applyDateRange(DateTimeRange? value) async {
+    setState(() {
+      _dateRange = value;
+    });
+    await _load();
+  }
+
+  Future<void> _clearDateRange() => _applyDateRange(null);
 
   Future<void> _showSnack(String message) async {
     if (!mounted) return;
@@ -949,6 +968,13 @@ class _DepositosBancariosScreenState
   Widget build(BuildContext context) {
     final user = ref.watch(authStateProvider).user;
     final canUseModule = canAccessContabilidadByRole(user?.role);
+    final executedOrders = _orders
+        .where((item) => item.status == DepositOrderStatus.executed)
+        .toList(growable: false);
+    final executedTotal = executedOrders.fold<double>(
+      0,
+      (sum, item) => sum + item.depositTotal,
+    );
 
     if (!canUseModule) {
       return Scaffold(
@@ -989,6 +1015,12 @@ class _DepositosBancariosScreenState
               total: _orders.length,
               pending: _orders.where((item) => item.status == DepositOrderStatus.pending).length,
               executed: _orders.where((item) => item.status == DepositOrderStatus.executed).length,
+              dateRange: _dateRange,
+              isAdmin: _isAdmin,
+              depositedCount: executedOrders.length,
+              depositedTotal: executedTotal,
+              onDateRangeChanged: _applyDateRange,
+              onClearDateRange: _dateRange == null ? null : _clearDateRange,
               onCreate: () => _openEditor(),
             ),
             const SizedBox(height: 16),
@@ -1041,17 +1073,30 @@ class _DepositsHeader extends StatelessWidget {
     required this.total,
     required this.pending,
     required this.executed,
+    required this.dateRange,
+    required this.isAdmin,
+    required this.depositedCount,
+    required this.depositedTotal,
+    required this.onDateRangeChanged,
+    required this.onClearDateRange,
     required this.onCreate,
   });
 
   final int total;
   final int pending;
   final int executed;
+  final DateTimeRange? dateRange;
+  final bool isAdmin;
+  final int depositedCount;
+  final double depositedTotal;
+  final ValueChanged<DateTimeRange?> onDateRangeChanged;
+  final VoidCallback? onClearDateRange;
   final VoidCallback onCreate;
 
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.sizeOf(context).width < 700;
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ');
     return Container(
       padding: EdgeInsets.all(isMobile ? 12 : 16),
       decoration: BoxDecoration(
@@ -1063,16 +1108,30 @@ class _DepositsHeader extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Text(
-                  'Gestión de depósitos bancarios',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        fontSize: isMobile ? 15 : null,
-                      ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Gestión de depósitos bancarios',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            fontSize: isMobile ? 15 : null,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Filtra por fechas y revisa el historial de depósitos más recientes primero.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: const Color(0xFF64748B),
+                            fontSize: isMobile ? 12 : null,
+                          ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 12),
@@ -1083,20 +1142,153 @@ class _DepositsHeader extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Opacity(
-            opacity: isMobile ? 0.78 : 1,
-            child: Wrap(
-              spacing: isMobile ? 6 : 12,
-              runSpacing: 6,
-              children: [
-                _HeaderChip(label: 'T: $total', compact: isMobile),
-                _HeaderChip(label: 'P: $pending', compact: isMobile),
-                _HeaderChip(label: 'E: $executed', compact: isMobile),
-              ],
-            ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                height: isMobile ? 40 : 44,
+                child: DateRangePickerField(
+                  value: dateRange,
+                  label: 'Intervalo',
+                  onChanged: onDateRangeChanged,
+                ),
+              ),
+              if (onClearDateRange != null)
+                SizedBox(
+                  height: isMobile ? 40 : 44,
+                  child: OutlinedButton.icon(
+                    onPressed: onClearDateRange,
+                    icon: const Icon(Icons.filter_alt_off_outlined, size: 18),
+                    label: const Text('Limpiar'),
+                  ),
+                ),
+            ],
           ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: isMobile ? 6 : 12,
+            runSpacing: 6,
+            children: [
+              _HeaderChip(label: 'Total: $total', compact: isMobile),
+              _HeaderChip(label: 'Pendientes: $pending', compact: isMobile),
+              _HeaderChip(label: 'Ejecutados: $executed', compact: isMobile),
+            ],
+          ),
+          if (isAdmin) ...[
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(isMobile ? 12 : 14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFD9E0E8)),
+              ),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  _AdminSummaryTile(
+                    compact: isMobile,
+                    icon: Icons.paid_outlined,
+                    label: 'Monto total depositado',
+                    value: money.format(depositedTotal),
+                    helper: 'Solo depósitos ejecutados',
+                  ),
+                  _AdminSummaryTile(
+                    compact: isMobile,
+                    icon: Icons.local_shipping_outlined,
+                    label: 'Veces depositadas',
+                    value: '$depositedCount',
+                    helper: 'Cantidad de depósitos ejecutados',
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+class _AdminSummaryTile extends StatelessWidget {
+  const _AdminSummaryTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.helper,
+    required this.compact,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final String helper;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final width = compact ? double.infinity : 250.0;
+    return SizedBox(
+      width: width,
+      child: Container(
+        padding: EdgeInsets.all(compact ? 12 : 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFD9E0E8)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE2E8F0),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              alignment: Alignment.center,
+              child: Icon(icon, size: 18, color: const Color(0xFF0F172A)),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: const Color(0xFF64748B),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    helper,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF64748B),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

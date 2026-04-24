@@ -57,6 +57,10 @@ export class SalesService {
     }
   }
 
+  async listByUser(userId: string, from?: string, to?: string, customerId?: string) {
+    return this.listMine(userId, from, to, customerId);
+  }
+
   async summaryMine(userId: string, from?: string, to?: string, customerId?: string) {
     const normalizedCustomerId = customerId?.trim();
     const where: Prisma.SaleWhereInput = {

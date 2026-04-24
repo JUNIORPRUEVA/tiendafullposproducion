@@ -102,6 +102,67 @@ class VentasRepository {
     }
   }
 
+  Future<AdminSalesUsersSummary> adminSummaryByUser({
+    required DateTime from,
+    required DateTime to,
+    String? userId,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.adminSalesSummary,
+        queryParameters: {
+          'from': _dateOnly(from),
+          'to': _dateOnly(to),
+          if ((userId ?? '').trim().isNotEmpty) 'userId': userId!.trim(),
+        },
+        options: Options(extra: const {'skipLoader': true}),
+      );
+      return AdminSalesUsersSummary.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(
+          e.response?.data,
+          'No se pudo cargar el resumen administrativo de ventas',
+        ),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<List<SaleModel>> adminListSalesByUser({
+    required DateTime from,
+    required DateTime to,
+    required String userId,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.adminSales,
+        queryParameters: {
+          'from': _dateOnly(from),
+          'to': _dateOnly(to),
+          'userId': userId.trim(),
+        },
+        options: Options(extra: const {'skipLoader': true}),
+      );
+
+      final rows = res.data is List ? (res.data as List) : const [];
+      return rows
+          .whereType<Map>()
+          .map((e) => SaleModel.fromJson(e.cast<String, dynamic>()))
+          .toList(growable: false);
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(
+          e.response?.data,
+          'No se pudieron cargar las ventas del usuario',
+        ),
+        e.response?.statusCode,
+      );
+    }
+  }
+
   Future<void> deleteSale(String id) async {
     try {
       await _dio.delete(ApiRoutes.saleDetail(id));
