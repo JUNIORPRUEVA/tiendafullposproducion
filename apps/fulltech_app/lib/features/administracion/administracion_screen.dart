@@ -45,6 +45,12 @@ class AdministracionScreen extends StatelessWidget {
                         title: 'Registro de ventas',
                         onTap: () => context.push(Routes.administracionVentas),
                       ),
+                      const SizedBox(height: 10),
+                      _AdminMenuCard(
+                        icon: Icons.stars_rounded,
+                        title: 'Comisiones',
+                        onTap: () => context.push(Routes.administracionComisiones),
+                      ),
                     ],
                   ),
                 ),

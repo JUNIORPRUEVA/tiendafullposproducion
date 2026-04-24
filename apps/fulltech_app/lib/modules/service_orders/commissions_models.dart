@@ -203,3 +203,125 @@ class ServiceOrderCommissionsResponse {
     );
   }
 }
+
+class AdminServiceCommissionUserSummary {
+  final String userId;
+  final String userName;
+  final String userEmail;
+  final int totalServices;
+  final int installationCount;
+  final int maintenanceCount;
+  final double totalSold;
+  final double totalPoints;
+
+  const AdminServiceCommissionUserSummary({
+    required this.userId,
+    required this.userName,
+    required this.userEmail,
+    required this.totalServices,
+    required this.installationCount,
+    required this.maintenanceCount,
+    required this.totalSold,
+    required this.totalPoints,
+  });
+
+  String get displayName {
+    final normalizedName = userName.trim();
+    if (normalizedName.isNotEmpty) return normalizedName;
+    final normalizedEmail = userEmail.trim();
+    if (normalizedEmail.isNotEmpty) return normalizedEmail;
+    return userId;
+  }
+
+  factory AdminServiceCommissionUserSummary.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    double toDouble(Object? value) => (value as num?)?.toDouble() ?? 0;
+
+    return AdminServiceCommissionUserSummary(
+      userId: (json['userId'] ?? '').toString(),
+      userName: (json['userName'] ?? '').toString(),
+      userEmail: (json['userEmail'] ?? '').toString(),
+      totalServices: (json['totalServices'] as num?)?.toInt() ?? 0,
+      installationCount: (json['installationCount'] as num?)?.toInt() ?? 0,
+      maintenanceCount: (json['maintenanceCount'] as num?)?.toInt() ?? 0,
+      totalSold: toDouble(json['totalSold']),
+      totalPoints: toDouble(json['totalPoints']),
+    );
+  }
+}
+
+class AdminServiceCommissionTotals {
+  final int totalServices;
+  final int totalInstallations;
+  final int totalMaintenances;
+  final double totalSold;
+  final double totalPoints;
+
+  const AdminServiceCommissionTotals({
+    required this.totalServices,
+    required this.totalInstallations,
+    required this.totalMaintenances,
+    required this.totalSold,
+    required this.totalPoints,
+  });
+
+  factory AdminServiceCommissionTotals.empty() {
+    return const AdminServiceCommissionTotals(
+      totalServices: 0,
+      totalInstallations: 0,
+      totalMaintenances: 0,
+      totalSold: 0,
+      totalPoints: 0,
+    );
+  }
+
+  factory AdminServiceCommissionTotals.fromJson(Map<String, dynamic> json) {
+    double toDouble(Object? value) => (value as num?)?.toDouble() ?? 0;
+
+    return AdminServiceCommissionTotals(
+      totalServices: (json['totalServices'] as num?)?.toInt() ?? 0,
+      totalInstallations: (json['totalInstallations'] as num?)?.toInt() ?? 0,
+      totalMaintenances: (json['totalMaintenances'] as num?)?.toInt() ?? 0,
+      totalSold: toDouble(json['totalSold']),
+      totalPoints: toDouble(json['totalPoints']),
+    );
+  }
+}
+
+class AdminServiceCommissionUsersSummary {
+  final List<AdminServiceCommissionUserSummary> items;
+  final AdminServiceCommissionTotals totals;
+
+  const AdminServiceCommissionUsersSummary({
+    required this.items,
+    required this.totals,
+  });
+
+  factory AdminServiceCommissionUsersSummary.empty() {
+    return AdminServiceCommissionUsersSummary(
+      items: const <AdminServiceCommissionUserSummary>[],
+      totals: AdminServiceCommissionTotals.empty(),
+    );
+  }
+
+  factory AdminServiceCommissionUsersSummary.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    final rawItems = (json['items'] as List?) ?? const [];
+    return AdminServiceCommissionUsersSummary(
+      items: rawItems
+          .whereType<Map>()
+          .map(
+            (item) => AdminServiceCommissionUserSummary.fromJson(
+              item.cast<String, dynamic>(),
+            ),
+          )
+          .toList(growable: false),
+      totals: AdminServiceCommissionTotals.fromJson(
+        ((json['totals'] as Map?) ?? const <String, dynamic>{})
+            .cast<String, dynamic>(),
+      ),
+    );
+  }
+}

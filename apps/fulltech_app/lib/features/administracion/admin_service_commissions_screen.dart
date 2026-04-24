@@ -8,28 +8,29 @@ import 'package:intl/intl.dart';
 import '../../core/errors/user_facing_error.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/professional_recovery_card.dart';
-import '../../modules/ventas/data/ventas_repository.dart';
-import '../../modules/ventas/sales_models.dart';
+import '../../modules/service_orders/commissions_models.dart';
+import '../../modules/service_orders/data/service_order_commissions_api.dart';
 
-enum _AdminSalesMenuAction { filters, sync, panel, resetQuincena }
+enum _AdminServiceMenuAction { filters, sync, panel, resetQuincena }
 
-class AdminSalesRegistryScreen extends ConsumerStatefulWidget {
-  const AdminSalesRegistryScreen({super.key});
+class AdminServiceCommissionsScreen extends ConsumerStatefulWidget {
+  const AdminServiceCommissionsScreen({super.key});
 
   @override
-  ConsumerState<AdminSalesRegistryScreen> createState() =>
-      _AdminSalesRegistryScreenState();
+  ConsumerState<AdminServiceCommissionsScreen> createState() =>
+      _AdminServiceCommissionsScreenState();
 }
 
-class _AdminSalesRegistryScreenState
-    extends ConsumerState<AdminSalesRegistryScreen> {
+class _AdminServiceCommissionsScreenState
+    extends ConsumerState<AdminServiceCommissionsScreen> {
   static const List<int> _autoRetrySecondsByAttempt = <int>[3, 6, 12];
 
   final TextEditingController _searchCtrl = TextEditingController();
   bool _loading = false;
   bool _showSummaryPanel = true;
   UserFacingError? _error;
-  AdminSalesUsersSummary _summary = AdminSalesUsersSummary.empty();
+  AdminServiceCommissionUsersSummary _summary =
+      AdminServiceCommissionUsersSummary.empty();
   late DateTime _from;
   late DateTime _to;
   Timer? _autoRetryTimer;
@@ -39,7 +40,7 @@ class _AdminSalesRegistryScreenState
   @override
   void initState() {
     super.initState();
-    final initialRange = _currentSalesQuincenaRange();
+    final initialRange = _currentAdminCommissionQuincenaRange();
     _from = initialRange.from;
     _to = initialRange.to;
     unawaited(_load());
@@ -65,7 +66,7 @@ class _AdminSalesRegistryScreenState
     }
 
     try {
-      final repo = ref.read(ventasRepositoryProvider);
+      final repo = ref.read(serviceOrderCommissionsApiProvider);
       final from = DateTime(_from.year, _from.month, _from.day);
       final to = DateTime(_to.year, _to.month, _to.day);
       final summary = await repo.adminSummaryByUser(from: from, to: to);
@@ -115,7 +116,7 @@ class _AdminSalesRegistryScreenState
   }
 
   Future<void> _resetToCurrentQuincena() async {
-    final next = _currentSalesQuincenaRange();
+    final next = _currentAdminCommissionQuincenaRange();
     setState(() {
       _from = next.from;
       _to = next.to;
@@ -154,25 +155,25 @@ class _AdminSalesRegistryScreenState
     context.go(Routes.administracion);
   }
 
-  Future<void> _handleMenuAction(_AdminSalesMenuAction action) async {
+  Future<void> _handleMenuAction(_AdminServiceMenuAction action) async {
     switch (action) {
-      case _AdminSalesMenuAction.filters:
+      case _AdminServiceMenuAction.filters:
         await _pickDateRange();
         break;
-      case _AdminSalesMenuAction.sync:
+      case _AdminServiceMenuAction.sync:
         await _load();
         break;
-      case _AdminSalesMenuAction.panel:
+      case _AdminServiceMenuAction.panel:
         if (!mounted) return;
         setState(() => _showSummaryPanel = !_showSummaryPanel);
         break;
-      case _AdminSalesMenuAction.resetQuincena:
+      case _AdminServiceMenuAction.resetQuincena:
         await _resetToCurrentQuincena();
         break;
     }
   }
 
-  List<AdminSalesUserSummary> get _visibleUsers {
+  List<AdminServiceCommissionUserSummary> get _visibleUsers {
     final query = _searchCtrl.text.trim().toLowerCase();
     final rows = _summary.items;
     if (query.isEmpty) return rows;
@@ -184,10 +185,10 @@ class _AdminSalesRegistryScreenState
     }).toList(growable: false);
   }
 
-  Future<void> _openUserDetail(AdminSalesUserSummary summary) async {
+  Future<void> _openUserDetail(AdminServiceCommissionUserSummary summary) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => _AdminSalesUserDetailScreen(
+        builder: (_) => _AdminServiceUserDetailScreen(
           user: summary,
           initialFrom: _from,
           initialTo: _to,
@@ -249,33 +250,33 @@ class _AdminSalesRegistryScreenState
                           ),
                           const SizedBox(width: 6),
                           if (isPhone)
-                            PopupMenuButton<_AdminSalesMenuAction>(
+                            PopupMenuButton<_AdminServiceMenuAction>(
                               tooltip: 'Opciones',
                               onSelected: _handleMenuAction,
                               itemBuilder: (context) => [
-                                const PopupMenuItem<_AdminSalesMenuAction>(
-                                  value: _AdminSalesMenuAction.filters,
+                                const PopupMenuItem<_AdminServiceMenuAction>(
+                                  value: _AdminServiceMenuAction.filters,
                                   child: _AdminTopMenuItem(
                                     icon: Icons.date_range_rounded,
                                     label: 'Intervalo',
                                   ),
                                 ),
-                                const PopupMenuItem<_AdminSalesMenuAction>(
-                                  value: _AdminSalesMenuAction.resetQuincena,
+                                const PopupMenuItem<_AdminServiceMenuAction>(
+                                  value: _AdminServiceMenuAction.resetQuincena,
                                   child: _AdminTopMenuItem(
                                     icon: Icons.calendar_month_rounded,
                                     label: 'Quincena actual',
                                   ),
                                 ),
-                                const PopupMenuItem<_AdminSalesMenuAction>(
-                                  value: _AdminSalesMenuAction.sync,
+                                const PopupMenuItem<_AdminServiceMenuAction>(
+                                  value: _AdminServiceMenuAction.sync,
                                   child: _AdminTopMenuItem(
                                     icon: Icons.sync_rounded,
                                     label: 'Sincronizar',
                                   ),
                                 ),
-                                PopupMenuItem<_AdminSalesMenuAction>(
-                                  value: _AdminSalesMenuAction.panel,
+                                PopupMenuItem<_AdminServiceMenuAction>(
+                                  value: _AdminServiceMenuAction.panel,
                                   child: _AdminTopMenuItem(
                                     icon: _showSummaryPanel
                                         ? Icons.space_dashboard_rounded
@@ -343,7 +344,15 @@ class _AdminSalesRegistryScreenState
                             children: [
                               Expanded(
                                 child: _AdminSalesCompactStat(
-                                  label: 'Ventas',
+                                  label: 'Servicios',
+                                  value: '${_summary.totals.totalServices}',
+                                  icon: Icons.assignment_turned_in_outlined,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _AdminSalesCompactStat(
+                                  label: 'Vendido',
                                   value: _money(_summary.totals.totalSold),
                                   icon: Icons.payments_outlined,
                                 ),
@@ -352,7 +361,7 @@ class _AdminSalesRegistryScreenState
                               Expanded(
                                 child: _AdminSalesCompactStat(
                                   label: 'Puntos',
-                                  value: _money(_summary.totals.totalProfit),
+                                  value: _money(_summary.totals.totalPoints),
                                   icon: Icons.stars_rounded,
                                 ),
                               ),
@@ -376,7 +385,7 @@ class _AdminSalesRegistryScreenState
                       : visible.isEmpty
                           ? Center(
                               child: Text(
-                                'No hay ventas por usuario para mostrar en este período.',
+                                'No hay servicios por usuario para mostrar en este período.',
                                 style: theme.textTheme.bodyLarge?.copyWith(
                                   color: scheme.onSurfaceVariant,
                                 ),
@@ -391,18 +400,19 @@ class _AdminSalesRegistryScreenState
                                 separatorBuilder: (_, __) => const SizedBox(height: 6),
                                 itemBuilder: (context, index) {
                                   final item = visible[index];
-                                  final accentColor = item.totalProfit >= 0
+                                  final accentColor = item.totalPoints >= 0
                                       ? const Color(0xFF0F766E)
                                       : const Color(0xFFB91C1C);
 
-                                  return _AdminSalesUserCard(
+                                  return _AdminServiceUserCard(
                                     summary: item,
                                     accentColor: accentColor,
                                     dateRangeLabel:
                                         '${_dateOnlyText(_from)} - ${_dateOnlyText(_to)}',
                                     soldLabel: _money(item.totalSold),
-                                    pointsLabel: _money(item.totalProfit),
-                                    salesCountLabel: '${item.totalSales} ventas',
+                                    pointsLabel: _money(item.totalPoints),
+                                    servicesCountLabel:
+                                        '${item.totalServices} servicios',
                                     onTap: () => _openUserDetail(item),
                                   );
                                 },
@@ -418,29 +428,29 @@ class _AdminSalesRegistryScreenState
   }
 }
 
-class _AdminSalesUserDetailScreen extends ConsumerStatefulWidget {
-  const _AdminSalesUserDetailScreen({
+class _AdminServiceUserDetailScreen extends ConsumerStatefulWidget {
+  const _AdminServiceUserDetailScreen({
     required this.user,
     required this.initialFrom,
     required this.initialTo,
   });
 
-  final AdminSalesUserSummary user;
+  final AdminServiceCommissionUserSummary user;
   final DateTime initialFrom;
   final DateTime initialTo;
 
   @override
-  ConsumerState<_AdminSalesUserDetailScreen> createState() =>
-      _AdminSalesUserDetailScreenState();
+  ConsumerState<_AdminServiceUserDetailScreen> createState() =>
+      _AdminServiceUserDetailScreenState();
 }
 
-class _AdminSalesUserDetailScreenState
-    extends ConsumerState<_AdminSalesUserDetailScreen> {
+class _AdminServiceUserDetailScreenState
+    extends ConsumerState<_AdminServiceUserDetailScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   bool _loading = false;
   bool _showHeaderPanel = true;
   UserFacingError? _error;
-  List<SaleModel> _items = const <SaleModel>[];
+  List<ServiceOrderCommissionItem> _items = const <ServiceOrderCommissionItem>[];
   late DateTime _from;
   late DateTime _to;
 
@@ -469,15 +479,15 @@ class _AdminSalesUserDetailScreenState
     }
 
     try {
-      final repo = ref.read(ventasRepositoryProvider);
-      final items = await repo.adminListSalesByUser(
+      final repo = ref.read(serviceOrderCommissionsApiProvider);
+      final items = await repo.adminListByUser(
         from: DateTime(_from.year, _from.month, _from.day),
         to: DateTime(_to.year, _to.month, _to.day),
         userId: widget.user.userId,
       );
       if (!mounted) return;
       setState(() {
-        _items = items..sort(_sortSalesByDateDesc);
+        _items = items..sort(_sortServicesByDateDesc);
       });
     } catch (error) {
       if (!mounted) return;
@@ -487,9 +497,12 @@ class _AdminSalesUserDetailScreenState
     }
   }
 
-  int _sortSalesByDateDesc(SaleModel a, SaleModel b) {
-    final aDate = a.saleDate ?? DateTime.fromMillisecondsSinceEpoch(0);
-    final bDate = b.saleDate ?? DateTime.fromMillisecondsSinceEpoch(0);
+  int _sortServicesByDateDesc(
+    ServiceOrderCommissionItem a,
+    ServiceOrderCommissionItem b,
+  ) {
+    final aDate = a.finalizedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final bDate = b.finalizedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
     return bDate.compareTo(aDate);
   }
 
@@ -509,7 +522,7 @@ class _AdminSalesUserDetailScreenState
   }
 
   Future<void> _resetToCurrentQuincena() async {
-    final next = _currentSalesQuincenaRange();
+    final next = _currentAdminCommissionQuincenaRange();
     setState(() {
       _from = next.from;
       _to = next.to;
@@ -517,30 +530,42 @@ class _AdminSalesUserDetailScreenState
     await _load();
   }
 
-  List<SaleModel> get _visibleSales {
+  List<ServiceOrderCommissionItem> get _visibleItems {
     final query = _searchCtrl.text.trim().toLowerCase();
     if (query.isEmpty) return _items;
 
     return _items.where((item) {
-      final dateText = item.saleDate == null
+      final dateText = item.finalizedAt == null
           ? ''
-          : DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(item.saleDate!.toLocal());
-      return (item.customerName ?? '').toLowerCase().contains(query) ||
-          (item.note ?? '').toLowerCase().contains(query) ||
+          : DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(
+              item.finalizedAt!.toLocal(),
+            );
+      return item.clientName.toLowerCase().contains(query) ||
           item.id.toLowerCase().contains(query) ||
+          item.quotationId.toLowerCase().contains(query) ||
+          item.serviceType.toLowerCase().contains(query) ||
+          (item.createdByName).toLowerCase().contains(query) ||
+          (item.technicianName ?? '').toLowerCase().contains(query) ||
           dateText.toLowerCase().contains(query);
     }).toList(growable: false);
   }
 
-  SalesSummaryModel get _detailSummary {
-    return SalesSummaryModel(
-      totalSales: _visibleSales.length,
-      totalSold: _visibleSales.fold<double>(0, (sum, item) => sum + item.totalSold),
-      totalCost: _visibleSales.fold<double>(0, (sum, item) => sum + item.totalCost),
-      totalProfit: _visibleSales.fold<double>(0, (sum, item) => sum + item.totalProfit),
-      totalCommission: _visibleSales.fold<double>(
+  AdminServiceCommissionTotals get _detailSummary {
+    return AdminServiceCommissionTotals(
+      totalServices: _visibleItems.length,
+      totalInstallations: _visibleItems
+          .where((item) => item.serviceType.trim().toLowerCase() == 'instalacion')
+          .length,
+      totalMaintenances: _visibleItems
+          .where((item) => item.serviceType.trim().toLowerCase() == 'mantenimiento')
+          .length,
+      totalSold: _visibleItems.fold<double>(
         0,
-        (sum, item) => sum + item.commissionAmount,
+        (sum, item) => sum + item.totalAmount,
+      ),
+      totalPoints: _visibleItems.fold<double>(
+        0,
+        (sum, item) => sum + item.totalCommissionAmount,
       ),
     );
   }
@@ -552,22 +577,35 @@ class _AdminSalesUserDetailScreenState
     return DateFormat('dd/MM/yyyy', 'es_DO').format(value);
   }
 
-  bool get _isQuincenaRange => _rangeLooksLikeQuincena(_from, _to);
+  bool get _isQuincenaRange => _rangeLooksLikeAdminCommissionQuincena(_from, _to);
 
   String get _activeFilterLabel => _isQuincenaRange
-      ? _salesRangeLabel(_from, _to)
+      ? _adminCommissionRangeLabel(_from, _to)
       : 'Intervalo personalizado';
 
-  void _openSaleDetail(SaleModel sale) {
-    final dateText = sale.saleDate == null
+  String _serviceTypeLabel(String value) {
+    switch (value.trim().toLowerCase()) {
+      case 'instalacion':
+        return 'Instalación';
+      case 'mantenimiento':
+        return 'Mantenimiento';
+      default:
+        return value;
+    }
+  }
+
+  void _openServiceDetail(ServiceOrderCommissionItem item) {
+    final dateText = item.finalizedAt == null
         ? 'Sin fecha'
-        : DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(sale.saleDate!.toLocal());
+        : DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(
+            item.finalizedAt!.toLocal(),
+          );
 
     showDialog<void>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Detalle de venta'),
+          title: const Text('Detalle del servicio'),
           content: SizedBox(
             width: 460,
             child: SingleChildScrollView(
@@ -575,36 +613,18 @@ class _AdminSalesUserDetailScreenState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('ID: ${sale.id}'),
-                  Text('Usuario: ${sale.userId}'),
+                  Text('Orden de servicio: ${item.id}'),
+                  Text('Cotización: ${item.quotationId}'),
+                  Text('Cliente: ${item.clientName}'),
+                  Text('Tipo: ${_serviceTypeLabel(item.serviceType)}'),
+                  Text('Fecha finalizado: $dateText'),
+                  Text('Vendedor: ${item.createdByName}'),
                   Text(
-                    'Cliente: ${sale.customerName?.trim().isNotEmpty == true ? sale.customerName : 'No especificado'}',
-                  ),
-                  Text('Fecha: $dateText'),
-                  if ((sale.note ?? '').trim().isNotEmpty) Text('Nota: ${sale.note}'),
-                  const Divider(height: 18),
-                  ...sale.items.map(
-                    (item) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '${item.productNameSnapshot} x${item.qty.toStringAsFixed(item.qty % 1 == 0 ? 0 : 2)}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Text(_money(item.subtotalSold)),
-                        ],
-                      ),
-                    ),
+                    'Técnico: ${(item.technicianName ?? '').trim().isNotEmpty ? item.technicianName! : 'No indicado'}',
                   ),
                   const Divider(height: 18),
-                  Text('Total vendido: ${_money(sale.totalSold)}'),
-                  Text('Total costo: ${_money(sale.totalCost)}'),
-                  Text('Utilidad: ${_money(sale.totalProfit)}'),
-                  Text('Comisión: ${_money(sale.commissionAmount)}'),
+                  Text('Número vendido: ${_money(item.totalAmount)}'),
+                  Text('Puntos: ${_money(item.totalCommissionAmount)}'),
                 ],
               ),
             ),
@@ -624,7 +644,7 @@ class _AdminSalesUserDetailScreenState
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final visible = _visibleSales;
+    final visible = _visibleItems;
     final summary = _detailSummary;
 
     return Scaffold(
@@ -653,7 +673,7 @@ class _AdminSalesUserDetailScreenState
                           textInputAction: TextInputAction.search,
                           decoration: InputDecoration(
                             isDense: true,
-                            hintText: 'Buscar venta o cliente',
+                            hintText: 'Buscar servicio, orden o cliente',
                             prefixIcon: const Icon(Icons.search_rounded),
                             filled: true,
                             fillColor: scheme.surface,
@@ -797,19 +817,29 @@ class _AdminSalesUserDetailScreenState
                             runSpacing: 8,
                             children: [
                               _AdminSalesInfoChip(
-                                icon: Icons.receipt_long_outlined,
-                                label: 'Ventas',
-                                value: '${summary.totalSales}',
+                                icon: Icons.assignment_turned_in_outlined,
+                                label: 'Servicios finalizados',
+                                value: '${summary.totalServices}',
+                              ),
+                              _AdminSalesInfoChip(
+                                icon: Icons.build_rounded,
+                                label: 'Instalación',
+                                value: '${summary.totalInstallations}',
+                              ),
+                              _AdminSalesInfoChip(
+                                icon: Icons.settings_suggest_outlined,
+                                label: 'Mantenimiento',
+                                value: '${summary.totalMaintenances}',
                               ),
                               _AdminSalesInfoChip(
                                 icon: Icons.payments_outlined,
-                                label: 'Total vendido',
+                                label: 'Número vendido',
                                 value: _money(summary.totalSold),
                               ),
                               _AdminSalesInfoChip(
                                 icon: Icons.stars_rounded,
                                 label: 'Puntos',
-                                value: _money(summary.totalProfit),
+                                value: _money(summary.totalPoints),
                               ),
                             ],
                           ),
@@ -831,7 +861,7 @@ class _AdminSalesUserDetailScreenState
                   : visible.isEmpty
                       ? Center(
                           child: Text(
-                            'No hay ventas para este filtro.',
+                            'No hay servicios para este filtro.',
                             style: theme.textTheme.bodyLarge?.copyWith(
                               color: scheme.onSurfaceVariant,
                             ),
@@ -845,17 +875,18 @@ class _AdminSalesUserDetailScreenState
                             itemCount: visible.length,
                             separatorBuilder: (_, __) => const SizedBox(height: 6),
                             itemBuilder: (context, index) {
-                              final sale = visible[index];
-                              return _AdminSaleItemCard(
-                                sale: sale,
+                              final item = visible[index];
+                              return _AdminServiceItemCard(
+                                item: item,
                                 moneyText: _money,
-                                dateText: sale.saleDate == null
+                                typeLabel: _serviceTypeLabel(item.serviceType),
+                                dateText: item.finalizedAt == null
                                     ? 'Sin fecha'
                                     : DateFormat(
                                         'dd/MM/yyyy h:mm a',
                                         'es_DO',
-                                      ).format(sale.saleDate!.toLocal()),
-                                onTap: () => _openSaleDetail(sale),
+                                      ).format(item.finalizedAt!.toLocal()),
+                                onTap: () => _openServiceDetail(item),
                               );
                             },
                           ),
@@ -928,23 +959,23 @@ class _CompactTopActionButton extends StatelessWidget {
   }
 }
 
-class _AdminSalesUserCard extends StatelessWidget {
-  const _AdminSalesUserCard({
+class _AdminServiceUserCard extends StatelessWidget {
+  const _AdminServiceUserCard({
     required this.summary,
     required this.accentColor,
     required this.dateRangeLabel,
     required this.soldLabel,
     required this.pointsLabel,
-    required this.salesCountLabel,
+    required this.servicesCountLabel,
     required this.onTap,
   });
 
-  final AdminSalesUserSummary summary;
+  final AdminServiceCommissionUserSummary summary;
   final Color accentColor;
   final String dateRangeLabel;
   final String soldLabel;
   final String pointsLabel;
-  final String salesCountLabel;
+  final String servicesCountLabel;
   final VoidCallback onTap;
 
   @override
@@ -1006,17 +1037,11 @@ class _AdminSalesUserCard extends StatelessWidget {
                       spacing: 6,
                       runSpacing: 4,
                       children: [
+                        _AdminSalesInlineChip(label: 'Vendido', value: soldLabel),
+                        _AdminSalesInlineChip(label: 'Puntos', value: pointsLabel),
                         _AdminSalesInlineChip(
-                          label: 'Vendido',
-                          value: soldLabel,
-                        ),
-                        _AdminSalesInlineChip(
-                          label: 'Puntos',
-                          value: pointsLabel,
-                        ),
-                        _AdminSalesInlineChip(
-                          label: 'Ventas',
-                          value: salesCountLabel,
+                          label: 'Servicios',
+                          value: servicesCountLabel,
                         ),
                       ],
                     ),
@@ -1043,16 +1068,18 @@ class _AdminSalesUserCard extends StatelessWidget {
   }
 }
 
-class _AdminSaleItemCard extends StatelessWidget {
-  const _AdminSaleItemCard({
-    required this.sale,
+class _AdminServiceItemCard extends StatelessWidget {
+  const _AdminServiceItemCard({
+    required this.item,
     required this.moneyText,
+    required this.typeLabel,
     required this.dateText,
     required this.onTap,
   });
 
-  final SaleModel sale;
+  final ServiceOrderCommissionItem item;
   final String Function(double value) moneyText;
+  final String typeLabel;
   final String dateText;
   final VoidCallback onTap;
 
@@ -1082,8 +1109,8 @@ class _AdminSaleItemCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      sale.customerName?.trim().isNotEmpty == true
-                          ? sale.customerName!
+                      item.clientName.trim().isNotEmpty
+                          ? item.clientName
                           : 'Cliente no especificado',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -1098,17 +1125,15 @@ class _AdminSaleItemCard extends StatelessWidget {
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
-                    if ((sale.note ?? '').trim().isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        sale.note!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$typeLabel · Orden ${item.id} · Cot. ${item.quotationId}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
                       ),
-                    ],
+                    ),
                   ],
                 ),
               ),
@@ -1117,14 +1142,14 @@ class _AdminSaleItemCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    moneyText(sale.totalSold),
+                    moneyText(item.totalAmount),
                     style: theme.textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w900,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Puntos: ${moneyText(sale.totalProfit)}',
+                    'Puntos: ${moneyText(item.totalCommissionAmount)}',
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
@@ -1314,13 +1339,13 @@ class _AdminSalesFilterPill extends StatelessWidget {
   }
 }
 
-SalesDateRange _currentSalesQuincenaRange([DateTime? reference]) {
+_AdminCommissionDateRange _currentAdminCommissionQuincenaRange([DateTime? reference]) {
   final now = reference ?? DateTime.now();
   final current = DateTime(now.year, now.month, now.day);
 
   if (current.day <= 14) {
     final previousMonthEnd = DateTime(current.year, current.month, 0);
-    return SalesDateRange(
+    return _AdminCommissionDateRange(
       from: DateTime(
         previousMonthEnd.year,
         previousMonthEnd.month,
@@ -1331,7 +1356,7 @@ SalesDateRange _currentSalesQuincenaRange([DateTime? reference]) {
   }
 
   if (current.day <= 29) {
-    return SalesDateRange(
+    return _AdminCommissionDateRange(
       from: DateTime(current.year, current.month, 15),
       to: DateTime(current.year, current.month, 29),
     );
@@ -1339,13 +1364,13 @@ SalesDateRange _currentSalesQuincenaRange([DateTime? reference]) {
 
   final monthEnd = DateTime(current.year, current.month + 1, 0);
   final startDay = current.day == 30 ? 30 : monthEnd.day;
-  return SalesDateRange(
+  return _AdminCommissionDateRange(
     from: DateTime(current.year, current.month, startDay),
     to: DateTime(current.year, current.month + 1, 14),
   );
 }
 
-String _salesRangeLabel(DateTime from, DateTime to) {
+String _adminCommissionRangeLabel(DateTime from, DateTime to) {
   if (from.day == 15 && to.day == 29) {
     return 'Quincena 15 - 29';
   }
@@ -1355,6 +1380,13 @@ String _salesRangeLabel(DateTime from, DateTime to) {
   return 'Intervalo personalizado';
 }
 
-bool _rangeLooksLikeQuincena(DateTime from, DateTime to) {
+bool _rangeLooksLikeAdminCommissionQuincena(DateTime from, DateTime to) {
   return (from.day == 15 && to.day == 29) || to.day == 14;
+}
+
+class _AdminCommissionDateRange {
+  const _AdminCommissionDateRange({required this.from, required this.to});
+
+  final DateTime from;
+  final DateTime to;
 }

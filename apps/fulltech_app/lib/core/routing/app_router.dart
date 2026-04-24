@@ -14,6 +14,7 @@ import '../../features/contabilidad/depositos_bancarios_screen.dart';
 import '../../features/contabilidad/factura_fiscal_screen.dart';
 import '../../features/contabilidad/pagos_pendientes_screen.dart';
 import '../../features/administracion/admin_punch_registry_screen.dart';
+import '../../features/administracion/admin_service_commissions_screen.dart';
 import '../../features/administracion/admin_sales_registry_screen.dart';
 import '../../features/administracion/admin_quotes_registry_screen.dart';
 import '../../features/administracion/administracion_screen.dart';
@@ -161,6 +162,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.administracionVentas,
             builder: (context, state) => const AdminSalesRegistryScreen(),
+          ),
+          GoRoute(
+            path: Routes.administracionComisiones,
+            builder: (context, state) => const AdminServiceCommissionsScreen(),
           ),
           GoRoute(
             path: Routes.administracionCotizaciones,

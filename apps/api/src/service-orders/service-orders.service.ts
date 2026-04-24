@@ -384,6 +384,172 @@ export class ServiceOrdersService {
     };
   }
 
+  async adminCommissionSummaryByUser(
+    from?: string,
+    to?: string,
+    userId?: string,
+  ) {
+    const where = this.buildAdminCommissionWhere(from, to);
+    const orders = await this.prisma.serviceOrder.findMany({
+      where,
+      orderBy: [{ finalizedAt: 'desc' }, { createdAt: 'desc' }],
+      include: {
+        client: {
+          select: {
+            id: true,
+            nombre: true,
+          },
+        },
+        quotation: {
+          select: {
+            id: true,
+            total: true,
+            totalProfit: true,
+          },
+        },
+        assignedTo: {
+          select: {
+            id: true,
+            nombreCompleto: true,
+          },
+        },
+        createdBy: {
+          select: {
+            id: true,
+            nombreCompleto: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    const grouped = new Map<
+      string,
+      {
+        userId: string;
+        userName: string;
+        userEmail: string;
+        totalServices: number;
+        installationCount: number;
+        maintenanceCount: number;
+        totalSold: number;
+        totalPoints: number;
+      }
+    >();
+
+    for (const order of orders) {
+      const commission = this.computeCommissionAmounts(order);
+      const recipientUserId = commission.recipientUserId?.trim() || order.createdById;
+      if (userId?.trim() && recipientUserId !== userId.trim()) {
+        continue;
+      }
+
+      const existing = grouped.get(recipientUserId) ?? {
+        userId: recipientUserId,
+        userName: '',
+        userEmail: '',
+        totalServices: 0,
+        installationCount: 0,
+        maintenanceCount: 0,
+        totalSold: 0,
+        totalPoints: 0,
+      };
+
+      const recipientUser =
+        order.assignedToId != null && order.assignedToId === recipientUserId
+          ? order.assignedTo
+          : order.createdBy;
+
+      existing.userName = recipientUser?.nombreCompleto?.trim() || existing.userName || 'Usuario';
+      existing.totalServices += 1;
+      existing.totalSold += commission.totalAmount;
+      existing.totalPoints += commission.totalCommissionAmount;
+      if (order.serviceType === PrismaServiceOrderType.INSTALACION) {
+        existing.installationCount += 1;
+      }
+      if (order.serviceType === PrismaServiceOrderType.MANTENIMIENTO) {
+        existing.maintenanceCount += 1;
+      }
+
+      grouped.set(recipientUserId, existing);
+    }
+
+    const items = Array.from(grouped.values()).sort((left, right) => {
+      const pointsOrder = right.totalPoints - left.totalPoints;
+      if (pointsOrder != 0) return pointsOrder;
+      return right.totalServices - left.totalServices;
+    });
+
+    const totals = items.reduce(
+      (acc, row) => {
+        acc.totalServices += row.totalServices;
+        acc.totalSold += row.totalSold;
+        acc.totalPoints += row.totalPoints;
+        acc.totalInstallations += row.installationCount;
+        acc.totalMaintenances += row.maintenanceCount;
+        return acc;
+      },
+      {
+        totalServices: 0,
+        totalSold: 0,
+        totalPoints: 0,
+        totalInstallations: 0,
+        totalMaintenances: 0,
+      },
+    );
+
+    return { items, totals };
+  }
+
+  async adminListCommissionsByUser(
+    userId?: string,
+    from?: string,
+    to?: string,
+  ) {
+    const where = this.buildAdminCommissionWhere(from, to);
+    const orders = await this.prisma.serviceOrder.findMany({
+      where,
+      orderBy: [{ finalizedAt: 'desc' }, { createdAt: 'desc' }],
+      include: {
+        client: {
+          select: {
+            id: true,
+            nombre: true,
+          },
+        },
+        quotation: {
+          select: {
+            id: true,
+            total: true,
+            totalProfit: true,
+          },
+        },
+        assignedTo: {
+          select: {
+            id: true,
+            nombreCompleto: true,
+          },
+        },
+        createdBy: {
+          select: {
+            id: true,
+            nombreCompleto: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    const targetUserId = userId?.trim();
+    return orders
+      .map((order) => this.mapCommissionOrder(order, Role.ADMIN))
+      .filter((order) => {
+        if (!targetUserId) return true;
+        return order.commissionRecipientUserId === targetUserId;
+      });
+  }
+
   async update(user: AuthUser, id: string, dto: UpdateServiceOrderDto) {
     const current = await this.findOrderOrThrow(user, id);
     if (user.role === Role.TECNICO) {
@@ -752,6 +918,66 @@ export class ServiceOrdersService {
       },
       ...this.buildCommissionVisibilityWhere(user),
     };
+  }
+
+  private buildAdminCommissionWhere(
+    from?: string,
+    to?: string,
+  ): Prisma.ServiceOrderWhereInput {
+    const range = this.resolveAdminCommissionDateRange(from, to);
+
+    return {
+      status: PrismaServiceOrderStatus.FINALIZADO,
+      serviceType: {
+        in: [
+          PrismaServiceOrderType.INSTALACION,
+          PrismaServiceOrderType.MANTENIMIENTO,
+        ],
+      },
+      finalizedAt: {
+        gte: range.from,
+        lte: range.to,
+      },
+    };
+  }
+
+  private resolveAdminCommissionDateRange(from?: string, to?: string) {
+    if (from?.trim() && to?.trim()) {
+      const parsedFrom = new Date(from);
+      const parsedTo = new Date(to);
+
+      if (Number.isNaN(parsedFrom.getTime()) || Number.isNaN(parsedTo.getTime())) {
+        throw new BadRequestException('El rango de fechas para comisiones es inválido');
+      }
+
+      const rangeFrom = new Date(
+        parsedFrom.getUTCFullYear(),
+        parsedFrom.getUTCMonth(),
+        parsedFrom.getUTCDate(),
+        0,
+        0,
+        0,
+        0,
+      );
+      const rangeTo = new Date(
+        parsedTo.getUTCFullYear(),
+        parsedTo.getUTCMonth(),
+        parsedTo.getUTCDate(),
+        23,
+        59,
+        59,
+        999,
+      );
+
+      if (rangeTo < rangeFrom) {
+        throw new BadRequestException('La fecha final no puede ser menor que la inicial');
+      }
+
+      return { from: rangeFrom, to: rangeTo };
+    }
+
+    const current = this.resolveCommissionPeriod('current', new Date());
+    return { from: current.from, to: current.to };
   }
 
   private buildCommissionVisibilityWhere(

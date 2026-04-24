@@ -49,4 +49,64 @@ class ServiceOrderCommissionsApi {
       _rethrow(error, 'No se pudieron cargar las comisiones');
     }
   }
+
+  Future<AdminServiceCommissionUsersSummary> adminSummaryByUser({
+    required DateTime from,
+    required DateTime to,
+    String? userId,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.adminServiceCommissionsSummary,
+        queryParameters: {
+          'from': _dateOnly(from),
+          'to': _dateOnly(to),
+          if ((userId ?? '').trim().isNotEmpty) 'userId': userId!.trim(),
+        },
+        options: _backgroundOptions,
+      );
+      final raw = (res.data as Map?)?.cast<String, dynamic>();
+      if (raw == null) {
+        throw ApiException('No se pudo cargar el resumen administrativo de servicios');
+      }
+      return AdminServiceCommissionUsersSummary.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo cargar el resumen administrativo de servicios');
+    }
+  }
+
+  Future<List<ServiceOrderCommissionItem>> adminListByUser({
+    required DateTime from,
+    required DateTime to,
+    required String userId,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.adminServiceCommissions,
+        queryParameters: {
+          'from': _dateOnly(from),
+          'to': _dateOnly(to),
+          'userId': userId.trim(),
+        },
+        options: _backgroundOptions,
+      );
+      final rows = res.data is List ? (res.data as List) : const [];
+      return rows
+          .whereType<Map>()
+          .map(
+            (item) => ServiceOrderCommissionItem.fromJson(
+              item.cast<String, dynamic>(),
+            ),
+          )
+          .toList(growable: false);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudieron cargar los servicios del usuario');
+    }
+  }
+
+  String _dateOnly(DateTime value) {
+    final month = value.month.toString().padLeft(2, '0');
+    final day = value.day.toString().padLeft(2, '0');
+    return '${value.year}-$month-$day';
+  }
 }
