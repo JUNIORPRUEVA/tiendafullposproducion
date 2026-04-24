@@ -12,7 +12,7 @@ final cotizacionesLocalRepositoryProvider =
 
 class CotizacionesLocalRepository {
   static const _dbName = 'cotizaciones_local.db';
-  static const _dbVersion = 3;
+  static const _dbVersion = 4;
   static const _tableCotizaciones = 'cotizaciones';
   static const _tableItems = 'cotizacion_items';
 
@@ -38,6 +38,8 @@ class CotizacionesLocalRepository {
             include_itbis INTEGER NOT NULL DEFAULT 0,
             itbis_rate REAL NOT NULL DEFAULT 0.18,
             global_discount_amount REAL NOT NULL DEFAULT 0,
+            total_cost REAL,
+            total_profit REAL,
             is_draft INTEGER NOT NULL DEFAULT 0
           )
         ''');
@@ -50,6 +52,10 @@ class CotizacionesLocalRepository {
             nombre TEXT NOT NULL,
             image_url TEXT,
             original_unit_price REAL,
+            cost_unit REAL,
+            external_cost_unit REAL,
+            subtotal_cost_snapshot REAL,
+            profit_snapshot REAL,
             unit_price REAL NOT NULL,
             qty REAL NOT NULL
           )
@@ -74,6 +80,44 @@ class CotizacionesLocalRepository {
             tableName: _tableCotizaciones,
             columnName: 'global_discount_amount',
             definition: 'REAL NOT NULL DEFAULT 0',
+          );
+        }
+        if (oldVersion < 4) {
+          await _addColumnIfMissing(
+            db,
+            tableName: _tableCotizaciones,
+            columnName: 'total_cost',
+            definition: 'REAL',
+          );
+          await _addColumnIfMissing(
+            db,
+            tableName: _tableCotizaciones,
+            columnName: 'total_profit',
+            definition: 'REAL',
+          );
+          await _addColumnIfMissing(
+            db,
+            tableName: _tableItems,
+            columnName: 'cost_unit',
+            definition: 'REAL',
+          );
+          await _addColumnIfMissing(
+            db,
+            tableName: _tableItems,
+            columnName: 'external_cost_unit',
+            definition: 'REAL',
+          );
+          await _addColumnIfMissing(
+            db,
+            tableName: _tableItems,
+            columnName: 'subtotal_cost_snapshot',
+            definition: 'REAL',
+          );
+          await _addColumnIfMissing(
+            db,
+            tableName: _tableItems,
+            columnName: 'profit_snapshot',
+            definition: 'REAL',
           );
         }
       },
@@ -254,6 +298,8 @@ class CotizacionesLocalRepository {
         'include_itbis': cotizacion.includeItbis ? 1 : 0,
         'itbis_rate': cotizacion.itbisRate,
         'global_discount_amount': cotizacion.globalDiscountAmount,
+        'total_cost': cotizacion.totalCost,
+        'total_profit': cotizacion.totalProfit,
         'is_draft': isDraft ? 1 : 0,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
 
@@ -270,6 +316,10 @@ class CotizacionesLocalRepository {
           'nombre': item.nombre,
           'image_url': item.imageUrl,
           'original_unit_price': item.originalUnitPrice,
+          'cost_unit': item.costUnit,
+          'external_cost_unit': item.externalCostUnit,
+          'subtotal_cost_snapshot': item.subtotalCostSnapshot,
+          'profit_snapshot': item.profitSnapshot,
           'unit_price': item.unitPrice,
           'qty': item.qty,
         });
@@ -308,8 +358,10 @@ class CotizacionesLocalRepository {
       note: (row['note'] ?? '').toString(),
       includeItbis: (row['include_itbis'] as num?)?.toInt() == 1,
       itbisRate: (row['itbis_rate'] as num?)?.toDouble() ?? 0.18,
-        globalDiscountAmount:
+      globalDiscountAmount:
           (row['global_discount_amount'] as num?)?.toDouble() ?? 0,
+      totalCost: (row['total_cost'] as num?)?.toDouble(),
+      totalProfit: (row['total_profit'] as num?)?.toDouble(),
       items: itemRows
           .map(
             (itemRow) => CotizacionItem(
@@ -318,6 +370,13 @@ class CotizacionesLocalRepository {
               imageUrl: itemRow['image_url']?.toString(),
               originalUnitPrice:
                   (itemRow['original_unit_price'] as num?)?.toDouble(),
+              costUnit: (itemRow['cost_unit'] as num?)?.toDouble(),
+              externalCostUnit:
+                  (itemRow['external_cost_unit'] as num?)?.toDouble(),
+              subtotalCostSnapshot:
+                  (itemRow['subtotal_cost_snapshot'] as num?)?.toDouble(),
+              profitSnapshot:
+                  (itemRow['profit_snapshot'] as num?)?.toDouble(),
               unitPrice: (itemRow['unit_price'] as num?)?.toDouble() ?? 0,
               qty: (itemRow['qty'] as num?)?.toDouble() ?? 0,
             ),

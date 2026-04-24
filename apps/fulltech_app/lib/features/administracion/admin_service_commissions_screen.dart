@@ -5,11 +5,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/auth/app_role.dart';
+import '../../core/models/user_model.dart';
 import '../../core/errors/user_facing_error.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/professional_recovery_card.dart';
+import '../../features/user/data/users_repository.dart';
+import '../../modules/clientes/cliente_model.dart';
+import '../../modules/cotizaciones/cotizacion_models.dart';
+import '../../modules/cotizaciones/data/cotizaciones_repository.dart';
 import '../../modules/service_orders/commissions_models.dart';
 import '../../modules/service_orders/data/service_order_commissions_api.dart';
+import '../../modules/service_orders/data/service_orders_api.dart';
+import '../../modules/service_orders/data/service_orders_local_repository.dart';
+import '../../modules/service_orders/service_order_models.dart';
 
 enum _AdminServiceMenuAction { filters, sync, panel, resetQuincena }
 
@@ -67,9 +76,17 @@ class _AdminServiceCommissionsScreenState
 
     try {
       final repo = ref.read(serviceOrderCommissionsApiProvider);
+      final fallbackRepo = _AdminServiceCommissionFallbackRepository(ref);
       final from = DateTime(_from.year, _from.month, _from.day);
       final to = DateTime(_to.year, _to.month, _to.day);
-      final summary = await repo.adminSummaryByUser(from: from, to: to);
+      AdminServiceCommissionUsersSummary summary;
+      try {
+        final remoteSummary = await repo.adminSummaryByUser(from: from, to: to);
+        final localSummary = await fallbackRepo.loadSummary(from: from, to: to);
+        summary = _mergeSummaryWithLocal(remoteSummary, localSummary);
+      } catch (_) {
+        summary = await fallbackRepo.loadSummary(from: from, to: to);
+      }
       if (!mounted) return;
 
       setState(() {
@@ -192,6 +209,67 @@ class _AdminServiceCommissionsScreenState
           user: summary,
           initialFrom: _from,
           initialTo: _to,
+        ),
+      ),
+    );
+  }
+
+  AdminServiceCommissionUsersSummary _mergeSummaryWithLocal(
+    AdminServiceCommissionUsersSummary remote,
+    AdminServiceCommissionUsersSummary local,
+  ) {
+    final remoteById = {
+      for (final item in remote.items) item.userId.trim(): item,
+    };
+    final localById = {
+      for (final item in local.items) item.userId.trim(): item,
+    };
+    final userIds = <String>{...remoteById.keys, ...localById.keys};
+
+    final mergedItems = userIds.map((userId) {
+      final remoteItem = remoteById[userId];
+      final localItem = localById[userId];
+      final base = remoteItem ?? localItem!;
+      final localPoints = localItem?.totalPoints ?? 0;
+      return AdminServiceCommissionUserSummary(
+        userId: base.userId,
+        userName: base.userName,
+        userEmail: base.userEmail,
+        totalServices: base.totalServices,
+        installationCount: base.installationCount,
+        maintenanceCount: base.maintenanceCount,
+        totalSold: base.totalSold,
+        totalPoints: localPoints > 0 ? localPoints : base.totalPoints,
+      );
+    }).toList(growable: false)
+      ..sort((left, right) {
+        final pointsOrder = right.totalPoints.compareTo(left.totalPoints);
+        if (pointsOrder != 0) return pointsOrder;
+        return right.totalSold.compareTo(left.totalSold);
+      });
+
+    return AdminServiceCommissionUsersSummary(
+      items: mergedItems,
+      totals: AdminServiceCommissionTotals(
+        totalServices: mergedItems.fold<int>(
+          0,
+          (sum, item) => sum + item.totalServices,
+        ),
+        totalInstallations: mergedItems.fold<int>(
+          0,
+          (sum, item) => sum + item.installationCount,
+        ),
+        totalMaintenances: mergedItems.fold<int>(
+          0,
+          (sum, item) => sum + item.maintenanceCount,
+        ),
+        totalSold: mergedItems.fold<double>(
+          0,
+          (sum, item) => sum + item.totalSold,
+        ),
+        totalPoints: mergedItems.fold<double>(
+          0,
+          (sum, item) => sum + item.totalPoints,
         ),
       ),
     );
@@ -340,30 +418,70 @@ class _AdminServiceCommissionsScreenState
                               color: scheme.outlineVariant.withValues(alpha: 0.28),
                             ),
                           ),
-                          child: Row(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: _AdminSalesCompactStat(
-                                  label: 'Servicios',
-                                  value: '${_summary.totals.totalServices}',
-                                  icon: Icons.assignment_turned_in_outlined,
+                              Text(
+                                'Resumen del período',
+                                style: theme.textTheme.labelLarge?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  color: scheme.onSurface,
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _AdminSalesCompactStat(
-                                  label: 'Vendido',
-                                  value: _money(_summary.totals.totalSold),
-                                  icon: Icons.payments_outlined,
+                              const SizedBox(height: 2),
+                              Text(
+                                '${_dateOnlyText(_from)} - ${_dateOnlyText(_to)}',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: scheme.onSurfaceVariant,
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _AdminSalesCompactStat(
-                                  label: 'Puntos',
-                                  value: _money(_summary.totals.totalPoints),
-                                  icon: Icons.stars_rounded,
-                                ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _AdminSalesCompactStat(
+                                      label: 'Servicios',
+                                      value: '${_summary.totals.totalServices}',
+                                      icon: Icons.assignment_turned_in_outlined,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: _AdminSalesCompactStat(
+                                      label: 'Instalación',
+                                      value: '${_summary.totals.totalInstallations}',
+                                      icon: Icons.build_rounded,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: _AdminSalesCompactStat(
+                                      label: 'Mantenimiento',
+                                      value: '${_summary.totals.totalMaintenances}',
+                                      icon: Icons.settings_suggest_outlined,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _AdminSalesCompactStat(
+                                      label: 'Ventas total',
+                                      value: _money(_summary.totals.totalSold),
+                                      icon: Icons.payments_outlined,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: _AdminSalesCompactStat(
+                                      label: 'Puntos utilidad',
+                                      value: _money(_summary.totals.totalPoints),
+                                      icon: Icons.stars_rounded,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -480,11 +598,27 @@ class _AdminServiceUserDetailScreenState
 
     try {
       final repo = ref.read(serviceOrderCommissionsApiProvider);
-      final items = await repo.adminListByUser(
-        from: DateTime(_from.year, _from.month, _from.day),
-        to: DateTime(_to.year, _to.month, _to.day),
-        userId: widget.user.userId,
-      );
+      final fallbackRepo = _AdminServiceCommissionFallbackRepository(ref);
+      List<ServiceOrderCommissionItem> items;
+      try {
+        final remoteItems = await repo.adminListByUser(
+          from: DateTime(_from.year, _from.month, _from.day),
+          to: DateTime(_to.year, _to.month, _to.day),
+          userId: widget.user.userId,
+        );
+        final localItems = await fallbackRepo.loadUserItems(
+          from: DateTime(_from.year, _from.month, _from.day),
+          to: DateTime(_to.year, _to.month, _to.day),
+          userId: widget.user.userId,
+        );
+        items = _mergeItemsWithLocal(remoteItems, localItems);
+      } catch (_) {
+        items = await fallbackRepo.loadUserItems(
+          from: DateTime(_from.year, _from.month, _from.day),
+          to: DateTime(_to.year, _to.month, _to.day),
+          userId: widget.user.userId,
+        );
+      }
       if (!mounted) return;
       setState(() {
         _items = items..sort(_sortServicesByDateDesc);
@@ -504,6 +638,48 @@ class _AdminServiceUserDetailScreenState
     final aDate = a.finalizedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
     final bDate = b.finalizedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
     return bDate.compareTo(aDate);
+  }
+
+  List<ServiceOrderCommissionItem> _mergeItemsWithLocal(
+    List<ServiceOrderCommissionItem> remoteItems,
+    List<ServiceOrderCommissionItem> localItems,
+  ) {
+    final remoteById = {for (final item in remoteItems) item.id: item};
+    final localById = {for (final item in localItems) item.id: item};
+    final ids = <String>{...remoteById.keys, ...localById.keys};
+
+    return ids.map((id) {
+      final remote = remoteById[id];
+      final local = localById[id];
+      final base = remote ?? local!;
+      final localPoints = local?.totalCommissionAmount ?? 0;
+      return ServiceOrderCommissionItem(
+        id: base.id,
+        clientId: base.clientId,
+        clientName: base.clientName,
+        quotationId: base.quotationId,
+        createdById: base.createdById,
+        createdByName: base.createdByName,
+        technicianId: base.technicianId,
+        technicianName: base.technicianName,
+        serviceType: base.serviceType,
+        status: base.status,
+        finalizedAt: base.finalizedAt,
+        totalAmount: base.totalAmount,
+        sellerCommissionAmount: localPoints > 0
+            ? (local?.sellerCommissionAmount ?? base.sellerCommissionAmount)
+            : base.sellerCommissionAmount,
+        technicianCommissionAmount: localPoints > 0
+            ? (local?.technicianCommissionAmount ?? base.technicianCommissionAmount)
+            : base.technicianCommissionAmount,
+        visibleCommissionAmount: localPoints > 0
+            ? (local?.visibleCommissionAmount ?? base.visibleCommissionAmount)
+            : base.visibleCommissionAmount,
+        totalCommissionAmount: localPoints > 0
+            ? localPoints
+            : base.totalCommissionAmount,
+      );
+    }).toList(growable: false);
   }
 
   Future<void> _pickDateRange() async {
@@ -1037,6 +1213,14 @@ class _AdminServiceUserCard extends StatelessWidget {
                       spacing: 6,
                       runSpacing: 4,
                       children: [
+                        _AdminSalesInlineChip(
+                          label: 'Inst.',
+                          value: '${summary.installationCount}',
+                        ),
+                        _AdminSalesInlineChip(
+                          label: 'Mant.',
+                          value: '${summary.maintenanceCount}',
+                        ),
                         _AdminSalesInlineChip(label: 'Vendido', value: soldLabel),
                         _AdminSalesInlineChip(label: 'Puntos', value: pointsLabel),
                         _AdminSalesInlineChip(
@@ -1259,37 +1443,39 @@ class _AdminSalesCompactStat extends StatelessWidget {
     final scheme = theme.colorScheme;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.64),
         borderRadius: BorderRadius.circular(14),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 15, color: scheme.primary),
-          const SizedBox(width: 7),
-          Expanded(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-                fontWeight: FontWeight.w700,
+          Row(
+            children: [
+              Icon(icon, size: 15, color: scheme.primary),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.end,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: scheme.onSurface,
-                fontWeight: FontWeight.w900,
-              ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: scheme.onSurface,
+              fontWeight: FontWeight.w900,
             ),
           ),
         ],
@@ -1389,4 +1575,437 @@ class _AdminCommissionDateRange {
 
   final DateTime from;
   final DateTime to;
+}
+
+class _AdminServiceCommissionFallbackRepository {
+  _AdminServiceCommissionFallbackRepository(this.ref);
+
+  final WidgetRef ref;
+
+  Future<AdminServiceCommissionUsersSummary> loadSummary({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final computed = await _buildComputedItems(from: from, to: to);
+    final grouped = <String, _AdminUserSummaryAccumulator>{};
+
+    for (final entry in computed) {
+      final key = entry.recipientUserId.trim();
+      final accumulator = grouped.putIfAbsent(
+        key,
+        () => _AdminUserSummaryAccumulator(
+          userId: key,
+          userName: entry.recipientUserName,
+          userEmail: entry.recipientUserEmail,
+        ),
+      );
+      accumulator.add(entry.item);
+    }
+
+    final items = grouped.values
+        .map((entry) => entry.build())
+        .toList(growable: false)
+      ..sort((left, right) {
+        final points = right.totalPoints.compareTo(left.totalPoints);
+        if (points != 0) return points;
+        return right.totalSold.compareTo(left.totalSold);
+      });
+
+    final totals = AdminServiceCommissionTotals(
+      totalServices: computed.length,
+      totalInstallations: computed
+          .where(
+            (entry) =>
+                entry.item.serviceType.trim().toLowerCase() == 'instalacion',
+          )
+          .length,
+      totalMaintenances: computed
+          .where(
+            (entry) =>
+                entry.item.serviceType.trim().toLowerCase() == 'mantenimiento',
+          )
+          .length,
+      totalSold: computed.fold<double>(
+        0,
+        (sum, entry) => sum + entry.item.totalAmount,
+      ),
+      totalPoints: computed.fold<double>(
+        0,
+        (sum, entry) => sum + entry.item.totalCommissionAmount,
+      ),
+    );
+
+    return AdminServiceCommissionUsersSummary(items: items, totals: totals);
+  }
+
+  Future<List<ServiceOrderCommissionItem>> loadUserItems({
+    required DateTime from,
+    required DateTime to,
+    required String userId,
+  }) async {
+    final computed = await _buildComputedItems(from: from, to: to);
+    return computed
+        .where((entry) => entry.recipientUserId == userId.trim())
+        .map((entry) => entry.item)
+        .toList(growable: false);
+  }
+
+  Future<List<_AdminComputedCommissionItem>> _buildComputedItems({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final snapshot = await _loadSnapshot();
+    final start = DateTime(from.year, from.month, from.day);
+    final end = DateTime(to.year, to.month, to.day, 23, 59, 59, 999);
+    final filteredOrders = snapshot.orders.where((order) {
+      if (order.status != ServiceOrderStatus.finalizado) return false;
+      if (order.serviceType != ServiceOrderType.instalacion &&
+          order.serviceType != ServiceOrderType.mantenimiento) {
+        return false;
+      }
+      final finalizedAt = order.finalizedAt;
+      if (finalizedAt == null) return false;
+      return !finalizedAt.isBefore(start) && !finalizedAt.isAfter(end);
+    }).toList(growable: false);
+
+    final quotationsById = await _loadQuotationsById(filteredOrders);
+    final items = <_AdminComputedCommissionItem>[];
+
+    for (final order in filteredOrders) {
+      final quotationId = (order.quotationId ?? '').trim();
+      final quotation = quotationId.isEmpty ? null : quotationsById[quotationId];
+      final creator = snapshot.usersById[order.createdById];
+      final assignedToId = (order.assignedToId ?? '').trim();
+      final technician = assignedToId.isEmpty
+          ? null
+          : snapshot.usersById[assignedToId];
+      final recipient = _resolveRecipient(
+        order: order,
+        creator: creator,
+        technician: technician,
+      );
+      final clientName = (order.client?.nombre ??
+              snapshot.clientsById[order.clientId]?.nombre ??
+              '')
+          .trim();
+      final commission = _computeCommission(
+        quotation: quotation,
+        recipientSource: recipient.userId == order.createdById
+        ? _CommissionRecipientSource.creator
+        : _CommissionRecipientSource.assignedTechnician,
+      );
+
+      items.add(
+        _AdminComputedCommissionItem(
+          recipientUserId: recipient.userId,
+          recipientUserName: recipient.userName,
+          recipientUserEmail: recipient.userEmail,
+          item: ServiceOrderCommissionItem(
+            id: order.id,
+            clientId: order.clientId,
+            clientName: clientName.isEmpty ? 'Cliente no especificado' : clientName,
+            quotationId: quotationId,
+            createdById: order.createdById,
+            createdByName: (creator?.nombreCompleto ?? order.createdById).trim(),
+            technicianId: assignedToId.isEmpty ? null : assignedToId,
+            technicianName: (technician?.nombreCompleto ?? '').trim().isEmpty
+                ? null
+                : technician!.nombreCompleto.trim(),
+            serviceType: order.serviceType.apiValue,
+            status: order.status.apiValue,
+            finalizedAt: order.finalizedAt,
+            totalAmount: commission.totalAmount,
+            sellerCommissionAmount: commission.sellerCommissionAmount,
+            technicianCommissionAmount: commission.technicianCommissionAmount,
+            visibleCommissionAmount: commission.totalCommissionAmount,
+            totalCommissionAmount: commission.totalCommissionAmount,
+          ),
+        ),
+      );
+    }
+
+    return items;
+  }
+
+  Future<_AdminFallbackSnapshot> _loadSnapshot() async {
+    final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
+    final localSnapshot = await localRepository.readSnapshot();
+    var orders = localSnapshot.orders.toList(growable: false);
+    var clientsById = Map<String, ClienteModel>.from(localSnapshot.clientsById);
+    var usersById = Map<String, UserModel>.from(localSnapshot.usersById);
+
+    final needsRemoteOrders = orders.isEmpty;
+    final needsRemoteUsers = usersById.isEmpty ||
+        orders.any((order) {
+          final assignedToId = (order.assignedToId ?? '').trim();
+          return !usersById.containsKey(order.createdById) ||
+              (assignedToId.isNotEmpty && !usersById.containsKey(assignedToId));
+        });
+
+    if (needsRemoteOrders || needsRemoteUsers) {
+      try {
+        if (needsRemoteOrders) {
+          orders = await ref.read(serviceOrdersApiProvider).listOrders();
+        }
+        if (needsRemoteUsers) {
+          final users = await ref
+              .read(usersRepositoryProvider)
+              .getAllUsers(skipLoader: true);
+          usersById = {for (final user in users) user.id: user};
+        }
+        final mergedClientsById = <String, ClienteModel>{...clientsById};
+        for (final order in orders) {
+          final client = order.client;
+          if (client != null) {
+            mergedClientsById[client.id] = client;
+          }
+        }
+        clientsById = mergedClientsById;
+        if (orders.isNotEmpty) {
+          await localRepository.saveSnapshot(
+            orders: orders,
+            clientsById: clientsById,
+            usersById: usersById,
+          );
+        }
+      } catch (_) {
+        // Preserve local snapshot when background refresh is unavailable.
+      }
+    }
+
+    return _AdminFallbackSnapshot(
+      orders: orders,
+      clientsById: clientsById,
+      usersById: usersById,
+    );
+  }
+
+  Future<Map<String, CotizacionModel>> _loadQuotationsById(
+    List<ServiceOrderModel> orders,
+  ) async {
+    final repository = ref.read(cotizacionesRepositoryProvider);
+    final quotationIds = orders
+        .map((order) => (order.quotationId ?? '').trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+
+    final entries = await Future.wait(
+      quotationIds.map((id) async {
+        final cached = await repository.getCachedById(id);
+        if (cached != null && _quotationHasUtilityData(cached)) {
+          return MapEntry(id, cached);
+        }
+        try {
+          final remote = await repository.getByIdAndCache(id);
+          return MapEntry(id, remote);
+        } catch (_) {
+          return null;
+        }
+      }),
+    );
+
+    return {
+      for (final entry in entries)
+        if (entry != null) entry.key: entry.value,
+    };
+  }
+
+  _AdminRecipient _resolveRecipient({
+    required ServiceOrderModel order,
+    required UserModel? creator,
+    required UserModel? technician,
+  }) {
+    final assignedToId = (order.assignedToId ?? '').trim();
+    if (creator?.appRole.isTechnician == true && assignedToId.isNotEmpty) {
+      return _AdminRecipient(
+        userId: assignedToId,
+        userName: (technician?.nombreCompleto ?? assignedToId).trim(),
+        userEmail: (technician?.email ?? '').trim(),
+      );
+    }
+
+    return _AdminRecipient(
+      userId: order.createdById,
+      userName: (creator?.nombreCompleto ?? order.createdById).trim(),
+      userEmail: (creator?.email ?? '').trim(),
+    );
+  }
+
+  bool _quotationHasUtilityData(CotizacionModel quotation) {
+    if (quotation.totalProfit != null) return true;
+    if (quotation.totalCost != null) return true;
+    if (quotation.items.isEmpty) return false;
+    return quotation.items.every(
+      (item) => item.subtotalCostSnapshot != null || item.tracedCostUnit != null,
+    );
+  }
+
+  _LocalCommissionAmounts _computeCommission({
+    required CotizacionModel? quotation,
+    required _CommissionRecipientSource recipientSource,
+  }) {
+    if (quotation == null) {
+      return const _LocalCommissionAmounts(
+        totalAmount: 0,
+        sellerCommissionAmount: 0,
+        technicianCommissionAmount: 0,
+        totalCommissionAmount: 0,
+      );
+    }
+
+    if (quotation.items.isEmpty) {
+      return _LocalCommissionAmounts(
+        totalAmount: quotation.total,
+        sellerCommissionAmount: 0,
+        technicianCommissionAmount: 0,
+        totalCommissionAmount: 0,
+      );
+    }
+
+    var missingCostItemsCount = 0;
+    var totalCost = quotation.totalCost ?? 0.0;
+    if (quotation.totalCost == null) {
+      totalCost = 0;
+      for (final item in quotation.items) {
+        final subtotalCost = item.subtotalCostSnapshot;
+        final costUnit = item.tracedCostUnit;
+        if (subtotalCost != null) {
+          totalCost += subtotalCost;
+          continue;
+        }
+        if (costUnit == null) {
+          missingCostItemsCount += 1;
+          continue;
+        }
+        totalCost += costUnit * item.qty;
+      }
+    }
+
+    if (missingCostItemsCount > 0) {
+      return _LocalCommissionAmounts(
+        totalAmount: quotation.total,
+        sellerCommissionAmount: 0,
+        technicianCommissionAmount: 0,
+        totalCommissionAmount: 0,
+      );
+    }
+
+    final totalProfit = quotation.totalProfit ?? (quotation.total - totalCost);
+    final operationalExpenseAmount = totalProfit > 0 ? totalProfit * 0.2 : 0;
+    final totalCommissionAmount =
+        (totalProfit - operationalExpenseAmount).clamp(0, double.infinity)
+            as double;
+    final sellerCommissionAmount =
+        recipientSource == _CommissionRecipientSource.creator
+            ? totalCommissionAmount
+        : 0.0;
+    final technicianCommissionAmount =
+        recipientSource == _CommissionRecipientSource.assignedTechnician
+            ? totalCommissionAmount
+        : 0.0;
+
+    return _LocalCommissionAmounts(
+      totalAmount: quotation.total,
+      sellerCommissionAmount: sellerCommissionAmount,
+      technicianCommissionAmount: technicianCommissionAmount,
+      totalCommissionAmount: totalCommissionAmount,
+    );
+  }
+}
+
+enum _CommissionRecipientSource { creator, assignedTechnician }
+
+class _AdminFallbackSnapshot {
+  const _AdminFallbackSnapshot({
+    required this.orders,
+    required this.clientsById,
+    required this.usersById,
+  });
+
+  final List<ServiceOrderModel> orders;
+  final Map<String, ClienteModel> clientsById;
+  final Map<String, UserModel> usersById;
+}
+
+class _AdminComputedCommissionItem {
+  const _AdminComputedCommissionItem({
+    required this.recipientUserId,
+    required this.recipientUserName,
+    required this.recipientUserEmail,
+    required this.item,
+  });
+
+  final String recipientUserId;
+  final String recipientUserName;
+  final String recipientUserEmail;
+  final ServiceOrderCommissionItem item;
+}
+
+class _AdminRecipient {
+  const _AdminRecipient({
+    required this.userId,
+    required this.userName,
+    required this.userEmail,
+  });
+
+  final String userId;
+  final String userName;
+  final String userEmail;
+}
+
+class _LocalCommissionAmounts {
+  const _LocalCommissionAmounts({
+    required this.totalAmount,
+    required this.sellerCommissionAmount,
+    required this.technicianCommissionAmount,
+    required this.totalCommissionAmount,
+  });
+
+  final double totalAmount;
+  final double sellerCommissionAmount;
+  final double technicianCommissionAmount;
+  final double totalCommissionAmount;
+}
+
+class _AdminUserSummaryAccumulator {
+  _AdminUserSummaryAccumulator({
+    required this.userId,
+    required this.userName,
+    required this.userEmail,
+  });
+
+  final String userId;
+  final String userName;
+  final String userEmail;
+  int totalServices = 0;
+  int installationCount = 0;
+  int maintenanceCount = 0;
+  double totalSold = 0;
+  double totalPoints = 0;
+
+  void add(ServiceOrderCommissionItem item) {
+    totalServices += 1;
+    if (item.serviceType.trim().toLowerCase() == 'instalacion') {
+      installationCount += 1;
+    }
+    if (item.serviceType.trim().toLowerCase() == 'mantenimiento') {
+      maintenanceCount += 1;
+    }
+    totalSold += item.totalAmount;
+    totalPoints += item.totalCommissionAmount;
+  }
+
+  AdminServiceCommissionUserSummary build() {
+    return AdminServiceCommissionUserSummary(
+      userId: userId,
+      userName: userName,
+      userEmail: userEmail,
+      totalServices: totalServices,
+      installationCount: installationCount,
+      maintenanceCount: maintenanceCount,
+      totalSold: totalSold,
+      totalPoints: totalPoints,
+    );
+  }
 }
